@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { api, logout } from './api';
+import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { api, logout, stopImpersonating, fmtDate } from './api';
 
 const P = {
   home: 'M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z',
@@ -45,6 +45,8 @@ const P = {
   clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
   clip: 'M9 3h6v3H9zM8 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2',
   bookmark: 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z',
+  shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+  card: 'M2 5h20v14H2zM2 10h20M6 15h4',
 };
 export const Icon = ({ name, size = 18, stroke = 2, className = '' }) => (
   <svg className={`ic-svg ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={name === 'grip' ? 3.2 : stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -83,23 +85,29 @@ const NAV = [
   ['/automations', 'flow', 'Automations'],
   ['/orders', 'cart', 'Orders'],
   ['/settings', 'settings', 'Settings'],
+  ['/billing', 'card', 'Plan & billing'],
 ];
+export const BRAND = 'FunnelHive';
 
 export function Layout({ title, subtitle, actions, children, wide }) {
   const [me, setMe] = useState(null);
   const [open, setOpen] = useState(false);
-  useEffect(() => { api('/me').then(setMe).catch(() => {}); }, []);
+  const [paywall, setPaywall] = useState(null);
+  useEffect(() => { api('/me').then((m) => { setMe(m); if (m.brand) document.title = m.brand; }).catch(() => {}); }, []);
+  useEffect(() => { const h = (e) => setPaywall(e.detail || {}); window.addEventListener('ff:paywall', h); return () => window.removeEventListener('ff:paywall', h); }, []);
   return (
     <div className="app">
       <aside className={`side ${open ? 'open' : ''}`}>
-        <div className="brand"><span className="logo"><Icon name="bolt" size={18} /></span>FunnelForge</div>
+        <div className="brand"><span className="logo"><Icon name="bolt" size={18} /></span>{me?.brand || BRAND}</div>
         <nav>
           {NAV.map(([to, ic, label]) => (
             <NavLink key={to} to={to} end={to === '/'} onClick={() => setOpen(false)}><Icon name={ic} />{label}</NavLink>
           ))}
+          {me?.admin && <NavLink to="/admin" onClick={() => setOpen(false)}><Icon name="shield" />Admin</NavLink>}
         </nav>
         <div className="side-foot">
-          <div className={`ai-status ${me?.aiEnabled ? 'on' : ''}`}><Icon name="sparkles" size={14} />{me?.aiEnabled ? 'AI connected' : 'Offline AI assistant'}</div>
+          {me?.billing?.status === 'trialing' && <Link to="/billing" className="trial-chip"><Icon name="clock" size={14} />{me.billing.daysLeft} day{me.billing.daysLeft === 1 ? '' : 's'} left in trial<b>Upgrade</b></Link>}
+          <div className={`ai-status ${me?.aiEnabled ? 'on' : ''}`}><Icon name="sparkles" size={14} />{me?.aiEnabled ? `AI · ${me.credits?.limit == null ? 'unlimited' : `${Math.max(0, me.credits.limit - me.credits.used)} credits left`}` : 'Offline AI assistant'}</div>
           <div className="me">
             <span className="me-av">{(me?.name || '?')[0]?.toUpperCase()}</span>
             <div><b>{me?.name}</b><small>{me?.email}</small></div>
@@ -114,10 +122,28 @@ export function Layout({ title, subtitle, actions, children, wide }) {
           <div className="tb-title"><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
           <div className="tb-actions">{actions}</div>
         </header>
+        {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} />You’re signed in as <b>{me.email}</b> (support view).<button onClick={stopImpersonating}>Back to admin</button></div>}
+        {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}
+        {me?.billing && !me.billing.ok && <div className="app-banner bad"><Icon name="clock" size={15} />{me.billing.reason || 'Your account is read-only.'}{me.billing.status !== 'suspended' && <span>{me.billing.pagesLive ? ` Your live pages stay up until ${fmtDate(me.billing.pagesOfflineAt)}.` : ' Your live pages are offline.'}</span>}{me.billing.status !== 'suspended' && <Link to="/billing">Choose a plan</Link>}</div>}
         {me && !me.emailVerified && <VerifyBanner me={me} />}
         <div className={`content ${wide ? 'wide' : ''}`}>{typeof children === 'function' ? children(me) : children}</div>
       </main>
+      {paywall && <Paywall info={paywall} onClose={() => setPaywall(null)} />}
     </div>
+  );
+}
+
+function Paywall({ info, onClose }) {
+  const nav = useNavigate();
+  return (
+    <Modal title={info.credits ? 'AI credits used up' : 'Choose a plan to continue'} onClose={onClose} width={460}>
+      <div className="paywall">
+        <span className="empty-ic"><Icon name={info.credits ? 'sparkles' : 'card'} size={26} /></span>
+        <p>{info.error}</p>
+        {info.credits ? <p className="muted sm">You can keep editing by hand — everything except AI works as usual.</p> : <p className="muted sm">Everything you’ve built is safe. Subscribe to keep editing, publishing and running automations.</p>}
+        <div className="row center">{!info.credits && <button className="btn primary" onClick={() => { onClose(); nav('/billing'); }}>See plans</button>}<button className="btn ghost" onClick={onClose}>Close</button></div>
+      </div>
+    </Modal>
   );
 }
 

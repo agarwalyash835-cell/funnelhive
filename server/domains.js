@@ -25,7 +25,7 @@ export function funnelUrl(f, origin, stepSlug) {
 async function check(d) {
   const r = { txt: false, route: false };
   if (fakeDns()) { r.txt = r.route = true; return r; }
-  try { r.txt = (await dns.resolveTxt(`_funnelforge.${d.domain}`)).some((parts) => parts.join('').trim() === `ff-verify=${d.token}`); } catch {}
+  try { r.txt = (await dns.resolveTxt(`_funnelhive.${d.domain}`)).some((parts) => parts.join('').trim() === `ff-verify=${d.token}`); } catch {}
   const target = cnameTarget(), ip = serverIp();
   if (!target && !ip) { r.route = true; return r; } // the server's own address isn't configured — only ownership can be checked
   try { if (target && (await dns.resolveCname(d.domain)).some((c) => c.toLowerCase().replace(/\.$/, '') === target)) r.route = true; } catch {}
@@ -60,7 +60,7 @@ export function registerDomains(app, { auth }) {
     const target = cnameTarget(), ip = serverIp();
     const sub = d.domain.split('.').length > 2;
     return [
-      { type: 'TXT', name: `_funnelforge.${d.domain}`, value: `ff-verify=${d.token}`, why: 'Proves the domain is yours' },
+      { type: 'TXT', name: `_funnelhive.${d.domain}`, value: `ff-verify=${d.token}`, why: 'Proves the domain is yours' },
       sub || !ip ? { type: 'CNAME', name: d.domain, value: target || '(your server address — ask your administrator to set APP_URL)', why: 'Sends visitors to your funnel' } : { type: 'A', name: d.domain, value: ip, why: 'Sends visitors to your funnel' },
     ];
   };

@@ -167,7 +167,7 @@ export function HiveMcpPanel() {
   useEffect(() => { load(); }, []);
   const create = async () => { try { const t = await api('/hive/tokens', 'POST', { name }); setFresh(t); load(); } catch (e) { toast(e.message); } };
   const revoke = async (t) => { if (!confirm(`Revoke “${t.name}”? Apps using it lose access immediately.`)) return; await api(`/hive/tokens/${t.id}`, 'DELETE'); load(); };
-  const config = (tok) => JSON.stringify({ mcpServers: { funnelforge: { command: 'npx', args: ['-y', 'mcp-remote', url, '--header', `Authorization: Bearer ${tok}`] } } }, null, 2);
+  const config = (tok) => JSON.stringify({ mcpServers: { funnelhive: { command: 'npx', args: ['-y', 'mcp-remote', url, '--header', `Authorization: Bearer ${tok}`] } } }, null, 2);
   return (
     <Panel title="Hive AI · MCP access">
       <p className="muted sm">Let other AI apps (Claude Desktop, Cursor, ChatGPT connectors…) build and edit your funnels, pages, coupons, pipelines and automations through the Model Context Protocol — the same tools Hive AI uses.</p>

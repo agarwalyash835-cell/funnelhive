@@ -11,3 +11,4 @@ server/.jwt-secret
 server/.env
 .env
 *.log
+.claude/

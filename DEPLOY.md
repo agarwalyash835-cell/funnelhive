@@ -18,20 +18,26 @@ Everything needed is in this folder. `server/.env` already holds your kie.ai key
    APP_URL=https://app.yourbrand.in
    SERVER_IP=SERVER_IP
    JWT_SECRET=<any long random string>
+   ADMIN_EMAILS=you@yourbrand.in
+   SMTP_HOST=… SMTP_USER=… SMTP_PASS=…   (or RESEND_API_KEY=…) so emails go out
    ```
 5. Start it with automatic HTTPS (app + sellers' custom domains):
    ```bash
    cd /opt/FunnelHive
    APP_DOMAIN=app.yourbrand.in ACME_EMAIL=you@yourbrand.in docker compose --profile https up -d --build
    ```
-6. Open `https://app.yourbrand.in` and create your account.
+6. Open `https://app.yourbrand.in`, sign up with the `ADMIN_EMAILS` address and verify it — the **Admin** menu appears.
+7. In **Admin → Plan & settings** add your company/GST details and your Razorpay keys, and in Razorpay add the webhook
+   `https://app.yourbrand.in/api/billing/webhook` (events `subscription.*`). Sellers can now sign up and subscribe.
+
+The app uses every CPU core (up to 4) automatically. For 1000 active sellers start with 4 vCPU / 8 GB (we measured 390 requests/second with zero errors on a 4-core machine); 2 vCPU / 4 GB is fine for the first few hundred.
 
 Update later: copy the new files over, then run the same `docker compose … up -d --build` again. Data (database,
-uploads, daily backups) lives in the `funnelforge-data` Docker volume and survives updates.
+uploads, daily backups) lives in the `funnelhive-data` Docker volume and survives updates.
 
 ## Option B — plain Node.js (no Docker)
 
-Needs Node.js 22.13 or newer.
+Needs Node.js 24 (22.13+ works).
 ```bash
 cd FunnelHive
 npm ci --prefix server --omit=dev

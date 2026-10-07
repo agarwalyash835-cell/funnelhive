@@ -20,7 +20,10 @@ export const JOBS = process.env.FF_JOBS !== '0';
 // One contact per email (or per phone number when there is no email)
 export const contactKey = (email, phone) => (email ? String(email).trim().toLowerCase() : phone ? `phone:${String(phone).trim()}` : '');
 
-const dbFile = path.join(dir, 'funnelforge.db');
+const dbFile = path.join(dir, 'funnelhive.db');
+// databases created before the product was renamed (funnelforge.db) are picked up as they are
+const oldFile = path.join(dir, 'funnelforge.db');
+if (!fs.existsSync(dbFile) && fs.existsSync(oldFile)) for (const ext of ['', '-wal', '-shm']) if (fs.existsSync(oldFile + ext)) fs.renameSync(oldFile + ext, dbFile + ext);
 export const sql = new DatabaseSync(dbFile);
 sql.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;
   PRAGMA cache_size = -65536; PRAGMA temp_store = MEMORY; PRAGMA mmap_size = 268435456;`);
@@ -248,7 +251,7 @@ export async function backupNow() {
   backingUp = true;
   try {
     fs.mkdirSync(backupDir, { recursive: true });
-    const f = path.join(backupDir, `funnelforge-${new Date().toISOString().slice(0, 10)}.db`);
+    const f = path.join(backupDir, `funnelhive-${new Date().toISOString().slice(0, 10)}.db`);
     if (!fs.existsSync(f)) {
       const tmp = `${f}.partial`;
       fs.rmSync(tmp, { force: true });

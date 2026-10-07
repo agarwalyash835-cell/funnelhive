@@ -1,5 +1,5 @@
 {
-  "name": "funnelforge-server",
+  "name": "funnelhive-server",
   "type": "module",
   "private": true,
   "scripts": {

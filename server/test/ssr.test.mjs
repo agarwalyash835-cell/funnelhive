@@ -63,7 +63,7 @@ test('app routes still serve the SPA', { skip: !built && 'client not built' }, a
   const { status, html } = await page('/funnels');
   assert.equal(status, 200);
   assert.match(html, /<div id="root">/);
-  assert.match(html, /<title>FunnelForge<\/title>/);
+  assert.match(html, /<title>FunnelHive<\/title>/);
 });
 
 test('CDN_URL serves uploaded images from the CDN, with phone-sized srcset', { skip: !built && 'client not built' }, async () => {

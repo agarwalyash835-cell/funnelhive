@@ -99,7 +99,7 @@ test('MCP server: tokens, initialize, tools/list, tools/call', async () => {
   const list = (await api('/hive/tokens', 'GET', null, T)).data;
   assert.ok(!JSON.stringify(list).includes(tok.token), 'token shown once, stored hashed');
   const init = await (await rpc(tok.token, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } })).json();
-  assert.equal(init.result.serverInfo.name, 'funnelforge-hive');
+  assert.equal(init.result.serverInfo.name, 'funnelhive-hive');
   assert.ok(init.result.capabilities.tools);
   assert.equal((await rpc(tok.token, { jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202);
   const tools = (await (await rpc(tok.token, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json()).result.tools;

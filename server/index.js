@@ -20,8 +20,8 @@ import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, re
 import { registerDomains, domainRouter, funnelUrl, domainOfFunnel } from './domains.js';
 import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerHive } from './hive.js';
-import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, usageSummary, AI_COST } from './billing.js';
-import { platform, isAdmin } from './platform.js';
+import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, usageSummary, AI_COST, pricing } from './billing.js';
+import { platform, isAdmin, brand } from './platform.js';
 import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
@@ -100,7 +100,7 @@ function userByToken(token, hashField, expField) {
 async function sendVerification(req, user) {
   const token = userToken(user);
   T.users.update(user.id, (u) => { u.verifyHash = hashToken(token); u.verifyExp = Date.now() + 3 * DAY; });
-  await sendMail({ to: user.email, subject: 'Verify your FunnelForge email', text: `Hi ${user.name},\n\nConfirm your email address by opening this link:\n${appUrl(req)}/verify?token=${token}\n\nThe link is valid for 3 days.` }).catch((e) => console.error('verification email failed', e.message));
+  await sendMail({ to: user.email, subject: `Verify your ${brand()} email`, text: `Hi ${user.name},\n\nConfirm your email address by opening this link:\n${appUrl(req)}/verify?token=${token}\n\nThe link is valid for 3 days.` }).catch((e) => console.error('verification email failed', e.message));
 }
 
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
@@ -141,7 +141,7 @@ app.post('/api/auth/forgot', authLimiter, wrap(async (req, res) => {
     user.resetHash = hashToken(token);
     user.resetExp = Date.now() + 60 * 60000;
     saveUser(user);
-    await sendMail({ to: user.email, subject: 'Reset your FunnelForge password', text: `Hi ${user.name},\n\nReset your password here (valid for 1 hour):\n${appUrl(req)}/reset?token=${token}\n\nIf you didn't ask for this, you can ignore this email.` }).catch((e) => console.error('reset email failed', e.message));
+    await sendMail({ to: user.email, subject: `Reset your ${brand()} password`, text: `Hi ${user.name},\n\nReset your password here (valid for 1 hour):\n${appUrl(req)}/reset?token=${token}\n\nIf you didn't ask for this, you can ignore this email.` }).catch((e) => console.error('reset email failed', e.message));
   }
   res.json({ ok: true, emailConfigured: mailEnabled() });
 }));
@@ -270,7 +270,7 @@ app.post('/api/settings/webhook-secret', auth, (req, res) => {
 });
 
 app.post('/api/settings/test-webhook', auth, wrap(async (req, res) => {
-  const d = fireWebhook(req.user.id, 'test.ping', { message: 'Hello from FunnelForge 👋' });
+  const d = fireWebhook(req.user.id, 'test.ping', { message: `Hello from ${brand()} 👋` });
   if (!d) return res.json({ skipped: true });
   const out = await firstAttempt(d);
   res.json({ status: out.lastStatus, error: out.lastError, delivery: out.id });
@@ -561,6 +561,12 @@ app.get('/api/orders', auth, (req, res) => {
     orders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: ORDERS_MAX }).filter((o) => name[o.funnelId]).map((o) => ({ ...o, funnel: name[o.funnelId] })),
     abandoned: T.abandoned.all({ userId: req.user.id, recovered: 0 }, { order: 'at', desc: true, limit: ORDERS_MAX }).filter((a) => name[a.funnelId]).map((a) => ({ ...a, funnel: name[a.funnelId] })),
   });
+});
+
+// ---------- public site: prices and company details for the landing, pricing and policy pages ----------
+app.get('/api/site', (_, res) => {
+  const p = platform(), pr = pricing();
+  res.json({ brand: p.brand, trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: { name: p.company.name, email: p.company.email, address: p.company.address, state: p.company.state, gstin: p.company.gstin } });
 });
 
 // ---------- templates ----------
@@ -1042,7 +1048,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(new RegExp('[\\u2028\\u2029]', 'g'), '');
   return indexHtml
-    .replace('<title>FunnelForge</title>', '')
+    .replace('<title>FunnelHive</title>', '')
     .replace('<!--ff-head-->', head)
     .replace('<!--ff-ssr-->', `${body}<script>window.__FUNNEL__=${json}</script>`);
 }
@@ -1054,4 +1060,4 @@ if (indexHtml) {
 
 const port = process.env.PORT || 4000;
 const worker = process.env.WORKER_INDEX;
-app.listen(port, () => { if (!worker || worker === '0') console.log(`FunnelForge API on :${port} (AI ${aiEnabled() ? 'on' : 'off — offline assistant'}${ssr ? ', server rendering on' : ''}${worker ? `, ${process.env.WEB_CONCURRENCY} processes` : ''})`); });
+app.listen(port, () => { if (!worker || worker === '0') console.log(`FunnelHive API on :${port} (AI ${aiEnabled() ? 'on' : 'off — offline assistant'}${ssr ? ', server rendering on' : ''}${worker ? `, ${process.env.WEB_CONCURRENCY} processes` : ''})`); });

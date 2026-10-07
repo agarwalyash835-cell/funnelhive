@@ -35,10 +35,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build image
-        run: docker build -t funnelforge:ci .
+        run: docker build -t funnelhive:ci .
       - name: Smoke test
         run: |
-          docker run -d --name ff -p 4000:4000 funnelforge:ci
+          docker run -d --name ff -p 4000:4000 funnelhive:ci
           for i in $(seq 1 30); do curl -fs http://localhost:4000/api/health && break; sleep 1; done
           curl -fs http://localhost:4000/api/templates | head -c 100
           docker logs ff

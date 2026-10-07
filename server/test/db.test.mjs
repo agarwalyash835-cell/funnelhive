@@ -15,7 +15,7 @@ test('data survives a restart (SQLite persistence)', async () => {
   await srv.api(`/funnels/${f.id}`, 'PUT', { name: 'Persisted funnel', published: true }, token);
   await srv.api(`/public/${f.slug}/event`, 'POST', { stepId: f.steps[0].id, type: 'view' });
   await srv.stop({ keep: true });
-  assert.ok(fs.existsSync(path.join(dataDir, 'funnelforge.db')));
+  assert.ok(fs.existsSync(path.join(dataDir, 'funnelhive.db')));
 
   srv = await startServer({}, { dataDir });
   const login = await srv.api('/auth/login', 'POST', { email, password: 'secret123' });
@@ -52,7 +52,7 @@ test('only changed rows are written; deletes are removed from disk', async () =>
   const b = (await srv.api('/funnels', 'POST', { name: 'Delete me' }, token)).data;
   await srv.api(`/funnels/${b.id}`, 'DELETE', null, token);
   await new Promise((r) => setTimeout(r, 200));
-  const sql = new DatabaseSync(path.join(srv.dataDir, 'funnelforge.db'), { readOnly: true });
+  const sql = new DatabaseSync(path.join(srv.dataDir, 'funnelhive.db'), { readOnly: true });
   const names = sql.prepare('SELECT data FROM funnels').all().map((r) => JSON.parse(r.data).name);
   sql.close();
   assert.ok(names.includes('Keep me') && !names.includes('Delete me'));

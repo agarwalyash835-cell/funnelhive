@@ -83,4 +83,4 @@ export function totp(secret, at = Date.now(), step = 30) {
 }
 // Accept the current code and one step either side to allow for clock drift
 export const verifyTotp = (secret, code) => [-1, 0, 1].some((w) => totp(secret, Date.now() + w * 30000) === String(code || '').replace(/\s/g, ''));
-export const otpauthUrl = (secret, email) => `otpauth://totp/FunnelForge:${encodeURIComponent(email)}?secret=${secret}&issuer=FunnelForge&digits=6&period=30`;
+export const otpauthUrl = (secret, email) => `otpauth://totp/FunnelHive:${encodeURIComponent(email)}?secret=${secret}&issuer=FunnelHive&digits=6&period=30`;

@@ -73,7 +73,7 @@ export default function Settings() {
               <button className="icon-btn" title={showSecret ? 'Hide' : 'Show'} onClick={() => setShowSecret(!showSecret)}><Icon name="eye" size={15} /></button>
               <button className="icon-btn" title="Copy" onClick={() => { navigator.clipboard?.writeText(s.webhookSecret); toast('Secret copied'); }}><Icon name="copy" size={15} /></button>
               <button className="btn ghost sm" onClick={rotate}>Rotate</button></div>
-            <p className="hint">Verify each request: <code>HMAC-SHA256(secret, t + "." + rawBody)</code> must equal <code>v1</code> in the <code>X-FunnelForge-Signature</code> header (<code>t=…,v1=…</code>). Use <code>X-FunnelForge-Delivery</code> to ignore duplicates.</p>
+            <p className="hint">Verify each request: <code>HMAC-SHA256(secret, t + "." + rawBody)</code> must equal <code>v1</code> in the <code>X-FunnelHive-Signature</code> header (<code>t=…,v1=…</code>). Use <code>X-FunnelHive-Delivery</code> to ignore duplicates.</p>
           </div>
           {deliveries.length > 0 && (
             <table className="tbl compact">
@@ -121,6 +121,19 @@ export default function Settings() {
         <HiveMcpPanel />
 
         <SecurityPanel me={me} onChange={() => api('/me').then(setMe)} />
+
+        <Panel title="Your data">
+          <p className="muted sm">Download everything in your account — funnels, contacts, leads, orders, automations and invoices — as one file. Deleting your account removes all of it permanently.</p>
+          <div className="row">
+            <button className="btn ghost" onClick={async () => { const r = await fetch('/api/account/export', { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token')}` } }); if (!r.ok) return toast('Export failed'); const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `account-export-${new Date().toISOString().slice(0, 10)}.json`; a.click(); }}><Icon name="download" size={15} /> Export my data</button>
+            <button className="btn ghost danger" onClick={async () => {
+              const password = prompt('This permanently deletes your account and all its data. Enter your password to continue:');
+              if (!password) return;
+              if (prompt('Type DELETE to confirm') !== 'DELETE') return toast('Not deleted');
+              try { await api('/account/delete', 'POST', { password, confirm: 'DELETE' }); localStorage.removeItem('ff_token'); location.href = '/login'; } catch (e) { toast(e.message); }
+            }}><Icon name="trash" size={15} /> Delete my account</button>
+          </div>
+        </Panel>
 
         <Panel title="Demo data">
           <p className="muted sm">{me?.hasDemo ? 'Your account contains sample visits, leads and orders. Remove them before you go live — real data is never touched.' : 'No demo data in your account.'}</p>

@@ -2,16 +2,16 @@ import { useState } from 'react';
 import { api, setToken } from '../api';
 import { Icon } from '../ui';
 
-const PERKS = ['AI builds your entire funnel from one sentence', '53 proven templates for Indian businesses', 'One-click upsells, order bumps & cross-sells', 'UPI-ready checkout, coupons & cart recovery', 'Analytics, A/B tests, CRM & AI marketing agents'];
+const PERKS = ['Hive AI builds your entire funnel from one chat', '53 proven templates for Indian businesses', 'One-click upsells, order bumps & cross-sells', 'Razorpay checkout with UPI, coupons & cart recovery', 'CRM, email + WhatsApp automations, A/B tests'];
 
 export function AuthShell({ children }) {
   return (
     <div className="auth">
       <div className="auth-art">
-        <div className="brand light"><span className="logo"><Icon name="bolt" size={18} /></span>FunnelForge</div>
+        <a href="/" className="brand light"><span className="logo"><Icon name="bolt" size={18} /></span>FunnelHive</a>
         <h1>Build funnels that sell — <span>in minutes, not weeks.</span></h1>
         <ul>{PERKS.map((p) => <li key={p}><Icon name="check" size={16} />{p}</li>)}</ul>
-        <div className="auth-quote">“I described my yoga classes in one line and had a full funnel with checkout and upsells live the same evening.”<small>— Kavita R., Pune</small></div>
+        <div className="auth-quote">14-day free trial with every feature. No credit card needed to start.<small>GST invoices · cancel any time</small></div>
       </div>
       <div className="auth-form">{children}</div>
     </div>
@@ -19,7 +19,7 @@ export function AuthShell({ children }) {
 }
 
 export default function Auth() {
-  const [mode, setMode] = useState('register');
+  const [mode, setMode] = useState(() => (new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register'));
   const [f, setF] = useState({ name: '', email: '', password: '', code: '' });
   const [needCode, setNeedCode] = useState(false);
   const [err, setErr] = useState('');
@@ -46,7 +46,7 @@ export default function Auth() {
   };
 
   const title = mode === 'forgot' ? 'Reset your password' : needCode ? '2-step verification' : mode === 'login' ? 'Welcome back' : 'Create your free account';
-  const sub = mode === 'forgot' ? 'Enter your account email and we’ll send you a reset link.' : needCode ? 'Enter the 6-digit code from your authenticator app.' : mode === 'login' ? 'Log in to manage your funnels.' : 'No credit card needed. Your first funnel is 60 seconds away.';
+  const sub = mode === 'forgot' ? 'Enter your account email and we’ll send you a reset link.' : needCode ? 'Enter the 6-digit code from your authenticator app.' : mode === 'login' ? 'Log in to manage your funnels.' : '14-day free trial · no credit card needed. Your first funnel is 60 seconds away.';
 
   return (
     <AuthShell>
@@ -70,7 +70,7 @@ export default function Auth() {
         <button className="btn primary lg block" disabled={busy}>{busy ? <span className="spin" /> : mode === 'forgot' ? 'Send reset link' : needCode ? 'Verify & log in' : mode === 'login' ? 'Log in' : 'Create account'}</button>
         {mode === 'forgot'
           ? <p className="switch"><a onClick={() => go('login')}>← Back to log in</a></p>
-          : <p className="switch">{mode === 'login' ? 'New to FunnelForge?' : 'Already have an account?'} <a onClick={() => go(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Create an account' : 'Log in'}</a></p>}
+          : <p className="switch">{mode === 'login' ? 'New to FunnelHive?' : 'Already have an account?'} <a onClick={() => go(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Create an account' : 'Log in'}</a></p>}
       </form>
     </AuthShell>
   );

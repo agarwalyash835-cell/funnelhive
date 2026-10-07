@@ -1,6 +1,6 @@
 // Outgoing webhooks: persisted queue, retries with backoff, HMAC-SHA256 signatures.
 // Receivers verify:  expected = HMAC_SHA256(secret, `${t}.${rawBody}`)  and compare with v1 in
-// the X-FunnelForge-Signature header ("t=<unix seconds>,v1=<hex>").
+// the X-FunnelHive-Signature header ("t=<unix seconds>,v1=<hex>").
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
@@ -97,9 +97,9 @@ export async function attempt(id) {
         redirect: 'manual', // a redirect must not lead to a private address
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json', 'User-Agent': 'FunnelForge-Webhooks/1.0',
-          'X-FunnelForge-Event': d.event, 'X-FunnelForge-Delivery': d.id,
-          'X-FunnelForge-Signature': `t=${ts},v1=${sign(ensureSecret(u), ts, body)}`,
+          'Content-Type': 'application/json', 'User-Agent': 'FunnelHive-Webhooks/1.0',
+          'X-FunnelHive-Event': d.event, 'X-FunnelHive-Delivery': d.id,
+          'X-FunnelHive-Signature': `t=${ts},v1=${sign(ensureSecret(u), ts, body)}`,
         },
         body,
         signal: AbortSignal.timeout(10000),

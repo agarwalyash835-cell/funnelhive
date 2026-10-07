@@ -34,13 +34,13 @@ test('webhooks: signed, retried until delivered, logged', async () => {
     for (let i = 0; i < 60 && received.length < 3; i++) await new Promise((r) => setTimeout(r, 50));
     assert.equal(received.length, 3, 'two failures then a success');
     const last = received[2];
-    const [t, v1] = last.headers['x-funnelforge-signature'].split(',').map((p) => p.split('=')[1]);
+    const [t, v1] = last.headers['x-funnelhive-signature'].split(',').map((p) => p.split('=')[1]);
     const expected = crypto.createHmac('sha256', s.webhookSecret).update(`${t}.${last.body}`).digest('hex');
     assert.equal(v1, expected, 'signature verifies with the account secret');
-    assert.equal(last.headers['x-funnelforge-event'], 'lead.created');
+    assert.equal(last.headers['x-funnelhive-event'], 'lead.created');
     const payload = JSON.parse(last.body);
     assert.equal(payload.data.email, 'hook@x.dev');
-    assert.equal(payload.id, last.headers['x-funnelforge-delivery'], 'delivery id for idempotency');
+    assert.equal(payload.id, last.headers['x-funnelhive-delivery'], 'delivery id for idempotency');
 
     await new Promise((r) => setTimeout(r, 100));
     const log = (await srv.api('/webhooks/deliveries', 'GET', null, token)).data;

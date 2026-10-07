@@ -46,7 +46,7 @@ const htmlOf = (text, track) => `<div style="font:15px/1.6 -apple-system,Segoe U
 export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverride, track }) {
   const own = cfgOverride || userSmtp(u);
   const e = u?.channels?.email || {};
-  const fromName = e.fromName || u?.settings?.businessName || 'FunnelForge';
+  const fromName = e.fromName || u?.settings?.businessName || 'FunnelHive';
   const body = unsubscribeUrl ? `${text}\n\n—\nDon’t want these emails? Unsubscribe: ${unsubscribeUrl}` : text;
   const headers = unsubscribeUrl ? { 'List-Unsubscribe': `<${unsubscribeUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } : undefined;
   const smtp = own || envSmtp();
@@ -59,7 +59,7 @@ export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverr
   if (process.env.RESEND_API_KEY) {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: process.env.MAIL_FROM || 'FunnelForge <no-reply@funnelforge.app>', to, subject, text: body, html: htmlOf(body, track), reply_to: e.replyTo || u?.email, headers }),
+      body: JSON.stringify({ from: process.env.MAIL_FROM || 'FunnelHive <no-reply@funnelhive.app>', to, subject, text: body, html: htmlOf(body, track), reply_to: e.replyTo || u?.email, headers }),
       signal: AbortSignal.timeout(10000),
     });
     if (!r.ok) throw new Error(`Email provider error ${r.status}`);
@@ -144,7 +144,7 @@ export function registerChannels(app, { auth, wrap, rateLimit, isTest }) {
     const to = str(req.body.to || req.user.email, 200);
     if (!EMAIL_RE.test(to)) return res.status(400).json({ error: 'Enter a valid email address' });
     try {
-      const r = await sendEmail(req.user, { to, subject: 'Test email from FunnelForge ✅', text: `This is a test.\n\nIf you can read this, emails to your contacts will be delivered through ${emailStatus(req.user).via || 'your mail server'}.` });
+      const r = await sendEmail(req.user, { to, subject: 'Test email from FunnelHive ✅', text: `This is a test.\n\nIf you can read this, emails to your contacts will be delivered through ${emailStatus(req.user).via || 'your mail server'}.` });
       if (r.status !== 'sent') return res.status(400).json({ error: 'Email sending isn’t set up yet — add your SMTP details first' });
       res.json({ ok: true, to });
     } catch (e) { res.status(400).json({ error: `Couldn’t send: ${e.message}` }); }

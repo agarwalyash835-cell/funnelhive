@@ -246,7 +246,7 @@ export async function runTool(ctx, name, args) {
 }
 
 // ---------- the in-app agent ----------
-const SYSTEM = `You are Hive AI, the builder inside FunnelForge — like Lovable, but for sales funnels. Sellers chat with you and you BUILD: funnels end to end (landing/sales pages, checkout, upsells, downsells, thank-you pages), page sections, design, coupons, pipelines and automations, using your tools. Act, don't just describe.
+const SYSTEM = `You are Hive AI, the builder inside FunnelHive — like Lovable, but for sales funnels. Sellers chat with you and you BUILD: funnels end to end (landing/sales pages, checkout, upsells, downsells, thank-you pages), page sections, design, coupons, pipelines and automations, using your tools. Act, don't just describe.
 
 How to work:
 - New business / new funnel → call create_funnel with a rich brief (what they sell, audience, ₹ price, city, offer). It already builds a complete, quality-checked 5-page funnel. Then apply anything specific the user asked for.
@@ -376,14 +376,14 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   app.get('/mcp', (req, res) => res.status(405).set('Allow', 'POST').json({ error: 'Use POST (MCP Streamable HTTP)' }));
   app.post('/mcp', mcpLimiter, async (req, res) => {
     const user = mcpUser(req);
-    if (!user) return res.status(401).set('WWW-Authenticate', 'Bearer').json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32001, message: 'Unauthorized — create a token in FunnelForge → Settings → Hive AI · MCP access' } });
+    if (!user) return res.status(401).set('WWW-Authenticate', 'Bearer').json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32001, message: 'Unauthorized — create a token in FunnelHive → Settings → Hive AI · MCP access' } });
     const handle = async (m) => {
       const reply = (result) => ({ jsonrpc: '2.0', id: m.id, result });
       const fail = (code, message) => ({ jsonrpc: '2.0', id: m.id ?? null, error: { code, message } });
       if (!m || m.jsonrpc !== '2.0' || typeof m.method !== 'string') return fail(-32600, 'Invalid request');
       if (m.id === undefined) return null; // notification (e.g. notifications/initialized)
       switch (m.method) {
-        case 'initialize': return reply({ protocolVersion: m.params?.protocolVersion || '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'funnelforge-hive', title: 'FunnelForge · Hive AI', version: '1.0.0' }, instructions: 'Build and edit sales funnels, pages, coupons, pipelines and automations in the user’s FunnelForge account. Start with list_funnels or create_funnel.' });
+        case 'initialize': return reply({ protocolVersion: m.params?.protocolVersion || '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'funnelhive-hive', title: 'FunnelHive · Hive AI', version: '1.0.0' }, instructions: 'Build and edit sales funnels, pages, coupons, pipelines and automations in the user’s FunnelHive account. Start with list_funnels or create_funnel.' });
         case 'ping': return reply({});
         case 'tools/list': return reply({ tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.schema })) });
         case 'tools/call': {

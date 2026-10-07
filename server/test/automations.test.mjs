@@ -65,7 +65,7 @@ test('channels: SMTP + WhatsApp settings are stored encrypted and never returned
   assert.ok(!JSON.stringify(ch).includes('p@ss-secret'), 'password never sent back');
   const t = await api('/channels/email/test', 'POST', { to: 'owner@example.com' }, T);
   assert.equal(t.status, 200, JSON.stringify(t.data));
-  assert.match(mails.at(-1), /Test email from FunnelForge/);
+  assert.match(mails.at(-1), /Test email from FunnelHive/);
   assert.match(mails.at(-1), /From: "?Yoga Studio"? <hello@yoga\.example>/);
 
   assert.equal((await api('/channels/whatsapp', 'PUT', { phoneNumberId: 'abc', token: 'x' }, T)).status, 400);

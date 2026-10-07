@@ -1,6 +1,6 @@
 // Transactional email. Uses Resend when RESEND_API_KEY is set; otherwise logs the message
 // to the server console so links (verification, password reset) still work in development.
-const FROM = process.env.MAIL_FROM || 'FunnelForge <no-reply@funnelforge.app>';
+const FROM = process.env.MAIL_FROM || 'FunnelHive <no-reply@funnelhive.app>';
 
 import { sendEmail } from './messaging.js';
 

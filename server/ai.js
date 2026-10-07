@@ -267,7 +267,7 @@ const ACTION_SPEC = `Actions you can return (applied in order):
 
 export async function chatAI(funnel, stepId, message, history = []) {
   const slim = { name: funnel.name, theme: funnel.theme, steps: funnel.steps.map((s) => ({ id: s.id, name: s.name, type: s.type, slug: s.slug, blocks: s.id === stepId ? s.blocks : s.blocks.map((b) => ({ id: b.id, type: b.type })) })) };
-  const system = `You are FunnelForge's AI funnel strategist. The user edits a sales funnel by chatting with you. Decide what to change and reply with ONLY JSON: {"reply": "short friendly message (1-3 sentences) explaining what you did and one smart next suggestion", "actions": [...]}.
+  const system = `You are FunnelHive's AI funnel strategist. The user edits a sales funnel by chatting with you. Decide what to change and reply with ONLY JSON: {"reply": "short friendly message (1-3 sentences) explaining what you did and one smart next suggestion", "actions": [...]}.
 If the user just asks a question, return an empty actions list and answer in reply. Keep copy persuasive, specific and India-focused (₹, UPI, Indian names).
 ${ACTION_SPEC}
 ${BLOCK_SPEC}${knowledge()}`;
