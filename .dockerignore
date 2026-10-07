@@ -1,0 +1,12 @@
+**/node_modules
+client/dist
+client/dist-ssr
+server/*.db
+server/*.db-*
+server/data.json*
+server/backups
+server/uploads
+server/.jwt-secret
+server/.env
+.git
+*.log

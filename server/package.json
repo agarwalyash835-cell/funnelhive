@@ -1,0 +1,21 @@
+{
+  "name": "funnelforge-server",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node --disable-warning=ExperimentalWarning --watch --env-file-if-exists=.env index.js",
+    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.60.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.10.1"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

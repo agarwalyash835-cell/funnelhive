@@ -1,0 +1,30 @@
+# Caddy in front of FunnelForge: HTTPS for the app AND for every seller's custom domain.
+# Certificates for custom domains are issued on demand — but only after FunnelForge confirms
+# the domain is connected and verified (the "ask" endpoint), so nobody can make you request
+# certificates for random domains.
+#
+# 1. Point your app domain (APP_DOMAIN below, e.g. app.yourbrand.in) at this server.
+# 2. Set APP_URL=https://app.yourbrand.in for FunnelForge.
+# 3. Sellers CNAME their domains to app.yourbrand.in (or an A record to SERVER_IP).
+
+{
+	email {$ACME_EMAIL:admin@example.com}
+	on_demand_tls {
+		ask http://funnelforge:4000/api/domains/tls-check
+	}
+}
+
+# The app itself
+{$APP_DOMAIN:localhost} {
+	encode zstd gzip
+	reverse_proxy funnelforge:4000
+}
+
+# Any other host name: sellers' custom domains (certificate issued on first visit)
+https:// {
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	reverse_proxy funnelforge:4000
+}

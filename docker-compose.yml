@@ -1,0 +1,39 @@
+# docker compose up -d   →   http://localhost:4000
+services:
+  funnelforge:
+    build: .
+    image: funnelforge:latest
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    env_file:
+      - path: ./server/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      # Public URL used in emails and link previews, e.g. https://app.yourdomain.in
+      APP_URL: ${APP_URL:-http://localhost:4000}
+    volumes:
+      - funnelforge-data:/data
+
+  # HTTPS for the app and sellers' custom domains (automatic certificates).
+  # Start with:  APP_DOMAIN=app.yourbrand.in ACME_EMAIL=you@yourbrand.in docker compose --profile https up -d
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [funnelforge]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  funnelforge-data:
+  caddy-data:

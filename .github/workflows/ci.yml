@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+      - name: Install
+        run: |
+          npm ci --prefix server
+          npm ci --prefix client
+      - name: Build client (app + server-render bundle)
+        run: npm run build --prefix client
+      - name: Test
+        run: npm test --prefix server
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t funnelforge:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name ff -p 4000:4000 funnelforge:ci
+          for i in $(seq 1 30); do curl -fs http://localhost:4000/api/health && break; sleep 1; done
+          curl -fs http://localhost:4000/api/templates | head -c 100
+          docker logs ff
