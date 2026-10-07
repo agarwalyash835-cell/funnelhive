@@ -144,6 +144,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (b.pricesIncludeGst != null) patch.pricesIncludeGst = !!b.pricesIncludeGst;
     if (b.signupsOpen != null) patch.signupsOpen = !!b.signupsOpen;
     if (b.announcement != null) patch.announcement = String(b.announcement).trim().slice(0, 300);
+    if (b.googleClientId != null) { const v = String(b.googleClientId).trim(); if (v && !/^[\w-]+\.apps\.googleusercontent\.com$/.test(v)) return res.status(400).json({ error: 'The Google client ID ends with .apps.googleusercontent.com' }); patch.googleClientId = v; }
     if (b.company) {
       const c = { ...platform().company };
       for (const k of ['name', 'address', 'email', 'invoicePrefix']) if (b.company[k] != null) c[k] = String(b.company[k]).trim().slice(0, k === 'address' ? 300 : 120);

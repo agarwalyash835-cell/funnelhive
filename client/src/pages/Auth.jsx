@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, setToken } from '../api';
 import { Icon } from '../ui';
 
@@ -25,10 +25,43 @@ export default function Auth() {
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
-  const go = (m) => { setMode(m); setErr(''); setInfo(''); setNeedCode(false); };
+  const [google, setGoogle] = useState(null); // credential waiting for a 2-step code
+  const go = (m) => { setMode(m); setErr(''); setInfo(''); setNeedCode(false); setGoogle(null); };
+  const googleBtn = useRef(null);
+  const [gReady, setGReady] = useState(false);
+
+  // "Continue with Google" — shown when the server has a Google client ID
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/site').then((r) => r.json()).then((site) => {
+      if (!alive || !site.googleClientId) return;
+      const init = () => {
+        if (!alive || !window.google?.accounts?.id || !googleBtn.current) return;
+        window.google.accounts.id.initialize({ client_id: site.googleClientId, callback: (r) => googleSignIn(r.credential) });
+        window.google.accounts.id.renderButton(googleBtn.current, { theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill', width: 320 });
+        setGReady(true);
+      };
+      if (window.google?.accounts?.id) return init();
+      const sc = document.createElement('script');
+      sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.onload = init;
+      document.head.appendChild(sc);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const googleSignIn = async (credential, code) => {
+    setErr(''); setBusy(true);
+    try {
+      const r = await api('/auth/google', 'POST', { credential, code });
+      if (r.twoFactorRequired) { setGoogle(credential); setNeedCode(true); setBusy(false); return; }
+      setToken(r.token);
+      location.href = '/';
+    } catch (x) { setErr(x.message); setBusy(false); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
+    if (google) return googleSignIn(google, f.code);
     setErr(''); setBusy(true);
     try {
       if (mode === 'forgot') {
@@ -53,6 +86,7 @@ export default function Auth() {
       <form onSubmit={submit}>
         <h2>{title}</h2>
         <p className="muted">{sub}</p>
+        {mode !== 'forgot' && !needCode && <div className={`g-wrap ${gReady ? '' : 'hidden'}`}><div ref={googleBtn} />{gReady && <div className="or"><span>or with email</span></div>}</div>}
         {needCode ? (
           <label>Authentication code<input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={7} placeholder="123 456" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} /></label>
         ) : (

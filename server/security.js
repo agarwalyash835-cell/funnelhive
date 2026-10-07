@@ -9,11 +9,14 @@ import { hit } from './db.js';
 export function loadSecret(dataDir) {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
   const file = path.join(dataDir, '.jwt-secret');
-  try { return fs.readFileSync(file, 'utf8').trim(); } catch {}
-  const s = crypto.randomBytes(48).toString('hex');
-  fs.writeFileSync(file, s, { mode: 0o600 });
-  console.warn('JWT_SECRET not set — generated a random one in', file);
-  return s;
+  try { const s = fs.readFileSync(file, 'utf8').trim(); if (s) return s; } catch {}
+  // created at most once: if another app process wins the race, use the secret it wrote
+  try {
+    fs.writeFileSync(file, crypto.randomBytes(48).toString('hex'), { mode: 0o600, flag: 'wx' });
+    console.warn('JWT_SECRET not set — generated a random one in', file);
+  } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  for (let i = 0; i < 50; i++) { const s = fs.readFileSync(file, 'utf8').trim(); if (s) return s; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20); }
+  throw new Error(`Couldn't read ${file}`);
 }
 
 // ---------- rate limiting (fixed window) ----------

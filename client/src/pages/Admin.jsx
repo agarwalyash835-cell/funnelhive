@@ -237,7 +237,9 @@ function PlatformSettings() {
         <label>Product name<input value={s.brand} onChange={(e) => set({ brand: e.target.value })} /></label>
         <label className="tog"><input type="checkbox" checked={s.signupsOpen} onChange={(e) => set({ signupsOpen: e.target.checked })} /><span />New sign-ups open</label>
         <label><span>Announcement banner <small className="muted">· shown to every seller, e.g. planned maintenance</small></span><input value={s.announcement} onChange={(e) => set({ announcement: e.target.value })} placeholder="Leave empty for none" /></label>
-        <button className="btn primary" onClick={() => save({ brand: s.brand, signupsOpen: s.signupsOpen, announcement: s.announcement })}>Save</button>
+        <label><span>Google sign-in client ID <small className="muted">· shows “Continue with Google” on sign-up and login</small></span><input value={s.googleClientId || ''} onChange={(e) => set({ googleClientId: e.target.value.trim() })} placeholder="1234567890-abc….apps.googleusercontent.com" /></label>
+        <p className="hint">Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (Web application). Add <code>{location.origin}</code> under Authorised JavaScript origins.</p>
+        <button className="btn primary" onClick={() => save({ brand: s.brand, signupsOpen: s.signupsOpen, announcement: s.announcement, googleClientId: s.googleClientId || '' })}>Save</button>
       </Panel>
     </div>
   );

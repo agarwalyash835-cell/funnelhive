@@ -16,6 +16,7 @@ export const DEFAULTS = {
   razorpay: { keyId: '', secretEnc: '', webhookSecretEnc: '', planIds: {} },
   signupsOpen: true,
   announcement: '',
+  googleClientId: '', // "Continue with Google" (OAuth client ID from Google Cloud)
 };
 
 const ID = 'settings';

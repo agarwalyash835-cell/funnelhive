@@ -11,8 +11,10 @@ if (cluster.isPrimary && n > 1) {
   // database upgrades run here once, before any worker opens the database
   process.env.FF_JOBS = '0';
   process.env.FF_PRIMARY = '1';
-  const { sql } = await import('./db.js');
+  const { sql, dir } = await import('./db.js');
   sql.close();
+  // one sign-in secret for every process (created here, before any of them starts)
+  (await import('./security.js')).loadSecret(dir);
   const index = new Map(); // worker id → its slot (slot 0 runs the jobs)
   const fork = (slot) => {
     const w = cluster.fork({ WORKER_INDEX: String(slot), WEB_CONCURRENCY: String(n), FF_JOBS: slot === 0 ? '1' : '0', FF_PRIMARY: '' });

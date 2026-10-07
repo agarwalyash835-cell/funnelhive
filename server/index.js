@@ -24,6 +24,7 @@ import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, usageS
 import { platform, isAdmin, brand } from './platform.js';
 import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
+import { verifyGoogleToken, googleClientId } from './google.js';
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
 
 const SECRET = loadSecret(DATA_DIR);
@@ -123,6 +124,25 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   }
   res.json({ token: sign(user), user: pubUser(user) });
 });
+
+// Continue with Google: signs in, or creates the account on first use (the email is verified by Google)
+app.post('/api/auth/google', authLimiter, wrap(async (req, res) => {
+  let g;
+  try { g = await verifyGoogleToken(req.body.credential); } catch (e) { return res.status(401).json({ error: e.message }); }
+  let user = T.users.find({ email: g.email });
+  if (!user) {
+    if (!platform().signupsOpen) return res.status(403).json({ error: 'New sign-ups are paused right now — please check back soon.' });
+    user = { id: uid(), email: g.email, name: g.name, hash: bcrypt.hashSync(randomToken(), 10), googleId: g.sub, settings: { ...DEFAULT_SETTINGS }, emailVerified: true, pv: 0, createdAt: Date.now(), billing: newBilling() };
+    try { T.users.insert(user); } catch { user = T.users.find({ email: g.email }); }
+  } else if (!user.googleId || !user.emailVerified) {
+    user = T.users.update(user.id, (u) => { u.googleId ||= g.sub; u.emailVerified = true; });
+  }
+  if (user.totpEnabled) {
+    if (!req.body.code) return res.json({ twoFactorRequired: true });
+    if (!verifyTotp(user.totpSecret, req.body.code)) return res.status(401).json({ error: 'That 2-step code is not valid', twoFactorRequired: true });
+  }
+  res.json({ token: sign(user), user: pubUser(user) });
+}));
 
 app.post('/api/auth/verify', authLimiter, (req, res) => {
   const user = userByToken(req.body.token, 'verifyHash', 'verifyExp');
@@ -566,7 +586,7 @@ app.get('/api/orders', auth, (req, res) => {
 // ---------- public site: prices and company details for the landing, pricing and policy pages ----------
 app.get('/api/site', (_, res) => {
   const p = platform(), pr = pricing();
-  res.json({ brand: p.brand, trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: { name: p.company.name, email: p.company.email, address: p.company.address, state: p.company.state, gstin: p.company.gstin } });
+  res.json({ brand: p.brand, googleClientId: googleClientId() || null, trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: { name: p.company.name, email: p.company.email, address: p.company.address, state: p.company.state, gstin: p.company.gstin } });
 });
 
 // ---------- templates ----------

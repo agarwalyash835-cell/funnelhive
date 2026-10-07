@@ -26,7 +26,9 @@ const dbFile = path.join(dir, 'funnelhive.db');
 const oldFile = path.join(dir, 'funnelforge.db');
 if (!fs.existsSync(dbFile) && fs.existsSync(oldFile)) for (const ext of ['', '-wal', '-shm']) if (fs.existsSync(oldFile + ext)) fs.renameSync(oldFile + ext, dbFile + ext);
 export const sql = new DatabaseSync(dbFile);
-sql.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;
+// busy_timeout first: several app processes may open the database at the same moment
+sql.exec('PRAGMA busy_timeout = 10000');
+sql.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;
   PRAGMA cache_size = -65536; PRAGMA temp_store = MEMORY; PRAGMA mmap_size = 268435456;`);
 
 // Prepared statements are cached by their SQL text
