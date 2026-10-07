@@ -2,8 +2,26 @@
 // The bar is measured from the templates themselves (structure, section order, minimum content),
 // plus copy rules (no placeholders, consistent prices, Indian social proof).
 import { allTemplates } from './templates.js';
+import { uid } from './db.js';
 
-const STYLES = ['aurora', 'midnight', 'luxe', 'fresh', 'bold', 'clean'];
+// Templates differ in which sections they have, so a reference section comes from the matched template
+// when it has one, otherwise from the first template that does (with fresh ids).
+const withIds = (b) => ({ ...structuredClone(b), id: uid() });
+function refBlock(tpl, si, type) {
+  const own = tpl.steps[si]?.blocks.find((b) => b.type === type) || tpl.steps.flatMap((s) => s.blocks).find((b) => b.type === type);
+  if (own) return own;
+  for (const t of allTemplates()) { const b = t.steps.flatMap((s) => s.blocks).find((x) => x.type === type); if (b) return withIds(b); }
+  return null;
+}
+function refStep(tpl, i, type) {
+  if (tpl.steps[i]?.type === type) return structuredClone(tpl.steps[i]);
+  const own = tpl.steps.find((s) => s.type === type);
+  if (own) return structuredClone(own);
+  for (const t of allTemplates()) { const s = t.steps.find((x) => x.type === type); if (s) return { ...structuredClone(s), id: uid(), blocks: s.blocks.map(withIds) }; }
+  return null;
+}
+
+import { PAGE_STYLES as STYLES, VARIANTS } from './page-styles.js';
 const HEX = /^#[0-9a-f]{6}$/i;
 const PLACEHOLDER = /lorem|ipsum|\byour product\b|\bproduct name\b|\bbenefit (one|two|three|1|2|3)\b|\bproblem (one|two|three)\b|\bbonus (one|two)\b|\bquestion\?|\btbd\b|\bxxx+\b|\[(link|name|city|product|price|insert)[^\]]*\]|\{(link|name)\}|example\.com|placeholder|expert name/i;
 // names that are obviously stand-ins
@@ -78,6 +96,7 @@ export function audit(f, blueprint) {
     if (b.type === 'hero' && !/\*[^*]+\*/.test(p.headline || '')) add(b.si, b.bi, b.type, 'headline needs one *highlighted phrase*');
     if (b.type === 'hero' && (String(p.headline || '').length < 25 || String(p.headline || '').length > 160)) add(b.si, b.bi, b.type, 'headline should be 25–160 characters');
     if (b.type === 'stock' && !String(p.label || '').includes('{n}')) add(b.si, b.bi, b.type, 'label must contain {n}');
+    if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) add(b.si, b.bi, b.type, `variant must be one of ${(VARIANTS[b.type] || ['(none)']).join(', ')}`);
     if (b.type === 'livecount' && !(num(p.min) > 0 && num(p.max) > num(p.min))) add(b.si, b.bi, b.type, 'min/max viewers must be positive with max > min');
     if (b.type === 'proof' && num(p.intervalSec) < 9) add(b.si, b.bi, b.type, 'intervalSec must be ≥ 9');
     if (b.type === 'proof' && (p.items || []).some((x) => empty(x?.name) || empty(x?.city))) add(b.si, b.bi, b.type, 'every proof item needs name and city');
@@ -111,17 +130,16 @@ export function enforce(f, tpl, blueprint) {
     const mine = f.steps.find((s) => s.type === bp.type && !s._used);
     if (mine) { mine._used = true; return mine; }
     filled.push(`${bp.type} page`);
-    return structuredClone(tpl.steps[i]);
+    return refStep(tpl, i, bp.type);
   });
   steps.forEach((s) => delete s._used);
   steps.forEach((st, si) => {
     const bp = blueprint[si];
-    const tplBlocks = tpl.steps[si].blocks;
     const byType = new Map();
     for (const b of st.blocks || []) if (!byType.has(b.type)) byType.set(b.type, b);
     const extras = (st.blocks || []).filter((b) => !bp.blocks.includes(b.type));
     st.blocks = bp.blocks.map((t) => {
-      const ref = tplBlocks.find((b) => b.type === t);
+      const ref = refBlock(tpl, si, t);
       let b = byType.get(t);
       if (!b) { filled.push(`${bp.type}: ${t} section`); return structuredClone(ref); }
       b = { ...b, props: { ...b.props } };
@@ -143,7 +161,7 @@ export function enforce(f, tpl, blueprint) {
   for (const i of audit(f, blueprint)) {
     if (i.b == null || i.s == null) continue;
     const cur = f.steps[i.s]?.blocks?.[i.b];
-    const ref = cur && tpl.steps[i.s]?.blocks.find((b) => b.type === cur.type);
+    const ref = cur && refBlock(tpl, i.s, cur.type);
     if (!ref || cur._replaced) continue;
     if (cur.type === 'hero' && /headline/.test(i.msg)) { cur.props.headline = ref.props.headline; filled.push('hero.headline'); continue; }
     f.steps[i.s].blocks[i.b] = { ...structuredClone(ref), _replaced: true };
@@ -173,6 +191,7 @@ function fixups(f, filled) {
     if ('mrp' in p && 'price' in p && !(num(p.mrp) > num(p.price))) { const m = Math.round((num(p.price) * 2.2) / 100) * 100 - 1; p.mrp = typeof p.mrp === 'string' ? `₹${m.toLocaleString('en-IN')}` : m; filled.push(`${b.type}.mrp`); }
     if (b.type === 'hero' && !/\*[^*]+\*/.test(p.headline || '')) { const w = String(p.headline || '').split(' — '); p.headline = w.length > 1 ? `${w[0]} — *${w.slice(1).join(' — ')}*` : String(p.headline || '').replace(/(\S+\s+\S+)$/, '*$1*'); filled.push('hero.headline highlight'); }
     if (b.type === 'stock' && !String(p.label || '').includes('{n}')) { p.label = 'Hurry! Only {n} left at this price'; filled.push('stock.label'); }
+    if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) { delete p.variant; filled.push(`${b.type}.variant`); }
     if (b.type === 'proof' && num(p.intervalSec) < 9) { p.intervalSec = 9; filled.push('proof.intervalSec'); }
     if (b.type === 'livecount' && !(num(p.max) > num(p.min) && num(p.min) > 0)) { p.min = 24; p.max = 68; filled.push('livecount'); }
     if (b.type === 'countdown' && !(num(p.minutes) > 0)) { p.minutes = 30; filled.push('countdown.minutes'); }

@@ -9,6 +9,11 @@ export const STYLES = {
   fresh: 'Fresh — soft & friendly',
   bold: 'Bold — high contrast',
   clean: 'Clean — minimal',
+  editorial: 'Editorial — magazine, black & white',
+  organic: 'Organic — warm, earthy, handmade',
+  tech: 'Tech — dark, neon, monospace',
+  playful: 'Playful — bright & chunky',
+  royal: 'Royal — jewel tones & gold',
 };
 
 const T = 'text', LONG = 'long', NUM = 'number', B = 'bool', L = 'list';
@@ -53,6 +58,25 @@ export const BLOCK_TYPES = {
   stickybar: { label: 'Sticky buy bar', fields: [['text', T], ['price', T], ['buttonText', T], ['buttonAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab']], defaults: { text: 'Offer ends soon', price: '₹499', buttonText: 'Buy Now' } },
   whatsapp: { label: 'WhatsApp chat button', fields: [['number', T, null, 'Leave 919999999999 to use the Support WhatsApp from Settings'], ['message', T], ['label', T]], defaults: { number: '919999999999', message: 'Hi! I have a question.', label: 'Chat with us' } },
 };
+
+// Every main section has several designs. The first one is the original look (also used when unset).
+export const VARIANTS = {
+  hero: [['split', 'Split — copy and product card'], ['center', 'Centred — big headline'], ['banner', 'Banner — full colour or photo'], ['editorial', 'Editorial — magazine style']],
+  stats: [['strip', 'Strip'], ['cards', 'Tiles'], ['band', 'Colour band']],
+  problem: [['cards', 'Cards'], ['list', 'Crossed-out list'], ['split', 'Title beside the list']],
+  features: [['cards', 'Cards, 2 columns'], ['grid', 'Icon grid, 3 columns'], ['list', 'Checklist beside the title'], ['zigzag', 'Big numbered rows']],
+  steps: [['columns', 'Columns'], ['timeline', 'Timeline'], ['cards', 'Numbered cards']],
+  compare: [['columns', 'Two columns'], ['table', 'Table']],
+  testimonials: [['cards', 'Cards'], ['spotlight', 'Spotlight — one big quote'], ['wall', 'Wall of love'], ['chat', 'WhatsApp chats']],
+  mentor: [['split', 'Photo and bio'], ['story', 'Founder story'], ['card', 'Centred card']],
+  bonuses: [['dark', 'Dark band'], ['light', 'Light cards']],
+  guarantee: [['box', 'Box with seal'], ['strip', 'Slim strip']],
+  pricing: [['card', 'Single card'], ['split', 'What’s included + price']],
+  faq: [['accordion', 'Accordion'], ['two', 'Two columns']],
+  cta: [['banner', 'Gradient banner'], ['plain', 'Plain and centred']],
+};
+for (const [type, list] of Object.entries(VARIANTS)) BLOCK_TYPES[type].fields.unshift(['variant', 'select', list, 'Layout of this section']);
+const vOf = (type, p) => (VARIANTS[type]?.some(([k]) => k === p.variant) ? p.variant : VARIANTS[type]?.[0][0]);
 
 export const BLOCK_GROUPS = [
   ['Essentials', ['section', 'hero', 'text', 'image', 'gallery', 'video', 'stats', 'cta', 'spacer', 'divider', 'html']],
@@ -181,8 +205,8 @@ const Btn = ({ children, big, block, onClick, type = 'button', disabled, ctx, k,
     </button>
   );
 };
-const Sec = ({ type, className = '', id, children }) => (
-  <section id={id} className={`sec sec-${type} ${className}`}><div className="in">{children}</div></section>
+const Sec = ({ type, className = '', id, children, v }) => (
+  <section id={id} className={`sec sec-${type} ${v ? `v-${v}` : ''} ${className}`}><div className="in">{children}</div></section>
 );
 const Head = ({ eyebrow, title, subtitle, left, ctx }) => (eyebrow || title ? (
   <div className={`sh ${left ? '' : 'c'}`}>
@@ -202,9 +226,12 @@ const Avatar = ({ name, size }) => <span className="av" style={{ background: avC
 function Hero({ p, ctx }) {
   const link = buttonLink(p.ctaAction, p.ctaUrl, p.ctaNewTab);
   const sec = buttonLink(/^(https?:|mailto:|tel:)/i.test(p.secondaryUrl || '') ? 'url' : 'scroll', p.secondaryUrl || 'how', p.ctaNewTab);
-  const solo = !(p.image || p.showCard !== false || p.chip1 || p.chip2);
+  const v = vOf('hero', p);
+  const banner = v === 'banner' && p.image;
+  const solo = !((p.image && !banner) || p.showCard !== false || p.chip1 || p.chip2);
   return (
-    <section className="sec sec-hero">
+    <section className={`sec sec-hero v-${v}`} style={banner ? { '--hero-img': `url("${String(mediaUrl(p.image)).replace(/"/g, '%22')}")` } : undefined}>
+      {banner && <div className="hero-photo" aria-hidden="true" />}
       <div className={`in hero-grid ${solo ? 'solo' : ''}`}>
         <div className="hero-copy">
           {p.badge && <E ctx={ctx} k="badge" v={p.badge} className="badge" />}
@@ -224,8 +251,8 @@ function Hero({ p, ctx }) {
             </div>
           )}
         </div>
-        {(p.image || p.showCard !== false || p.chip1 || p.chip2) && <div className="hero-visual">
-          {p.image ? <Img src={p.image} alt="" className="hero-img" priority sizes="(max-width: 760px) 100vw, 600px" /> : p.showCard !== false && (
+        {((p.image && !banner) || p.showCard !== false || p.chip1 || p.chip2) && <div className="hero-visual">
+          {p.image && !banner ? <Img src={p.image} alt="" className="hero-img" priority sizes="(max-width: 760px) 100vw, 600px" /> : p.showCard !== false && (
             <div className="hcard" data-rm="showCard" data-rm-label="product card">
               <div className="hc-top"><E ctx={ctx} k="cardEmoji" v={p.cardEmoji} className="hc-emoji" />{p.cardTag && <span className="hc-tag"><i className="dot" /> <E ctx={ctx} k="cardTag" v={p.cardTag} /></span>}</div>
               <E ctx={ctx} k="cardTitle" v={p.cardTitle} as="h3" />
@@ -244,23 +271,24 @@ function Hero({ p, ctx }) {
 }
 
 const Stats = ({ p, ctx }) => (
-  <Sec type="stats"><div className="stats-grid">{(p.items || []).map((i, k) => <div key={k} data-item={`items.${k}`}><E ctx={ctx} k={`items.${k}.value`} v={i.value} as="b" /><E ctx={ctx} k={`items.${k}.label`} v={i.label} /></div>)}</div></Sec>
+  <Sec type="stats" v={vOf('stats', p)}><div className="stats-grid">{(p.items || []).map((i, k) => <div key={k} data-item={`items.${k}`}><E ctx={ctx} k={`items.${k}.value`} v={i.value} as="b" /><E ctx={ctx} k={`items.${k}.label`} v={i.label} /></div>)}</div></Sec>
 );
 
 const Problem = ({ p, ctx }) => (
-  <Sec type="problem" className="alt">
-    <Head eyebrow={p.eyebrow} title={p.title} subtitle={p.subtitle} ctx={ctx} />
+  <Sec type="problem" className="alt" v={vOf('problem', p)}>
+    <Head eyebrow={p.eyebrow} title={p.title} subtitle={p.subtitle} ctx={ctx} left={vOf('problem', p) === 'split'} />
     <div className="pain-grid">{(p.items || []).map((x, i) => <div className="pc pain" key={i} data-item={`items.${i}`}><span className="x">✕</span><E ctx={ctx} k={`items.${i}.text`} v={x.text} as="p" /></div>)}</div>
     {p.closing && <E ctx={ctx} k="closing" v={p.closing} as="p" className="closing" />}
   </Sec>
 );
 
 const Features = ({ p, ctx }) => (
-  <Sec type="features">
-    <Head eyebrow={p.eyebrow} title={p.title} subtitle={p.subtitle} ctx={ctx} />
+  <Sec type="features" v={vOf('features', p)}>
+    <Head eyebrow={p.eyebrow} title={p.title} subtitle={p.subtitle} ctx={ctx} left={vOf('features', p) === 'list'} />
     <div className="feat-grid">
       {(p.items || []).map((i, k) => (
         <div className="pc feat" key={k} data-item={`items.${k}`}>
+          <span className="fnum" aria-hidden="true">{pad(k + 1)}</span>
           <E ctx={ctx} k={`items.${k}.icon`} v={i.icon || '✓'} className="ic" />
           <div><E ctx={ctx} k={`items.${k}.title`} v={i.title} as="h3" /><E ctx={ctx} k={`items.${k}.text`} v={i.text} as="p" /></div>
         </div>
@@ -270,7 +298,7 @@ const Features = ({ p, ctx }) => (
 );
 
 const Steps = ({ p, ctx }) => (
-  <Sec type="steps" id="how">
+  <Sec type="steps" id="how" v={vOf('steps', p)}>
     <Head eyebrow={p.eyebrow} title={p.title} ctx={ctx} />
     <div className="steps" style={{ '--n': (p.items || []).length || 1 }}>
       {(p.items || []).map((s, i) => <div className="step" key={i} data-item={`items.${i}`}><span className="num">{i + 1}</span><E ctx={ctx} k={`items.${i}.title`} v={s.title} as="h3" /><E ctx={ctx} k={`items.${i}.text`} v={s.text} as="p" /></div>)}
@@ -279,17 +307,24 @@ const Steps = ({ p, ctx }) => (
 );
 
 const Compare = ({ p, ctx }) => (
-  <Sec type="compare" className="alt">
+  <Sec type="compare" className="alt" v={vOf('compare', p)}>
     <Head eyebrow={p.eyebrow} title={p.title} ctx={ctx} />
-    <div className="cmp">
+    {vOf('compare', p) === 'table' ? (
+      <div className="pc cmp-table">
+        <div className="ct-row ct-head"><span /><E ctx={ctx} k="leftTitle" v={p.leftTitle} as="b" /><span className="ct-us">{p.tag && <E ctx={ctx} k="tag" v={p.tag} className="cmp-tag" />}<E ctx={ctx} k="rightTitle" v={p.rightTitle} as="b" /></span></div>
+        {(p.rows || []).map((r, i) => (
+          <div className="ct-row" key={i} data-item={`rows.${i}`}><span className="ct-n">{pad(i + 1)}</span><span className="ct-bad">✕ <E ctx={ctx} k={`rows.${i}.left`} v={r.left} /></span><span className="ct-good">✓ <E ctx={ctx} k={`rows.${i}.right`} v={r.right} /></span></div>
+        ))}
+      </div>
+    ) : <div className="cmp">
       <div className="pc cmp-col bad"><E ctx={ctx} k="leftTitle" v={p.leftTitle} as="h3" /><ul>{(p.rows || []).map((r, i) => <li key={i} data-item={`rows.${i}`}><span className="cmp-ic">✕</span><E ctx={ctx} k={`rows.${i}.left`} v={r.left} /></li>)}</ul></div>
       <div className="pc cmp-col good">{p.tag && <E ctx={ctx} k="tag" v={p.tag} className="cmp-tag" />}<E ctx={ctx} k="rightTitle" v={p.rightTitle} as="h3" /><ul>{(p.rows || []).map((r, i) => <li key={i} data-item={`rows.${i}`}><span className="cmp-ic">✓</span><E ctx={ctx} k={`rows.${i}.right`} v={r.right} /></li>)}</ul></div>
-    </div>
+    </div>}
   </Sec>
 );
 
 const Testimonials = ({ p, ctx }) => (
-  <Sec type="testimonials">
+  <Sec type="testimonials" v={vOf('testimonials', p)}>
     <Head eyebrow={p.eyebrow} title={p.title} ctx={ctx} />
     <div className="tgrid3">
       {(p.items || []).map((t, i) => (
@@ -297,6 +332,7 @@ const Testimonials = ({ p, ctx }) => (
           <div className="stars">★★★★★</div>
           <blockquote>“<E ctx={ctx} k={`items.${i}.quote`} v={t.quote} multiline />”</blockquote>
           <figcaption><Avatar name={t.name} /><div><E ctx={ctx} k={`items.${i}.name`} v={t.name} as="b" />{t.tag && <small>✔ <E ctx={ctx} k={`items.${i}.tag`} v={t.tag} /></small>}</div></figcaption>
+          <span className="wa-time" aria-hidden="true">{pad(9 + ((i * 3) % 12))}:{pad((i * 17 + 4) % 60)} ✓✓</span>
         </figure>
       ))}
     </div>
@@ -317,7 +353,7 @@ export function Img({ src, alt = '', priority = false, sizes = '(max-width: 760p
 }
 
 const Mentor = ({ p, ctx }) => (
-  <Sec type="mentor" className="alt">
+  <Sec type="mentor" className="alt" v={vOf('mentor', p)}>
     <div className="mentor">
       <div className="m-photo">
         {p.image ? <Img src={p.image} alt={p.name} sizes="(max-width: 760px) 90vw, 420px" /> : (
@@ -342,7 +378,7 @@ const Mentor = ({ p, ctx }) => (
 );
 
 const Bonuses = ({ p, ctx }) => (
-  <Sec type="bonuses">
+  <Sec type="bonuses" v={vOf('bonuses', p)}>
     <Head eyebrow={p.eyebrow} title={p.title} ctx={ctx} />
     <div className="bonus-grid">
       {(p.items || []).map((b, i) => (
@@ -360,7 +396,7 @@ const Bonuses = ({ p, ctx }) => (
 );
 
 const Guarantee = ({ p, ctx }) => (
-  <Sec type="guarantee">
+  <Sec type="guarantee" v={vOf('guarantee', p)}>
     <div className="pc gbox">
       {p.showSeal !== false && <div className="seal" data-rm="showSeal" data-rm-label="seal"><div>{Number(p.days) > 0 ? <><b>{p.days}</b><small>DAY</small><span>MONEY-BACK</span></> : <><b>100%</b><span>FREE · NO RISK</span></>}</div></div>}
       <div><E ctx={ctx} k="title" v={p.title} as="h2" /><E ctx={ctx} k="body" v={p.body} as="p" multiline /></div>
@@ -535,6 +571,31 @@ function WhatsApp({ p, ctx }) {
 
 function Pricing({ p, ctx }) {
   const off = p.mrp > p.price ? Math.round((1 - p.price / p.mrp) * 100) : 0;
+  const v = vOf('pricing', p);
+  if (v === 'split') {
+    return (
+      <Sec type="pricing" id="pricing" v="split">
+        <div className="psplit">
+          <div className="ps-inc">
+            {p.badge && <E ctx={ctx} k="badge" v={p.badge} as="div" className="eyebrow" />}
+            {p.title && <E ctx={ctx} k="title" v={p.title} as="h2" />}
+            <ul className="checks">{(p.bullets || []).map((b, i) => b.text ? <li key={i} data-item={`bullets.${i}`} className={b.text.startsWith('BONUS') ? 'bonus-li' : ''}><E ctx={ctx} k={`bullets.${i}.text`} v={b.text} /></li> : null)}</ul>
+          </div>
+          <div className="pc ps-buy">
+            <div className="pprice">
+              {(off > 0 || ctx.editable) && <E ctx={ctx} k="mrp" v={p.mrp} as="s" num fmt={(v2) => money(p.currency, v2)} />}
+              <E ctx={ctx} k="price" v={p.price} as="b" num fmt={(v2) => money(p.currency, v2)} />
+            </div>
+            {off > 0 && <span className="off">You save {off}%</span>}
+            {p.priceNote && <E ctx={ctx} k="priceNote" v={p.priceNote} as="p" className="muted sm" />}
+            <Btn big block onClick={go(ctx)} ctx={ctx} k="buttonText" link={buttonLink(p.buttonAction, p.buttonUrl, p.buttonNewTab)}>{p.buttonText}</Btn>
+            {p.payMethods && (ctx.editable ? <E ctx={ctx} k="payMethods" v={p.payMethods} as="div" className="pay pay-ed" /> : <div className="pay">{String(p.payMethods).split(/\s*[·,|]\s*/).filter(Boolean).map((m) => <span key={m}>{m}</span>)}</div>)}
+            {p.note && <E ctx={ctx} k="note" v={p.note} as="p" className="pnote" />}
+          </div>
+        </div>
+      </Sec>
+    );
+  }
   return (
     <Sec type="pricing" id="pricing">
       <div className="pbox">
@@ -1066,7 +1127,7 @@ function renderBlock(block, ctx) {
     case 'crosssell': return <CrossSell p={p} ctx={{ ...ctx, blockId: block.id }} />;
     case 'faq':
       return (
-        <Sec type="faq" className="alt">
+        <Sec type="faq" className="alt" v={vOf('faq', p)}>
           <Head eyebrow={p.eyebrow} title={p.title} ctx={ctx} />
           <div className="faq">{(p.items || []).map((i, k) => (ctx.editable
             ? <div key={k} className="faq-ed" data-item={`items.${k}`}><E ctx={ctx} k={`items.${k}.q`} v={i.q} as="div" className="faq-q" /><E ctx={ctx} k={`items.${k}.a`} v={i.a} as="p" multiline /></div>
@@ -1075,7 +1136,7 @@ function renderBlock(block, ctx) {
       );
     case 'cta':
       return (
-        <Sec type="cta">
+        <Sec type="cta" v={vOf('cta', p)}>
           <E ctx={ctx} k="headline" v={p.headline} as="h2" isRich />
           {p.subheadline && <E ctx={ctx} k="subheadline" v={p.subheadline} as="p" className="sub" />}
           <Btn big onClick={go(ctx)} ctx={ctx} k="buttonText" link={buttonLink(p.buttonAction, p.buttonUrl, p.buttonNewTab)}>{p.buttonText}</Btn>

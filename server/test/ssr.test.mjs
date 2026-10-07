@@ -21,11 +21,11 @@ test('live page is server-rendered with SEO + link-preview tags', { skip: !built
   assert.match(html, /<meta property="og:title" content="Lose belly fat/);
   assert.match(html, /<meta property="og:description" content="Live Hindi\/English classes/);
   assert.match(html, /<link rel="canonical" href="http:\/\/127\.0\.0\.1:\d+\/f\/21-day-yoga-reset"/);
-  assert.match(html, /<div id="root"><div class="page s-aurora"/, 'page markup is in the HTML');
-  assert.match(html, /Everything you need, in one place/, 'section content is crawlable');
+  assert.match(html, /<div id="root"><div class="page s-organic"/, 'page markup is in the HTML');
+  assert.match(html, /Built around your real life/, 'section content is crawlable');
   assert.match(html, /Acharya Kavita Rao/, 'deep sections are rendered too');
-  assert.match(html, /fonts\.googleapis\.com\/css2\?family=Plus\+Jakarta\+Sans/, 'only this style\'s font');
-  assert.doesNotMatch(html, /family=Poppins|family=Outfit|family=Sora/, 'other styles\' fonts are not loaded');
+  assert.match(html, /fonts\.googleapis\.com\/css2\?family=Fraunces/, 'this style\'s fonts (Organic: Fraunces + Nunito Sans)');
+  assert.doesNotMatch(html, /family=Poppins|family=Outfit|family=Sora|family=Plus\+Jakarta/, 'other styles\' fonts are not loaded');
   assert.match(html, /window\.__FUNNEL__=/);
   assert.doesNotMatch(html, /noindex/);
 });

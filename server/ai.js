@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { similarTemplates, allTemplates, matchTemplate } from './templates.js';
 import { audit, enforce, barText, blueprintOf } from './quality.js';
 import { uid } from './db.js';
+import { PAGE_STYLES, STYLE_HINTS, variantsText } from './page-styles.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
@@ -104,7 +105,8 @@ Landing-page block types (use them for rich 12+ section pages):
 - bonuses: eyebrow, title, items: [{icon, title, value}], totalText
 - guarantee: title, body, days (number)
 - cta also accepts subheadline, note. hero also accepts secondaryText, socialText, rating, reviews, cardEmoji, cardTitle, cardPrice, cardMrp, cardPoints [{text}], chip1, chip2. Wrap words in *stars* in headlines to highlight.
-Theme: {"style": one of aurora|midnight|luxe|fresh|bold|clean, "primary": "#hex", "secondary": "#hex"}.
+Section layouts: most sections take props.variant to pick their design — ${variantsText()}. Mix layouts so the page has rhythm (e.g. a centred hero, a numbered zigzag of features, a WhatsApp-chat testimonial wall) and fit them to the business; follow the example's choices unless the brief suggests better.
+Theme: {"style": one of ${PAGE_STYLES.join('|')}, "primary": "#hex", "secondary": "#hex"}. Styles: ${Object.entries(STYLE_HINTS).map(([k, v]) => `${k} (${v})`).join('; ')}.
 Audience defaults to India: use ₹ prices, Indian names/cities, UPI/COD mentions. hero also accepts badge.
 Step types: landing, optin, sales, checkout, upsell, downsell, thankyou.`;
 

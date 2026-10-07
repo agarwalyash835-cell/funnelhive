@@ -6,6 +6,11 @@ export const STYLE_FONTS = {
   fresh: 'family=Poppins:wght@400;500;600;700;800',
   bold: 'family=Outfit:wght@400;500;600;700;800;900',
   clean: 'family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800',
+  editorial: 'family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700',
+  organic: 'family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700',
+  tech: 'family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700',
+  playful: 'family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800',
+  royal: 'family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Mulish:wght@400;500;600;700',
 };
 export const fontHref = (style) => `https://fonts.googleapis.com/css2?${STYLE_FONTS[style] || STYLE_FONTS.aurora}&display=swap`;
 

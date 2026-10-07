@@ -158,7 +158,7 @@ export const TOOLS = [
     summary: () => 'Reordered the pages',
   },
   {
-    name: 'update_funnel', description: 'Rename a funnel or change its look: theme.style (aurora|midnight|luxe|fresh|bold|clean), primary/secondary colours (#hex), headingFont/bodyFont (e.g. Poppins, Mukta, Playfair Display), radius (sharp|soft|round|pill), textSize (sm|md|lg).',
+    name: 'update_funnel', description: 'Rename a funnel or change its look: theme.style (aurora|midnight|luxe|fresh|bold|clean|editorial|organic|tech|playful|royal), primary/secondary colours (#hex), headingFont/bodyFont (e.g. Poppins, Mukta, Playfair Display), radius (sharp|soft|round|pill), textSize (sm|md|lg).',
     schema: S({ funnelId: str('Funnel id'), name: str('New name'), theme: obj('Theme fields to change') }, ['funnelId']), touches: 'funnelId',
     run: async (ctx, a) => { const f = await ctx.call('GET', `/funnels/${a.funnelId}`); const patch = {}; if (a.name) patch.name = a.name; if (a.theme) patch.theme = { ...f.theme, ...a.theme }; const r = await saveFunnel(ctx, f, patch); return { ok: true, name: r.name, theme: r.theme }; },
     summary: (r) => `Updated “${r.name}” settings`,

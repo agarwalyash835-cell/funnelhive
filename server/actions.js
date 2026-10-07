@@ -2,9 +2,9 @@
 import { uid } from './db.js';
 import { shiftHue } from './template-kit.js';
 
-const STYLES = ['aurora', 'midnight', 'luxe', 'fresh', 'bold', 'clean'];
+import { PAGE_STYLES as STYLES } from './page-styles.js';
 const COLORS = { red: '#ef4444', orange: '#f97316', amber: '#f59e0b', yellow: '#eab308', green: '#16a34a', emerald: '#10b981', teal: '#14b8a6', cyan: '#06b6d4', blue: '#2563eb', indigo: '#6366f1', violet: '#7c3aed', purple: '#9333ea', pink: '#ec4899', rose: '#e11d48', maroon: '#9f1239', gold: '#a16207', brown: '#78350f', black: '#111827', saffron: '#ff9933' };
-const STYLE_ALIASES = { dark: 'midnight', premium: 'luxe', luxury: 'luxe', elegant: 'luxe', minimal: 'clean', simple: 'clean', playful: 'fresh', friendly: 'fresh', loud: 'bold', brutal: 'bold', light: 'aurora', gradient: 'aurora' };
+const STYLE_ALIASES = { dark: 'midnight', premium: 'luxe', luxury: 'luxe', elegant: 'luxe', minimal: 'clean', simple: 'clean', playful: 'playful', fun: 'playful', kids: 'playful', friendly: 'fresh', magazine: 'editorial', editorial: 'editorial', earthy: 'organic', handmade: 'organic', organic: 'organic', techy: 'tech', neon: 'tech', tech: 'tech', royal: 'royal', gold: 'royal', golden: 'royal', loud: 'bold', brutal: 'bold', light: 'aurora', gradient: 'aurora' };
 
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'step';
 const blk = (type, props) => ({ id: uid(), type, props });

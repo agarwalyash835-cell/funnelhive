@@ -22,6 +22,7 @@ import { Terms, Privacy, Refunds, Contact } from './pages/Legal';
 import Public from './pages/Public';
 import { TemplateGallery, TemplatePreview } from './pages/Templates';
 import './styles.css';
+import './page-variants.css';
 
 const Private = ({ children }) => (loggedIn() ? children : <Navigate to="/login" />);
 

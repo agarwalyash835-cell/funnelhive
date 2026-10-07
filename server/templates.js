@@ -76,14 +76,140 @@ const accentHeadline = (h) => {
 const LEAD_PRICE = { realestate: '₹65L+', plots: '₹9L+', interior: '₹1.99L+', insurance: 'Free quote', loan: '₹0 fees', solar: '₹78K off', webinar: 'FREE' };
 const isBrand = (name) => /Team|Studio|Labs|Developers|Realty|India$|Home$|Control$/.test(name);
 
+// ---------- page plans ----------
+// Each kind of business gets its own landing page: which sections, in what order, with which layout,
+// what they're called, and how much urgency. Within a kind, the hero and a few layouts rotate so two
+// templates of the same kind still look different.
+const KIND = {
+  upsc: 'course', neet: 'course', jee: 'course', spokenenglish: 'course', ca: 'course', coding: 'course', excel: 'course', govtexam: 'course',
+  stocks: 'money', mutualfunds: 'money', gst: 'money', startup: 'money', dropship: 'money', affiliate: 'money',
+  yoga: 'transform', weightloss: 'transform', diabetes: 'transform', gym: 'transform', pcod: 'transform', meditation: 'transform',
+  ayurveda: 'product', skincare: 'product', haircare: 'product', pickle: 'product', organic: 'product', dryfruits: 'product', sweets: 'product', tea: 'product', ethnicwear: 'product', jewellery: 'product',
+  salon: 'booking', mehendi: 'booking', spa: 'booking', clinic: 'booking', cardriving: 'booking', cleaning: 'booking', pestcontrol: 'booking', wedding: 'booking',
+  realestate: 'property', plots: 'property', interior: 'property', insurance: 'advice', loan: 'advice', solar: 'advice',
+  digitalmarketing: 'agency', website: 'agency', appdev: 'agency',
+  webinar: 'event',
+  astrology: 'spiritual', kirtan: 'spiritual',
+  kidsabacus: 'kids', tutoring: 'kids', coaching: 'kids',
+};
+const FOOD = new Set(['pickle', 'organic', 'dryfruits', 'sweets', 'tea']);
+const FASHION = new Set(['ethnicwear', 'jewellery']);
+// [section, layout] in page order; '*' marks where the price box / form goes
+const PLANS = {
+  course: ['hellobar', ['hero', ['split', 'editorial', 'center']], ['stats', ['strip', 'cards']], ['problem', ['split', 'list']], ['features', ['zigzag', 'cards', 'grid']], ['mentor', ['story', 'split']], ['steps', ['timeline', 'cards']], ['compare', ['table', 'columns']], ['testimonials', ['cards', 'wall', 'spotlight']], ['bonuses', ['dark', 'light']], 'countdown', '*', 'stock', ['guarantee', ['box', 'strip']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
+  money: ['hellobar', ['hero', ['editorial', 'center', 'split']], ['stats', ['band', 'strip']], ['problem', ['list', 'split']], ['features', ['grid', 'zigzag']], ['compare', ['table', 'columns']], ['mentor', ['card', 'story']], ['testimonials', ['spotlight', 'cards']], ['steps', ['cards', 'timeline']], ['bonuses', ['light', 'dark']], 'countdown', '*', 'stock', ['guarantee', ['strip', 'box']], ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
+  transform: ['hellobar', ['hero', ['split', 'center', 'banner']], 'livecount', ['problem', ['cards', 'list']], ['steps', ['cards', 'timeline']], ['features', ['list', 'grid']], ['testimonials', ['wall', 'spotlight']], ['stats', ['band', 'cards']], ['mentor', ['split', 'story']], ['bonuses', ['dark', 'light']], 'countdown', '*', 'stock', ['guarantee', ['box', 'strip']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
+  product: ['hellobar', ['hero', ['center', 'banner', 'split']], ['stats', ['cards', 'strip']], ['problem', ['list', 'cards']], ['features', ['grid', 'zigzag', 'cards']], ['mentor', ['story', 'card']], ['testimonials', ['chat', 'wall']], ['steps', ['columns', 'timeline']], '*', 'stock', ['guarantee', ['strip', 'box']], ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
+  booking: ['hellobar', ['hero', ['banner', 'center', 'split']], ['stats', ['band', 'cards']], ['features', ['list', 'grid', 'cards']], ['steps', ['timeline', 'columns']], ['testimonials', ['spotlight', 'chat', 'wall']], ['mentor', ['card', 'split']], '*', ['guarantee', ['strip', 'box']], ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
+  property: [['hero', ['banner', 'editorial']], ['stats', ['cards', 'band']], ['features', ['zigzag', 'grid']], ['compare', ['table', 'columns']], ['mentor', ['card', 'story']], ['testimonials', ['spotlight', 'cards']], ['steps', ['timeline', 'cards']], '*', ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
+  advice: ['hellobar', ['hero', ['center', 'split', 'banner']], ['stats', ['strip', 'band']], ['problem', ['split', 'cards']], ['features', ['grid', 'list']], ['steps', ['cards', 'timeline']], ['compare', ['columns', 'table']], ['testimonials', ['cards', 'spotlight']], ['mentor', ['card', 'split']], '*', ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
+  agency: [['hero', ['editorial', 'split']], ['stats', ['strip', 'band']], ['problem', ['split', 'list']], ['features', ['grid', 'zigzag']], ['steps', ['cards', 'timeline']], ['testimonials', ['cards', 'spotlight']], ['compare', ['columns', 'table']], ['mentor', ['card', 'story']], '*', ['guarantee', ['strip', 'box']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
+  event: ['hellobar', ['hero', 'center'], 'countdown', 'livecount', ['features', 'list'], ['mentor', 'split'], ['bonuses', 'light'], ['testimonials', 'wall'], '*', ['faq', 'accordion'], ['cta', 'banner']],
+  spiritual: [['hero', ['center', 'split']], ['features', ['grid', 'list']], ['mentor', ['story', 'split']], ['steps', ['timeline', 'columns']], ['testimonials', ['chat', 'spotlight']], '*', ['guarantee', ['box', 'strip']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
+  kids: ['hellobar', ['hero', ['split', 'center']], ['problem', ['cards', 'list']], ['features', ['grid', 'cards']], ['steps', ['columns', 'cards']], ['testimonials', ['chat', 'wall']], ['mentor', ['card', 'split']], ['compare', ['columns', 'table']], '*', ['guarantee', ['box', 'strip']], ['faq', ['two', 'accordion']], ['cta', ['banner', 'plain']]],
+};
+// some templates tell their story in a different order: proof before the method, the expert before the offer
+const REORDER = [['testimonials', 'mentor'], ['steps', 'features'], ['compare', 'testimonials']];
+// floating extras per kind (all pages keep WhatsApp; the calmer kinds skip the loud ones)
+const EXTRAS = {
+  course: ['proof', 'exitpopup', 'stickybar', 'whatsapp'], money: ['proof', 'exitpopup', 'stickybar', 'whatsapp'], transform: ['proof', 'exitpopup', 'stickybar', 'whatsapp'],
+  product: ['proof', 'exitpopup', 'stickybar', 'whatsapp'], booking: ['exitpopup', 'stickybar', 'whatsapp'], property: ['exitpopup', 'stickybar', 'whatsapp'],
+  advice: ['exitpopup', 'stickybar', 'whatsapp'], agency: ['exitpopup', 'whatsapp'], event: ['proof', 'stickybar', 'whatsapp'], spiritual: ['proof', 'exitpopup', 'stickybar', 'whatsapp'],
+  kids: ['exitpopup', 'stickybar', 'whatsapp'],
+};
+// how each kind talks about its sections
+const COPY_BY_KIND = (k, x) => ({
+  course: {
+    problem: ['The honest truth', 'Why most aspirants stay stuck', 'It isn’t effort. It’s the method.'],
+    features: ['Inside the programme', `What you get with ${x.short}`, 'Everything is planned for you — just show up and follow it.'],
+    steps: ['Your roadmap', 'From day one to exam day'], compare: ['Why this works', 'Self-study vs. learning with us'],
+    testimonials: ['Results', `${x.whoCap} who cleared it with us`], mentor: 'Your mentor', bonuses: ['Included free', 'Enrol today and get these bonuses'], faq: ['Questions', 'Everything aspirants ask us'],
+  },
+  money: {
+    problem: ['Sound familiar?', 'Where most people go wrong', ''],
+    features: ['The toolkit', 'Everything you need to start — and keep going', `${x.short} gives you the system, not just tips.`],
+    steps: ['Your plan', 'Four steps, done for you'], compare: ['The difference', 'Guesswork vs. a proven system'],
+    testimonials: ['In their words', `What our ${x.who} say`], mentor: 'Who’s teaching you', bonuses: ['Bonus resources', 'Yours free when you join today'], faq: ['FAQ', 'Before you join'],
+  },
+  transform: {
+    problem: ['If this is you…', 'You’ve tried everything. Here’s why it didn’t stick.', ''],
+    features: ['The plan', 'Built around your real life', `Every part of ${x.short} fits an Indian routine — food, family and work included.`],
+    steps: ['The method', `How ${x.short} works`], compare: ['Why it’s different', 'Quick fixes vs. a real plan'],
+    testimonials: ['Transformations', 'Real people. Real change.'], mentor: 'Your coach', bonuses: ['Free with the programme', 'Extras that make it easier'], faq: ['Questions', 'Before you start'],
+  },
+  product: {
+    problem: [FOOD.has(x.id) ? 'Why we started' : 'Sound familiar?', FOOD.has(x.id) ? 'What you get in the market today' : 'You’ve tried everything else', ''],
+    features: ['Why you’ll love it', FOOD.has(x.id) ? 'Made the way it should be' : FASHION.has(x.id) ? 'Crafted to be noticed' : `Why ${x.short} works`, ''],
+    steps: ['How it works', FOOD.has(x.id) ? 'From our kitchen to your table' : 'From our hands to your doorstep'], compare: ['Compare', 'The difference is in the details'],
+    testimonials: ['On WhatsApp', 'Messages from our customers'], mentor: 'Our story', bonuses: ['Free with your order', 'A little extra in every box'], faq: ['Good to know', 'Shipping, payment and returns'],
+  },
+  booking: {
+    problem: ['Sound familiar?', 'You deserve better than this', ''],
+    features: ['What’s included', 'Everything, done properly', ''],
+    steps: ['Booking', 'Booked in under 2 minutes'], compare: ['Why us', 'What makes us different'],
+    testimonials: ['Reviews', 'Our clients say it best'], mentor: 'Meet the expert', bonuses: ['Included', 'Complimentary with every booking'], faq: ['Questions', 'Before you book'],
+  },
+  property: {
+    problem: ['Sound familiar?', 'Why buyers hesitate', ''],
+    features: ['Why here', 'Reasons buyers choose this project', ''],
+    steps: ['The process', 'From first call to keys in hand'], compare: ['Compare', 'Why it beats the alternatives'],
+    testimonials: ['Owners speak', 'Families who already made the move'], mentor: 'About the developer', bonuses: ['On booking', 'Booking benefits'], faq: ['FAQ', 'Questions buyers ask'],
+  },
+  advice: {
+    problem: ['The problem', 'Why it feels so complicated', ''],
+    features: ['How we help', 'Expert help, without the jargon', ''],
+    steps: ['The process', 'Simple, transparent, fast'], compare: ['Why us', 'Doing it alone vs. with an expert'],
+    testimonials: ['Client stories', 'People we’ve helped'], mentor: 'Who you’ll talk to', bonuses: ['Free', 'Included with your consultation'], faq: ['FAQ', 'Common questions'],
+  },
+  agency: {
+    problem: ['The problem', 'Why most businesses stay invisible online', ''],
+    features: ['What we do', 'Services that move the numbers', ''],
+    steps: ['How we work', 'A clear process, start to finish'], compare: ['Why us', 'Freelancer vs. agency vs. us'],
+    testimonials: ['Client results', 'What our clients say'], mentor: 'Who we are', bonuses: ['Included', 'Extras at no cost'], faq: ['FAQ', 'Working with us'],
+  },
+  event: {
+    problem: ['Sound familiar?', 'Why this session matters', ''],
+    features: ['In this free session', 'What you’ll learn', 'Live, practical, and built for Indian businesses.'],
+    steps: ['How it works', 'Join in three steps'], compare: ['Why attend', 'Before vs. after the session'],
+    testimonials: ['From past sessions', 'What attendees said'], mentor: 'Your host', bonuses: ['Attend live and get', 'Free for live attendees'], faq: ['FAQ', 'About the session'],
+  },
+  spiritual: {
+    problem: ['Sound familiar?', 'When life feels stuck', ''],
+    features: ['What you receive', 'Guidance rooted in tradition', ''],
+    steps: ['The process', 'How your session works'], compare: ['Why us', 'Generic advice vs. personal guidance'],
+    testimonials: ['Blessings shared', 'Messages from seekers'], mentor: 'Your guide', bonuses: ['With your booking', 'Included as our blessing'], faq: ['Questions', 'Before your session'],
+  },
+  kids: {
+    problem: ['Parents tell us', 'Does this sound like your child?', ''],
+    features: ['Why parents choose us', 'Learning your child looks forward to', ''],
+    steps: ['How classes work', 'Simple for parents, fun for kids'], compare: ['The difference', 'Regular tuition vs. our classes'],
+    testimonials: ['From parents', 'What parents are telling us'], mentor: 'Who teaches your child', bonuses: ['Free with enrolment', 'Extras for your child'], faq: ['For parents', 'Questions parents ask'],
+  },
+})[k];
+// styles spread across the library so neighbouring templates don't look alike
+const STYLE_OF = {
+  upsc: 'clean', neet: 'aurora', jee: 'tech', spokenenglish: 'fresh', ca: 'editorial', coding: 'tech', excel: 'clean', govtexam: 'bold',
+  stocks: 'midnight', mutualfunds: 'clean', gst: 'editorial', startup: 'bold', dropship: 'tech', affiliate: 'midnight',
+  yoga: 'organic', weightloss: 'bold', diabetes: 'clean', gym: 'bold', pcod: 'aurora', meditation: 'organic',
+  ayurveda: 'organic', skincare: 'aurora', haircare: 'fresh', pickle: 'organic', organic: 'fresh', dryfruits: 'luxe', sweets: 'royal', tea: 'organic', ethnicwear: 'royal', jewellery: 'luxe',
+  salon: 'luxe', mehendi: 'royal', spa: 'organic', clinic: 'clean', cardriving: 'playful', cleaning: 'fresh', pestcontrol: 'bold', wedding: 'editorial',
+  realestate: 'luxe', plots: 'organic', interior: 'editorial', insurance: 'clean', loan: 'aurora', solar: 'fresh',
+  digitalmarketing: 'bold', website: 'tech', appdev: 'midnight', webinar: 'bold', astrology: 'royal', kirtan: 'organic',
+  kidsabacus: 'playful', tutoring: 'playful', coaching: 'fresh',
+};
+const shortName = (p) => (p.length > 26 ? p.split(/ [—–-] | for | & /)[0] : p);
+
 const TEMPLATES = N.map(([id, category, product, baseColor, price, mrp, headline, sub, feats, quotes, faqs, badge]) => {
   const c = CAT[category];
-  const [style, colorOverride] = LOOK[id] || ['aurora'];
+  const colorOverride = (LOOK[id] || [])[1];
+  const style = STYLE_OF[id] || (LOOK[id] || ['aurora'])[0];
   const color = colorOverride || baseColor;
+  const kind = KIND[id] || 'course';
   const [painStr, expertStr] = X[id];
   const [ename, erole, ebio] = expertStr.split('|');
   const isLead = !price;
   const h = hash(id);
+  const pick = (opts, salt = 0) => (Array.isArray(opts) ? opts[(h + salt) % opts.length] : opts);
   const disc = mrp > price && mrp ? Math.round((1 - price / mrp) * 100) : 0;
   const left = 7 + (h % 9);
   const stats = pairs(c.stats(h), 'value', 'label');
@@ -92,79 +218,97 @@ const TEMPLATES = N.map(([id, category, product, baseColor, price, mrp, headline
   const bonusTotal = c.bonuses.reduce((a, s) => a + Number(s.split('|')[2]), 0);
   const proof = Array.from({ length: 12 }, (_, i) => ({ name: NAMES[(h + i * 3) % NAMES.length], city: CITIES[(h + i * 5) % CITIES.length] }));
   const action = isLead ? 'just booked a free consultation' : `just ${c.verb} ${product}`;
-  const cta = isLead ? 'Get My Free Consultation' : disc ? 'Yes! I Want This Offer' : 'Reserve My Spot';
+  const cta = isLead ? (kind === 'event' ? 'Save My Free Seat' : 'Get My Free Consultation') : kind === 'booking' ? 'Book My Slot' : kind === 'product' ? 'Order Now' : disc ? 'Yes! I Want This Offer' : 'Reserve My Spot';
+  const who = c.who;
+  const x = { id, short: shortName(product), who, whoCap: who[0].toUpperCase() + who.slice(1) };
+  const K = COPY_BY_KIND(kind, x);
   const testimonials = [
     ...pairs(quotes, 'name', 'quote'),
     ...GENERIC_QUOTES.map((q, i) => ({ name: `${NAMES[(h + 7 + i * 4) % NAMES.length]}, ${CITIES[(h + 3 + i * 7) % CITIES.length]}`, quote: q })),
-  ].map((t) => ({ ...t, tag: isLead ? 'Verified client' : `Verified ${c.who.replace(/s$/, '')}` }));
-
-  const fomoTail = [
-    { type: 'proof', props: { action, intervalSec: 9, items: proof } },
-    { type: 'exitpopup', props: { title: 'Wait — your offer expires soon!', body: isLead ? 'Book now and get a free priority callback within 2 hours.' : 'Complete your order now and get an extra 10% OFF.', code: 'INDIA10', buttonText: isLead ? 'Book free consultation' : 'Claim extra 10% OFF' } },
-    { type: 'stickybar', props: { text: isLead ? 'Free expert consultation' : `${disc}% OFF ends tonight`, price: isLead ? '₹0' : inr(price), buttonText: isLead ? 'Book Free' : 'Buy Now' } },
-    { type: 'whatsapp', props: { number: '919999999999', message: `Hi! I want to know more about ${product}.`, label: 'Chat with us' } },
-  ];
+  ].map((t) => ({ ...t, tag: isLead ? 'Verified client' : `Verified ${who.replace(/s$/, '')}` }));
   const faqItems = [
     ...pairs(faqs, 'q', 'a'),
     { q: 'Which payment methods do you accept?', a: 'UPI (GPay, PhonePe, Paytm), debit/credit cards (Visa, Mastercard, RuPay), netbanking and wallets. COD on select products.' },
     { q: isLead ? 'Is there really no charge?' : 'Do you offer a refund?', a: isLead ? 'Yes — the consultation is 100% free with no obligation to buy.' : 'Yes. You are covered by our 7-day no-questions-asked money-back guarantee.' },
-    { q: isLead ? 'How soon will you contact me?' : 'How soon do I get access?', a: isLead ? 'Our expert will call you within 24 hours (usually much sooner).' : 'Instantly. You get confirmation on email and WhatsApp within a minute of payment.' },
+    { q: isLead ? 'How soon will you contact me?' : 'How soon do I get access?', a: isLead ? 'Our expert will call you within 24 hours (usually much sooner).' : kind === 'product' ? 'Orders ship within 24 hours; tracking comes on WhatsApp.' : 'Instantly. You get confirmation on email and WhatsApp within a minute of payment.' },
   ];
 
-  const landing = [
-    { type: 'hellobar', props: { messages: [
-      { text: isLead ? '🔥 Only a few free consultations left this week' : `🔥 Flash sale: flat ${disc}% OFF — today only` },
-      { text: `⏰ Only ${left} ${c.unit} left at this price` },
+  // every section this template can use, already written for its kind
+  const S = {
+    hellobar: { messages: [
+      { text: isLead ? (kind === 'event' ? '🎙️ Free live session — seats are limited' : '📞 Free consultations open this week') : kind === 'product' ? `🚚 Free shipping across India · COD available` : kind === 'booking' ? '📅 Weekend slots fill up fast — book early' : `🔥 Flat ${disc}% OFF — this week only` },
+      { text: kind === 'product' ? `🎁 ${disc}% OFF on your first order` : `⏰ Only ${left} ${c.unit} left at this price` },
       { text: `🎁 Free bonuses worth ${inr(bonusTotal)} with every ${isLead ? 'booking' : 'order'}` },
-    ] } },
-    { type: 'hero', props: {
-      badge, headline: accentHeadline(headline), subheadline: sub, ctaText: cta, secondaryText: 'See how it works',
-      rating: Number(stats[1].value.slice(0, 3)), reviews: `${1 + (h % 9)},${100 + (h % 899)}`, socialText: `Loved by ${stats[0].value} ${c.who} across India`,
+    ] },
+    hero: {
+      badge, headline: accentHeadline(headline), subheadline: sub, ctaText: cta, secondaryText: kind === 'product' ? 'See what’s inside' : 'See how it works',
+      rating: Number(stats[1].value.slice(0, 3)), reviews: `${1 + (h % 9)},${100 + (h % 899)}`, socialText: `Loved by ${stats[0].value} ${who} across India`,
       image: '', cardEmoji: badge.split(' ')[0], cardTitle: product, cardPrice: isLead ? LEAD_PRICE[id] || 'FREE' : inr(price), cardMrp: isLead || !mrp ? '' : inr(mrp),
       cardPoints: featItems.slice(0, 3).map((f) => ({ text: f.title })),
       chip1: `🔥 ${40 + (h % 160)} ${isLead ? 'booked' : c.verb.split(' ')[0]} today`, chip2: isLead ? '✅ No spam, no obligation' : '🔒 100% secure payment',
-    } },
-    { type: 'livecount', props: { text: isLead ? 'people are checking this offer right now' : 'people are viewing this page right now', min: 24 + (h % 20), max: 70 + (h % 40) } },
-    { type: 'stats', props: { items: stats } },
-    { type: 'problem', props: { eyebrow: 'Sound familiar?', title: 'You are not alone if…', subtitle: `Thousands of ${c.who} told us the same thing before they found us.`, items: painStr.split('|').map((text) => ({ text })), closing: `There is a better way — and ${product} was built exactly for this. 👇` } },
-    { type: 'features', props: { eyebrow: 'The solution', title: 'Everything you need, in one place', subtitle: `${product} is designed for real results — not just information.`, items: featItems } },
-    { type: 'steps', props: { eyebrow: 'How it works', title: 'Get started in 4 simple steps', items: pairs(c.steps, 'title', 'text') } },
-    { type: 'compare', props: { eyebrow: 'Why choose us', title: 'The difference is clear', leftTitle: c.cmp[0], rightTitle: `With ${product}`, rows: pairs(c.cmp[1], 'left', 'right') } },
-    { type: 'testimonials', props: { eyebrow: 'Success stories', title: `Real ${c.who}. Real results.`, items: testimonials } },
-    { type: 'mentor', props: { eyebrow: isBrand(ename) ? 'Who we are' : 'Meet your expert', name: ename, role: erole, bio: ebio, image: '', points: stats.slice(0, 3).map((s) => ({ text: `${s.value} ${s.label}` })) } },
-    { type: 'bonuses', props: { eyebrow: 'Exclusive bonuses', title: `${isLead ? 'Book' : 'Order'} today & get ${inr(bonusTotal)} worth of bonuses — FREE`, items: bonusItems, totalText: `Total bonus value: ${inr(bonusTotal)} — yours free today` } },
-    { type: 'countdown', props: { label: isLead ? 'This offer closes in' : `${disc}% OFF offer ends in`, minutes: [30, 60, 120, 180][h % 4] } },
-    isLead
-      ? { type: 'optin', props: { eyebrow: '100% free · No obligation', title: 'Book your FREE consultation', subtitle: 'Share your details and our expert will call you within 24 hours.', buttonText: cta, askPhone: true, points: featItems.map((f) => ({ text: f.title })) } }
-      : { type: 'pricing', props: { badge: `🔥 ${disc}% OFF — limited time`, title: product, mrp, price, currency: '₹', bullets: [...featItems.map((f) => ({ text: f.title })), ...bonusItems.map((b) => ({ text: `BONUS: ${b.title} (${b.value})` }))], buttonText: cta, note: '🔒 Secure checkout · 7-day money-back guarantee' } },
-    { type: 'stock', props: { label: `Hurry! Only {n} ${c.unit} left at this price`, total: 50, left } },
-    { type: 'guarantee', props: { title: c.guarantee[0], body: c.guarantee[1], days: isLead ? 0 : c.guarantee[2] } },
-    { type: 'faq', props: { eyebrow: 'FAQ', title: 'Questions? We have answers.', items: faqItems } },
-    { type: 'cta', props: { headline: isLead ? 'Your free consultation is one click away' : `Don't miss ${disc}% OFF — start today`, subheadline: `Join ${stats[0].value} ${c.who} who already made the switch.`, buttonText: cta, note: isLead ? '✅ Free · ✅ No obligation · ✅ Callback within 24 hrs' : '🔒 Secure UPI & card payments · ✅ 7-day money-back guarantee' } },
-    ...fomoTail,
-  ];
+    },
+    livecount: { text: isLead ? 'people are looking at this right now' : 'people are viewing this page right now', min: 24 + (h % 20), max: 70 + (h % 40) },
+    stats: { items: stats },
+    problem: { eyebrow: K.problem[0], title: K.problem[1], subtitle: K.problem[2] || `Thousands of ${who} told us the same thing before they found us.`, items: painStr.split('|').map((text) => ({ text })), closing: `There’s a better way — and ${x.short} was built for exactly this. 👇` },
+    features: { eyebrow: K.features[0], title: K.features[1], subtitle: K.features[2] || `${product}, done properly.`, items: featItems },
+    steps: { eyebrow: K.steps[0], title: K.steps[1], items: pairs(c.steps, 'title', 'text') },
+    compare: { eyebrow: K.compare[0], title: K.compare[1], leftTitle: c.cmp[0], rightTitle: `With ${x.short}`, rows: pairs(c.cmp[1], 'left', 'right') },
+    testimonials: { eyebrow: K.testimonials[0], title: K.testimonials[1], items: testimonials },
+    mentor: { eyebrow: isBrand(ename) ? (kind === 'property' ? 'About the developer' : 'Who we are') : K.mentor, name: ename, role: erole, bio: ebio, image: '', points: stats.slice(0, 3).map((s) => ({ text: `${s.value} ${s.label}` })) },
+    bonuses: { eyebrow: K.bonuses[0], title: K.bonuses[1], items: bonusItems, totalText: `Total value: ${inr(bonusTotal)} — yours free today` },
+    countdown: { label: kind === 'event' ? 'The live session starts in' : isLead ? 'This offer closes in' : `${disc}% OFF ends in`, minutes: [30, 60, 120, 180][h % 4] },
+    stock: { label: `Hurry! Only {n} ${c.unit} left at this price`, total: 50, left },
+    guarantee: { title: c.guarantee[0], body: c.guarantee[1], days: isLead ? 0 : c.guarantee[2] },
+    faq: { eyebrow: K.faq[0], title: K.faq[1], items: faqItems },
+    cta: { headline: isLead ? (kind === 'event' ? 'Save your free seat — it takes 20 seconds' : 'Your free consultation is one click away') : kind === 'product' ? `Treat yourself — ${disc}% OFF today` : `Don’t miss ${disc}% OFF — start today`, subheadline: `Join ${stats[0].value} ${who} who already made the switch.`, buttonText: cta, note: isLead ? '✅ Free · ✅ No obligation · ✅ Callback within 24 hrs' : '🔒 Secure UPI & card payments · ✅ 7-day money-back guarantee' },
+    proof: { action, intervalSec: 9, items: proof },
+    exitpopup: { title: 'Wait — your offer expires soon!', body: isLead ? 'Book now and get a free priority callback within 2 hours.' : 'Complete your order now and get an extra 10% OFF.', code: 'INDIA10', buttonText: isLead ? 'Book free consultation' : 'Claim extra 10% OFF' },
+    stickybar: { text: isLead ? (kind === 'event' ? 'Free live session' : 'Free expert consultation') : `${disc}% OFF ends tonight`, price: isLead ? '₹0' : inr(price), buttonText: isLead ? (kind === 'event' ? 'Save Seat' : 'Book Free') : kind === 'booking' ? 'Book Now' : 'Buy Now' },
+    whatsapp: { number: '919999999999', message: `Hi! I want to know more about ${product}.`, label: 'Chat with us' },
+  };
+  const priceBox = isLead
+    ? { type: 'optin', props: { eyebrow: '100% free · No obligation', title: kind === 'event' ? 'Save your free seat' : 'Book your FREE consultation', subtitle: kind === 'event' ? 'We’ll send the joining link on WhatsApp and email.' : 'Share your details and our expert will call you within 24 hours.', buttonText: cta, askPhone: true, points: featItems.map((f) => ({ text: f.title })) } }
+    : { type: 'pricing', props: { variant: ['money', 'product', 'agency'].includes(kind) ? 'split' : 'card', badge: `🔥 ${disc}% OFF — limited time`, title: product, mrp, price, currency: '₹', bullets: [...featItems.map((f) => ({ text: f.title })), ...bonusItems.map((b) => ({ text: `BONUS: ${b.title} (${b.value})` }))], buttonText: cta, note: '🔒 Secure checkout · 7-day money-back guarantee' } };
+
+  const landing = [];
+  const plan = [...PLANS[kind]];
+  const nameOf = (e) => (Array.isArray(e) ? e[0] : e);
+  REORDER.forEach(([p, q], r) => {
+    if (((h >> (r + 2)) & 1) === 0) return;
+    const i = plan.findIndex((e) => nameOf(e) === p), j = plan.findIndex((e) => nameOf(e) === q);
+    if (i >= 0 && j >= 0) [plan[i], plan[j]] = [plan[j], plan[i]];
+  });
+  plan.forEach((entry, i) => {
+    if (entry === '*') return landing.push(priceBox);
+    const [type, layout] = Array.isArray(entry) ? entry : [entry];
+    if (isLead && ['bonuses', 'stock'].includes(type) && kind !== 'event') return; // nothing to buy yet
+    if (kind === 'product' && type === 'problem' && (FOOD.has(id) || FASHION.has(id))) return; // food & fashion lead with the product, not a problem
+    landing.push({ type, props: { ...(layout ? { variant: pick(layout, i * 3 + (h >> 5) + id.length * 7 + (id === 'wedding' ? 2 : 0)) } : {}), ...S[type] } });
+  });
+  for (const type of EXTRAS[kind]) landing.push({ type, props: S[type] });
+  const tone = { course: 'Reserve your seat', money: 'Lock in your price', transform: 'Start your plan', product: 'Complete your order', booking: 'Confirm your booking', kids: 'Confirm your child’s seat', spiritual: 'Confirm your session', agency: 'Start your project' }[kind] || 'Complete your order';
   const checkout = [
-    { type: 'hellobar', props: { messages: [{ text: '⏰ Your discounted price is reserved for 15 minutes' }, { text: '🔒 100% secure payment · 7-day money-back guarantee' }] } },
+    { type: 'hellobar', props: { messages: [{ text: `⏰ ${tone} — your price is held for 15 minutes` }, { text: '🔒 100% secure payment · 7-day money-back guarantee' }] } },
     { type: 'countdown', props: { label: 'Your price is locked for', minutes: 15 } },
-    { type: 'checkout', props: { productName: product, description: 'Instant confirmation on email & WhatsApp', price, mrp, currency: '₹', bumpEnabled: c.bump[1] > 0, bumpTitle: c.bump[0], bumpDescription: `One-time offer — add this for just ₹${c.bump[1]}. Not available later.`, bumpPrice: c.bump[1], buttonText: 'Pay Securely' } },
-    { type: 'testimonials', props: { eyebrow: 'You are in good company', title: `Join ${stats[0].value} happy ${c.who}`, items: testimonials.slice(0, 3) } },
-    { type: 'guarantee', props: { title: c.guarantee[0], body: c.guarantee[1], days: c.guarantee[2] } },
+    { type: 'checkout', props: { productName: product, description: kind === 'product' ? 'Ships in 24 hours · tracking on WhatsApp' : 'Instant confirmation on email & WhatsApp', price, mrp, currency: '₹', bumpEnabled: c.bump[1] > 0, bumpTitle: c.bump[0], bumpDescription: `One-time offer — add this for just ₹${c.bump[1]}. Not available later.`, bumpPrice: c.bump[1], buttonText: 'Pay Securely' } },
+    { type: 'testimonials', props: { variant: kind === 'product' || kind === 'kids' ? 'chat' : 'cards', eyebrow: 'You are in good company', title: `Join ${stats[0].value} happy ${who}`, items: testimonials.slice(0, 3) } },
+    { type: 'guarantee', props: { variant: 'strip', title: c.guarantee[0], body: c.guarantee[1], days: c.guarantee[2] } },
     { type: 'proof', props: { action, intervalSec: 9, items: proof } },
     { type: 'whatsapp', props: { number: '919999999999', message: 'Hi! I need help with my order.', label: 'Need help?' } },
   ];
   const thanks = [
-    { type: 'thankyou', props: { headline: isLead ? 'Booking confirmed! 🎉' : 'Order confirmed — thank you! 🎉', body: 'Details have been sent to your email & WhatsApp.', steps: [
-      { text: isLead ? 'Our expert will call you within 24 hours' : 'Check your email & WhatsApp for access details' },
+    { type: 'thankyou', props: { headline: isLead ? (kind === 'event' ? 'You’re in! 🎉' : 'Booking confirmed! 🎉') : 'Order confirmed — thank you! 🎉', body: 'Details have been sent to your email & WhatsApp.', steps: [
+      { text: isLead ? (kind === 'event' ? 'Watch WhatsApp for your joining link' : 'Our expert will call you within 24 hours') : kind === 'product' ? 'Your order ships within 24 hours' : 'Check your email & WhatsApp for access details' },
       { text: 'Save our WhatsApp number so you never miss an update' },
-      { text: `Join ${stats[0].value} ${c.who} in our community` },
+      { text: `Join ${stats[0].value} ${who} in our community` },
     ] } },
     { type: 'whatsapp', props: { number: '919999999999', message: 'Hi! I just completed my booking.', label: 'Message us' } },
   ];
   const lad = LADDER[category];
   const r9 = (n) => Math.max(99, Math.round(n / 100) * 100 - 1);
-  const offer = (kind) => {
-    const up = kind === 'up';
-    const [pname, emoji, bullets] = lad[kind];
+  const offer = (kind2) => {
+    const up = kind2 === 'up';
+    const [pname, emoji, bullets] = lad[kind2];
     return [
       { type: 'offer', props: {
         progress: up ? 'Step 2 of 3 · Customise your order' : 'Step 2 of 3 · One last chance',
@@ -174,8 +318,8 @@ const TEMPLATES = N.map(([id, category, product, baseColor, price, mrp, headline
         bullets: bullets.map((text) => ({ text })), minutes: 10,
         acceptText: up ? `Yes! Add ${pname} to my order` : `Yes, add the ${pname}`, declineText: up ? 'No thanks, I don’t want this upgrade' : 'No thanks, take me to my order',
       } },
-      { type: 'testimonials', props: { eyebrow: 'Why people add this', title: 'What upgraders say', items: testimonials.slice(2, 5) } },
-      { type: 'guarantee', props: { title: c.guarantee[0], body: 'Your upgrade is covered by the same no-questions-asked guarantee.', days: c.guarantee[2] || 7 } },
+      { type: 'testimonials', props: { variant: up ? 'spotlight' : 'cards', eyebrow: 'Why people add this', title: 'What upgraders say', items: testimonials.slice(2, 5) } },
+      { type: 'guarantee', props: { variant: up ? 'box' : 'strip', title: c.guarantee[0], body: 'Your upgrade is covered by the same no-questions-asked guarantee.', days: c.guarantee[2] || 7 } },
     ];
   };
   const crosssell = { type: 'crosssell', props: { title: 'Customers also bought', subtitle: 'Add these to your order with one click — no checkout needed.', buttonText: 'Add to my order', items: lad.cross.map(([emoji, name, desc], i) => ({ emoji, name, desc, price: r9(price * [0.5, 0.25, 0.3][i]) })) } };
@@ -188,11 +332,12 @@ const TEMPLATES = N.map(([id, category, product, baseColor, price, mrp, headline
       { name: 'Downsell', type: 'downsell', slug: 'downsell', blocks: offer('down') },
       { name: 'Thank you', type: 'thankyou', slug: 'thank-you', blocks: [thanks[0], crosssell, thanks[1]] },
     ];
-  const theme = { style, primary: color, secondary: shiftHue(color, style === 'luxe' ? 18 : 38) };
-  return { id, category, name: product, style, headline, steps, theme, hero: landing[1] };
+  const theme = { style, primary: color, secondary: shiftHue(color, ['luxe', 'royal', 'editorial'].includes(style) ? 18 : 38) };
+  const hero = landing.find((b) => b.type === 'hero');
+  return { id, category, name: product, style, kind, headline, steps, theme, hero };
 });
 
-export const templateList = () => TEMPLATES.map(({ id, category, name, style, headline, theme, hero }) => ({ id, category, name, style, headline, theme, hero: { id: 'h', ...hero } }));
+export const templateList = () => TEMPLATES.map(({ id, category, name, style, kind, headline, theme, hero }) => ({ id, category, name, style, kind, headline, theme, hero: { id: 'h', ...hero } }));
 export const getTemplate = (id) => {
   const t = TEMPLATES.find((x) => x.id === id);
   if (!t) return null;

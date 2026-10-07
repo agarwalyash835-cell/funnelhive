@@ -77,3 +77,13 @@ test('content the AI got right is kept, not overwritten by the template', () => 
   assert.deepEqual(filled, ['sales: faq section']);
   assert.equal(f.steps[0].blocks.find((b) => b.type === 'hero').props.headline, 'Custom birthday cakes baked fresh in Pune — *delivered in 3 hours*');
 });
+
+test('templates are genuinely different: own page plan, layouts and style', () => {
+  const L = M.allTemplates();
+  const plan = (t) => t.steps[0].blocks.map((b) => `${b.type}:${b.props.variant || ''}`).join(',');
+  assert.equal(new Set(L.map(plan)).size, L.length, 'no two landing pages share the same sections, order and layouts');
+  assert.ok(new Set(L.map((t) => t.style)).size >= 10, 'at least 10 visual styles in use');
+  assert.equal(new Set(L.map((t) => t.hero.props.variant)).size, 4, 'all four hero designs in use');
+  const headings = new Set(L.map((t) => t.steps[0].blocks.find((b) => b.type === 'features')?.props.title));
+  assert.ok(headings.size >= 12, `section headings are written per kind of business (${headings.size} different)`);
+});
