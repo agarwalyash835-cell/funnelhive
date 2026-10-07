@@ -10,7 +10,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DatabaseSync, backup as sqliteBackup } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import { Worker } from 'node:worker_threads';
 
 export const dir = process.env.DATA_DIR || path.dirname(fileURLToPath(import.meta.url));
 fs.mkdirSync(dir, { recursive: true });
@@ -243,7 +244,18 @@ sql.exec('PRAGMA analysis_limit = 1000; PRAGMA optimize = 0x10002;');
 // (the cluster's primary process only runs upgrades; its app processes each handle their own shutdown)
 if (process.env.FF_PRIMARY !== '1') for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { sql.exec('PRAGMA wal_checkpoint(TRUNCATE)'); sql.close(); } catch {} process.exit(0); });
 
-// Daily backups (keeps the last 7). Uses SQLite's online backup in small steps so the app keeps serving.
+// Daily backups (keeps the last 7). VACUUM INTO copies one consistent snapshot (writes carry on meanwhile) and runs
+// on its own thread with its own connection, so requests aren't held up even on a multi-gigabyte database.
+// (SQLite's page-by-page online backup restarts whenever another process writes, so on a busy server it never ends.)
+function snapshotTo(target) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(`const { workerData } = require('node:worker_threads'); const { DatabaseSync } = require('node:sqlite');
+      const db = new DatabaseSync(workerData.src, { readOnly: true }); db.exec('PRAGMA busy_timeout = 10000');
+      db.exec("VACUUM INTO '" + workerData.target.replace(/'/g, "''") + "'"); db.close();`, { eval: true, workerData: { src: dbFile, target } });
+    w.once('error', reject);
+    w.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`backup thread exited with ${code}`))));
+  });
+}
 const backupDir = path.join(dir, 'backups');
 let backingUp = false;
 export async function backupNow() {
@@ -254,9 +266,8 @@ export async function backupNow() {
     const f = path.join(backupDir, `funnelhive-${new Date().toISOString().slice(0, 10)}.db`);
     if (!fs.existsSync(f)) {
       const tmp = `${f}.partial`;
-      fs.rmSync(tmp, { force: true });
-      if (sqliteBackup) await sqliteBackup(sql, tmp, { rate: 200 });
-      else sql.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      for (const x of [tmp, `${tmp}-journal`]) fs.rmSync(x, { force: true });
+      await snapshotTo(tmp);
       fs.renameSync(tmp, f);
     }
     fs.readdirSync(backupDir).filter((n) => n.endsWith('.db')).sort().slice(0, -7).forEach((n) => fs.rmSync(path.join(backupDir, n)));
