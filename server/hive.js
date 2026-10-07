@@ -165,8 +165,8 @@ export const TOOLS = [
   },
   {
     name: 'publish_funnel', description: 'Publish (make live) or unpublish a funnel. Only when the user asks to go live.',
-    schema: S({ funnelId: str('Funnel id'), published: bool('true = live') }, ['funnelId', 'published']), touches: 'funnelId',
-    run: async (ctx, a) => { const f = await ctx.call('GET', `/funnels/${a.funnelId}`); await saveFunnel(ctx, f, { published: !!a.published }); return { ok: true, published: !!a.published, liveUrl: `${ctx.origin}/f/${f.slug}` }; },
+    schema: S({ funnelId: str('Funnel id'), published: bool('true = live (default), false = take it offline') }, ['funnelId']), touches: 'funnelId',
+    run: async (ctx, a) => { const on = a.published !== false; const f = await ctx.call('GET', `/funnels/${a.funnelId}`); await saveFunnel(ctx, f, { published: on }); return { ok: true, published: on, liveUrl: `${ctx.origin}/f/${f.slug}` }; },
     summary: (r) => (r.published ? `Published — live at ${r.liveUrl}` : 'Unpublished the funnel'),
   },
   {
@@ -242,7 +242,10 @@ const clip = (v) => { const s = JSON.stringify(v); return s.length > RESULT_MAX 
 export async function runTool(ctx, name, args) {
   const t = byName[name];
   if (!t) throw new Error(`Unknown tool ${name}`);
-  return t.run(ctx, args || {});
+  args = args && typeof args === 'object' ? args : {};
+  const missing = (t.schema?.required || []).filter((k) => args[k] === undefined || args[k] === null || args[k] === '');
+  if (missing.length) throw new Error(`Missing ${missing.join(', ')} — required by ${name}`);
+  return t.run(ctx, args);
 }
 
 // ---------- the in-app agent ----------
