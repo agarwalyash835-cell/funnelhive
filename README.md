@@ -85,7 +85,7 @@ Tools act through the platform's own API as the token's owner, so every validati
 - **Onboarding**: 3-step empty state, setup checklist, one-click demo data
 
 ## Layout
-- `server/index.js` REST API, analytics, public runtime · `server/ai.js` Claude prompts & agents ·
+- `server/index.js` REST API, analytics, public runtime · `server/ai.js` AI (kie.ai / Anthropic) + quality gate (`quality.js`) · `server/hive.js` Hive AI + MCP · `server/razorpay.js` payments ·
   `server/crm.js` contacts, pipelines, timeline · `server/automations.js` automation engine · `server/messaging.js`
   email (SMTP/Resend) + WhatsApp Cloud API · `server/domains.js` custom domains · `server/webhooks.js` signed webhooks ·
   `server/actions.js` funnel-edit actions + offline command parser · `server/templates.js` / `template-kit.js` template library
@@ -93,5 +93,8 @@ Tools act through the platform's own API as the token's owner, so every validati
   `client/src/ui.jsx` app shell & components · `client/src/charts.jsx` SVG charts
 
 ## Production to-dos
-Replace the `PAYMENT` stub in `server/index.js` with a real gateway charge; for multi-server scale, move from SQLite to
-Postgres (automations, webhooks and domain checks run in-process and assume a single server).
+- Razorpay is integrated (Orders API, signature check, webhook backup) but not yet tested with real keys; do a test
+  purchase with Razorpay test keys before going live. Until a seller connects Razorpay, checkout runs in demo mode.
+- One server only: the database is SQLite, and automations, webhooks and domain checks run inside the app process.
+  For several servers, move to Postgres and a job queue.
+- There is no platform admin panel or subscription billing for sellers yet; anyone who can open the site can sign up.
