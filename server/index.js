@@ -20,6 +20,10 @@ import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, re
 import { registerDomains, domainRouter, funnelUrl, domainOfFunnel } from './domains.js';
 import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerHive } from './hive.js';
+import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, usageSummary, AI_COST } from './billing.js';
+import { platform, isAdmin } from './platform.js';
+import { registerAdmin } from './admin.js';
+import { registerAccount } from './account.js';
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
 
 const SECRET = loadSecret(DATA_DIR);
@@ -33,6 +37,7 @@ const ALLOWED = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim())
 app.use(cors({ origin: (origin, cb) => cb(null, !origin || ALLOWED.includes(origin)) }));
 app.use('/api/uploads', express.json({ limit: '8mb' }));
 app.use('/api/razorpay/webhook', express.raw({ type: '*/*', limit: '1mb' }));
+app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use(express.json({ limit: '4mb' }));
 // Requests on a seller's own domain (offer.theirbrand.in) show their funnel
 app.use(domainRouter((...a) => renderFunnel(...a)));
@@ -52,6 +57,8 @@ const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
 const DEFAULT_SETTINGS = { businessName: '', currency: '₹', supportWhatsapp: '', payments: { provider: 'razorpay', razorpayKey: '', stripeKey: '', cashfreeKey: '', phonepeKey: '', mode: 'test' }, tracking: { fbPixel: '', ga4: '' }, webhookUrl: '', customDomain: '' };
 // pv (password version) lets us invalidate every existing session when the password changes
 const sign = (u) => jwt.sign({ id: u.id, pv: u.pv || 0 }, SECRET, { expiresIn: '30d' });
+// an admin "logging in as" a seller (support): short-lived, and the seller's account shows it
+const signAs = (u, adminId) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId }, SECRET, { expiresIn: '2h' });
 const pubUser = (u) => ({ id: u.id, email: u.email, name: u.name });
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const withDefaults = (u) => { u.settings = { ...DEFAULT_SETTINGS, ...(u.settings || {}) }; return u; };
@@ -61,11 +68,21 @@ const auth = (req, res, next) => {
     const p = jwt.verify(t, SECRET);
     req.user = T.users.get(p.id);
     if (!req.user || (p.pv || 0) !== (req.user.pv || 0)) throw new Error();
+    if (p.imp) req.impersonator = p.imp;
     withDefaults(req.user);
-    next();
+    if (Date.now() - (req.user.lastSeenAt || 0) > 10 * 60000 && !p.imp) T.users.update(req.user.id, (u) => { u.lastSeenAt = Date.now(); });
   } catch {
-    res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ error: 'Unauthorized' });
   }
+  // an account whose trial / subscription has ended is read-only (402 Payment Required)
+  const locked = lockedOut(req);
+  if (locked) return res.status(402).json({ error: locked, locked: true });
+  next();
+};
+// AI features use monthly credits
+const credits = (kind) => (req, res, next) => {
+  const err = spendCredits(req.user, AI_COST[kind]);
+  return err ? res.status(402).json({ error: err, credits: true }) : next();
 };
 // Saves changes made to req.user. After an `await`, re-read first so concurrent changes aren't lost.
 const saveUser = (u) => T.users.put(u);
@@ -89,8 +106,9 @@ async function sendVerification(req, user) {
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const { email, password, name } = req.body;
   if (!email || !EMAIL_RE.test(email) || !password || password.length < 6) return res.status(400).json({ error: 'A valid email and a 6+ character password are required' });
+  if (!platform().signupsOpen) return res.status(403).json({ error: 'New sign-ups are paused right now — please check back soon.' });
   if (T.users.exists({ email: email.toLowerCase() })) return res.status(409).json({ error: 'Email already registered' });
-  const user = { id: uid(), email: email.toLowerCase(), name: String(name || email.split('@')[0]).slice(0, 80), hash: bcrypt.hashSync(password, 10), settings: { ...DEFAULT_SETTINGS }, emailVerified: false, pv: 0, createdAt: Date.now() };
+  const user = { id: uid(), email: email.toLowerCase(), name: String(name || email.split('@')[0]).slice(0, 80), hash: bcrypt.hashSync(password, 10), settings: { ...DEFAULT_SETTINGS }, emailVerified: false, pv: 0, createdAt: Date.now(), billing: newBilling() };
   try { T.users.insert(user); } catch { return res.status(409).json({ error: 'Email already registered' }); }
   sendVerification(req, user);
   res.json({ token: sign(user), user: pubUser(user) });
@@ -200,6 +218,8 @@ app.get('/api/me', auth, (req, res) => {
   res.json({
     ...pubUser(req.user), hasDemo: !!q('SELECT 1 FROM events WHERE userId = ? AND demo = 1 LIMIT 1').get(req.user.id) || T.orders.exists({ userId: req.user.id, demo: 1 }) || T.leads.exists({ userId: req.user.id, demo: 1 }),
     aiEnabled: aiEnabled(), aiProvider: aiProvider(), mailEnabled: mailEnabled(), emailVerified: req.user.emailVerified !== false, twoFactor: !!req.user.totpEnabled, settings: s,
+    billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: isAdmin(req.user), brand: platform().brand, announcement: platform().announcement || '',
+    impersonating: !!req.impersonator,
     onboarding: {
       funnel: funnels.n > 0,
       published: funnels.pub > 0,
@@ -529,7 +549,10 @@ registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerRazorpaySettings(app, { auth, wrap });
 registerDomains(app, { auth });
 registerAutomations(app, { auth, secret: SECRET, appUrl, rateLimit, isTest });
-registerHive(app, { auth, sign, port: process.env.PORT || 4000, rateLimit, isTest, appUrl });
+registerHive(app, { auth, sign, port: process.env.PORT || 4000, rateLimit, isTest, appUrl, credits: credits('hive') });
+registerBilling(app, { auth, wrap, rateLimit, isTest });
+registerAdmin(app, { auth, wrap, signAs });
+registerAccount(app, { auth, rateLimit, isTest });
 
 const ORDERS_MAX = 5000; // newest first; CSV export covers the same list
 app.get('/api/orders', auth, (req, res) => {
@@ -550,7 +573,7 @@ app.post('/api/templates/:tid/use', auth, (req, res) => {
 });
 
 // ---------- AI ----------
-app.post('/api/ai/generate', auth, aiLimiter, wrap(async (req, res) => {
+app.post('/api/ai/generate', auth, aiLimiter, credits('generate'), wrap(async (req, res) => {
   const { prompt } = req.body;
   if (!prompt || prompt.length < 5) return res.status(400).json({ error: 'Describe your business or offer in a sentence' });
   const gen = aiEnabled() ? await generateFunnel(prompt) : matchTemplate(prompt);
@@ -562,7 +585,7 @@ app.post('/api/ai/generate', auth, aiLimiter, wrap(async (req, res) => {
   res.json({ ...f, usedAI, quality });
 }));
 
-app.post('/api/ai/edit', auth, aiLimiter, wrap(async (req, res) => {
+app.post('/api/ai/edit', auth, aiLimiter, credits('edit'), wrap(async (req, res) => {
   const f = ownFunnel(req, req.body.funnelId);
   const step = f?.steps.find((s) => s.id === req.body.stepId);
   if (!step) return res.status(404).json({ error: 'Step not found' });
@@ -570,7 +593,7 @@ app.post('/api/ai/edit', auth, aiLimiter, wrap(async (req, res) => {
 }));
 
 // Conversational builder: the model (or offline parser) returns actions which we apply to the funnel
-app.post('/api/ai/chat', auth, aiLimiter, wrap(async (req, res) => {
+app.post('/api/ai/chat', auth, aiLimiter, credits('chat'), wrap(async (req, res) => {
   if (!ownFunnel(req, req.body.funnelId)) return res.status(404).json({ error: 'Funnel not found' });
   const { message, stepId, history } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'Say something 🙂' });
@@ -594,7 +617,7 @@ app.post('/api/ai/chat', auth, aiLimiter, wrap(async (req, res) => {
 }));
 
 app.get('/api/ai/agents', auth, (_, res) => res.json(AGENTS));
-app.post('/api/ai/agent', auth, aiLimiter, wrap(async (req, res) => {
+app.post('/api/ai/agent', auth, aiLimiter, credits('agent'), wrap(async (req, res) => {
   const { kind, funnelId, extra } = req.body;
   if (!AGENTS[kind]) return res.status(400).json({ error: 'Unknown agent' });
   const f = ownFunnel(req, funnelId) || T.funnels.find({ userId: req.user.id });
@@ -675,10 +698,11 @@ app.delete('/api/demo', auth, (req, res) => {
 });
 
 // ---------- public funnel runtime ----------
+// a funnel is live when it's published and its owner's account still serves pages
+const live = (f, preview) => f && (f.published || preview) && accessFor(T.users.get(f.userId)).pagesLive;
 const pub = (req, res) => {
   const f = T.funnels.find({ slug: req.params.slug });
-  const preview = req.query.preview === '1';
-  if (!f || (!f.published && !preview)) { res.status(404).json({ error: 'This page is not published yet.' }); return null; }
+  if (!live(f, req.query.preview === '1')) { res.status(404).json({ error: 'This page is not available right now.' }); return null; }
   return f;
 };
 const isPreview = (req) => req.query.preview === '1';
@@ -971,6 +995,7 @@ app.get(['/f/:slug', '/f/:slug/:step'], (req, res, next) => {
 function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } = {}) {
   if (!indexHtml) return res.status(503).type('text').send('The app is not built yet');
   const owner = ownerOf(f);
+  if (!accessFor(owner).pagesLive) return res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not available</title><p style="font:16px system-ui;padding:40px;text-align:center">This page isn’t available right now.</p>');
   const base = domain ? `https://${domain}` : appUrl(req);
   const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}]);
   let html = cacheGet(key);

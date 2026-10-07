@@ -18,7 +18,7 @@ export const rzpStatus = (u) => {
   return { keyId: r?.keyId || '', hasSecret: !!r?.secretEnc, hasWebhookSecret: !!r?.webhookSecretEnc, mode: r?.keyId?.startsWith('rzp_live_') ? 'live' : r?.keyId ? 'test' : null, configured: !!(r?.keyId && r?.secretEnc) };
 };
 
-async function call(c, method, path, body) {
+export async function call(c, method, path, body) {
   const r = await fetch(`${API()}${path}`, {
     method,
     headers: { Authorization: `Basic ${Buffer.from(`${c.keyId}:${c.secret}`).toString('base64')}`, 'Content-Type': 'application/json' },

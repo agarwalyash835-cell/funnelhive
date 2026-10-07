@@ -297,7 +297,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
 }
 
 // ---------- routes: chat, threads, MCP, access tokens ----------
-export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl }) {
+export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl, credits = (req, res, next) => next() }) {
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 12, key: (req) => req.user.id, message: 'Hive AI is busy with your earlier messages — wait a moment.' });
   // a tool context that calls our own API as this user
   const ctxFor = (user, origin) => ({
@@ -318,7 +318,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl 
   app.delete('/api/hive/threads/:tid', auth, (req, res) => { T.hive.delWhere({ id: req.params.tid, userId: req.user.id }); res.json({ ok: true }); });
 
   // Streams progress as Server-Sent Events: thinking / tool (running|done|error) / reply / error
-  app.post('/api/hive/chat', auth, limiter, async (req, res) => {
+  app.post('/api/hive/chat', auth, limiter, credits, async (req, res) => {
     const message = String(req.body.message || '').trim().slice(0, 6000);
     if (!message) return res.status(400).json({ error: 'Type a message' });
     if (!hiveReady()) return res.status(503).json({ error: 'Hive AI needs an AI model with tool support — set KIE_API_KEY (with KIE_MODEL deepseek-v4-1-flash, gpt-…, or kimi-…) on the server.' });

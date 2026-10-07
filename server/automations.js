@@ -7,6 +7,7 @@ import { sendEmail, sendWhatsApp, emailStatus, whatsappStatus } from './messagin
 import { logActivity, contactKey, ensureMeta, metaFor, stageFor } from './crm.js';
 import { funnelUrl } from './domains.js';
 import { enqueue as fireWebhook, checkWebhookUrl } from './webhooks.js';
+import { accessFor } from './billing.js';
 
 export const TRIGGERS = {
   lead: 'Someone signs up (opt-in or form)',
@@ -370,6 +371,8 @@ export async function advance(id) {
     const u = userOf(r.userId);
     if (!a || !u) { r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Automation deleted' }); return; }
     if (!a.active) { r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Automation turned off' }); return; }
+    // paused while the seller's subscription is inactive; picks up where it left off after they renew
+    if (!accessFor(u).ok) { r.nextAt = Date.now() + 3600000; if (r.log.at(-1)?.result !== 'paused') note(r, { result: 'paused', detail: 'Paused — subscription inactive' }); return; }
     if (!r.pos) r.pos = [r.step || 0]; // runs started before branching existed
     r.pos = settle(a.steps, r.pos);
     for (let guard = 0; r.status === 'active' && guard < 500; guard++) {
