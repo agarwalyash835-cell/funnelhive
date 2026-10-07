@@ -30,7 +30,7 @@ test('email verification link works', async () => {
   const { token } = await register(api, email);
   assert.equal((await api('/me', 'GET', null, token)).data.emailVerified, false);
   await new Promise((r) => setTimeout(r, 200));
-  const link = srv.log().match(new RegExp(`To: ${email}[\\s\\S]*?/verify\\?token=([a-f0-9]+)`));
+  const link = srv.log().match(new RegExp(`To: ${email}[\\s\\S]*?/verify\\?token=([a-f0-9.]+)`));
   assert.ok(link, 'verification link printed to console');
   assert.equal((await api('/auth/verify', 'POST', { token: link[1] })).status, 200);
   assert.equal((await api('/me', 'GET', null, token)).data.emailVerified, true);
@@ -43,7 +43,7 @@ test('password reset: link resets password and signs out old sessions', async ()
   assert.equal((await api('/auth/forgot', 'POST', { email: 'nobody@test.dev' })).status, 200, 'no account enumeration');
   await api('/auth/forgot', 'POST', { email });
   await new Promise((r) => setTimeout(r, 200));
-  const t = srv.log().match(new RegExp(`To: ${email}[\\s\\S]*?/reset\\?token=([a-f0-9]+)`))[1];
+  const t = srv.log().match(new RegExp(`To: ${email}[\\s\\S]*?/reset\\?token=([a-f0-9.]+)`))[1];
   const r = await api('/auth/reset', 'POST', { token: t, password: 'newpass456' });
   assert.equal(r.status, 200);
   assert.equal((await api('/me', 'GET', null, old)).status, 401, 'old session revoked');

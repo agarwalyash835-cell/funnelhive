@@ -3,7 +3,7 @@
 // signature before the order counts as paid. The webhook (payment.captured / order.paid) covers
 // buyers who pay but close the page before the browser reports back.
 import crypto from 'node:crypto';
-import { encrypt, decrypt } from './messaging.js';
+import { encrypt, decrypt, setChannel } from './messaging.js';
 
 const API = () => (process.env.RAZORPAY_API_URL || 'https://api.razorpay.com/v1').replace(/\/$/, '');
 const KEY_RE = /^rzp_(test|live)_[A-Za-z0-9]{8,40}$/;
@@ -38,10 +38,10 @@ export const validPayment = (secret, orderId, paymentId, signature) => same(hmac
 export const validWebhook = (secret, rawBody, signature) => !!secret && same(hmac(secret, rawBody), String(signature || ''));
 
 // ---------- settings ----------
-export function registerRazorpaySettings(app, { auth, save, wrap }) {
+export function registerRazorpaySettings(app, { auth, wrap }) {
   app.put('/api/channels/razorpay', auth, wrap(async (req, res) => {
     const b = req.body || {};
-    if (b.clear) { delete req.user.channels?.razorpay; save(); return res.json(rzpStatus(req.user)); }
+    if (b.clear) return res.json(rzpStatus(setChannel(req.user.id, 'razorpay', undefined)));
     const keyId = String(b.keyId || '').trim();
     if (!KEY_RE.test(keyId)) return res.status(400).json({ error: 'The Key ID looks like rzp_test_… or rzp_live_… (Razorpay → Account & Settings → API keys)' });
     const prev = req.user.channels?.razorpay || {};
@@ -52,8 +52,6 @@ export function registerRazorpaySettings(app, { auth, save, wrap }) {
       return res.status(400).json({ error: e.status === 401 ? 'Razorpay rejected these keys — check the Key ID and Key Secret (and that both are test or both live)' : `Couldn’t reach Razorpay: ${e.message}` });
     }
     const webhookSecret = String(b.webhookSecret || '').trim();
-    req.user.channels = { ...req.user.channels, razorpay: { keyId, secretEnc: encrypt(secret), webhookSecretEnc: webhookSecret ? encrypt(webhookSecret) : b.clearWebhookSecret ? '' : prev.webhookSecretEnc || '', at: Date.now() } };
-    save();
-    res.json(rzpStatus(req.user));
+    res.json(rzpStatus(setChannel(req.user.id, 'razorpay', { keyId, secretEnc: encrypt(secret), webhookSecretEnc: webhookSecret ? encrypt(webhookSecret) : b.clearWebhookSecret ? '' : prev.webhookSecretEnc || '', at: Date.now() })));
   }));
 }

@@ -15,7 +15,7 @@ const freePort = () => new Promise((res) => {
 export async function startServer(env = {}, opts = {}) {
   const port = await freePort();
   const dataDir = opts.dataDir || fs.mkdtempSync(path.join(os.tmpdir(), 'ff-test-'));
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'index.js'], {
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', opts.entry || 'index.js'], {
     cwd: serverDir,
     env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ANTHROPIC_API_KEY: '', KIE_API_KEY: '', JWT_SECRET: 'test-secret', NODE_ENV: 'test', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],

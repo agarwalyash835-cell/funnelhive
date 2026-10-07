@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { checkPublicHost, allowPrivate } from './webhooks.js';
+import { T } from './db.js';
 
 let KEY = null;
 export function initMessaging(secret) { KEY = crypto.createHash('sha256').update(`channels:${process.env.ENCRYPTION_KEY || secret}`).digest(); }
@@ -105,12 +106,16 @@ export const publicChannels = (u) => {
   };
 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export function registerChannels(app, { auth, save, wrap, rateLimit, isTest }) {
+// Saves one channel (email / whatsapp / razorpay) on the latest copy of the account; undefined removes it
+export function setChannel(userId, name, value) {
+  return T.users.update(userId, (u) => { u.channels = { ...u.channels }; if (value === undefined) delete u.channels[name]; else u.channels[name] = value; });
+}
+export function registerChannels(app, { auth, wrap, rateLimit, isTest }) {
   const testLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 6, key: (req) => req.user.id, message: 'Too many test messages — please wait a minute.' });
   app.get('/api/channels', auth, (req, res) => res.json(publicChannels(req.user)));
   app.put('/api/channels/email', auth, wrap(async (req, res) => {
     const b = req.body || {};
-    if (b.clear) { delete req.user.channels?.email; save(); return res.json(publicChannels(req.user)); }
+    if (b.clear) return res.json(publicChannels(setChannel(req.user.id, 'email', undefined)));
     const host = str(b.host, 200).toLowerCase();
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host) && !/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return res.status(400).json({ error: 'Enter the SMTP server, e.g. smtp.gmail.com' });
     const port = Number(b.port);
@@ -123,21 +128,17 @@ export function registerChannels(app, { auth, save, wrap, rateLimit, isTest }) {
     if (!str(b.user, 200) || (!b.pass && !prevE.passEnc)) return res.status(400).json({ error: 'Enter the SMTP username and password' });
     try { await checkPublicHost(host); } catch (e) { return res.status(400).json({ error: `SMTP server: ${e.message}` }); }
     const prev = req.user.channels?.email || {};
-    req.user.channels = { ...req.user.channels, email: { host, port, secure: b.secure ?? port === 465, user: str(b.user, 200), passEnc: b.pass ? encrypt(String(b.pass).slice(0, 500)) : prev.passEnc || '', fromName: str(b.fromName, 80), fromEmail, replyTo } };
-    save();
-    res.json(publicChannels(req.user));
+    res.json(publicChannels(setChannel(req.user.id, 'email', { host, port, secure: b.secure ?? port === 465, user: str(b.user, 200), passEnc: b.pass ? encrypt(String(b.pass).slice(0, 500)) : prev.passEnc || '', fromName: str(b.fromName, 80), fromEmail, replyTo })));
   }));
   app.put('/api/channels/whatsapp', auth, (req, res) => {
     const b = req.body || {};
-    if (b.clear) { delete req.user.channels?.whatsapp; save(); return res.json(publicChannels(req.user)); }
+    if (b.clear) return res.json(publicChannels(setChannel(req.user.id, 'whatsapp', undefined)));
     const phoneNumberId = str(b.phoneNumberId, 40);
     if (!/^\d{6,30}$/.test(phoneNumberId)) return res.status(400).json({ error: 'The Phone number ID is a long number from Meta → WhatsApp → API setup' });
     const prev = req.user.channels?.whatsapp || {};
     const token = str(b.token, 1000);
     if (!token && !prev.tokenEnc) return res.status(400).json({ error: 'Paste your permanent access token' });
-    req.user.channels = { ...req.user.channels, whatsapp: { phoneNumberId, businessId: str(b.businessId, 40), tokenEnc: token ? encrypt(token) : prev.tokenEnc } };
-    save();
-    res.json(publicChannels(req.user));
+    res.json(publicChannels(setChannel(req.user.id, 'whatsapp', { phoneNumberId, businessId: str(b.businessId, 40), tokenEnc: token ? encrypt(token) : prev.tokenEnc })));
   });
   app.post('/api/channels/email/test', auth, testLimiter, wrap(async (req, res) => {
     const to = str(req.body.to || req.user.email, 200);

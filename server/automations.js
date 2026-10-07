@@ -2,9 +2,9 @@
 // Each contact that enters an automation gets a persisted run; a background worker advances runs
 // whose wait is over. Every message sent (or skipped, and why) is written to the contact's timeline.
 import crypto from 'node:crypto';
-import { db, save, uid } from './db.js';
+import { T, q, tx, uid, JOBS } from './db.js';
 import { sendEmail, sendWhatsApp, emailStatus, whatsappStatus } from './messaging.js';
-import { logActivity, contactKey, ensureMeta, stageFor } from './crm.js';
+import { logActivity, contactKey, ensureMeta, metaFor, stageFor } from './crm.js';
 import { funnelUrl } from './domains.js';
 import { enqueue as fireWebhook, checkWebhookUrl } from './webhooks.js';
 
@@ -51,9 +51,8 @@ function fill(text, ctx) {
 // ---------- validation ----------
 function cleanTrigger(t = {}, userId) {
   const type = TRIGGERS[t.type] ? t.type : 'lead';
-  const own = new Set(db.funnels.filter((f) => f.userId === userId).map((f) => f.id));
   const out = { type };
-  if (t.funnelId && own.has(t.funnelId)) out.funnelId = t.funnelId;
+  if (t.funnelId && T.funnels.get(t.funnelId)?.userId === userId) out.funnelId = t.funnelId;
   if (type === 'abandoned') out.delayMin = Math.min(10080, Math.max(5, Math.round(Number(t.delayMin) || 30)));
   if (type === 'stage') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); }
   if (type === 'tag') out.tag = str(t.tag, 30).trim();
@@ -158,10 +157,10 @@ function problems(a, u) {
 }
 
 // ---------- starting runs ----------
-const userOf = (id) => db.users.find((u) => u.id === id);
+const userOf = (id) => T.users.get(id);
 function contextFor(userId, data) {
-  const f = data.funnelId && db.funnels.find((x) => x.id === data.funnelId);
-  const a = db.automations.find((x) => x.userId === userId && x.origin);
+  const f = data.funnelId ? T.funnels.get(data.funnelId) : null;
+  const a = T.automations.all({ userId }).find((x) => x.origin);
   const origin = a?.origin || originFallback();
   const checkout = f?.steps.find((s) => s.type === 'checkout');
   const name = data.name || '';
@@ -176,7 +175,7 @@ export function fire(userId, event, data = {}) {
   try {
     // a purchase immediately ends sequences that were chasing it (no waiting for the next step)
     if ((event === 'purchase' || event === 'offer') && data.email) stopForBuyer(userId, data.email);
-    const list = db.automations.filter((a) => a.userId === userId && a.active && a.trigger.type === event);
+    const list = T.automations.all({ userId, triggerType: event, active: 1 });
     for (const a of list) {
       const t = a.trigger;
       if (t.funnelId && t.funnelId !== data.funnelId) continue;
@@ -190,44 +189,45 @@ function start(a, data) {
   const ctx = contextFor(a.userId, data);
   if (!ctx.key) return null;
   // one run per contact per automation (repeats only when the automation allows them)
-  if (db.runs.some((r) => r.automationId === a.id && r.key === ctx.key && (r.status === 'active' || !a.allowRepeat))) return null;
+  const prev = q('SELECT status FROM runs WHERE automationId = ? AND key = ?').all(a.id, ctx.key);
+  if (prev.some((r) => r.status === 'active' || !a.allowRepeat)) return null;
   const r = { id: uid(), userId: a.userId, automationId: a.id, key: ctx.key, ctx, pos: [0], nextAt: Date.now(), status: 'active', at: Date.now(), log: [] };
-  db.runs.push(r);
-  a.stats = { ...a.stats, started: (a.stats?.started || 0) + 1 };
-  save();
-  setImmediate(() => advance(r));
+  tx(() => {
+    T.runs.insert(r);
+    T.automations.update(a.id, (x) => { x.stats = { ...x.stats, started: (x.stats?.started || 0) + 1 }; });
+  });
+  setImmediate(() => advance(r.id));
   return r;
 }
 
 function stopForBuyer(userId, email) {
-  const e = String(email).toLowerCase();
-  let n = 0;
-  for (const r of db.runs) {
-    if (r.userId !== userId || r.status !== 'active' || r.ctx.email.toLowerCase() !== e) continue;
-    const a = db.automations.find((x) => x.id === r.automationId);
-    if (!a?.stopOnPurchase) continue;
-    r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Contact bought — follow-ups stopped' }); n++;
-  }
-  if (n) save();
+  const e = String(email).trim().toLowerCase();
+  tx(() => {
+    for (const r of T.runs.all({ userId, status: 'active', email: e })) {
+      if (!T.automations.get(r.automationId)?.stopOnPurchase) continue;
+      r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Contact bought — follow-ups stopped' });
+      T.runs.put(r);
+    }
+  });
 }
 
 // ---------- running ----------
 const inFlight = new Set();
-const boughtSince = (r) => db.orders.some((o) => o.at > r.at && (o.email || '').toLowerCase() === r.ctx.email.toLowerCase() && r.ctx.email && db.funnels.find((f) => f.id === o.funnelId)?.userId === r.userId);
+const boughtSince = (r) => !!r.ctx.email && T.orders.exists({ userId: r.userId, ckey: contactKey(r.ctx.email), at: { gt: r.at } });
 const note = (r, entry) => { r.log.push({ at: Date.now(), ...entry }); if (r.log.length > LOG_MAX) r.log.splice(0, r.log.length - LOG_MAX); };
-const meta = (r) => db.crm.find((m) => m.userId === r.userId && m.key === r.key);
+const meta = (r) => metaFor(r.userId, r.key);
 
 // ---------- if / else ----------
 const low = (v) => String(v ?? '').trim().toLowerCase();
 function ordersOf(r) {
   const e = low(r.ctx.email);
   if (!e) return [];
-  return db.orders.filter((o) => low(o.email) === e && db.funnels.find((f) => f.id === o.funnelId)?.userId === r.userId);
+  return T.orders.all({ userId: r.userId, ckey: e }, { order: 'at' });
 }
+// where the contact first came from (their earliest sign-up or order)
 function sourceOf(r) {
   if (r.ctx.source) return low(r.ctx.source);
-  const k = r.key;
-  const hit = [...db.orders, ...db.leads].filter((x) => contactKey(x.email, x.phone) === k).sort((x, y) => x.at - y.at)[0];
+  const hit = [T.orders.find({ userId: r.userId, ckey: r.key }, { order: 'at' }), T.leads.find({ userId: r.userId, ckey: r.key }, { order: 'at' })].filter(Boolean).sort((x, y) => x.at - y.at)[0];
   return low(hit?.source);
 }
 function cmp(op, actual, expected) {
@@ -253,8 +253,8 @@ export function evalRule(r, rule) {
     }
     case 'tag': { const hit = (m?.tags || []).some((t) => low(t) === low(rule.value)); return neg ? !hit : hit; }
     case 'stage': {
-      const p = db.pipelines.find((x) => x.id === rule.pipelineId && x.userId === r.userId);
-      if (!p) return false;
+      const p = T.pipelines.get(rule.pipelineId);
+      if (!p || p.userId !== r.userId) return false;
       const hit = stageFor(p, m, ordersOf(r).length > 0) === rule.stageId;
       return neg ? !hit : hit;
     }
@@ -262,7 +262,7 @@ export function evalRule(r, rule) {
     case 'unsubscribed': return neg ? !m?.unsubscribed : !!m?.unsubscribed;
     case 'opened': case 'clicked': {
       const k = rule.field === 'opened' ? 'opens' : 'clicks';
-      const hit = db.msgs.some((x) => x.runId === r.id && (!rule.stepId || x.stepId === rule.stepId) && x[k] > 0);
+      const hit = T.msgs.all({ runId: r.id }).some((x) => (!rule.stepId || x.stepId === rule.stepId) && x[k] > 0);
       return neg ? !hit : hit;
     }
     case 'source': return cmp(rule.op === 'not' ? 'not_equals' : rule.op === 'is' ? 'equals' : rule.op, sourceOf(r), rule.value);
@@ -296,7 +296,8 @@ export function nextTimeOfDay(hhmm, now = Date.now()) {
   if (t <= now) t += 86400000;
   return t;
 }
-const bump = (a, s, result) => { a.stepStats ||= {}; const x = (a.stepStats[s.id] ||= {}); x[result] = (x[result] || 0) + 1; };
+// per-step counters, updated on the stored automation (several runs may finish steps at once)
+const bump = (a, s, result) => T.automations.update(a.id, (x) => { x.stepStats ||= {}; const c = (x.stepStats[s.id] ||= {}); c[result] = (c[result] || 0) + 1; });
 
 async function runStep(a, r, s, u) {
   const ctx = r.ctx;
@@ -310,7 +311,7 @@ async function runStep(a, r, s, u) {
       const msg = { id: uid(), userId: r.userId, automationId: a.id, stepId: s.id, runId: r.id, key: r.key, subject, at: Date.now(), opens: 0, clicks: 0 };
       const unsub = unsubUrl(ctx.origin, r.userId, r.key);
       await sendEmail(u, { to: ctx.email, subject, text, unsubscribeUrl: unsub, track: { pixel: `${ctx.origin}/t/o/${msg.id}.gif`, link: (url) => (url === unsub ? url : `${ctx.origin}/t/c/${msg.id}?u=${encodeURIComponent(url)}&s=${linkSig(msg.id, url)}`) } });
-      db.msgs.push(msg);
+      T.msgs.insert(msg);
       tl('email', `Email sent: ${subject}`, text, { status: 'sent' });
       return { result: 'sent', detail: subject };
     }
@@ -331,18 +332,19 @@ async function runStep(a, r, s, u) {
       const mm = ensureMeta(r.userId, r.key);
       const had = (mm.tags || []).some((t) => t.toLowerCase() === s.tag.toLowerCase());
       mm.tags = s.action === 'remove' ? (mm.tags || []).filter((t) => t.toLowerCase() !== s.tag.toLowerCase()) : had ? mm.tags : [...(mm.tags || []), s.tag].slice(0, 20);
-      save();
+      T.crm.put(mm);
       if (s.action === 'add' && !had) fire(r.userId, 'tag', { ...ctx, key: r.key, tag: s.tag, funnelId: ctx.funnelId });
       return { result: 'done', detail: `${s.action === 'remove' ? 'Removed' : 'Added'} tag ${s.tag}` };
     }
     case 'stage': {
-      const p = db.pipelines.find((x) => x.id === s.pipelineId && x.userId === r.userId);
+      const p0 = T.pipelines.get(s.pipelineId);
+      const p = p0?.userId === r.userId ? p0 : null;
       const st = p?.stages.find((x) => x.id === s.stageId);
       if (!st) return { result: 'skipped', detail: 'That stage no longer exists' };
       logActivity(r.userId, r.key, { type: 'stage', title: `Moved to ${st.name}`, text: `${p.name} · by automation “${a.name}”` });
       const mm = ensureMeta(r.userId, r.key);
       mm.stages = { ...mm.stages, [p.id]: st.id };
-      save();
+      T.crm.put(mm);
       return { result: 'done', detail: `Moved to ${st.name}` };
     }
     case 'webhook': {
@@ -354,11 +356,17 @@ async function runStep(a, r, s, u) {
   }
 }
 
-export async function advance(r) {
-  if (inFlight.has(r.id) || r.status !== 'active' || r.nextAt > Date.now()) return;
-  inFlight.add(r.id);
+// A run is claimed before it's advanced (its nextAt moves 10 minutes ahead), so two processes never
+// send the same step twice; if a process dies mid-step the claim simply expires and it's retried.
+const LEASE = 10 * 60000;
+const claim = (id) => q("UPDATE runs SET nextAt = ? WHERE id = ? AND status = 'active' AND nextAt <= ?").run(Date.now() + LEASE, id, Date.now()).changes === 1;
+export async function advance(id) {
+  if (inFlight.has(id)) return;
+  const r = T.runs.get(id);
+  if (!r || r.status !== 'active' || r.nextAt > Date.now() || !claim(id)) return;
+  inFlight.add(id);
   try {
-    const a = db.automations.find((x) => x.id === r.automationId);
+    const a = T.automations.get(r.automationId);
     const u = userOf(r.userId);
     if (!a || !u) { r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Automation deleted' }); return; }
     if (!a.active) { r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Automation turned off' }); return; }
@@ -408,26 +416,31 @@ export async function advance(r) {
       }
       r.pos = nextPos(a.steps, r.pos);
     }
-    if (r.status === 'active' && !listAt(a.steps, r.pos)[r.pos.at(-1)]) { r.status = 'done'; r.doneAt = Date.now(); a.stats = { ...a.stats, completed: (a.stats?.completed || 0) + 1 }; }
+    if (r.status === 'active' && !listAt(a.steps, r.pos)[r.pos.at(-1)]) { r.status = 'done'; r.doneAt = Date.now(); T.automations.update(a.id, (x) => { x.stats = { ...x.stats, completed: (x.stats?.completed || 0) + 1 }; }); }
   } finally {
-    save();
-    inFlight.delete(r.id);
+    // stopped elsewhere while a message was being sent (the contact bought, or the seller stopped it)? keep that
+    const cur = T.runs.get(id);
+    if (cur && cur.status !== 'active' && r.status === 'active') { r.status = cur.status; r.log = [...r.log, ...cur.log.filter((x) => !r.log.some((y) => y.at === x.at && y.detail === x.detail))].slice(-LOG_MAX); }
+    if (cur) T.runs.put(r);
+    inFlight.delete(id);
   }
 }
 
 // Abandoned checkouts become a trigger once they've waited long enough without a purchase
+// Carts become eligible once they've waited `delay`; each scan looks at the last 2 days of eligible carts
+const ABANDON_WINDOW = 2 * 86400000;
 function scanAbandoned() {
   const now = Date.now();
-  for (const a of db.automations) {
-    if (!a.active || a.trigger.type !== 'abandoned') continue;
+  for (const a of T.automations.all({ triggerType: 'abandoned', active: 1 })) {
     const delay = (a.trigger.delayMin || 30) * 60000 * SCALE;
-    for (const c of db.abandoned) {
-      if (c.recovered || c.demo || c.at < (a.activatedAt || a.createdAt) || now - c.at < delay) continue;
-      const f = db.funnels.find((x) => x.id === c.funnelId);
-      if (!f || f.userId !== a.userId || (a.trigger.funnelId && a.trigger.funnelId !== f.id)) continue;
-      c.auto ||= [];
-      if (c.auto.includes(a.id)) continue;
-      c.auto.push(a.id);
+    const since = Math.max(a.activatedAt || a.createdAt || 0, now - delay - ABANDON_WINDOW);
+    for (const c of T.abandoned.all({ userId: a.userId, recovered: 0, demo: 0, at: { gte: since, lte: now - delay } })) {
+      if (a.trigger.funnelId && a.trigger.funnelId !== c.funnelId) continue;
+      if ((c.auto || []).includes(a.id)) continue;
+      const f = T.funnels.get(c.funnelId);
+      if (!f || f.userId !== a.userId) continue;
+      c.auto = [...(c.auto || []), a.id];
+      T.abandoned.put(c);
       const chk = f.steps.find((s) => s.type === 'checkout')?.blocks.find((b) => b.type === 'checkout')?.props;
       start(a, { email: c.email, name: c.name, phone: c.phone, funnelId: f.id, product: chk?.productName, amount: chk?.price });
     }
@@ -435,9 +448,8 @@ function scanAbandoned() {
 }
 // contact details for a key, from the CRM record or their latest sign-up / order
 function contactInfo(userId, key) {
-  const m = db.crm.find((x) => x.userId === userId && x.key === key);
-  const mine = (x) => db.funnels.find((f) => f.id === x.funnelId)?.userId === userId;
-  const last = [...db.orders, ...db.leads].filter((x) => contactKey(x.email, x.phone) === key && mine(x)).sort((x, y) => y.at - x.at)[0];
+  const m = metaFor(userId, key);
+  const last = [T.orders.find({ userId, ckey: key }, { order: 'at', desc: true }), T.leads.find({ userId, ckey: key }, { order: 'at', desc: true })].filter(Boolean).sort((x, y) => y.at - x.at)[0];
   if (!m && !last) return null;
   return { key, email: m?.email || last?.email || (key.startsWith('phone:') ? '' : key), phone: m?.phone || last?.phone || (key.startsWith('phone:') ? key.slice(6) : ''), name: m?.name || last?.name || '', funnelId: last?.funnelId, source: last?.source };
 }
@@ -445,11 +457,13 @@ function contactInfo(userId, key) {
 const ymd = (t) => new Date(t + TZ_MIN * 60000).toISOString().slice(0, 10);
 function scanDates(now = Date.now()) {
   const today = ymd(now);
-  for (const a of db.automations) {
-    if (!a.active || a.trigger.type !== 'date' || !a.trigger.fieldId) continue;
+  for (const a of T.automations.all({ triggerType: 'date', active: 1 })) {
+    if (!a.trigger.fieldId || !/^[\w-]{1,20}$/.test(a.trigger.fieldId)) continue;
     const t = a.trigger;
-    for (const m of db.crm) {
-      if (m.userId !== a.userId) continue;
+    // only contacts that have this date filled in (filtered inside SQLite)
+    const rows = q("SELECT data FROM crm WHERE userId = ? AND json_extract(data, '$.custom.' || ?) IS NOT NULL").all(a.userId, t.fieldId);
+    for (const row of rows) {
+      const m = JSON.parse(row.data);
       const v = m.custom?.[t.fieldId];
       if (!v || !/^\d{4}-\d{2}-\d{2}/.test(v)) continue;
       // the day it should fire: the date (this year's, for yearly ones) shifted by the offset
@@ -467,30 +481,36 @@ function scanDates(now = Date.now()) {
       m.dateFired ||= {};
       if (m.dateFired[a.id] === mark) continue;
       m.dateFired[a.id] = mark;
+      T.crm.update(m.id, (x) => { x.dateFired = { ...x.dateFired, [a.id]: mark }; });
       const info = contactInfo(a.userId, m.key);
       if (info) start(a, info);
     }
   }
 }
+// at most this many runs are started per tick, so a burst can't monopolise the server
+const BATCH = Number(process.env.AUTOMATION_BATCH || 500);
+let lastPrune = 0, lastDates = 0;
 export function tick() {
-  scanAbandoned();
-  scanDates();
   const now = Date.now();
-  for (const r of db.runs) if (r.status === 'active' && r.nextAt <= now) advance(r);
-  // keep finished runs for 60 days, email tracking records for 90
-  const cutoff = now - 60 * 86400000;
-  if (db.msgs.length && db.msgs[0].at < now - 90 * 86400000) { db.msgs = db.msgs.filter((m) => m.at >= now - 90 * 86400000); save(); }
-  if (db.runs.some((r) => r.status !== 'active' && (r.doneAt || r.at) < cutoff)) { db.runs = db.runs.filter((r) => r.status === 'active' || (r.doneAt || r.at) >= cutoff); save(); }
+  scanAbandoned();
+  if (now - lastDates > Math.min(60000, TICK * 4) || SCALE < 1) { lastDates = now; scanDates(); }
+  for (const r of q(`SELECT id FROM runs WHERE status = 'active' AND nextAt <= ? ORDER BY nextAt LIMIT ${BATCH}`).all(now)) advance(r.id);
+  // keep finished runs for 60 days, email tracking records for 90 (pruned hourly)
+  if (now - lastPrune > 3600000) {
+    lastPrune = now;
+    q('DELETE FROM msgs WHERE at < ?').run(now - 90 * 86400000);
+    q("DELETE FROM runs WHERE status != 'active' AND COALESCE(doneAt, at) < ?").run(now - 60 * 86400000);
+  }
 }
 
 // ---------- API ----------
-const view = (a) => { const { userId, ...x } = a; return { ...x, running: db.runs.filter((r) => r.automationId === a.id && r.status === 'active').length }; };
+const view = (a) => { const { userId, ...x } = a; return { ...x, running: T.runs.count({ automationId: a.id, status: 'active' }) }; };
 // A/B results: how many went each way, and how many of them bought afterwards
 function splitResults(a) {
   const out = {};
   const splits = allSteps(a.steps).filter((s) => s.type === 'split');
   if (!splits.length) return out;
-  const runs = db.runs.filter((r) => r.automationId === a.id && r.splits);
+  const runs = T.runs.all({ automationId: a.id }).filter((r) => r.splits);
   for (const s of splits) {
     const res = { a: { n: 0, bought: 0 }, b: { n: 0, bought: 0 } };
     for (const r of runs) {
@@ -506,26 +526,23 @@ function splitResults(a) {
 // opens / clicks per email step (unique per email sent)
 function emailResults(a) {
   const out = {};
-  for (const m of db.msgs) if (m.automationId === a.id) { const x = (out[m.stepId] ||= { sent: 0, opened: 0, clicked: 0 }); x.sent++; if (m.opens) x.opened++; if (m.clicks) x.clicked++; }
+  for (const r of q(`SELECT json_extract(data, '$.stepId') AS stepId, COUNT(*) AS sent, SUM(json_extract(data, '$.opens') > 0) AS opened, SUM(json_extract(data, '$.clicks') > 0) AS clicked FROM msgs WHERE automationId = ? GROUP BY stepId`).all(a.id)) {
+    out[r.stepId] = { sent: r.sent, opened: r.opened || 0, clicked: r.clicked || 0 };
+  }
   return out;
 }
 // ---- version history: a snapshot before each burst of edits (and before every restore) ----
 const VERSION_GAP = 2 * 60000, VERSIONS_KEPT = 30;
 function snapshot(a, note) {
-  const last = db.autoversions.filter((v) => v.automationId === a.id).at(-1);
+  const last = T.autoversions.find({ automationId: a.id }, { order: 'at', desc: true });
   const same = last && JSON.stringify([last.name, last.trigger, last.steps]) === JSON.stringify([a.name, a.trigger, a.steps]);
   if (same || (!note && last && Date.now() - last.at < VERSION_GAP && last.auto)) return;
-  db.autoversions.push({ id: uid(), automationId: a.id, userId: a.userId, at: Date.now(), auto: !note, note: note || '', name: a.name, trigger: a.trigger, steps: a.steps, stopOnPurchase: a.stopOnPurchase, allowRepeat: a.allowRepeat });
-  const mine = db.autoversions.filter((v) => v.automationId === a.id);
-  if (mine.length > VERSIONS_KEPT) { const drop = new Set(mine.slice(0, mine.length - VERSIONS_KEPT).map((v) => v.id)); db.autoversions = db.autoversions.filter((v) => !drop.has(v.id)); }
+  T.autoversions.insert({ id: uid(), automationId: a.id, userId: a.userId, at: Date.now(), auto: !note, note: note || '', name: a.name, trigger: a.trigger, steps: structuredClone(a.steps), stopOnPurchase: a.stopOnPurchase, allowRepeat: a.allowRepeat });
+  q(`DELETE FROM autoversions WHERE id IN (SELECT id FROM autoversions WHERE automationId = ? ORDER BY at DESC LIMIT -1 OFFSET ${VERSIONS_KEPT})`).run(a.id);
 }
 export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTest }) {
   SECRET = secret;
-  db.automations ||= [];
-  db.runs ||= [];
-  db.msgs ||= [];
-  db.autoversions ||= [];
-  const own = (req, res) => { const a = db.automations.find((x) => x.id === req.params.aid && x.userId === req.user.id); if (!a) res.status(404).json({ error: 'Automation not found' }); return a; };
+  const own = (req, res) => { const a = T.automations.get(req.params.aid); if (!a || a.userId !== req.user.id) { res.status(404).json({ error: 'Automation not found' }); return null; } return a; };
   const build = (req, cur = {}) => {
     const b = req.body || {};
     stepBudget = MAX_STEPS;
@@ -543,20 +560,19 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
   };
 
   app.get('/api/automations', auth, (req, res) => res.json({
-    automations: db.automations.filter((a) => a.userId === req.user.id).map(view),
+    automations: T.automations.all({ userId: req.user.id }).sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0)).map(view),
     triggers: TRIGGERS, variables: VARIABLES, ruleFields: RULE_FIELDS,
     channels: { email: emailStatus(req.user).configured, whatsapp: whatsappStatus(req.user).configured },
   }));
   app.get('/api/automations/:aid', auth, (req, res) => {
     const a = own(req, res);
     if (!a) return;
-    const runs = db.runs.filter((r) => r.automationId === a.id).slice(-50).reverse().map((r) => ({ id: r.id, key: r.key, name: r.ctx.name, email: r.ctx.email, phone: r.ctx.phone, status: r.status, pos: r.pos, nextAt: r.nextAt, at: r.at, log: r.log.slice(-6) }));
+    const runs = T.runs.all({ automationId: a.id }, { order: 'at', desc: true, limit: 50 }).map((r) => ({ id: r.id, key: r.key, name: r.ctx.name, email: r.ctx.email, phone: r.ctx.phone, status: r.status, pos: r.pos, nextAt: r.nextAt, at: r.at, log: r.log.slice(-6) }));
     res.json({ ...view(a), runs, check: problems(a, req.user), hookUrl: a.hookToken ? `${appUrl(req)}/api/hooks/automation/${a.hookToken}` : null, splitResults: splitResults(a), emailResults: emailResults(a) });
   });
   app.post('/api/automations', auth, (req, res) => {
-    if (db.automations.filter((a) => a.userId === req.user.id).length >= MAX_PER_USER) return res.status(400).json({ error: `You can have up to ${MAX_PER_USER} automations` });
-    const a = { id: uid(), userId: req.user.id, ...build(req), active: false, stats: { started: 0, completed: 0 }, createdAt: Date.now(), origin: appUrl(req) };
-    db.automations.push(a); save();
+    if (T.automations.count({ userId: req.user.id }) >= MAX_PER_USER) return res.status(400).json({ error: `You can have up to ${MAX_PER_USER} automations` });
+    const a = T.automations.insert({ id: uid(), userId: req.user.id, ...build(req), active: false, stats: { started: 0, completed: 0 }, createdAt: Date.now(), origin: appUrl(req) });
     res.json(view(a));
   });
   app.put('/api/automations/:aid', auth, (req, res) => {
@@ -567,31 +583,31 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
     Object.assign(a, next, { origin: appUrl(req), updatedAt: Date.now() });
     if ('active' in req.body) {
       const on = !!req.body.active;
-      if (on) { const { errors } = problems(a, req.user); if (errors.length) { save(); return res.status(400).json({ error: errors[0], errors }); } }
+      if (on) { const { errors } = problems(a, req.user); if (errors.length) { T.automations.put(a); return res.status(400).json({ error: errors[0], errors }); } }
       if (on && !a.active) a.activatedAt = Date.now();
       a.active = on;
     } else if (a.active) {
       const { errors } = problems(a, req.user);
       if (errors.length) { a.active = false; }
     }
-    save();
+    T.automations.put(a);
     res.json({ ...view(a), check: problems(a, req.user) });
   });
   app.get('/api/automations/:aid/versions', auth, (req, res) => {
     const a = own(req, res);
     if (!a) return;
-    res.json(db.autoversions.filter((v) => v.automationId === a.id).reverse().map((v) => ({ id: v.id, at: v.at, note: v.note, name: v.name, trigger: v.trigger.type, steps: allSteps(v.steps).length })));
+    res.json(T.autoversions.all({ automationId: a.id }, { order: 'at', desc: true }).map((v) => ({ id: v.id, at: v.at, note: v.note, name: v.name, trigger: v.trigger.type, steps: allSteps(v.steps).length })));
   });
   app.post('/api/automations/:aid/versions/:vid/restore', auth, (req, res) => {
     const a = own(req, res);
     if (!a) return;
-    const v = db.autoversions.find((x) => x.id === req.params.vid && x.automationId === a.id);
-    if (!v) return res.status(404).json({ error: 'Version not found' });
+    const v = T.autoversions.get(req.params.vid);
+    if (!v || v.automationId !== a.id) return res.status(404).json({ error: 'Version not found' });
     snapshot(a, 'Before restoring an earlier version');
     Object.assign(a, { name: v.name, trigger: v.trigger, steps: JSON.parse(JSON.stringify(v.steps)), stopOnPurchase: v.stopOnPurchase, allowRepeat: v.allowRepeat, updatedAt: Date.now() });
     let paused = false;
     if (a.active && problems(a, req.user).errors.length) { a.active = false; paused = true; }
-    save();
+    T.automations.put(a);
     res.json({ ...view(a), paused, check: problems(a, req.user) });
   });
   // many contacts at once (from the contacts list)
@@ -610,10 +626,11 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
   app.delete('/api/automations/:aid', auth, (req, res) => {
     const a = own(req, res);
     if (!a) return;
-    db.automations = db.automations.filter((x) => x !== a);
-    db.autoversions = db.autoversions.filter((v) => v.automationId !== a.id);
-    db.runs.forEach((r) => { if (r.automationId === a.id && r.status === 'active') { r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Automation deleted' }); } });
-    save();
+    tx(() => {
+      T.automations.del(a.id);
+      T.autoversions.delWhere({ automationId: a.id });
+      for (const r of T.runs.all({ automationId: a.id, status: 'active' })) { r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Automation deleted' }); T.runs.put(r); }
+    });
     res.json({ ok: true });
   });
   // run it now for one contact (manual enrolment / testing)
@@ -622,8 +639,8 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
     if (!a) return;
     if (!a.active) return res.status(400).json({ error: 'Turn the automation on first' });
     const key = String(req.body.key || '');
-    const c = db.crm.find((m) => m.userId === req.user.id && m.key === key);
-    const lead = [...db.leads, ...db.orders].reverse().find((x) => contactKey(x.email, x.phone) === key && db.funnels.find((f) => f.id === x.funnelId)?.userId === req.user.id);
+    const c = key ? metaFor(req.user.id, key) : null;
+    const lead = key ? [T.leads.find({ userId: req.user.id, ckey: key }, { order: 'at', desc: true }), T.orders.find({ userId: req.user.id, ckey: key }, { order: 'at', desc: true })].filter(Boolean).sort((x, y) => y.at - x.at)[0] : null;
     if (!c && !lead) return res.status(404).json({ error: 'Contact not found' });
     const r = start(a, { key, email: c?.email || lead?.email || (key.startsWith('phone:') ? '' : key), phone: c?.phone || lead?.phone || (key.startsWith('phone:') ? key.slice(6) : ''), name: c?.name || lead?.name || '', funnelId: a.trigger.funnelId || lead?.funnelId });
     if (!r) return res.status(409).json({ error: 'This contact is already in this automation' });
@@ -638,7 +655,7 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
     const draft = req.body.step ? cleanStep(req.body.step) : findStep(a.steps, req.body.stepId);
     if (!draft || !['email', 'notify', 'whatsapp'].includes(draft.type)) return res.status(400).json({ error: 'Only email and WhatsApp steps can be tested' });
     const u = req.user;
-    const f = db.funnels.find((x) => x.id === a.trigger.funnelId) || db.funnels.find((x) => x.userId === u.id);
+    const f = (a.trigger.funnelId && T.funnels.get(a.trigger.funnelId)) || T.funnels.find({ userId: u.id });
     const ctx = contextFor(u.id, { name: u.name || 'Test Contact', email: u.email, phone: String(req.body.to || ''), funnelId: f?.id, product: f?.steps.find((s) => s.type === 'checkout')?.blocks.find((b) => b.type === 'checkout')?.props.productName || 'Sample product', amount: 499 });
     try {
       if (draft.type === 'whatsapp') {
@@ -657,7 +674,7 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
   // "A webhook is received" trigger: Zapier / Pabbly / Make / Google Forms post a contact here
   const hookLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 120, key: (req) => req.params.token });
   app.post('/api/hooks/automation/:token', hookLimiter, (req, res) => {
-    const a = db.automations.find((x) => x.hookToken && x.hookToken === req.params.token && x.trigger.type === 'inbound');
+    const a = T.automations.find({ hookToken: String(req.params.token), triggerType: 'inbound' });
     if (!a) return res.status(404).json({ error: 'Unknown webhook' });
     if (!a.active) return res.status(409).json({ error: 'This automation is turned off' });
     const b = req.body || {};
@@ -666,41 +683,42 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
     if (!email && !phone) return res.status(400).json({ error: 'Send an email or phone' });
     const key = contactKey(email, phone);
     const m = ensureMeta(a.userId, key);
-    if (!db.leads.some((l) => contactKey(l.email, l.phone) === key) && !db.orders.some((o) => contactKey(o.email) === key)) Object.assign(m, { manual: true, name: m.name || name, email: m.email || email, phone: m.phone || phone });
+    if (!T.leads.exists({ userId: a.userId, ckey: key }) && !T.orders.exists({ userId: a.userId, ckey: key })) Object.assign(m, { manual: true, name: m.name || name, email: m.email || email, phone: m.phone || phone });
     if (Array.isArray(b.tags)) m.tags = [...new Set([...(m.tags || []), ...b.tags.map((t) => str(t, 30).trim()).filter(Boolean)])].slice(0, 20);
+    T.crm.put(m);
     logActivity(a.userId, key, { type: 'note', title: `Received by webhook (${a.name})`, text: Object.entries(b).filter(([k2]) => !['tags'].includes(k2)).slice(0, 20).map(([k2, v]) => `${k2}: ${String(v).slice(0, 200)}`).join('\n') });
     const r = start(a, { key, email, phone, name, source: str(b.source, 40) || 'webhook', funnelId: a.trigger.funnelId });
     res.json({ ok: true, started: !!r });
   });
 
   app.post('/api/automations/runs/:rid/stop', auth, (req, res) => {
-    const r = db.runs.find((x) => x.id === req.params.rid && x.userId === req.user.id);
-    if (!r) return res.status(404).json({ error: 'Not found' });
-    if (r.status === 'active') { r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Stopped by you' }); save(); }
+    const r = T.runs.get(req.params.rid);
+    if (!r || r.userId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+    if (r.status === 'active') { r.status = 'stopped'; note(r, { result: 'stopped', detail: 'Stopped by you' }); T.runs.put(r); }
     res.json({ ok: true });
   });
 
   // ---- email open & click tracking ----
   const GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
   const first = (msg, kind) => {
-    const a = db.automations.find((x) => x.id === msg.automationId);
+    const a = T.automations.get(msg.automationId);
     if (kind === 'open') logActivity(msg.userId, msg.key, { type: 'email', title: `Opened email: ${msg.subject}`, by: 'automation', automation: a?.name, status: 'opened' });
     else logActivity(msg.userId, msg.key, { type: 'email', title: `Clicked a link in: ${msg.subject}`, text: msg.lastUrl, by: 'automation', automation: a?.name, status: 'clicked' });
   };
   app.get('/t/o/:mid.gif', (req, res) => {
-    const m = db.msgs.find((x) => x.id === req.params.mid);
-    if (m) { m.opens++; if (m.opens === 1) { m.openedAt = Date.now(); first(m, 'open'); } save(); }
+    const m = T.msgs.get(req.params.mid);
+    if (m) { m.opens++; if (m.opens === 1) { m.openedAt = Date.now(); first(m, 'open'); } T.msgs.put(m); }
     res.set({ 'Content-Type': 'image/gif', 'Cache-Control': 'no-store, max-age=0' }).send(GIF);
   });
   app.get('/t/c/:mid', (req, res) => {
     const url = String(req.query.u || '');
-    const m = db.msgs.find((x) => x.id === req.params.mid);
+    const m = T.msgs.get(req.params.mid);
     const ok = m && /^https?:\/\//i.test(url) && String(req.query.s || '').length === 16 && crypto.timingSafeEqual(Buffer.from(String(req.query.s)), Buffer.from(linkSig(m.id, url)));
     if (!ok) return res.status(400).type('html').send('<p style="font:16px system-ui;padding:40px;text-align:center">This link isn’t valid.</p>');
     m.clicks++; m.lastUrl = url;
     if (!m.opens) { m.opens = 1; m.openedAt = Date.now(); } // a click proves the email was opened (images may be blocked)
     if (m.clicks === 1) { m.clickedAt = Date.now(); first(m, 'click'); }
-    save();
+    T.msgs.put(m);
     res.redirect(302, url);
   });
 
@@ -709,8 +727,8 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
     const { uid: userId, key, sig: s } = req.params;
     const ok = s && s.length === 24 && crypto.timingSafeEqual(Buffer.from(s), Buffer.from(sig(userId, key)));
     if (!ok) return res.status(400).type('html').send('<p style="font:16px system-ui;padding:40px;text-align:center">This unsubscribe link isn’t valid.</p>');
-    const m = db.users.some((u) => u.id === userId) ? ensureMeta(userId, key) : null;
-    if (m && !m.unsubscribed) { m.unsubscribed = true; m.activities.push({ id: uid(), at: Date.now(), type: 'note', title: 'Unsubscribed from emails', text: 'Clicked the unsubscribe link' }); save(); }
+    const m = T.users.get(userId) ? ensureMeta(userId, key) : null;
+    if (m && !m.unsubscribed) { m.unsubscribed = true; m.activities.push({ id: uid(), at: Date.now(), type: 'note', title: 'Unsubscribed from emails', text: 'Clicked the unsubscribe link' }); T.crm.put(m); }
     const biz = userOf(userId)?.settings?.businessName;
     res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribed</title><div style="font:16px/1.6 system-ui;max-width:420px;margin:12vh auto;padding:24px;text-align:center"><h1 style="font-size:22px">You’re unsubscribed ✅</h1><p>You won’t receive marketing emails${biz ? ` from ${biz.replace(/[<>&]/g, '')}` : ''} any more.</p></div>`);
   };
@@ -718,5 +736,5 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
   app.post('/u/:uid/:key/:sig', unsub); // RFC 8058 one-click
 
   originFallback = () => process.env.APP_URL || 'http://localhost:4000';
-  setInterval(tick, TICK).unref();
+  if (JOBS) setInterval(tick, TICK).unref();
 }

@@ -1,6 +1,6 @@
 // CRM: contacts (built from leads + orders, plus anything the seller adds), pipelines with stages,
 // custom contact fields and a per-contact timeline of visits, sign-ups, purchases and messages.
-import { db, save, uid } from './db.js';
+import { T, q, tx, uid, contactKey } from './db.js';
 import { sendEmail, emailStatus, sendWhatsApp, whatsappStatus } from './messaging.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -9,35 +9,36 @@ export const FIELD_TYPES = ['text', 'longtext', 'number', 'date', 'select', 'url
 const COLORS = ['#6366f1', '#0ea5e9', '#f59e0b', '#16a34a', '#94a3b8', '#ec4899', '#8b5cf6', '#ef4444', '#14b8a6'];
 const DEFAULT_STAGES = [['New lead', '#6366f1'], ['Contacted', '#0ea5e9'], ['Interested', '#f59e0b'], ['Customer', '#16a34a', 'won'], ['Lost', '#94a3b8', 'lost']];
 
-export const contactKey = (email, phone) => (email ? String(email).trim().toLowerCase() : phone ? `phone:${String(phone).trim()}` : '');
+export { contactKey };
 const str = (v, n) => String(v ?? '').trim().slice(0, n);
-const metaFor = (userId, key) => db.crm.find((m) => m.userId === userId && m.key === key);
+export const metaFor = (userId, key) => T.crm.find({ userId, key });
+// The seller's record for a contact (tags, stages, custom fields, activity), created on first use.
+// Change it and save with T.crm.put(m) — with no `await` in between.
 export function ensureMeta(userId, key) {
   let m = metaFor(userId, key);
-  if (!m) { m = { id: uid(), userId, key, stages: {}, custom: {}, tags: [], activities: [], at: Date.now() }; db.crm.push(m); }
+  if (!m) {
+    // another process may create it at the same moment: then use theirs
+    try { m = T.crm.insert({ id: uid(), userId, key, stages: {}, custom: {}, tags: [], activities: [], at: Date.now() }); } catch (e) { m = metaFor(userId, key); if (!m) throw e; }
+  }
+  m.activities ||= [];
   return m;
 }
 
-// Anything that messages a contact (manual emails today, automations later) records it here
+// Anything that messages a contact (manual emails, automations) records it here
 export function logActivity(userId, key, act) {
   if (!key || !act) return null;
-  const m = ensureMeta(userId, key);
   const a = { id: uid(), at: Date.now(), ...act };
-  m.activities.push(a);
-  if (m.activities.length > 500) m.activities.splice(0, m.activities.length - 500);
-  save();
+  T.crm.update(ensureMeta(userId, key).id, (m) => {
+    m.activities = [...(m.activities || []), a].slice(-500);
+  });
   return a;
 }
 
 // ---------- pipelines ----------
-function pipelinesFor(userId) {
-  let list = db.pipelines.filter((p) => p.userId === userId);
-  if (!list.length) {
-    const p = { id: uid(), userId, name: 'Sales pipeline', stages: DEFAULT_STAGES.map(([name, color, flag]) => ({ id: uid(), name, color, ...(flag ? { [flag]: true } : {}) })), at: Date.now() };
-    db.pipelines.push(p); save();
-    list = [p];
-  }
-  return list.sort((a, b) => a.at - b.at);
+export function pipelinesFor(userId) {
+  const list = T.pipelines.all({ userId }, { order: 'at' });
+  if (list.length) return list;
+  return [T.pipelines.insert({ id: uid(), userId, name: 'Sales pipeline', stages: DEFAULT_STAGES.map(([name, color, flag]) => ({ id: uid(), name, color, ...(flag ? { [flag]: true } : {}) })), at: Date.now() })];
 }
 // Contacts nobody has placed yet: customers go to the "won" stage, everyone else to the first one
 export const stageFor = (p, meta, isCustomer) => {
@@ -47,19 +48,21 @@ export const stageFor = (p, meta, isCustomer) => {
 };
 
 // ---------- contacts ----------
-function buildContacts(userId) {
-  const funnels = db.funnels.filter((f) => f.userId === userId);
-  const name = Object.fromEntries(funnels.map((f) => [f.id, f.name]));
+// All of a seller's contacts — or just one (onlyKey) — from their sign-ups, orders and CRM records
+const funnelNames = (userId) => Object.fromEntries(q("SELECT id, json_extract(data, '$.name') AS name FROM funnels WHERE userId = ?").all(userId).map((r) => [r.id, r.name]));
+function buildContacts(userId, onlyKey) {
+  const name = funnelNames(userId);
+  const where = onlyKey ? { userId, ckey: onlyKey } : { userId };
   const m = {};
   const get = (key) => (m[key] ||= { key, email: key.startsWith('phone:') ? '' : key, name: '', phone: '', type: 'lead', orders: 0, ltv: 0, funnels: new Set(), source: 'direct', firstSeen: Infinity, lastSeen: 0, refs: { leads: [], orders: [], abandoned: [] } });
   const touch = (c, x) => { c.firstSeen = Math.min(c.firstSeen, x.at); c.lastSeen = Math.max(c.lastSeen, x.at); c.funnels.add(name[x.funnelId]); c.name ||= x.name || ''; c.phone ||= x.phone || ''; if (x.source) c.source = x.source; };
-  for (const l of db.leads) if (name[l.funnelId] && (l.email || l.phone)) { const c = get(contactKey(l.email, l.phone)); touch(c, l); c.refs.leads.push(l); if (l.fields) c.fields = { ...(c.fields || {}), ...l.fields }; }
-  for (const o of db.orders) if (name[o.funnelId] && o.email) { const c = get(contactKey(o.email)); touch(c, o); c.type = 'customer'; c.orders++; c.ltv += o.total; c.refs.orders.push(o); }
-  for (const a of db.abandoned) if (name[a.funnelId] && a.email && m[contactKey(a.email)]) m[contactKey(a.email)].refs.abandoned.push(a);
+  for (const l of T.leads.iter(where, { order: 'at' })) if (name[l.funnelId] && (l.email || l.phone)) { const c = get(contactKey(l.email, l.phone)); touch(c, l); c.refs.leads.push(l); if (l.fields) c.fields = { ...(c.fields || {}), ...l.fields }; }
+  for (const o of T.orders.iter(where, { order: 'at' })) if (name[o.funnelId] && o.email) { const c = get(contactKey(o.email)); touch(c, o); c.type = 'customer'; c.orders++; c.ltv += o.total; c.refs.orders.push(o); }
+  for (const a of T.abandoned.iter(where, { order: 'at' })) if (name[a.funnelId] && a.email && m[contactKey(a.email)]) m[contactKey(a.email)].refs.abandoned.push(a);
   // the seller's own additions and edits
-  for (const meta of db.crm) {
-    if (meta.userId !== userId) continue;
+  for (const meta of onlyKey ? [metaFor(userId, onlyKey)].filter(Boolean) : T.crm.iter({ userId })) {
     if (!m[meta.key] && !meta.manual) continue;
+    meta.activities ||= [];
     const c = m[meta.key] || get(meta.key);
     if (meta.manual && c.firstSeen === Infinity) { c.firstSeen = meta.at; c.lastSeen = meta.at; c.source = 'added by you'; }
     for (const k of ['name', 'phone', 'email']) if (meta[k]) c[k] = meta[k];
@@ -67,7 +70,7 @@ function buildContacts(userId) {
     const lastAct = meta.activities.at(-1)?.at;
     if (lastAct) c.lastSeen = Math.max(c.lastSeen, lastAct);
   }
-  return { contacts: m, funnelName: name, funnels };
+  return { contacts: m, funnelName: name };
 }
 const listItem = (c, pipelines) => ({
   key: c.key, email: c.email, name: c.name, phone: c.phone, type: c.type, orders: c.orders, ltv: c.ltv, funnels: [...c.funnels].filter(Boolean),
@@ -76,12 +79,13 @@ const listItem = (c, pipelines) => ({
 });
 
 const ITEM_TITLE = { main: 'Bought', bump: 'Added order bump', upsell: 'Accepted upsell', downsell: 'Accepted downsell', crosssell: 'Bought add-on' };
-function timeline(c, funnelName, funnels) {
+function timeline(userId, c, funnelName) {
   const out = [];
-  const stepName = (fid, sid) => funnels.find((f) => f.id === fid)?.steps.find((s) => s.id === sid)?.name;
+  const funnels = new Map();
+  const stepName = (fid, sid) => { if (!funnels.has(fid)) funnels.set(fid, T.funnels.get(fid)); return funnels.get(fid)?.steps.find((s) => s.id === sid)?.name; };
   // visits: page views from the same browser, grouped into sessions
-  const vids = new Set([...c.refs.leads, ...c.refs.orders, ...c.refs.abandoned].map((x) => x.visitor).filter(Boolean));
-  const views = vids.size ? db.events.filter((e) => e.type === 'view' && vids.has(e.visitor) && funnelName[e.funnelId]).sort((a, b) => a.at - b.at) : [];
+  const vids = [...new Set([...c.refs.leads, ...c.refs.orders, ...c.refs.abandoned].map((x) => x.visitor).filter(Boolean))].slice(0, 200);
+  const views = vids.length ? q(`SELECT funnelId, stepId, source, at FROM events WHERE visitor IN (${vids.map(() => '?').join(',')}) AND userId = ? AND type = 'view' ORDER BY at LIMIT 20000`).all(...vids, userId).filter((e) => funnelName[e.funnelId]) : [];
   const sessions = [];
   for (const v of views) {
     const s = sessions.at(-1);
@@ -120,15 +124,14 @@ const cleanCustom = (defs, input = {}) => {
 };
 
 export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }) {
-  db.crm ||= [];
-  db.pipelines ||= [];
   const mailLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 20, key: (req) => req.user.id, message: 'You are sending emails too quickly — please wait a minute.' });
-  const userOf = (req) => db.users.find((u) => u.id === req.user.id);
+  const userOf = (req) => req.user;
   const load = (req, res) => {
-    const { contacts, funnelName, funnels } = buildContacts(req.user.id);
-    const c = contacts[String(req.params.key || '').toLowerCase().startsWith('phone:') ? req.params.key : String(req.params.key || '').toLowerCase()];
+    const key = String(req.params.key || '').toLowerCase().startsWith('phone:') ? String(req.params.key) : String(req.params.key || '').toLowerCase();
+    const { contacts, funnelName } = buildContacts(req.user.id, key);
+    const c = contacts[key];
     if (!c) { res.status(404).json({ error: 'Contact not found' }); return null; }
-    return { c, funnelName, funnels };
+    return { c, funnelName };
   };
 
   app.get('/api/contacts', auth, (req, res) => {
@@ -142,22 +145,21 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     if (email && !EMAIL_RE.test(email)) return res.status(400).json({ error: 'Please enter a valid email address' });
     if (!email && !phone) return res.status(400).json({ error: 'Add an email or a phone number' });
     const key = contactKey(email, phone);
-    if (buildContacts(req.user.id).contacts[key]) return res.status(409).json({ error: 'This contact already exists', key });
+    if (buildContacts(req.user.id, key).contacts[key]) return res.status(409).json({ error: 'This contact already exists', key });
     const m = ensureMeta(req.user.id, key);
-    Object.assign(m, { manual: true, name, email, phone, at: Date.now() });
-    save();
+    T.crm.put(Object.assign(m, { manual: true, name, email, phone, at: Date.now() }));
     res.json({ key });
   });
 
   app.get('/api/contacts/:key', auth, (req, res) => {
     const r = load(req, res);
     if (!r) return;
-    const { c, funnelName, funnels } = r;
+    const { c, funnelName } = r;
     const pipelines = pipelinesFor(req.user.id);
     res.json({
       ...listItem(c, pipelines),
       orderList: c.refs.orders.map((o) => ({ id: o.id, at: o.at, total: o.total, items: o.items, funnel: funnelName[o.funnelId], coupon: o.coupon })).reverse(),
-      timeline: timeline(c, funnelName, funnels),
+      timeline: timeline(req.user.id, c, funnelName),
       canEmail: !!c.email, mailConfigured: emailStatus(userOf(req)).configured, whatsappConfigured: whatsappStatus(userOf(req)).configured,
     });
   });
@@ -190,7 +192,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
       if (stageFor(p, m, r.c.type === 'customer') !== s.id) { m.activities.push({ id: uid(), at: Date.now(), type: 'stage', title: `Moved to ${s.name}`, text: p.name }); moved = { pipelineId: p.id, stageId: s.id }; }
       m.stages = { ...m.stages, [p.id]: s.id };
     }
-    save();
+    T.crm.put(m);
     const who = { key: r.c.key, email: m.email || r.c.email, phone: m.phone || r.c.phone, name: m.name || r.c.name };
     if (moved) onEvent(req.user.id, 'stage', { ...who, ...moved });
     for (const tag of added) onEvent(req.user.id, 'tag', { ...who, tag });
@@ -209,7 +211,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     if (!addTag && !removeTag && !st) return res.status(400).json({ error: 'Nothing to do' });
     let n = 0;
     const events = [];
-    for (const key of keys) {
+    tx(() => { for (const key of keys) {
       const c = contacts[key];
       if (!c) continue;
       const m = ensureMeta(req.user.id, key);
@@ -221,9 +223,9 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
         m.stages = { ...m.stages, [p.id]: st.id };
         events.push(['stage', { ...who, pipelineId: p.id, stageId: st.id }]);
       }
+      T.crm.put(m);
       n++;
-    }
-    save();
+    } });
     for (const [type, data] of events) onEvent(req.user.id, type, data);
     res.json({ updated: n });
   });
@@ -242,7 +244,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     const r = load(req, res);
     if (!r) return;
     const m = metaFor(req.user.id, r.c.key);
-    if (m) { m.activities = m.activities.filter((a) => !(a.id === req.params.aid && a.by === 'you')); save(); }
+    if (m) { m.activities = (m.activities || []).filter((a) => !(a.id === req.params.aid && a.by === 'you')); T.crm.put(m); }
     res.json({ ok: true });
   });
 
@@ -281,33 +283,30 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     const mineP = pipelinesFor(req.user.id);
     if (mineP.length >= 20) return res.status(400).json({ error: 'You can have up to 20 pipelines' });
     const stages = cleanStages(req.body.stages?.length ? req.body.stages : DEFAULT_STAGES.map(([name, color, flag]) => ({ name, color, [flag]: !!flag })));
-    const p = { id: uid(), userId: req.user.id, name: str(req.body.name, 60) || 'New pipeline', stages, at: Date.now() };
-    db.pipelines.push(p); save();
+    const p = T.pipelines.insert({ id: uid(), userId: req.user.id, name: str(req.body.name, 60) || 'New pipeline', stages, at: Date.now() });
     const { userId, ...out } = p;
     res.json(out);
   });
   app.put('/api/pipelines/:pid', auth, (req, res) => {
-    const p = db.pipelines.find((x) => x.id === req.params.pid && x.userId === req.user.id);
-    if (!p) return res.status(404).json({ error: 'Pipeline not found' });
+    const p = T.pipelines.get(req.params.pid);
+    if (!p || p.userId !== req.user.id) return res.status(404).json({ error: 'Pipeline not found' });
     if ('name' in req.body) p.name = str(req.body.name, 60) || p.name;
     if (req.body.stages) { const st = cleanStages(req.body.stages); if (!st.length) return res.status(400).json({ error: 'A pipeline needs at least one stage' }); p.stages = st; }
-    save();
+    T.pipelines.put(p);
     const { userId, ...out } = p;
     res.json(out);
   });
   app.delete('/api/pipelines/:pid', auth, (req, res) => {
     if (pipelinesFor(req.user.id).length <= 1) return res.status(400).json({ error: 'Keep at least one pipeline' });
-    db.pipelines = db.pipelines.filter((x) => !(x.id === req.params.pid && x.userId === req.user.id));
-    save();
+    T.pipelines.delWhere({ id: req.params.pid, userId: req.user.id });
     res.json({ ok: true });
   });
 
   // ---- custom contact fields ----
   app.get('/api/crm/fields', auth, (req, res) => res.json(userOf(req).crmFields || []));
   app.put('/api/crm/fields', auth, (req, res) => {
-    const u = userOf(req);
-    u.crmFields = cleanFields(req.body.fields);
-    save();
-    res.json(u.crmFields);
+    const fields = cleanFields(req.body.fields);
+    T.users.update(req.user.id, (u) => { u.crmFields = fields; });
+    res.json(fields);
   });
 }

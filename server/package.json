@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node --disable-warning=ExperimentalWarning --watch --env-file-if-exists=.env index.js",
-    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env index.js",
+    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env start.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.mjs\""
   },
   "dependencies": {

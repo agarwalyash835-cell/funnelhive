@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
-import { db, save, uid } from './db.js';
+import { T, q, uid, JOBS } from './db.js';
 
 const SCALE = Number(process.env.WEBHOOK_RETRY_SCALE || 1); // tests shrink the delays
 const BACKOFF = [0, 30e3, 120e3, 600e3, 3600e3, 6 * 3600e3].map((ms) => ms * SCALE);
@@ -49,11 +49,15 @@ export async function checkWebhookUrl(raw) {
 export const newWebhookSecret = () => `whsec_${crypto.randomBytes(24).toString('hex')}`;
 export const sign = (secret, ts, body) => crypto.createHmac('sha256', secret).update(`${ts}.${body}`).digest('hex');
 
-function userOf(id) { return db.users.find((u) => u.id === id); }
+const userOf = (id) => T.users.get(id);
 
+// Creates the user's signing secret on first use (saved on the account)
 export function ensureSecret(user) {
   user.settings ||= {};
-  if (!user.settings.webhookSecret) { user.settings.webhookSecret = newWebhookSecret(); save(); }
+  if (!user.settings.webhookSecret) {
+    const saved = T.users.update(user.id, (u) => { u.settings ||= {}; u.settings.webhookSecret ||= newWebhookSecret(); });
+    user.settings.webhookSecret = saved?.settings.webhookSecret || newWebhookSecret();
+  }
   return user.settings.webhookSecret;
 }
 
@@ -65,65 +69,71 @@ export function enqueue(userId, event, data, urlOverride) {
   ensureSecret(u);
   const d = { id: uid(), userId, event, url, payload: { id: null, event, data, at: new Date().toISOString() }, status: 'pending', attempts: 0, nextAt: Date.now(), at: Date.now() };
   d.payload.id = d.id;
-  db.webhooks.push(d);
+  T.webhooks.insert(d);
   // keep the log bounded per user
-  const mine = db.webhooks.filter((w) => w.userId === userId);
-  if (mine.length > MAX_PER_USER) { const drop = new Set(mine.slice(0, mine.length - MAX_PER_USER).map((w) => w.id)); db.webhooks = db.webhooks.filter((w) => !drop.has(w.id)); }
-  save();
-  first.set(d, attempt(d));
+  q(`DELETE FROM webhooks WHERE id IN (SELECT id FROM webhooks WHERE userId = ? ORDER BY at DESC LIMIT -1 OFFSET ${MAX_PER_USER})`).run(userId);
+  first.set(d.id, attempt(d.id));
   return d;
 }
-const first = new WeakMap();
-// Resolves when the immediate first delivery attempt has finished
-export const firstAttempt = (d) => first.get(d) || Promise.resolve(d);
+const first = new Map();
+// Resolves (with the delivery's latest state) when the immediate first attempt has finished
+export const firstAttempt = (d) => first.get(d.id) || Promise.resolve(T.webhooks.get(d.id) || d);
 
 const inFlight = new Set();
-export async function attempt(d) {
-  if (inFlight.has(d.id) || d.status === 'delivered') return d;
+// claimed first (nextAt moves ahead) so two processes never send the same delivery at once
+const claim = (id) => q("UPDATE webhooks SET nextAt = ? WHERE id = ? AND status = 'pending' AND nextAt <= ?").run(Date.now() + 120000, id, Date.now()).changes === 1;
+export async function attempt(id) {
+  let d = T.webhooks.get(id);
+  if (!d || inFlight.has(d.id) || d.status !== 'pending' || !claim(id)) return d;
   inFlight.add(d.id);
-  const u = userOf(d.userId);
-  const body = JSON.stringify(d.payload);
-  const ts = Math.floor(Date.now() / 1000);
-  d.attempts++;
   try {
-    try { await checkWebhookUrl(d.url); } catch (e) { d.blocked = true; throw e; } // re-checked on every send (DNS can change)
-    const r = await fetch(d.url, {
-      redirect: 'manual', // a redirect must not lead to a private address
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json', 'User-Agent': 'FunnelForge-Webhooks/1.0',
-        'X-FunnelForge-Event': d.event, 'X-FunnelForge-Delivery': d.id,
-        'X-FunnelForge-Signature': `t=${ts},v1=${sign(ensureSecret(u), ts, body)}`,
-      },
-      body,
-      signal: AbortSignal.timeout(10000),
-    });
-    d.lastStatus = r.status;
-    if (r.ok) { d.status = 'delivered'; d.deliveredAt = Date.now(); delete d.lastError; }
-    else d.lastError = `HTTP ${r.status}`;
-  } catch (e) {
-    d.lastStatus = null;
-    d.lastError = e.name === 'TimeoutError' ? 'Timed out after 10s' : e.message;
+    const u = userOf(d.userId);
+    const body = JSON.stringify(d.payload);
+    const ts = Math.floor(Date.now() / 1000);
+    const r0 = { attempts: d.attempts + 1 };
+    try {
+      try { await checkWebhookUrl(d.url); } catch (e) { r0.blocked = true; throw e; } // re-checked on every send (DNS can change)
+      const r = await fetch(d.url, {
+        redirect: 'manual', // a redirect must not lead to a private address
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json', 'User-Agent': 'FunnelForge-Webhooks/1.0',
+          'X-FunnelForge-Event': d.event, 'X-FunnelForge-Delivery': d.id,
+          'X-FunnelForge-Signature': `t=${ts},v1=${sign(ensureSecret(u), ts, body)}`,
+        },
+        body,
+        signal: AbortSignal.timeout(10000),
+      });
+      r0.lastStatus = r.status;
+      if (r.ok) { r0.status = 'delivered'; r0.deliveredAt = Date.now(); r0.lastError = undefined; }
+      else r0.lastError = `HTTP ${r.status}`;
+    } catch (e) {
+      r0.lastStatus = null;
+      r0.lastError = e.name === 'TimeoutError' ? 'Timed out after 10s' : e.message;
+    }
+    // apply the result to the latest copy of the delivery
+    d = T.webhooks.update(id, (x) => {
+      Object.assign(x, r0);
+      if (r0.lastError === undefined) delete x.lastError;
+      if (x.status !== 'delivered') {
+        if (x.attempts >= BACKOFF.length || x.blocked) x.status = 'failed';
+        else x.nextAt = Date.now() + BACKOFF[x.attempts];
+      }
+    }) || d;
+    return d;
+  } finally {
+    inFlight.delete(id);
+    setTimeout(() => first.delete(id), 60000).unref();
   }
-  if (d.status !== 'delivered') {
-    if (d.attempts >= BACKOFF.length || d.blocked) d.status = 'failed';
-    else d.nextAt = Date.now() + BACKOFF[d.attempts];
-  }
-  inFlight.delete(d.id);
-  save();
-  return d;
 }
 
 // Background worker: retry anything due
 const TICK = Number(process.env.WEBHOOK_TICK_MS || 10000);
-setInterval(() => {
-  const now = Date.now();
-  for (const d of db.webhooks) if (d.status === 'pending' && d.nextAt <= now && !inFlight.has(d.id)) attempt(d);
+if (JOBS) setInterval(() => {
+  for (const id of T.webhooks.ids({ status: 'pending', nextAt: { lte: Date.now() } })) if (!inFlight.has(id)) attempt(id);
 }, TICK).unref();
 
 export function retryNow(d) {
-  d.status = 'pending';
-  d.attempts = Math.min(d.attempts, BACKOFF.length - 1);
-  d.nextAt = Date.now();
-  return attempt(d);
+  T.webhooks.update(d.id, (x) => { x.status = 'pending'; x.attempts = Math.min(x.attempts, BACKOFF.length - 1); x.nextAt = Date.now(); });
+  return attempt(d.id);
 }

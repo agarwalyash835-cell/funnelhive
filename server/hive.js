@@ -4,7 +4,7 @@
 // Every tool calls the platform's own REST API as the signed-in seller, so all validation, limits
 // and quality gates apply exactly as if the seller clicked it themselves.
 import crypto from 'node:crypto';
-import { db, save, uid } from './db.js';
+import { T, uid } from './db.js';
 import { hashToken } from './security.js';
 import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
 
@@ -298,7 +298,6 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
 
 // ---------- routes: chat, threads, MCP, access tokens ----------
 export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl }) {
-  db.hive ||= [];
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 12, key: (req) => req.user.id, message: 'Hive AI is busy with your earlier messages — wait a moment.' });
   // a tool context that calls our own API as this user
   const ctxFor = (user, origin) => ({
@@ -313,17 +312,18 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl 
   const threadView = ({ userId, ...t }) => t;
 
   app.get('/api/hive/status', auth, (req, res) => res.json({ ready: hiveReady(), provider: aiProvider() }));
-  app.get('/api/hive/threads', auth, (req, res) => res.json(db.hive.filter((t) => t.userId === req.user.id).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt }))));
-  app.get('/api/hive/threads/:tid', auth, (req, res) => { const t = db.hive.find((x) => x.id === req.params.tid && x.userId === req.user.id); t ? res.json(threadView(t)) : res.status(404).json({ error: 'Chat not found' }); });
-  app.delete('/api/hive/threads/:tid', auth, (req, res) => { db.hive = db.hive.filter((x) => !(x.id === req.params.tid && x.userId === req.user.id)); save(); res.json({ ok: true }); });
+  const ownThread = (req, id) => { const t = id && T.hive.get(id); return t && t.userId === req.user.id ? t : null; };
+  app.get('/api/hive/threads', auth, (req, res) => res.json(T.hive.all({ userId: req.user.id }, { order: 'updatedAt', desc: true, limit: 100 }).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt }))));
+  app.get('/api/hive/threads/:tid', auth, (req, res) => { const t = ownThread(req, req.params.tid); t ? res.json(threadView(t)) : res.status(404).json({ error: 'Chat not found' }); });
+  app.delete('/api/hive/threads/:tid', auth, (req, res) => { T.hive.delWhere({ id: req.params.tid, userId: req.user.id }); res.json({ ok: true }); });
 
   // Streams progress as Server-Sent Events: thinking / tool (running|done|error) / reply / error
   app.post('/api/hive/chat', auth, limiter, async (req, res) => {
     const message = String(req.body.message || '').trim().slice(0, 6000);
     if (!message) return res.status(400).json({ error: 'Type a message' });
     if (!hiveReady()) return res.status(503).json({ error: 'Hive AI needs an AI model with tool support — set KIE_API_KEY (with KIE_MODEL deepseek-v4-1-flash, gpt-…, or kimi-…) on the server.' });
-    let t = req.body.threadId && db.hive.find((x) => x.id === req.body.threadId && x.userId === req.user.id);
-    if (!t) { t = { id: uid(), userId: req.user.id, title: message.slice(0, 60), funnelId: req.body.funnelId || null, messages: [], at: Date.now(), updatedAt: Date.now() }; db.hive.push(t); }
+    let t = ownThread(req, req.body.threadId);
+    if (!t) t = T.hive.insert({ id: uid(), userId: req.user.id, title: message.slice(0, 60), funnelId: req.body.funnelId || null, messages: [], at: Date.now(), updatedAt: Date.now() });
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     const emit = (ev) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(ev)}\n\n`); };
     emit({ type: 'thread', threadId: t.id });
@@ -332,6 +332,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl 
     const ping = setInterval(() => emit({ type: 'ping' }), 15000);
     const history = t.messages.map((m) => ({ role: m.role, text: m.text }));
     t.messages.push({ role: 'user', text: message, at: Date.now() });
+    T.hive.put(t);
     try {
       const out = await hiveTurn({ ctx: ctxFor(req.user, appUrl(req)), history, message, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal });
       t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now() });
@@ -345,31 +346,31 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl 
       clearInterval(ping);
       t.updatedAt = Date.now();
       if (t.messages.length > 200) t.messages.splice(0, t.messages.length - 200);
-      save();
+      if (T.hive.get(t.id)) T.hive.put(t); // unless the chat was deleted meanwhile
       res.end();
     }
   });
 
   // ---- personal access tokens for MCP clients ----
-  app.get('/api/hive/tokens', auth, (req, res) => res.json((req.user.mcpTokens || []).map(({ hash, ...t }) => t)));
+  const tokenView = ({ hash, userId, ...t }) => t;
+  app.get('/api/hive/tokens', auth, (req, res) => res.json(T.mcptokens.all({ userId: req.user.id }).sort((a, b) => a.at - b.at).map(tokenView)));
   app.post('/api/hive/tokens', auth, (req, res) => {
-    const list = (req.user.mcpTokens ||= []);
-    if (list.length >= 10) return res.status(400).json({ error: 'You can have up to 10 tokens — revoke one first' });
+    if (T.mcptokens.count({ userId: req.user.id }) >= 10) return res.status(400).json({ error: 'You can have up to 10 tokens — revoke one first' });
     const token = `ffmcp_${crypto.randomBytes(24).toString('hex')}`;
-    const t = { id: uid(), name: String(req.body.name || 'MCP client').slice(0, 60), hash: hashToken(token), prefix: token.slice(0, 12), at: Date.now(), lastUsedAt: null };
-    list.push(t); save();
-    const { hash, ...pub } = t;
-    res.json({ ...pub, token }); // shown once
+    const t = T.mcptokens.insert({ id: uid(), userId: req.user.id, name: String(req.body.name || 'MCP client').slice(0, 60), hash: hashToken(token), prefix: token.slice(0, 12), at: Date.now(), lastUsedAt: null });
+    res.json({ ...tokenView(t), token }); // shown once
   });
-  app.delete('/api/hive/tokens/:id', auth, (req, res) => { req.user.mcpTokens = (req.user.mcpTokens || []).filter((t) => t.id !== req.params.id); save(); res.json({ ok: true }); });
+  app.delete('/api/hive/tokens/:id', auth, (req, res) => { T.mcptokens.delWhere({ id: req.params.id, userId: req.user.id }); res.json({ ok: true }); });
 
   // ---- MCP server (Streamable HTTP, stateless JSON-RPC) ----
   const mcpUser = (req) => {
     const tok = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
     if (!tok.startsWith('ffmcp_')) return null;
-    const h = hashToken(tok);
-    for (const u of db.users) { const t = (u.mcpTokens || []).find((x) => x.hash === h); if (t) { t.lastUsedAt = Date.now(); return u; } }
-    return null;
+    const t = T.mcptokens.find({ hash: hashToken(tok) });
+    const u = t && T.users.get(t.userId);
+    if (!u) return null;
+    if (Date.now() - (t.lastUsedAt || 0) > 60000) { t.lastUsedAt = Date.now(); T.mcptokens.put(t); }
+    return u;
   };
   const mcpLimiter = rateLimit({ windowMs: 60000, max: isTest ? 5000 : 120, key: (req) => String(req.headers.authorization || req.ip).slice(-24) });
   app.get('/mcp', (req, res) => res.status(405).set('Allow', 'POST').json({ error: 'Use POST (MCP Streamable HTTP)' }));
@@ -399,7 +400,6 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl 
     const body = req.body;
     if (Array.isArray(body)) { const out = (await Promise.all(body.map(handle))).filter(Boolean); return out.length ? res.json(out) : res.status(202).end(); }
     const out = await handle(body);
-    save();
     return out ? res.json(out) : res.status(202).end();
   });
 }

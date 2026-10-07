@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { hit } from './db.js';
 
 // ---------- signing secret ----------
 // Use JWT_SECRET when provided; otherwise generate a strong one once and keep it next to the data,
@@ -15,16 +16,24 @@ export function loadSecret(dataDir) {
   return s;
 }
 
-// ---------- rate limiting (fixed window, in-memory) ----------
-export function rateLimit({ windowMs, max, key = (req) => req.ip, message = 'Too many requests — please wait a moment and try again.' }) {
+// ---------- rate limiting (fixed window) ----------
+// In memory by default (per process). shared: true counts in the database, so the limit holds across
+// all processes in cluster mode — used where it matters for security (sign-in, password reset).
+let limiterId = 0;
+export function rateLimit({ windowMs, max, key = (req) => req.ip, message = 'Too many requests — please wait a moment and try again.', shared = false, name }) {
   const hits = new Map();
-  setInterval(() => { const now = Date.now(); for (const [k, v] of hits) if (v.reset < now) hits.delete(k); }, windowMs).unref();
+  const id = name || `rl${++limiterId}`;
+  if (!shared) setInterval(() => { const now = Date.now(); for (const [k, v] of hits) if (v.reset < now) hits.delete(k); }, windowMs).unref();
   return (req, res, next) => {
     const k = key(req);
     const now = Date.now();
-    let h = hits.get(k);
-    if (!h || h.reset < now) { h = { n: 0, reset: now + windowMs }; hits.set(k, h); }
-    h.n++;
+    let h;
+    if (shared) h = hit(`${id}:${k}`, windowMs);
+    else {
+      h = hits.get(k);
+      if (!h || h.reset < now) { h = { n: 0, reset: now + windowMs }; hits.set(k, h); }
+      h.n++;
+    }
     res.setHeader('RateLimit-Remaining', Math.max(0, max - h.n));
     if (h.n > max) {
       res.setHeader('Retry-After', Math.ceil((h.reset - now) / 1000));
