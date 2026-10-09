@@ -46,7 +46,9 @@ const STEP_TYPES = {
   thankyou: { icon: '🎉', label: 'Thank you', blocks: () => [mk('thankyou', { headline: 'Order confirmed! 🎉', body: 'Details are on your email & WhatsApp.', steps: [{ text: 'Check your inbox for access details' }, { text: 'Save our WhatsApp number' }] }), mk('crosssell')] },
 };
 const PALETTES = [['#6366f1', '#ec4899'], ['#ff9933', '#e11d48'], ['#16a34a', '#0ea5e9'], ['#9f1239', '#a16207'], ['#7c3aed', '#06b6d4'], ['#0f766e', '#22c55e'], ['#111827', '#f59e0b'], ['#2563eb', '#7c3aed']];
-const STYLE_SWATCH = { aurora: ['#ffffff', '#eef0ff'], midnight: ['#060913', '#1e2a4a'], luxe: ['#fbf8f3', '#e3d8c6'], fresh: ['#ffffff', '#ecfdf5'], bold: ['#fffaf0', '#111111'], clean: ['#ffffff', '#f1f5f9'] };
+// each page style's background and panel colours (blocks.jsx STYLES) — a style missing here falls back to neutral
+const STYLE_SWATCH = { aurora: ['#ffffff', '#eef0ff'], midnight: ['#060913', '#1e2a4a'], luxe: ['#fbf8f3', '#e3d8c6'], fresh: ['#ffffff', '#ecfdf5'], bold: ['#fffaf0', '#111111'], clean: ['#ffffff', '#f1f5f9'], editorial: ['#fafaf7', '#121212'], organic: ['#fbf6ee', '#f3e9d8'], tech: ['#07090d', '#21262d'], playful: ['#fffdf5', '#ffe9a8'], royal: ['#14101f', '#d4af5f'], noir: ['#0a0a0a', '#262626'], glass: ['#0b0b1a', '#3b3b8f'], swiss: ['#f2f1ec', '#0d0d0d'], pastel: ['#fdf8fb', '#efe3ee'], studio: ['#f6f4ef', '#e2ddd1'] };
+const swatchOf = (k) => STYLE_SWATCH[k] || ['#ffffff', '#e5e7eb'];
 const SUGGEST = ['Add an upsell and a downsell', 'Add cross-sells to the thank-you page', 'Make it dark', 'Change colour to saffron', 'Add FAQ and a guarantee', 'Remove the countdown'];
 const DEVICES = [['desktop', 'desktop', '100%'], ['tablet', 'tablet', '820px'], ['mobile', 'mobile', '390px']];
 // Which drop zones each kind of drag can land in
@@ -849,7 +851,7 @@ export default function Editor() {
                 <div className="stylegrid">
                   {Object.entries(STYLES).map(([k, label]) => (
                     <button key={k} className={`stylec ${(f.theme?.style || 'aurora') === k ? 'on' : ''}`} onClick={() => patch({ theme: { ...f.theme, style: k } })}>
-                      <span className="sw" style={{ background: `linear-gradient(135deg, ${STYLE_SWATCH[k][0]} 50%, ${STYLE_SWATCH[k][1]} 50%)` }}><i style={{ background: f.theme?.primary }} /></span>
+                      <span className="sw" style={{ background: `linear-gradient(135deg, ${swatchOf(k)[0]} 50%, ${swatchOf(k)[1]} 50%)` }}><i style={{ background: f.theme?.primary }} /></span>
                       <b>{label.split(' — ')[0]}</b><small>{label.split(' — ')[1]}</small>
                     </button>
                   ))}

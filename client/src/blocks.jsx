@@ -1548,6 +1548,7 @@ function renderBlock(block, ctx) {
 
 export const RADIUS = { sharp: ['2px', '2px', '2px'], soft: ['14px', '10px', '10px'], round: ['24px', '16px', '14px'], pill: ['24px', '999px', '14px'] };
 export const TEXT_SIZES = { sm: '15.5px', md: '17px', lg: '18.5px' };
+const TEXT_SCALE = { sm: 0.94, md: 1.06, lg: 1.14 };
 export function Page({ blocks, theme, ctx }) {
   const style = theme?.style || 'aurora';
   const hf = FONT_CHOICES[theme?.headingFont], bf = FONT_CHOICES[theme?.bodyFont], rad = RADIUS[theme?.radius];
@@ -1558,6 +1559,8 @@ export function Page({ blocks, theme, ctx }) {
   if (bf) vars['--bf'] = bf.stack;
   if (rad) { vars['--radius'] = rad[0]; vars['--btnr'] = rad[1]; vars['--inr'] = rad[2]; }
   if (TEXT_SIZES[theme?.textSize]) vars.fontSize = TEXT_SIZES[theme.textSize];
+  // body text in every section scales with the chosen size (section styles multiply their sizes by --ts)
+  if (TEXT_SCALE[theme?.textSize]) vars['--ts'] = TEXT_SCALE[theme.textSize];
   return (
     <div className={`page s-${style}`} style={vars}>
       {blocks.map((b) => <Block key={b.id} block={b} ctx={ctx} />)}
