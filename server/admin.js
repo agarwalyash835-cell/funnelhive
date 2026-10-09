@@ -26,7 +26,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       by[a.status] = (by[a.status] || 0) + 1;
       if (a.ok && u.billing?.subscriptionId && ['active', 'past_due'].includes(u.billing.status) && !u.billing.cancelAtPeriodEnd && (u.billing.currentPeriodEnd || 0) > (u.billing.trialEndsAt || 0)) {
         const amt = u.billing.amount || chargeFor(u.billing.interval || 'monthly');
-        if (u.billing.interval === 'yearly') { yearly++; mrr += amt / 12; } else { monthly++; mrr += amt; }
+        if (String(u.billing.interval).endsWith('yearly')) { yearly++; mrr += amt / 12; } else { monthly++; mrr += amt; }
       }
     }
     const since = (d) => now - d * DAY;
@@ -138,7 +138,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     const num = (v, min, max) => { const n = Number(v); return Number.isFinite(n) && n >= min && n <= max ? Math.round(n) : null; };
     const patch = {};
     if (b.brand != null) { const v = String(b.brand).trim().slice(0, 40); if (!v) return res.status(400).json({ error: 'Enter a brand name' }); patch.brand = v; }
-    for (const k of ['monthly', 'yearly']) if (b.plans?.[k]?.amount != null) { const v = num(b.plans[k].amount, 1, 10000000); if (v == null) return res.status(400).json({ error: `Enter a valid ${k} price` }); (patch.plans ||= { ...platform().plans })[k] = { amount: v }; }
+    for (const k of ['monthly', 'yearly', 'agency_monthly', 'agency_yearly']) if (b.plans?.[k]?.amount != null) { const v = num(b.plans[k].amount, 1, 10000000); if (v == null) return res.status(400).json({ error: `Enter a valid ${k} price` }); (patch.plans ||= { ...platform().plans })[k] = { amount: v }; }
+    if (b.agency && typeof b.agency === 'object') { const mc = num(b.agency.maxClients, 1, 10000), tc = num(b.agency.trialClients, 0, 100); if (mc == null || tc == null) return res.status(400).json({ error: 'Enter how many client accounts the Agency plan includes' }); patch.agency = { maxClients: mc, trialClients: tc }; }
     for (const [k, min, max] of [['trialDays', 0, 365], ['gstRate', 0, 28], ['graceDays', 0, 60], ['pagesOfflineAfterDays', 0, 365]]) if (b[k] != null) { const v = num(b[k], min, max); if (v == null) return res.status(400).json({ error: `${k}: enter ${min}–${max}` }); patch[k] = v; }
     if (b.aiCredits) for (const k of ['trial', 'paid']) if (b.aiCredits[k] != null) { const v = num(b.aiCredits[k], 0, 10000000); if (v == null) return res.status(400).json({ error: 'Enter valid AI credit numbers' }); (patch.aiCredits ||= { ...platform().aiCredits })[k] = v; }
     if (b.pricesIncludeGst != null) patch.pricesIncludeGst = !!b.pricesIncludeGst;

@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { api, setToken } from '../api';
 import { Icon } from '../ui';
 
-const PERKS = ['Hive AI builds your entire funnel from one chat', '53 proven templates for Indian businesses', 'One-click upsells, order bumps & cross-sells', 'Razorpay checkout with UPI, coupons & cart recovery', 'CRM, email + WhatsApp automations, A/B tests'];
+const PERKS = ['Hive AI builds your entire funnel from one chat', '100+ proven templates: sales, VSL & webinar funnels', 'One-click upsells, order bumps & cross-sells', 'Razorpay checkout with UPI, coupons & cart recovery', 'CRM, email + WhatsApp automations, A/B tests'];
 
 export function AuthShell({ children }) {
+  const [wl, setWl] = useState(null);
+  useEffect(() => { fetch('/api/site').then((r) => r.json()).then((s) => { if (s.whiteLabel) { setWl(s.whiteLabel); document.title = s.whiteLabel.brand; } }).catch(() => {}); }, []);
   return (
     <div className="auth">
-      <div className="auth-art">
-        <a href="/" className="brand light"><span className="logo"><Icon name="bolt" size={18} /></span>FunnelHive</a>
+      <div className="auth-art" style={wl?.primary ? { background: `linear-gradient(160deg, ${wl.primary}, #111827)` } : undefined}>
+        <a href="/" className="brand light">{wl?.logo ? <img className="logo img" src={wl.logo} alt="" /> : <span className="logo"><Icon name="bolt" size={18} /></span>}{wl?.brand || 'FunnelHive'}</a>
         <h1>Build funnels that sell — <span>in minutes, not weeks.</span></h1>
         <ul>{PERKS.map((p) => <li key={p}><Icon name="check" size={16} />{p}</li>)}</ul>
         <div className="auth-quote">14-day free trial with every feature. No credit card needed to start.<small>GST invoices · cancel any time</small></div>
@@ -18,9 +20,11 @@ export function AuthShell({ children }) {
   );
 }
 
+// after signing in, go back where the visitor came from (e.g. a team invitation) — same-site paths only
+const nextPath = () => { const n = new URLSearchParams(location.search).get('next') || '/'; return /^\/(?![/\\])/.test(n) ? n : '/'; };
 export default function Auth() {
   const [mode, setMode] = useState(() => (new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register'));
-  const [f, setF] = useState({ name: '', email: '', password: '', code: '' });
+  const [f, setF] = useState({ name: '', email: new URLSearchParams(location.search).get('email') || '', password: '', code: '' });
   const [needCode, setNeedCode] = useState(false);
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
@@ -55,7 +59,7 @@ export default function Auth() {
       const r = await api('/auth/google', 'POST', { credential, code });
       if (r.twoFactorRequired) { setGoogle(credential); setNeedCode(true); setBusy(false); return; }
       setToken(r.token);
-      location.href = '/';
+      location.href = nextPath();
     } catch (x) { setErr(x.message); setBusy(false); }
   };
 
@@ -71,7 +75,7 @@ export default function Auth() {
         const r = await api(`/auth/${mode}`, 'POST', f);
         if (r.twoFactorRequired) { setNeedCode(true); setBusy(false); return; }
         setToken(r.token);
-        location.href = '/';
+        location.href = nextPath();
         return;
       }
     } catch (x) { setErr(x.message); }

@@ -11,6 +11,11 @@ export const STYLE_FONTS = {
   tech: 'family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700',
   playful: 'family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800',
   royal: 'family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Mulish:wght@400;500;600;700',
+  noir: 'family=Inter+Tight:ital,wght@0,500;0,600;0,700;0,800;1,500&family=Inter:wght@400;500;600',
+  glass: 'family=Manrope:wght@400;500;600;700;800',
+  swiss: 'family=Archivo:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,500',
+  pastel: 'family=DM+Serif+Display:ital@0;1&family=Manrope:wght@400;500;600;700;800',
+  studio: 'family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700',
 };
 export const fontHref = (style) => `https://fonts.googleapis.com/css2?${STYLE_FONTS[style] || STYLE_FONTS.aurora}&display=swap`;
 

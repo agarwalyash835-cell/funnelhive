@@ -149,11 +149,45 @@ export function RazorpayPanel() {
       <div className="row"><button className="btn primary" disabled={busy || !v.keyId} onClick={save}>{busy ? 'Checking with Razorpay…' : 'Save & verify keys'}</button>{st.configured && <button className="btn ghost danger" onClick={clear}>Disconnect</button>}</div>
       <div className="rzp-hook">
         <b>Webhook (backup for buyers who close the page right after paying)</b>
-        <p className="hint">In Razorpay → Account &amp; Settings → Webhooks, add this URL with the events <code>payment.captured</code> and <code>order.paid</code>, choose a secret and paste the same secret above.</p>
+        <p className="hint">In Razorpay → Account &amp; Settings → Webhooks, add this URL with the events <code>payment.captured</code>, <code>order.paid</code>, <code>refund.processed</code> and (for payment plans &amp; memberships) all <code>subscription.*</code> events, choose a secret and paste the same secret above.</p>
         <div className="row"><code className="secret-v">{hook}</code><button className="icon-btn" title="Copy" onClick={() => copy(hook)}><Copy size={15} /></button></div>
         {/^https?:\/\/(localhost|127\.)/.test(location.origin) && <p className="hint warn">This app is running on your computer — Razorpay can only reach the webhook once it’s hosted on a public address. Payments still work without it.</p>}
       </div>
       <p className="hint">Upsells and cross-sells open Razorpay again with the buyer’s details filled in — one tap with UPI or a saved card. Fully automatic card charging needs Razorpay’s recurring-payments approval.</p>
+    </div>
+  );
+}
+
+// Stripe: international cards and currencies (USD, EUR, GBP…), Apple Pay / Google Pay
+export function StripePanel() {
+  const [st, setSt] = useState(null);
+  const [v, setV] = useState({ publishableKey: '', secretKey: '', webhookSecret: '' });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api('/channels/stripe').then((s) => { setSt(s); setV((x) => ({ ...x, publishableKey: s.publishableKey })); }).catch(() => {}); }, []);
+  if (!st) return <div className="skeleton sm" />;
+  const save = async () => {
+    setBusy(true);
+    try { const r = await api('/channels/stripe', 'PUT', v); setSt(r); setV({ publishableKey: r.publishableKey, secretKey: '', webhookSecret: '' }); toast(`Stripe connected (${r.mode === 'live' ? 'LIVE — real payments' : 'test mode'}) ✅`); } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const clear = async () => { if (!confirm('Disconnect Stripe? Checkouts in foreign currencies stop taking payments.')) return; setSt(await api('/channels/stripe', 'PUT', { clear: true })); setV({ publishableKey: '', secretKey: '', webhookSecret: '' }); };
+  const hook = `${location.origin}${st.webhookUrl}`;
+  return (
+    <div className="rzp">
+      <div className="rzp-h"><b>Stripe</b>{st.configured ? <span className={`pill ${st.mode === 'live' ? 'ok' : 'warn'}`}>{st.mode === 'live' ? 'Live — collecting real payments' : 'Test mode — no real money'}</span> : <span className="pill">Not connected</span>}</div>
+      <p className="muted sm">For buyers outside India: cards in USD, EUR, GBP and more, plus Apple Pay and Google Pay. Pick the currency on each checkout — ₹ checkouts keep using Razorpay when it’s connected. Keys: Stripe Dashboard → Developers → API keys.</p>
+      <div className="form2">
+        <label>Publishable key<input value={v.publishableKey} onChange={(e) => setV({ ...v, publishableKey: e.target.value.trim() })} placeholder="pk_test_…" autoComplete="off" /></label>
+        <label>Secret key {st.hasSecret && <small className="muted">· saved — leave empty to keep it</small>}<input type="password" value={v.secretKey} onChange={(e) => setV({ ...v, secretKey: e.target.value })} placeholder={st.hasSecret ? '••••••••' : 'sk_test_…'} autoComplete="new-password" /></label>
+        <label className="full">Webhook signing secret <small className="muted">· recommended — needed for membership renewals</small><input type="password" value={v.webhookSecret} onChange={(e) => setV({ ...v, webhookSecret: e.target.value })} placeholder={st.hasWebhookSecret ? '•••••••• (saved)' : 'whsec_…'} autoComplete="new-password" /></label>
+      </div>
+      <div className="row"><button className="btn primary" disabled={busy || !v.publishableKey} onClick={save}>{busy ? 'Checking with Stripe…' : 'Save & verify keys'}</button>{st.configured && <button className="btn ghost danger" onClick={clear}>Disconnect</button>}</div>
+      <div className="rzp-hook">
+        <b>Webhook</b>
+        <p className="hint">Stripe → Developers → Webhooks → Add endpoint with this URL and the events <code>payment_intent.succeeded</code>, <code>invoice.paid</code>, <code>invoice.payment_failed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code>; paste its signing secret above.</p>
+        <div className="row"><code className="secret-v">{hook}</code><button className="icon-btn" title="Copy" onClick={() => copy(hook)}><Copy size={15} /></button></div>
+      </div>
+      <p className="hint">Upsells charge the card saved at checkout in one click (cards that need 3-D Secure show the form again).</p>
     </div>
   );
 }

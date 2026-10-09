@@ -6,6 +6,7 @@ import { api } from '../api';
 import { BLOCK_TYPES, BLOCK_GROUPS, BLOCK_ICONS, STYLES, ELEMENT_TYPES, STYLE_DEFAULTS, FORM_FIELD_TYPES, Page, newElement, freshIds, applyLayout, defaultSection, withCopy } from '../blocks';
 import { BlockIcon, ElementIcon, StepIcon } from '../blockIcons';
 import { Icon, toast, Modal, ago } from '../ui';
+import { LANGS } from '../i18n';
 import { FONT_CHOICES } from '../fonts';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -166,11 +167,12 @@ function FormFieldsField({ value, onChange }) {
             <label className="tog mini"><input type="checkbox" checked={!!it.required} onChange={(e) => set(i, 'required', e.target.checked)} /><span />Required</label>
           </div>
           {it.type === 'select' && <input placeholder="Options, separated by commas" value={it.options || ''} onChange={(e) => set(i, 'options', e.target.value)} />}
+          {it.type === 'select' && <input placeholder="Not a fit if they choose… (comma-separated, optional)" value={it.reject || ''} onChange={(e) => set(i, 'reject', e.target.value)} title="Qualification: applicants who pick one of these see the 'not a fit' message instead of the next step" />}
           {['text', 'email', 'tel', 'number', 'textarea'].includes(it.type || 'text') && <input placeholder="Placeholder (optional)" value={it.placeholder || ''} onChange={(e) => set(i, 'placeholder', e.target.value)} />}
         </div>
       ))}
       <button className="btn ghost sm block" onClick={() => onChange([...items, { label: 'New question', type: 'text', required: false }])}><Icon name="plus" size={14} /> Add field</button>
-      <span className="hint">Answers appear in Contacts and in the lead.created webhook. Include an Email or Phone field so you can follow up.</span>
+      <span className="hint">Answers appear in Contacts and in the lead.created webhook. Include an Email or Phone field so you can follow up. For applications, list the answers that mean “not a fit” — those applicants are saved as not qualified and see your “not a fit” message.</span>
     </div>
   );
 }
@@ -181,12 +183,48 @@ const FIELD_LABELS = {
   buttonAction: 'button action', buttonUrl: 'button link or section', buttonNewTab: 'open in a new tab',
   secondaryText: 'small link text', secondaryUrl: 'small link goes to',
 };
+// The seller's digital products, loaded once per editor session (refreshed when the picker opens)
+let productCache = null;
+const loadProducts = (fresh) => { if (!productCache || fresh) productCache = api('/products').then((r) => r.products).catch(() => []); return productCache; };
+function ProductSelect({ value, onChange, compact }) {
+  const [list, setList] = useState(null);
+  useEffect(() => { let on = true; loadProducts().then((l) => on && setList(l)); return () => { on = false; }; }, []);
+  const missing = value && list && !list.some((p) => p.id === value);
+  return (
+    <div className={`prod-pick ${compact ? 'compact' : ''}`}>
+      <select value={value || ''} onFocus={() => loadProducts(true).then(setList)} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{compact ? 'Deliver: nothing' : '— Nothing to deliver —'}</option>
+        {(list || []).map((p) => <option key={p.id} value={p.id}>{compact ? `Deliver: ${p.name}` : p.name}</option>)}
+        {missing && <option value={value}>⚠ Deleted product</option>}
+      </select>
+      {!compact && <Link className="prod-pick-l" to="/products" target="_blank">{list?.length ? 'Manage products ↗' : 'Create a product ↗'}</Link>}
+    </div>
+  );
+}
+
+let calendarCache = null;
+function CalendarSelect({ value, onChange }) {
+  const [list, setList] = useState(null);
+  useEffect(() => { let on = true; (calendarCache ||= api('/calendars').catch(() => [])).then((l) => on && setList(l)); return () => { on = false; }; }, []);
+  return (
+    <div className="prod-pick">
+      <select value={value || ''} onFocus={() => { calendarCache = api('/calendars').catch(() => []); calendarCache.then(setList); }} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{list?.[0] ? `Default — ${list[0].name}` : 'Default calendar'}</option>
+        {(list || []).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.duration} min</option>)}
+      </select>
+      <Link className="prod-pick-l" to="/bookings?tab=calendars" target="_blank">Set your available hours ↗</Link>
+    </div>
+  );
+}
+
 function Field({ def, value, onChange }) {
   const [key, kind, sub, hint] = def;
   const label = FIELD_LABELS[key] || key.replace(/([A-Z])/g, ' $1').toLowerCase();
   if (key === 'image' || key === 'src') return <ImageField label={label === 'src' ? 'image' : label} value={value} onChange={onChange} hint={hint} />;
   if (kind === 'gallery') return <GalleryField value={value} onChange={onChange} />;
   if (kind === 'formfields') return <FormFieldsField value={value} onChange={onChange} />;
+  if (kind === 'calendar') return <div className="fld"><label>calendar</label><CalendarSelect value={value} onChange={onChange} />{hint && <span className="hint">{hint}</span>}</div>;
+  if (kind === 'product') return <div className="fld"><label>{key === 'bumpProductId' ? 'deliver with the order bump' : key === 'productId' && hint?.startsWith('Free') ? 'free product (lead magnet)' : 'deliver after payment'}</label><ProductSelect value={value} onChange={onChange} />{hint && <span className="hint">{hint}</span>}</div>;
   if (kind === 'code') return <div className="fld"><label>{label}</label><textarea className="code-area" rows={8} spellCheck={false} value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="<iframe src=…></iframe>" />{hint && <span className="hint">{hint}</span>}</div>;
   if (kind === 'bool') return <label className="tog"><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} /><span />{label}</label>;
   if (kind === 'select') return <div className="fld"><label>{label}</label><select value={value ?? sub[0][0]} onChange={(e) => onChange(e.target.value)}>{sub.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>{hint && <span className="hint">{hint}</span>}</div>;
@@ -201,12 +239,12 @@ function Field({ def, value, onChange }) {
               {i > 0 && <button className="icon-btn xs" onClick={() => { const a = [...items]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; onChange(a); }}>↑</button>}
               <button className="icon-btn xs danger" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
             </span></div>
-            {sub.map((k) => (k === 'quote' || k === 'a' || k === 'text' && sub.length === 1
+            {sub.map((k) => (k === 'productId' ? <ProductSelect key={k} compact value={it[k]} onChange={(v) => set(i, k, v)} /> : k === 'quote' || k === 'a' || k === 'text' && sub.length === 1
               ? <textarea key={k} rows={2} placeholder={k} value={it[k] || ''} onChange={(e) => set(i, k, e.target.value)} />
               : <input key={k} placeholder={k} value={it[k] ?? ''} onChange={(e) => set(i, k, e.target.value)} />))}
           </div>
         ))}
-        <button className="btn ghost sm block" onClick={() => onChange([...items, Object.fromEntries(sub.map((k) => [k, '']))])}><Icon name="plus" size={14} /> Add item</button>
+        <button className="btn ghost sm block" onClick={() => onChange([...items, Object.fromEntries(sub.filter((k) => k !== 'productId').map((k) => [k, '']))])}><Icon name="plus" size={14} /> Add item</button>
       </div>
     );
   }
@@ -657,7 +695,7 @@ export default function Editor() {
   const loadLatest = () => { hist.current = { past: [], future: [], last: 0 }; adopt(conflict); setConflict(null); toast('Loaded the latest version'); };
   const keepMine = async () => { verRef.current = conflict.version; setConflict(null); if (await save(f)) toast('Your version was saved'); };
   const publish = async () => { const nf = { ...f, published: !f.published }; commit(nf); await save(nf); toast(nf.published ? '🎉 Your funnel is live!' : 'Funnel unpublished'); };
-  const liveUrl = `${location.origin}/f/${f.slug}`;
+  const liveUrl = `${(typeof window !== 'undefined' && window.__PAGES_URL__) || location.origin}/f/${f.slug}`;
   const width = DEVICES.find((d) => d[0] === device)[2];
   const nextFor = (i, accept) => { let n = i + 1; if (accept) while (f.steps[n]?.type === 'downsell') n++; return f.steps[n]; };
   const dropAt = dnd.dropAt;
@@ -729,7 +767,7 @@ export default function Editor() {
         </div>
         <button className="btn ghost hide-m" title="Version history" onClick={openHistory}><Icon name="clock" size={16} /></button>
         <Link className="btn ghost hide-m" to={`/funnels/${f.id}/analytics`}><Icon name="chart" size={16} /></Link>
-        <Link className="btn ghost" to={`/f/${f.slug}/${step.slug}?preview=1`}><Icon name="eye" size={16} /> Preview</Link>
+        <Link className="btn ghost" to={`/f/${f.slug}/${step.slug}?preview=1&pv=${f.previewKey || ''}`}><Icon name="eye" size={16} /> Preview</Link>
         {f.published && <button className="btn ghost" title={liveUrl} onClick={() => { navigator.clipboard?.writeText(liveUrl); toast('Live link copied'); }}><Icon name="link" size={16} /></button>}
         <button className={`btn ${f.published ? 'live' : 'primary'}`} onClick={publish}>{f.published ? <><span className="live-dot" /> Live</> : <><Icon name="send" size={15} /> Publish</>}</button>
       </header>
@@ -822,6 +860,7 @@ export default function Editor() {
                   <label>Secondary<input type="color" value={f.theme?.secondary || '#ec4899'} onChange={(e) => patch({ theme: { ...f.theme, secondary: e.target.value } }, true)} /></label>
                 </div>
                 <h5>Typography & shape <small>· applies to the whole funnel</small></h5>
+                <div className="fld"><label>Page language <small className="muted">· buttons, form labels, checkout &amp; booking text</small></label><select value={f.theme?.lang || 'en'} onChange={(e) => patch({ theme: { ...f.theme, lang: e.target.value === 'en' ? undefined : e.target.value } })}>{LANGS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
                 <div className="fld"><label>Heading font</label><select value={f.theme?.headingFont || ''} onChange={(e) => patch({ theme: { ...f.theme, headingFont: e.target.value || undefined } })}><option value="">Style default</option>{Object.entries(FONT_CHOICES).map(([k, v]) => <option key={k} value={k}>{k}{v.indic ? ' · हिन्दी ✓' : ''}</option>)}</select></div>
                 <div className="fld"><label>Body font</label><select value={f.theme?.bodyFont || ''} onChange={(e) => patch({ theme: { ...f.theme, bodyFont: e.target.value || undefined } })}><option value="">Style default</option>{Object.entries(FONT_CHOICES).map(([k, v]) => <option key={k} value={k}>{k}{v.indic ? ' · हिन्दी ✓' : ''}</option>)}</select></div>
                 <div className="form2c">

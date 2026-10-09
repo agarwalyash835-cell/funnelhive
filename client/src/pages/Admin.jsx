@@ -199,6 +199,10 @@ function PlatformSettings() {
         <div className="form2">
           <label>Monthly price (₹)<input type="number" min="1" value={s.plans.monthly.amount} onChange={(e) => set({ plans: { ...s.plans, monthly: { amount: e.target.value } } })} /></label>
           <label>Yearly price (₹)<input type="number" min="1" value={s.plans.yearly.amount} onChange={(e) => set({ plans: { ...s.plans, yearly: { amount: e.target.value } } })} /></label>
+          <label>Agency monthly (₹)<input type="number" min="1" value={s.plans.agency_monthly?.amount ?? ''} onChange={(e) => set({ plans: { ...s.plans, agency_monthly: { amount: e.target.value } } })} /></label>
+          <label>Agency yearly (₹)<input type="number" min="1" value={s.plans.agency_yearly?.amount ?? ''} onChange={(e) => set({ plans: { ...s.plans, agency_yearly: { amount: e.target.value } } })} /></label>
+          <label>Client accounts in the Agency plan<input type="number" min="1" value={s.agency?.maxClients ?? 25} onChange={(e) => set({ agency: { ...s.agency, maxClients: e.target.value } })} /></label>
+          <label>Client accounts during the trial<input type="number" min="0" value={s.agency?.trialClients ?? 2} onChange={(e) => set({ agency: { ...s.agency, trialClients: e.target.value } })} /></label>
           <label>Free trial (days)<input type="number" min="0" max="365" value={s.trialDays} onChange={(e) => set({ trialDays: e.target.value })} /></label>
           <label>GST rate (%)<input type="number" min="0" max="28" value={s.gstRate} onChange={(e) => set({ gstRate: e.target.value })} /></label>
           <label>AI credits / month — trial<input type="number" min="0" value={s.aiCredits.trial} onChange={(e) => set({ aiCredits: { ...s.aiCredits, trial: e.target.value } })} /></label>
@@ -208,7 +212,7 @@ function PlatformSettings() {
         </div>
         <label className="tog"><input type="checkbox" checked={s.pricesIncludeGst} onChange={(e) => set({ pricesIncludeGst: e.target.checked })} /><span />Prices include GST</label>
         <p className="hint">Sellers pay {inr(s.prices.monthly.amount)}/month or {inr(s.prices.yearly.amount)}/year. Changing a price applies to new subscriptions; existing subscribers keep theirs.</p>
-        <button className="btn primary" onClick={() => save({ plans: s.plans, trialDays: s.trialDays, gstRate: s.gstRate, aiCredits: s.aiCredits, graceDays: s.graceDays, pagesOfflineAfterDays: s.pagesOfflineAfterDays, pricesIncludeGst: s.pricesIncludeGst })}>Save pricing</button>
+        <button className="btn primary" onClick={() => save({ plans: s.plans, agency: s.agency, trialDays: s.trialDays, gstRate: s.gstRate, aiCredits: s.aiCredits, graceDays: s.graceDays, pagesOfflineAfterDays: s.pagesOfflineAfterDays, pricesIncludeGst: s.pricesIncludeGst })}>Save pricing</button>
       </Panel>
 
       <Panel title="Razorpay (collects subscriptions)">

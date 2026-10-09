@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { WorkspaceSwitch } from './pages/Team';
 import { api, logout, stopImpersonating, fmtDate } from './api';
 
 const P = {
@@ -47,6 +48,10 @@ const P = {
   bookmark: 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z',
   shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
   card: 'M2 5h20v14H2zM2 10h20M6 15h4',
+  box: 'M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
+  refund: 'M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8M12 8v4l3 2',
+  mail: 'M3 5h18v14H3zM3 6l9 7 9-7',
+  receipt: 'M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2zM9 7h6M9 11h6M9 15h4',
 };
 export const Icon = ({ name, size = 18, stroke = 2, className = '' }) => (
   <svg className={`ic-svg ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={name === 'grip' ? 3.2 : stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -64,7 +69,9 @@ export const ago = (t) => {
   return `${Math.floor(s / 86400)}d ago`;
 };
 
+const cell = (v) => (typeof v === 'string' && /^[=+\-@\t\r]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v) ? `'${v}` : v);
 export function downloadCSV(name, rows) {
+  rows = rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, cell(v)])));
   if (!rows.length) return;
   const cols = Object.keys(rows[0]);
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -83,30 +90,38 @@ const NAV = [
   ['/hive', 'sparkles', 'Hive AI'],
   ['/contacts', 'users', 'Contacts'],
   ['/automations', 'flow', 'Automations'],
+  ['/broadcasts', 'mail', 'Broadcasts'],
+  ['/products', 'box', 'Products'],
+  ['/bookings', 'clock', 'Bookings'],
+  ['/webinars', 'play', 'Webinars'],
   ['/orders', 'cart', 'Orders'],
+  ['/agency', 'layers', 'Agency'],
   ['/settings', 'settings', 'Settings'],
   ['/billing', 'card', 'Plan & billing'],
 ];
 export const BRAND = 'FunnelHive';
+// where live funnel pages are served (PAGES_URL on the server, else this app)
+export const pagesOrigin = () => (typeof window !== 'undefined' && window.__PAGES_URL__) || location.origin;
 
 export function Layout({ title, subtitle, actions, children, wide }) {
   const [me, setMe] = useState(null);
   const [open, setOpen] = useState(false);
   const [paywall, setPaywall] = useState(null);
-  useEffect(() => { api('/me').then((m) => { setMe(m); if (m.brand) document.title = m.brand; }).catch(() => {}); }, []);
+  useEffect(() => { api('/me').then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; }).catch(() => {}); }, []);
   useEffect(() => { const h = (e) => setPaywall(e.detail || {}); window.addEventListener('ff:paywall', h); return () => window.removeEventListener('ff:paywall', h); }, []);
   return (
     <div className="app">
       <aside className={`side ${open ? 'open' : ''}`}>
-        <div className="brand"><span className="logo"><Icon name="bolt" size={18} /></span>{me?.brand || BRAND}</div>
+        <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}{me?.brand || BRAND}</div>
         <nav>
-          {NAV.map(([to, ic, label]) => (
+          {NAV.filter(([to]) => !(me?.workspace && (to === '/billing' || to === '/agency' || (to === '/settings' && !['admin', 'agency'].includes(me.workspace.role)))) && !(to === '/billing' && me?.billing?.agencyManaged)).map(([to, ic, label]) => (
             <NavLink key={to} to={to} end={to === '/'} onClick={() => setOpen(false)}><Icon name={ic} />{label}</NavLink>
           ))}
           {me?.admin && <NavLink to="/admin" onClick={() => setOpen(false)}><Icon name="shield" />Admin</NavLink>}
         </nav>
         <div className="side-foot">
-          {me?.billing?.status === 'trialing' && <Link to="/billing" className="trial-chip"><Icon name="clock" size={14} />{me.billing.daysLeft} day{me.billing.daysLeft === 1 ? '' : 's'} left in trial<b>Upgrade</b></Link>}
+          <WorkspaceSwitch me={me} />
+          {me?.billing?.status === 'trialing' && !me.workspace && !me.billing.agencyManaged && <Link to="/billing" className="trial-chip"><Icon name="clock" size={14} />{me.billing.daysLeft} day{me.billing.daysLeft === 1 ? '' : 's'} left in trial<b>Upgrade</b></Link>}
           <div className={`ai-status ${me?.aiEnabled ? 'on' : ''}`}><Icon name="sparkles" size={14} />{me?.aiEnabled ? `AI · ${me.credits?.limit == null ? 'unlimited' : `${Math.max(0, me.credits.limit - me.credits.used)} credits left`}` : 'Offline AI assistant'}</div>
           <div className="me">
             <span className="me-av">{(me?.name || '?')[0]?.toUpperCase()}</span>
@@ -122,6 +137,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
           <div className="tb-title"><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
           <div className="tb-actions">{actions}</div>
         </header>
+        {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} />You’re working in the <b>{me.workspace.name}</b> workspace as {({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer' })[me.workspace.role]}.</div>}
         {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} />You’re signed in as <b>{me.email}</b> (support view).<button onClick={stopImpersonating}>Back to admin</button></div>}
         {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}
         {me?.billing && !me.billing.ok && <div className="app-banner bad"><Icon name="clock" size={15} />{me.billing.reason || 'Your account is read-only.'}{me.billing.status !== 'suspended' && <span>{me.billing.pagesLive ? ` Your live pages stay up until ${fmtDate(me.billing.pagesOfflineAt)}.` : ' Your live pages are offline.'}</span>}{me.billing.status !== 'suspended' && <Link to="/billing">Choose a plan</Link>}</div>}
@@ -199,6 +215,7 @@ const EXAMPLES = ['Online yoga classes for working women, ₹499', 'Homemade man
 export function CreateFunnel({ onClose, aiEnabled }) {
   const nav = useNavigate();
   const [prompt, setPrompt] = useState('');
+  const [lang, setLang] = useState('en');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const ref = useRef();
@@ -207,7 +224,7 @@ export function CreateFunnel({ onClose, aiEnabled }) {
     e?.preventDefault();
     setBusy(true); setErr('');
     try {
-      const r = await api('/ai/generate', 'POST', { prompt });
+      const r = await api('/ai/generate', 'POST', { prompt, lang });
       if (r.usedAI && r.quality) toast(r.quality.finalIssues === 0 ? `✅ Quality check passed — ${r.steps.length} pages at template standard` : 'Funnel ready — review the highlighted sections');
       nav(`/funnels/${r.id}`);
     } catch (x) { setErr(x.message); setBusy(false); }
@@ -220,14 +237,15 @@ export function CreateFunnel({ onClose, aiEnabled }) {
         <h2>Describe your business in one line</h2>
         <p className="muted">We’ll build the landing page, checkout, upsell, downsell, cross-sells and thank-you page — with copy, FOMO and pricing.</p>
         <textarea ref={ref} rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="e.g. Online yoga classes for working women, ₹499" />
+        <label className="lang-pick">Page language <select value={lang} onChange={(e) => setLang(e.target.value)}><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></label>
         <div className="sugg">{EXAMPLES.map((x) => <button type="button" key={x} onClick={() => setPrompt(x)}>{x}</button>)}</div>
         {err && <div className="err">{err}</div>}
         <button className="btn primary lg" disabled={busy || prompt.length < 5}>{busy ? <><span className="spin" /> Building your funnel…</> : <><Icon name="wand" /> Generate my funnel</>}</button>
         {busy && <p className="hint center">Takes about a minute: the AI writes every page, then each one is checked against our template quality bar and fixed where needed.</p>}
-        {!aiEnabled && <p className="hint">Running offline: we’ll match your description to the best of our 53 expert templates. Add an Anthropic key for fully custom AI copy.</p>}
+        {!aiEnabled && <p className="hint">Running offline: we’ll match your description to the best of our 100+ expert templates. Add a KIE_API_KEY on the server for fully custom AI copy.</p>}
       </form>
       <div className="create-alt">
-        <button onClick={() => nav('/templates')}><Icon name="layout" /><div><b>Pick a template</b><small>53 proven designs for Indian niches</small></div></button>
+        <button onClick={() => nav('/templates')}><Icon name="layout" /><div><b>Pick a template</b><small>100+ proven designs: sales, VSL & webinar funnels</small></div></button>
         <button onClick={blank}><Icon name="plus" /><div><b>Start from scratch</b><small>Blank page with drag & drop</small></div></button>
       </div>
     </Modal>

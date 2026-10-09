@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Layout, Panel, Icon, toast } from '../ui';
 import SecurityPanel from './SecurityPanel';
-import { EmailPanel, WhatsAppPanel, DomainsPanel, RazorpayPanel, HiveMcpPanel } from './SettingsChannels';
+import { TeamPanel } from './Team';
+import { PrivacyPanel } from './Privacy';
+import { ApiKeysPanel } from './Developers';
+import { AdSpendPanel } from './AdSpend';
+import { ActivityPanel } from './Agency';
+import { allZones, zoneOption } from '../tzfmt';
+import { EmailPanel, WhatsAppPanel, DomainsPanel, RazorpayPanel, StripePanel, HiveMcpPanel } from './SettingsChannels';
 
 
 const couponRulesText = (c, funnels) => {
@@ -43,6 +49,7 @@ export default function Settings() {
         <Panel title="Business profile">
           <div className="form2">
             <label>Business name<input value={s.businessName} onChange={(e) => set({ businessName: e.target.value })} placeholder="e.g. Sharma Yoga Studio" /></label>
+            <label>Time zone <small className="muted">· booking hours, webinars, “wait until” and report days</small><select value={s.timezone || 'Asia/Kolkata'} onChange={(e) => set({ timezone: e.target.value })}>{allZones().map((z) => <option key={z} value={z}>{zoneOption(z)}</option>)}</select></label>
             <label>Support WhatsApp <small className="muted">· powers the WhatsApp buttons on your funnels</small><input value={s.supportWhatsapp} onChange={(e) => set({ supportWhatsapp: e.target.value })} placeholder="+91 98765 43210" /></label>
           </div>
           <button className="btn primary" onClick={() => save()}>Save</button>
@@ -50,23 +57,27 @@ export default function Settings() {
 
         <Panel title="Payments">
           <RazorpayPanel />
+          <StripePanel />
           <p className="hint">Stripe, Cashfree and PhonePe aren’t connected yet — Razorpay covers UPI, cards, netbanking, wallets and EMI in India.</p>
         </Panel>
 
         <Panel title="Tracking pixels">
-          <p className="muted sm">Fires PageView on every step, Lead on opt-ins and Purchase on every sale — upsells and add-ons are reported with their own amount, each with a unique order id so Meta and Google never count a sale twice. Pixels don’t load in preview.</p>
+          <p className="muted sm">Fires PageView on every step, ViewContent on sales pages, Lead on opt-ins, InitiateCheckout and AddPaymentInfo at checkout, and Purchase on every sale — upsells and add-ons are reported with their own amount, each with a unique id so Meta and Google never count a sale twice. Pixels don’t load in preview. UTM tags and Meta/Google click ids are saved on every lead and order automatically.</p>
           <div className="form2">
             <label>Meta (Facebook) Pixel ID<input value={s.tracking.fbPixel} onChange={(e) => set({ tracking: { ...s.tracking, fbPixel: e.target.value } })} placeholder="123456789012345" /></label>
             <label>Google Analytics 4 ID<input value={s.tracking.ga4} onChange={(e) => set({ tracking: { ...s.tracking, ga4: e.target.value } })} placeholder="G-XXXXXXX" /></label>
           </div>
           <button className="btn primary" onClick={() => save()}>Save tracking</button>
+          <ServerTracking pixel={s.tracking.fbPixel} ga4={s.tracking.ga4} />
         </Panel>
+
+        <InvoicingPanel s={s} setS={setS} />
 
         <Panel title="Webhooks">
           <p className="muted sm">We POST every new lead and order as JSON. Connect Zapier, Pabbly, Make, n8n, Google Sheets, your CRM or email tool.</p>
           <label className="full">Webhook URL<input value={s.webhookUrl} onChange={(e) => set({ webhookUrl: e.target.value })} placeholder="https://hooks.zapier.com/…" /></label>
           <div className="row"><button className="btn primary" onClick={() => save()}>Save</button><button className="btn ghost" onClick={testHook}><Icon name="send" size={15} /> Send test event</button>{hook && <span className="muted sm">{hook}</span>}</div>
-          <p className="hint">Events: <code>lead.created</code>, <code>order.created</code>, <code>order.updated</code> (upsells & cross-sells), <code>automation.step</code> (from “Send to webhook” automation steps). Failed deliveries retry automatically for ~7 hours.</p>
+          <p className="hint">Events: <code>lead.created</code>, <code>order.created</code>, <code>order.updated</code> (upsells & cross-sells), <code>order.refunded</code>, <code>booking.created</code>, <code>booking.rescheduled</code>, <code>booking.cancelled</code>, <code>webinar.registered</code>, <code>webinar.attended</code>, <code>webinar.missed</code>, <code>order.shipped</code>, <code>order.cancelled</code>, <code>automation.step</code> (from “Send to webhook” automation steps). Failed deliveries retry automatically for ~7 hours.</p>
           <div className="secret">
             <label>Signing secret</label>
             <div className="row"><code className="secret-v">{showSecret ? s.webhookSecret : `whsec_${'•'.repeat(24)}`}</code>
@@ -120,9 +131,19 @@ export default function Settings() {
 
         <HiveMcpPanel />
 
-        <SecurityPanel me={me} onChange={() => api('/me').then(setMe)} />
+        <TeamPanel />
 
-        <Panel title="Your data">
+        <ActivityPanel />
+
+        <PrivacyPanel />
+
+        <ApiKeysPanel />
+
+        <AdSpendPanel />
+
+        {!me?.workspace && <SecurityPanel me={me} onChange={() => api('/me').then(setMe)} />}
+
+        {!me?.workspace && <Panel title="Your data">
           <p className="muted sm">Download everything in your account — funnels, contacts, leads, orders, automations and invoices — as one file. Deleting your account removes all of it permanently.</p>
           <div className="row">
             <button className="btn ghost" onClick={async () => { const r = await fetch('/api/account/export', { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token')}` } }); if (!r.ok) return toast('Export failed'); const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `account-export-${new Date().toISOString().slice(0, 10)}.json`; a.click(); }}><Icon name="download" size={15} /> Export my data</button>
@@ -133,7 +154,7 @@ export default function Settings() {
               try { await api('/account/delete', 'POST', { password, confirm: 'DELETE' }); localStorage.removeItem('ff_token'); location.href = '/login'; } catch (e) { toast(e.message); }
             }}><Icon name="trash" size={15} /> Delete my account</button>
           </div>
-        </Panel>
+        </Panel>}
 
         <Panel title="Demo data">
           <p className="muted sm">{me?.hasDemo ? 'Your account contains sample visits, leads and orders. Remove them before you go live — real data is never touched.' : 'No demo data in your account.'}</p>
@@ -149,5 +170,73 @@ export default function Settings() {
         </Panel>
       </div>
     </Layout>
+  );
+}
+
+const STATES = ['Andaman and Nicobar Islands', 'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chandigarh', 'Chhattisgarh', 'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jammu and Kashmir', 'Jharkhand', 'Karnataka', 'Kerala', 'Ladakh', 'Lakshadweep', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Puducherry', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal'];
+
+// Meta Conversions API + GA4 Measurement Protocol: the server reports leads and sales too, so ad blockers,
+// iOS privacy and buyers who close the tab before the thank-you page don't hide conversions
+function ServerTracking({ pixel, ga4 }) {
+  const [st, setSt] = useState(null);
+  const [f, setF] = useState({ metaToken: '', metaTestCode: '', ga4Secret: '' });
+  const [log, setLog] = useState([]);
+  const load = () => { api('/channels/tracking').then((x) => { setSt(x); setF((v) => ({ ...v, metaTestCode: x.metaTestCode })); }); api('/conversions').then(setLog); };
+  useEffect(() => { load(); }, []);
+  if (!st) return null;
+  const save = async (patch) => { try { setSt(await api('/channels/tracking', 'PUT', patch)); setF({ metaToken: '', ga4Secret: '', metaTestCode: patch.metaTestCode ?? f.metaTestCode }); toast('Server-side tracking saved'); } catch (e) { toast(e.message); } };
+  return (
+    <div className="srv-track">
+      <h4>Server-side tracking <span className={`pill ${st.metaToken || st.ga4Secret ? 'ok' : ''}`}>{st.metaToken || st.ga4Secret ? 'on' : 'off'}</span></h4>
+      <p className="muted sm">Recovers the conversions the browser pixel misses (ad blockers, iOS, closed tabs). Events share ids with the pixel, so nothing is counted twice.</p>
+      <div className="form2">
+        <label>Meta Conversions API token {st.metaToken && <small className="ok-t">· connected</small>}<input type="password" value={f.metaToken} onChange={(e) => setF({ ...f, metaToken: e.target.value })} placeholder={st.metaToken ? '•••••••• (saved — paste a new one to replace)' : 'Events Manager → pixel → Settings → Generate access token'} disabled={!pixel} /></label>
+        <label>Meta test event code <small className="muted">· optional, while testing</small><input value={f.metaTestCode} onChange={(e) => setF({ ...f, metaTestCode: e.target.value })} placeholder="TEST12345" disabled={!pixel} /></label>
+        <label>GA4 Measurement Protocol secret {st.ga4Secret && <small className="ok-t">· connected</small>}<input type="password" value={f.ga4Secret} onChange={(e) => setF({ ...f, ga4Secret: e.target.value })} placeholder={st.ga4Secret ? '•••••••• (saved)' : 'GA4 Admin → Data streams → Measurement Protocol API secrets'} disabled={!ga4} /></label>
+      </div>
+      {(!pixel || !ga4) && <p className="hint">{!pixel && 'Save your Meta Pixel ID above to connect the Conversions API. '}{!ga4 && 'Save your GA4 ID above to connect the Measurement Protocol.'}</p>}
+      <div className="row">
+        <button className="btn primary" disabled={!pixel && !ga4} onClick={() => save({ ...(f.metaToken ? { metaToken: f.metaToken } : {}), ...(f.ga4Secret ? { ga4Secret: f.ga4Secret } : {}), metaTestCode: f.metaTestCode })}>Save server-side tracking</button>
+        {st.metaToken && <button className="btn ghost sm" onClick={() => confirm('Disconnect the Meta Conversions API?') && save({ metaToken: '' })}>Disconnect Meta</button>}
+        {st.ga4Secret && <button className="btn ghost sm" onClick={() => confirm('Disconnect GA4 Measurement Protocol?') && save({ ga4Secret: '' })}>Disconnect GA4</button>}
+      </div>
+      {log.length > 0 && (
+        <table className="tbl compact">
+          <thead><tr><th>Event</th><th>To</th><th>Status</th><th>When</th><th /></tr></thead>
+          <tbody>{log.slice(0, 10).map((d) => (
+            <tr key={d.id}><td className="mono">{d.event}</td><td>{d.provider === 'meta' ? 'Meta' : 'GA4'}</td>
+              <td><span className={`pill ${d.status === 'sent' ? 'ok' : d.status === 'failed' ? 'bad' : 'warn'}`}>{d.status}</span>{d.lastError && <small className="sub-t">{d.lastError}</small>}</td>
+              <td className="muted sm">{new Date(d.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+              <td className="r">{d.status !== 'sent' && <button className="btn ghost sm" onClick={async () => { await api(`/conversions/${d.id}/retry`, 'POST'); load(); }}>Retry</button>}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function InvoicingPanel({ s, setS }) {
+  const [v, setV] = useState({ ...s.invoicing });
+  const set = (patch) => setV({ ...v, ...patch });
+  const save = async (patch = {}) => { try { const next = await api('/settings', 'PUT', { invoicing: { ...v, ...patch } }); setS(next); setV({ ...next.invoicing }); toast('Invoice settings saved'); } catch (e) { toast(e.message); } };
+  return (
+    <Panel title="GST invoices for your buyers" actions={<label className="tog"><input type="checkbox" checked={!!v.enabled} onChange={(e) => (e.target.checked ? set({ enabled: true }) : save({ enabled: false }))} /><span />{v.enabled ? 'On' : 'Off'}</label>}>
+      <p className="muted sm">Every paid order gets a numbered invoice (one per payment — upsells get their own), emailed to the buyer with their purchase and linked on the thank-you page. Refunds issue credit notes. Your prices are treated as GST-inclusive. Without a GSTIN, invoices are issued without tax.</p>
+      {v.enabled && (
+        <>
+          <div className="form2">
+            <label>Legal business name<input value={v.legalName} onChange={(e) => set({ legalName: e.target.value })} placeholder="As registered, e.g. Sharma Learning Pvt Ltd" /></label>
+            <label>GSTIN <small className="muted">· leave empty if not registered</small><input value={v.gstin} maxLength={15} onChange={(e) => set({ gstin: e.target.value.toUpperCase() })} placeholder="27ABCDE1234F1Z5" /></label>
+            <label className="full">Address<input value={v.address} onChange={(e) => set({ address: e.target.value })} placeholder="Shown on invoices" /></label>
+            <label>State<select value={v.state} onChange={(e) => set({ state: e.target.value })} disabled={!!v.gstin && v.gstin.length === 15}><option value="">Choose…</option>{STATES.map((x) => <option key={x}>{x}</option>)}</select></label>
+            <label>GST rate<select value={v.rate} onChange={(e) => set({ rate: Number(e.target.value) })}>{[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}</select></label>
+            <label>SAC code<input value={v.sac} onChange={(e) => set({ sac: e.target.value })} placeholder="998431" /></label>
+            <label>Invoice number prefix<input value={v.prefix} onChange={(e) => set({ prefix: e.target.value })} placeholder="INV" /><small className="hint">Numbers look like {v.prefix || 'INV'}/2026-27/0001 and restart every financial year.</small></label>
+            <label>Email on invoices<input value={v.email} onChange={(e) => set({ email: e.target.value })} placeholder="accounts@yourbrand.in" /></label>
+          </div>
+          <div className="row"><button className="btn primary" onClick={() => save({ enabled: true })}>Save invoice settings</button><span className="hint">Business buyers can add their GSTIN at checkout once a GSTIN is saved here.</span></div>
+        </>
+      )}
+    </Panel>
   );
 }

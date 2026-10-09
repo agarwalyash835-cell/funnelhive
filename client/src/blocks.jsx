@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { tr } from './i18n';
+import { useViewerTz, dayKey, fmtDay, fmtTime, zoneLabel, zoneCity, fmtWhenShort } from './tzfmt';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ensureFonts, FONT_CHOICES } from './fonts';
 import { GripVertical, Copy as CopyIcon, Trash2 } from 'lucide-react';
 
@@ -14,6 +16,11 @@ export const STYLES = {
   tech: 'Tech — dark, neon, monospace',
   playful: 'Playful — bright & chunky',
   royal: 'Royal — jewel tones & gold',
+  noir: 'Noir — black, white & one glowing accent',
+  glass: 'Glass — frosted panels on a colour mesh',
+  swiss: 'Swiss — grid, big type, sharp corners',
+  pastel: 'Pastel — soft, dreamy, rounded',
+  studio: 'Studio — warm neutral, modern startup',
 };
 
 const T = 'text', LONG = 'long', NUM = 'number', B = 'bool', L = 'list';
@@ -22,7 +29,7 @@ const HL = 'Wrap words in *stars* to highlight them';
 // Field schema drives the editor's inspector: [key, kind, listSubKeys, hint]
 export const BLOCK_TYPES = {
   section: { label: 'Custom section', fields: [['layout', 'select', [['1', 'One column'], ['1-1', 'Two equal columns'], ['2-1', 'Wide + narrow'], ['1-2', 'Narrow + wide'], ['1-1-1', 'Three columns'], ['1-1-1-1', 'Four columns']]], ['valign', 'select', [['top', 'Align to top'], ['center', 'Align to middle']]], ['gap', 'select', [['sm', 'Tight spacing'], ['md', 'Normal spacing'], ['lg', 'Roomy spacing']]]], defaults: { layout: '1', valign: 'top', gap: 'md', columns: [{ id: 'c1', elements: [] }] } },
-  hero: { label: 'Hero', fields: [['badge', T], ['headline', LONG, null, HL], ['subheadline', LONG], ['ctaText', T], ['ctaAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['ctaUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['ctaNewTab', B, null, 'Open the link in a new tab'], ['secondaryText', T], ['secondaryUrl', T, null, 'Where the small link goes — a section id (default: how-it-works) or https://…'], ['socialText', T], ['rating', NUM], ['reviews', T], ['image', T, null, 'Optional image URL — replaces the product card'], ['cardEmoji', T], ['cardTitle', T], ['cardPrice', T], ['cardMrp', T], ['cardPoints', L, ['text']], ['chip1', T], ['chip2', T], ['cardTag', T, null, 'Small label on the product card'], ['showCard', B, null, 'Show the product card (when there is no image)'], ['showTrust', B, null, 'Show the avatars & rating row']], defaults: { badge: '⭐ Rated 4.9 by 10,000+ customers', headline: 'Your big promise — *the result they want*', subheadline: 'One sentence that makes the reader want it.', ctaText: 'Get Started', secondaryText: 'See how it works', socialText: 'Loved by 10,000+ customers', rating: 4.9, reviews: '2,300', image: '', cardEmoji: '🚀', cardTitle: 'Your Product', cardPrice: '₹499', cardMrp: '₹1,999', cardPoints: [{ text: 'Key benefit one' }, { text: 'Key benefit two' }], chip1: '🔥 120 joined today', chip2: '🔒 Secure payment' } },
+  hero: { label: 'Hero', fields: [['badge', T], ['headline', LONG, null, HL], ['subheadline', LONG], ['ctaText', T], ['ctaAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['ctaUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['ctaNewTab', B, null, 'Open the link in a new tab'], ['secondaryText', T], ['secondaryUrl', T, null, 'Where the small link goes — a section id (default: how-it-works) or https://…'], ['socialText', T], ['rating', NUM], ['reviews', T], ['image', T, null, 'Optional image URL — replaces the product card'], ['cardEmoji', T], ['cardTitle', T], ['cardPrice', T], ['cardMrp', T], ['cardPoints', L, ['text']], ['chip1', T], ['chip2', T], ['cardTag', T, null, 'Small label on the product card'], ['showCard', B, null, 'Show the product card (when there is no image)'], ['showTrust', B, null, 'Show the avatars & rating row'], ['videoUrl', T, null, 'Video layouts: YouTube, Vimeo, Loom, Google Drive or .mp4 link'], ['videoNote', T, null, 'Video layouts: label on the cover, e.g. “Watch the free 12-minute training”'], ['videoLength', T, null, 'Video layouts: length shown on the cover, e.g. 14:32. Card points written as “01:10 · Chapter” become chapters'], ['eventDate', T, null, 'Event layouts: when, e.g. “Every Sunday”'], ['eventTime', T, null, 'Event layouts: time, e.g. “7:00 PM IST”'], ['eventLength', T, null, 'Event layouts: e.g. “90 min · Live on Zoom”'], ['hostName', T, null, 'Event layouts: who hosts it'], ['hostRole', T, null, 'Event layouts: the host’s title']], defaults: { badge: '⭐ Rated 4.9 by 10,000+ customers', headline: 'Your big promise — *the result they want*', subheadline: 'One sentence that makes the reader want it.', ctaText: 'Get Started', secondaryText: 'See how it works', socialText: 'Loved by 10,000+ customers', rating: 4.9, reviews: '2,300', image: '', cardEmoji: '🚀', cardTitle: 'Your Product', cardPrice: '₹499', cardMrp: '₹1,999', cardPoints: [{ text: 'Key benefit one' }, { text: 'Key benefit two' }], chip1: '🔥 120 joined today', chip2: '🔒 Secure payment' } },
   stats: { label: 'Stats strip', fields: [['items', L, ['value', 'label']]], defaults: { items: [{ value: '10,000+', label: 'happy customers' }, { value: '4.9★', label: 'rating' }, { value: '200+', label: 'cities' }, { value: '95%', label: 'satisfaction' }] } },
   problem: { label: 'Pain points', fields: [['eyebrow', T], ['title', T], ['subtitle', T], ['items', L, ['text']], ['closing', T]], defaults: { eyebrow: 'Sound familiar?', title: 'You are not alone if…', subtitle: '', items: [{ text: 'Problem one' }, { text: 'Problem two' }, { text: 'Problem three' }], closing: 'There is a better way 👇' } },
   features: { label: 'Features', fields: [['eyebrow', T], ['title', T], ['subtitle', T], ['items', L, ['icon', 'title', 'text']]], defaults: { eyebrow: 'The solution', title: 'Why you will love it', subtitle: '', items: [{ icon: '⚡', title: 'Benefit one', text: 'Describe it.' }, { icon: '🎯', title: 'Benefit two', text: 'Describe it.' }] } },
@@ -38,16 +45,17 @@ export const BLOCK_TYPES = {
   spacer: { label: 'Spacer', fields: [['height', NUM, null, 'Height in pixels']], defaults: { height: 48 } },
   divider: { label: 'Divider', fields: [['style', 'select', [['line', 'Solid line'], ['dashed', 'Dashed'], ['dots', 'Dots']]]], defaults: { style: 'line' } },
   html: { label: 'Custom code / embed', fields: [['code', 'code', null, 'Paste HTML or an embed code (Calendly, Typeform, Google Maps, Razorpay button…). It runs in a secure sandbox.'], ['height', NUM, null, '0 = size automatically'], ['title', T, null, 'Short description for screen readers']], defaults: { code: '', height: 0, title: 'Embedded content' } },
-  form: { label: 'Form', fields: [['title', T], ['subtitle', T], ['fields', 'formfields'], ['buttonText', T], ['after', 'select', [['message', 'Show a thank-you message'], ['next', 'Go to the next step']]], ['successMessage', T], ['note', T]], defaults: { title: 'Tell us about yourself', subtitle: 'We’ll get back to you within 24 hours.', fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }, { label: 'WhatsApp number', type: 'tel', required: false }, { label: 'What do you need help with?', type: 'select', options: 'Getting started, Pricing, Something else', required: false }], buttonText: 'Send', after: 'message', successMessage: 'Thank you! We’ll be in touch shortly.', note: '🔒 We never share your details.' } },
+  form: { label: 'Form', fields: [['productId', 'product', null, 'Free product sent on submit (not to applicants marked “not a fit”)'], ['title', T], ['subtitle', T], ['fields', 'formfields'], ['buttonText', T], ['after', 'select', [['message', 'Show a thank-you message'], ['next', 'Go to the next step']]], ['successMessage', T], ['rejectMessage', LONG, null, 'Shown to applicants whose answers mean “not a fit” (set per question in Form fields)'], ['note', T]], defaults: { title: 'Tell us about yourself', subtitle: 'We’ll get back to you within 24 hours.', fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }, { label: 'WhatsApp number', type: 'tel', required: false }, { label: 'What do you need help with?', type: 'select', options: 'Getting started, Pricing, Something else', required: false }], buttonText: 'Send', after: 'message', successMessage: 'Thank you! We’ll be in touch shortly.', note: '🔒 We never share your details.' } },
   text: { label: 'Text', fields: [['title', T], ['body', LONG]], defaults: { title: 'Heading', body: 'Your copy here.' } },
   countdown: { label: 'Countdown', fields: [['label', T], ['minutes', NUM]], defaults: { label: 'Offer ends in', minutes: 15 } },
-  optin: { label: 'Opt-in form', fields: [['eyebrow', T], ['title', T], ['subtitle', T], ['buttonText', T], ['askPhone', B], ['points', L, ['text']], ['nameLabel', T], ['emailLabel', T], ['phoneLabel', T], ['secureText', T]], defaults: { eyebrow: '100% free', title: 'Get the free guide', subtitle: 'Enter your details to get instant access.', buttonText: 'Send it to me', askPhone: true, points: [] } },
-  checkout: { label: 'Checkout', fields: [['productName', T], ['description', T], ['price', NUM], ['mrp', NUM], ['currency', T], ['bumpEnabled', B], ['bumpTitle', T], ['bumpDescription', T], ['bumpPrice', NUM], ['buttonText', T], ['step1', T, null, 'Heading above the details'], ['step2', T, null, 'Heading above payment methods'], ['secureText', T], ['summaryTitle', T], ['perks', L, ['text']]], defaults: { productName: 'My Product', description: 'Instant access', price: 499, mrp: 1999, currency: '₹', bumpEnabled: true, bumpTitle: 'Add the bonus pack', bumpDescription: 'Extra templates and checklists.', bumpPrice: 99, buttonText: 'Pay Securely' } },
-  offer: { label: 'Upsell / downsell offer', fields: [['progress', T], ['headline', LONG, null, HL], ['description', LONG], ['productName', T], ['emoji', T], ['price', NUM], ['mrp', NUM], ['currency', T], ['bullets', L, ['text']], ['minutes', NUM, null, 'Offer timer — 0 hides it'], ['acceptText', T], ['declineText', T], ['tag', T, null, 'Label on the product card'], ['oneClickText', T]], defaults: { progress: 'Step 2 of 3 · Customise your order', headline: 'Wait! Add the *VIP upgrade* to your order', description: 'One click adds it — no need to re-enter payment details.', productName: 'VIP Upgrade', emoji: '👑', price: 999, mrp: 2999, currency: '₹', bullets: [{ text: 'Personal 1-on-1 support' }, { text: 'Advanced resources' }], minutes: 10, acceptText: 'Yes! Add it to my order', declineText: 'No thanks' } },
-  crosssell: { label: 'Cross-sells', fields: [['title', T], ['subtitle', T], ['eyebrow', T], ['items', L, ['emoji', 'name', 'desc', 'price']], ['buttonText', T]], defaults: { title: 'Customers also bought', subtitle: 'Add these to your order with one click.', items: [{ emoji: '📚', name: 'Advanced Masterclass', desc: 'Go deeper with expert sessions.', price: 499 }, { emoji: '🧾', name: 'Templates Pack', desc: 'Ready-to-use resources.', price: 299 }], buttonText: 'Add to my order' } },
+  optin: { label: 'Opt-in form', fields: [['productId', 'product', null, 'Free product sent on sign-up (lead magnet)'], ['eyebrow', T], ['title', T], ['subtitle', T], ['buttonText', T], ['askPhone', B], ['points', L, ['text']], ['nameLabel', T], ['emailLabel', T], ['phoneLabel', T], ['secureText', T]], defaults: { eyebrow: '100% free', title: 'Get the free guide', subtitle: 'Enter your details to get instant access.', buttonText: 'Send it to me', askPhone: true, points: [] } },
+  checkout: { label: 'Checkout', fields: [['productId', 'product', null, 'Delivered to the buyer automatically after a verified payment'], ['productName', T], ['description', T], ['price', NUM], ['mrp', NUM], ['currency', 'select', [['₹', '₹ Indian rupee (Razorpay / Stripe)'], ['$', '$ US dollar (Stripe)'], ['€', '€ Euro (Stripe)'], ['£', '£ British pound (Stripe)'], ['A$', 'A$ Australian dollar (Stripe)'], ['C$', 'C$ Canadian dollar (Stripe)'], ['S$', 'S$ Singapore dollar (Stripe)'], ['AED', 'AED UAE dirham (Stripe)']]], ['bumpEnabled', B], ['bumpTitle', T], ['bumpDescription', T], ['bumpPrice', NUM], ['billing', 'select', [['', 'One-time payment'], ['monthly', 'Membership — billed every month'], ['yearly', 'Membership — billed every year']]], ['planEnabled', B, null, 'Also offer a monthly payment plan (EMI-style instalments)'], ['planCount', NUM, null, 'Number of monthly instalments (2–36)'], ['planPrice', NUM, null, 'Each instalment in ₹'], ['shipping', 'select', [['', 'Nothing to ship (digital / service)'], ['address', 'Ship it — ask for the delivery address']]], ['shippingFee', NUM, null, 'Delivery charge in ₹ (0 = free delivery)'], ['cod', B, null, 'Offer Cash on Delivery'], ['codFee', NUM, null, 'Extra ₹ for Cash on Delivery (0 = none)'], ['bumpProductId', 'product', null, 'Delivered when the buyer ticks the order bump'], ['buttonText', T], ['step1', T, null, 'Heading above the details'], ['step2', T, null, 'Heading above payment methods'], ['secureText', T], ['summaryTitle', T], ['perks', L, ['text']]], defaults: { productName: 'My Product', description: 'Instant access', price: 499, mrp: 1999, currency: '₹', bumpEnabled: true, bumpTitle: 'Add the bonus pack', bumpDescription: 'Extra templates and checklists.', bumpPrice: 99, buttonText: 'Pay Securely' } },
+  offer: { label: 'Upsell / downsell offer', fields: [['productId', 'product', null, 'Delivered when the buyer accepts this offer'], ['progress', T], ['headline', LONG, null, HL], ['description', LONG], ['productName', T], ['emoji', T], ['price', NUM], ['mrp', NUM], ['currency', T], ['bullets', L, ['text']], ['minutes', NUM, null, 'Offer timer — 0 hides it'], ['acceptText', T], ['declineText', T], ['tag', T, null, 'Label on the product card'], ['oneClickText', T]], defaults: { progress: 'Step 2 of 3 · Customise your order', headline: 'Wait! Add the *VIP upgrade* to your order', description: 'One click adds it — no need to re-enter payment details.', productName: 'VIP Upgrade', emoji: '👑', price: 999, mrp: 2999, currency: '₹', bullets: [{ text: 'Personal 1-on-1 support' }, { text: 'Advanced resources' }], minutes: 10, acceptText: 'Yes! Add it to my order', declineText: 'No thanks' } },
+  crosssell: { label: 'Cross-sells', fields: [['title', T], ['subtitle', T], ['eyebrow', T], ['items', L, ['emoji', 'name', 'desc', 'price', 'productId']], ['buttonText', T]], defaults: { title: 'Customers also bought', subtitle: 'Add these to your order with one click.', items: [{ emoji: '📚', name: 'Advanced Masterclass', desc: 'Go deeper with expert sessions.', price: 499 }, { emoji: '🧾', name: 'Templates Pack', desc: 'Ready-to-use resources.', price: 299 }], buttonText: 'Add to my order' } },
   pricing: { label: 'Pricing box', fields: [['badge', T], ['title', T], ['mrp', NUM], ['price', NUM], ['currency', T], ['bullets', L, ['text']], ['buttonText', T], ['buttonAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T], ['priceNote', T, null, 'Line under the price'], ['payMethods', T, null, 'Payment badges, separated by ·']], defaults: { badge: 'Limited-time offer', title: 'Your Product', mrp: 1999, price: 499, currency: '₹', bullets: [{ text: 'Everything included' }], buttonText: 'Enroll Now', note: '🔒 Secure checkout' } },
   faq: { label: 'FAQ', fields: [['eyebrow', T], ['title', T], ['items', L, ['q', 'a']]], defaults: { eyebrow: 'FAQ', title: 'Questions? We have answers.', items: [{ q: 'Question?', a: 'Answer.' }] } },
   cta: { label: 'Final call to action', fields: [['headline', T], ['subheadline', T], ['buttonText', T], ['buttonAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T]], defaults: { headline: 'Ready to start?', subheadline: '', buttonText: 'Get Started', note: '' } },
+  booking: { label: 'Booking calendar', fields: [['calendarId', 'calendar', null, 'Which availability to book against (Bookings → Calendars)'], ['eyebrow', T], ['title', T], ['subtitle', T], ['buttonText', T], ['successTitle', T], ['successText', LONG], ['qualifiedOnly', B, null, 'In an application funnel, only applicants who qualified can book']], defaults: { calendarId: '', eyebrow: 'Book your call', title: 'Pick a time that suits you', subtitle: 'Times are shown in India time (IST).', buttonText: 'Confirm my call', successTitle: 'Your call is booked ✅', successText: 'The confirmation and joining link are in your email.', qualifiedOnly: true } },
   thankyou: { label: 'Thank you', fields: [['headline', T], ['body', LONG], ['steps', L, ['text']]], defaults: { headline: 'Thank you! 🎉', body: 'Check your email.', steps: [] } },
   // ---- FOMO blocks (each refreshes every 9–10 seconds) ----
   hellobar: { label: 'FOMO: Hello bar', fields: [['messages', L, ['text']]], defaults: { messages: [{ text: '🔥 Flash sale: flat 75% OFF today only' }, { text: '⏰ Offer ends tonight — hurry!' }] } },
@@ -61,7 +69,7 @@ export const BLOCK_TYPES = {
 
 // Every main section has several designs. The first one is the original look (also used when unset).
 export const VARIANTS = {
-  hero: [['split', 'Split — copy and product card'], ['center', 'Centred — big headline'], ['banner', 'Banner — full colour or photo'], ['editorial', 'Editorial — magazine style']],
+  hero: [['split', 'Split — copy and product card'], ['center', 'Centred — big headline'], ['banner', 'Banner — full colour or photo'], ['editorial', 'Editorial — magazine style'], ['bento', 'Bento — tiles with price, rating & benefits'], ['video', 'Video — centred video sales letter (VSL)'], ['videosplit', 'Video beside the copy, with chapters'], ['cinema', 'Cinema — dark screen for a VSL'], ['event', 'Event ticket — for webinars & events'], ['stage', 'Stage — centred, with an event bar'], ['poster', 'Poster — big date card for webinars']],
   stats: [['strip', 'Strip'], ['cards', 'Tiles'], ['band', 'Colour band']],
   problem: [['cards', 'Cards'], ['list', 'Crossed-out list'], ['split', 'Title beside the list']],
   features: [['cards', 'Cards, 2 columns'], ['grid', 'Icon grid, 3 columns'], ['list', 'Checklist beside the title'], ['zigzag', 'Big numbered rows']],
@@ -81,10 +89,10 @@ const vOf = (type, p) => (VARIANTS[type]?.some(([k]) => k === p.variant) ? p.var
 export const BLOCK_GROUPS = [
   ['Essentials', ['section', 'hero', 'text', 'image', 'gallery', 'video', 'stats', 'cta', 'spacer', 'divider', 'html']],
   ['Persuasion', ['problem', 'features', 'steps', 'compare', 'testimonials', 'mentor', 'bonuses', 'guarantee', 'faq']],
-  ['Sell', ['pricing', 'optin', 'form', 'checkout', 'offer', 'crosssell', 'thankyou']],
+  ['Sell', ['pricing', 'optin', 'form', 'booking', 'checkout', 'offer', 'crosssell', 'thankyou']],
   ['FOMO & urgency', ['hellobar', 'countdown', 'livecount', 'stock', 'proof', 'exitpopup', 'stickybar', 'whatsapp']],
 ];
-export const BLOCK_ICONS = { section: '🧱', image: '🖼️', gallery: '🎞️', spacer: '↕️', divider: '➖', html: '🧩', form: '🗒️', hero: '🦸', text: '📝', video: '🎬', stats: '📊', cta: '📣', problem: '😣', features: '✨', steps: '🪜', compare: '⚖️', testimonials: '💬', mentor: '🧑‍🏫', bonuses: '🎁', guarantee: '🛡️', faq: '❓', pricing: '💰', optin: '📧', checkout: '💳', offer: '⬆️', crosssell: '🛍️', thankyou: '🎉', hellobar: '📢', countdown: '⏳', livecount: '👀', stock: '📦', proof: '🔔', exitpopup: '🚪', stickybar: '📌', whatsapp: '💚' };
+export const BLOCK_ICONS = { section: '🧱', image: '🖼️', gallery: '🎞️', spacer: '↕️', divider: '➖', html: '🧩', form: '🗒️', hero: '🦸', text: '📝', video: '🎬', stats: '📊', cta: '📣', problem: '😣', features: '✨', steps: '🪜', compare: '⚖️', testimonials: '💬', mentor: '🧑‍🏫', bonuses: '🎁', guarantee: '🛡️', faq: '❓', pricing: '💰', optin: '📧', checkout: '💳', offer: '⬆️', crosssell: '🛍️', thankyou: '🎉', booking: '📅', hellobar: '📢', countdown: '⏳', livecount: '👀', stock: '📦', proof: '🔔', exitpopup: '🚪', stickybar: '📌', whatsapp: '💚' };
 
 // Text that used to be fixed in the design. Kept as defaults so existing pages look the same,
 // but every piece can now be edited or removed (empty string = removed).
@@ -227,6 +235,9 @@ function Hero({ p, ctx }) {
   const link = buttonLink(p.ctaAction, p.ctaUrl, p.ctaNewTab);
   const sec = buttonLink(/^(https?:|mailto:|tel:)/i.test(p.secondaryUrl || '') ? 'url' : 'scroll', p.secondaryUrl || 'how', p.ctaNewTab);
   const v = vOf('hero', p);
+  if (['video', 'videosplit', 'cinema'].includes(v)) return <HeroVideo p={p} ctx={ctx} v={v} />;
+  if (['event', 'stage', 'poster'].includes(v)) return <HeroEvent p={p} ctx={ctx} v={v} />;
+  if (v === 'bento') return <HeroBento p={p} ctx={ctx} />;
   const banner = v === 'banner' && p.image;
   const solo = !((p.image && !banner) || p.showCard !== false || p.chip1 || p.chip2);
   return (
@@ -265,6 +276,190 @@ function Hero({ p, ctx }) {
           {p.chip1 && <E ctx={ctx} k="chip1" v={p.chip1} as="div" className="chip c1" />}
           {p.chip2 && <E ctx={ctx} k="chip2" v={p.chip2} as="div" className="chip c2" />}
         </div>}
+      </div>
+    </section>
+  );
+}
+
+// The rating row under a hero's button (avatars, stars, social line)
+const Trust = ({ p, ctx, stars = true }) => (p.showTrust !== false && (p.socialText || p.rating) ? (
+  <div className="trust" data-rm="showTrust" data-rm-label="rating row">
+    <div className="avs">{['Riya S', 'Arjun P', 'Meena K', 'Sahil N', 'Vikas J'].map((n) => <Avatar key={n} name={n} />)}</div>
+    <div>
+      {stars && <div className="stars">★★★★★ {p.rating ? <E ctx={ctx} k="rating" v={p.rating} as="b" num fmt={(x) => `${x}/5`} /> : null}{p.reviews && <span className="muted"> · <E ctx={ctx} k="reviews" v={p.reviews} /> reviews</span>}</div>}
+      <E ctx={ctx} k="socialText" v={p.socialText} as="div" className="muted sm" />
+    </div>
+  </div>
+) : null);
+// "01:10 · Why most brands stall" → ['01:10', 'Why most brands stall']
+const chapter = (t) => { const m = String(t || '').match(/^(\d{1,2}:\d{2})\s*[·|—-]\s*(.+)$/); return m ? [m[1], m[2]] : ['', String(t || '')]; };
+const secsOf = (t) => { const [m, s] = String(t || '').split(':').map(Number); return (m || 0) * 60 + (s || 0); };
+
+// The video, or a poster frame with a play button until a video link is added
+function VslPlayer({ p, ctx }) {
+  if (p.videoUrl) return <div className="vsl-frame"><VideoEmbed url={p.videoUrl} /></div>;
+  const total = secsOf(p.videoLength);
+  const marks = (p.cardPoints || []).map((x) => chapter(x.text)[0]).filter(Boolean);
+  return (
+    <div className="vsl-frame">
+      <div className="vsl-cover" role="img" aria-label={p.videoNote || 'Video'}>
+        <span className="vsl-sound" aria-hidden="true">🔊 Tap to play with sound</span>
+        <span className="vsl-play" aria-hidden="true"><i /></span>
+        {p.videoNote && <E ctx={ctx} k="videoNote" v={p.videoNote} className="vsl-note" />}
+        <div className="vsl-bar" aria-hidden="true">
+          <span className="vsl-time">0:00 / {p.videoLength || '—'}</span>
+          <span className="vsl-track"><i />{total > 0 && marks.map((m) => <b key={m} style={{ left: `${Math.min(98, (secsOf(m) / total) * 100)}%` }} />)}</span>
+        </div>
+        {ctx.editable && <em className="m-add">🎬 Add your video link in the section settings</em>}
+      </div>
+    </div>
+  );
+}
+
+// Video sales letter: centred, beside the copy, or a dark cinema screen
+function HeroVideo({ p, ctx, v }) {
+  const link = buttonLink(p.ctaAction, p.ctaUrl, p.ctaNewTab);
+  const cta = p.ctaText && <Btn big onClick={go(ctx)} ctx={ctx} k="ctaText" link={link}>{p.ctaText}</Btn>;
+  const chapters = (p.cardPoints || []).some((x) => x.text) && (
+    <ol className="vsl-chapters">{(p.cardPoints || []).map((x, i) => { const [t, title] = chapter(x.text); return x.text ? <li key={i} data-item={`cardPoints.${i}`}>{t && <time>{t}</time>}{ctx.editable ? <E ctx={ctx} k={`cardPoints.${i}.text`} v={x.text} /> : <span>{title}</span>}</li> : null; })}</ol>
+  );
+  if (v === 'videosplit') return (
+    <section className="sec sec-hero v-videosplit">
+      <div className="in hero-grid">
+        <div className="hero-copy">
+          {p.badge && <E ctx={ctx} k="badge" v={p.badge} className="badge" />}
+          <E ctx={ctx} k="headline" v={p.headline} as="h1" isRich />
+          <E ctx={ctx} k="subheadline" v={p.subheadline} as="p" className="lead" multiline />
+          <div className="hero-ctas">{cta}</div>
+          <Trust p={p} ctx={ctx} />
+        </div>
+        <div className="hero-visual">
+          <VslPlayer p={p} ctx={ctx} />
+          {chapters && <div className="vsl-inside"><small>Inside the video</small>{chapters}</div>}
+          {p.chip1 && <E ctx={ctx} k="chip1" v={p.chip1} as="div" className="chip c1" />}
+        </div>
+      </div>
+    </section>
+  );
+  return (
+    <section className={`sec sec-hero v-${v}`}>
+      <div className="in vsl">
+        {p.badge && <E ctx={ctx} k="badge" v={p.badge} className="badge" />}
+        <E ctx={ctx} k="headline" v={p.headline} as="h1" isRich />
+        <E ctx={ctx} k="subheadline" v={p.subheadline} as="p" className="lead" multiline />
+        <VslPlayer p={p} ctx={ctx} />
+        <div className="vsl-foot">
+          <div className="hero-ctas">{cta}</div>
+          {v === 'cinema' ? chapters : <Trust p={p} ctx={ctx} />}
+        </div>
+        {v === 'cinema' && <Trust p={p} ctx={ctx} />}
+      </div>
+    </section>
+  );
+}
+
+// Webinar / event: a ticket beside the copy, a centred stage with an event bar, or a poster
+function HeroEvent({ p: raw, ctx, v }) {
+  const next = !ctx.editable && ctx.webinar?.sessions?.[0];
+  const vz = useViewerTz();
+  const off = vz || ctx.webinar?.timezone || (ctx.webinar?.tzOffset ?? 330);
+  const p = next ? { ...raw, eventDate: fmtDay(next, off), eventTime: `${fmtTime(next, off)} ${zoneLabel(off, next)}` } : raw;
+  const link = buttonLink(p.ctaAction, p.ctaUrl, p.ctaNewTab);
+  const meta = [['When', 'eventDate'], ['Time', 'eventTime'], ['Format', 'eventLength']].filter(([, k]) => p[k]);
+  const host = p.hostName && (
+    <div className="ev-host"><Avatar name={p.hostName} /><div><E ctx={ctx} k="hostName" v={p.hostName} as="b" />{p.hostRole && <E ctx={ctx} k="hostRole" v={p.hostRole} as="small" />}</div></div>
+  );
+  const copy = (
+    <>
+      {p.badge && <E ctx={ctx} k="badge" v={p.badge} className="badge" />}
+      <E ctx={ctx} k="headline" v={p.headline} as="h1" isRich />
+      <E ctx={ctx} k="subheadline" v={p.subheadline} as="p" className="lead" multiline />
+    </>
+  );
+  if (v === 'stage') return (
+    <section className="sec sec-hero v-stage">
+      <div className="in">
+        <div className="stage-copy">{copy}</div>
+        <div className="ev-bar">
+          {meta.map(([label, k]) => <div key={k} className="ev-cell"><small>{label}</small><E ctx={ctx} k={k} v={p[k]} as="b" /></div>)}
+          {host && <div className="ev-cell ev-cell-host">{host}</div>}
+          <div className="ev-go"><Btn big onClick={go(ctx)} ctx={ctx} k="ctaText" link={link}>{p.ctaText}</Btn></div>
+        </div>
+        <div className="stage-foot">
+          {p.chip1 && <E ctx={ctx} k="chip1" v={p.chip1} as="div" className="ev-seats" />}
+          <Trust p={p} ctx={ctx} stars={false} />
+        </div>
+      </div>
+    </section>
+  );
+  if (v === 'poster') return (
+    <section className="sec sec-hero v-poster">
+      <div className="in hero-grid">
+        <div className="hero-copy">
+          {copy}
+          <div className="hero-ctas"><Btn big onClick={go(ctx)} ctx={ctx} k="ctaText" link={link}>{p.ctaText}</Btn>{p.chip1 && <E ctx={ctx} k="chip1" v={p.chip1} as="div" className="ev-seats" />}</div>
+          <Trust p={p} ctx={ctx} stars={false} />
+        </div>
+        <div className="poster">
+          <div className="po-top"><span className="po-live"><i className="dot" /> {p.cardTag || 'LIVE'}</span>{p.cardPrice && <E ctx={ctx} k="cardPrice" v={p.cardPrice} className="po-price" />}</div>
+          <div className="po-when">{p.eventDate && <E ctx={ctx} k="eventDate" v={p.eventDate} as="b" />}{p.eventTime && <E ctx={ctx} k="eventTime" v={p.eventTime} as="span" />}</div>
+          <E ctx={ctx} k="cardTitle" v={p.cardTitle} as="h3" />
+          {p.eventLength && <E ctx={ctx} k="eventLength" v={p.eventLength} as="div" className="po-len" />}
+          {host}
+          <span className="po-word" aria-hidden="true">LIVE</span>
+        </div>
+      </div>
+    </section>
+  );
+  return (
+    <section className="sec sec-hero v-event">
+      <div className="in hero-grid">
+        <div className="hero-copy">
+          {copy}
+          <Trust p={p} ctx={ctx} stars={false} />
+        </div>
+        <div className="ticket">
+          <div className="tk-top">
+            <span className="tk-live"><i className="dot" /> {p.cardTag || 'LIVE'}</span>
+            {p.cardPrice && <E ctx={ctx} k="cardPrice" v={p.cardPrice} className="tk-price" />}
+          </div>
+          <E ctx={ctx} k="cardTitle" v={p.cardTitle} as="h3" />
+          <div className="tk-when">
+            {meta.map(([label, k]) => <div key={k}><small>{label}</small><E ctx={ctx} k={k} v={p[k]} as="b" /></div>)}
+          </div>
+          <ul className="checks">{(p.cardPoints || []).map((x, i) => x.text ? <li key={i} data-item={`cardPoints.${i}`}><E ctx={ctx} k={`cardPoints.${i}.text`} v={x.text} /></li> : null)}</ul>
+          <div className="tk-cut" aria-hidden="true" />
+          {host}
+          <Btn block onClick={go(ctx)} ctx={ctx} k="ctaText" link={link}>{p.ctaText}</Btn>
+          {p.chip1 && <E ctx={ctx} k="chip1" v={p.chip1} as="div" className="tk-seats" />}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// Bento: the promise in a big tile, with price, rating, proof and benefits in smaller tiles around it
+function HeroBento({ p, ctx }) {
+  const link = buttonLink(p.ctaAction, p.ctaUrl, p.ctaNewTab);
+  return (
+    <section className="sec sec-hero v-bento">
+      <div className="in bento">
+        <div className="bt bt-main">
+          {p.badge && <E ctx={ctx} k="badge" v={p.badge} className="badge" />}
+          <E ctx={ctx} k="headline" v={p.headline} as="h1" isRich />
+          <E ctx={ctx} k="subheadline" v={p.subheadline} as="p" className="lead" multiline />
+          <div className="hero-ctas"><Btn big onClick={go(ctx)} ctx={ctx} k="ctaText" link={link}>{p.ctaText}</Btn></div>
+        </div>
+        <div className="bt bt-buy">
+          <E ctx={ctx} k="cardEmoji" v={p.cardEmoji} className="hc-emoji" />
+          <div><E ctx={ctx} k="cardTitle" v={p.cardTitle} as="h3" />{p.cardPrice && <div className="hc-price"><E ctx={ctx} k="cardPrice" v={p.cardPrice} as="b" />{p.cardMrp && <E ctx={ctx} k="cardMrp" v={p.cardMrp} as="s" />}</div>}</div>
+        </div>
+        <div className="bt bt-rate"><b>{p.rating ? <E ctx={ctx} k="rating" v={p.rating} num /> : '5.0'}</b><span className="stars">★★★★★</span>{p.reviews && <small><E ctx={ctx} k="reviews" v={p.reviews} /> reviews</small>}</div>
+        <div className="bt bt-proof"><div className="avs">{['Riya S', 'Arjun P', 'Meena K', 'Sahil N'].map((n) => <Avatar key={n} name={n} />)}</div>{p.socialText && <E ctx={ctx} k="socialText" v={p.socialText} as="small" />}</div>
+        <div className="bt bt-pts">
+          <ul className="checks">{(p.cardPoints || []).map((x, i) => x.text ? <li key={i} data-item={`cardPoints.${i}`}><E ctx={ctx} k={`cardPoints.${i}.text`} v={x.text} /></li> : null)}</ul>
+          {(p.chip1 || p.chip2) && <div className="bt-chips">{p.chip1 && <E ctx={ctx} k="chip1" v={p.chip1} as="span" />}{p.chip2 && <E ctx={ctx} k="chip2" v={p.chip2} as="span" />}</div>}
+        </div>
       </div>
     </section>
   );
@@ -429,7 +624,7 @@ function Countdown({ label, minutes, ctx }) {
   return (
     <Sec type="countdown">
       {label && <p className="cd-label">⏳ <E ctx={ctx} k="label" v={label} /></p>}
-      <div className="tiles">{parts.map(([v, l]) => <div className="tile" key={l}><b>{pad(v)}</b><small>{l}</small></div>)}</div>
+      <div className="tiles">{parts.map(([v, l]) => <div className="tile" key={l}><b>{pad(v)}</b><small>{tr(ctx.lang, l)}</small></div>)}</div>
     </Sec>
   );
 }
@@ -491,7 +686,7 @@ function Proof({ p, ctx }) {
   return toast ? (
     <div className="toast">
       <Avatar name={toast.name} size={42} />
-      <div><b>{toast.name}</b> from {toast.city}<br /><span>{p.action}</span><small>{toast.ago} min{toast.ago > 1 ? 's' : ''} ago · <em>✔ Verified</em></small></div>
+      <div><b>{toast.name}</b> {tr(ctx.lang, 'from')} {toast.city}<br /><span>{p.action}</span><small>{tr(ctx.lang, toast.ago > 1 ? '{n} mins ago' : '{n} min ago', { n: toast.ago })} · <em>✔ {tr(ctx.lang, 'Verified')}</em></small></div>
     </div>
   ) : null;
 }
@@ -515,7 +710,7 @@ function ExitPopup({ p, ctx }) {
           <E ctx={ctx} k="title" v={p.title} as="h2" /><E ctx={ctx} k="body" v={p.body} as="p" />
           <E ctx={ctx} k="code" v={p.code} as="div" className="code" />
           <Btn big block ctx={ctx} k="buttonText">{p.buttonText}</Btn>
-          <span className="decline">No thanks, I’ll pay full price</span>
+          <span className="decline">{tr(ctx.lang, 'No thanks, I’ll pay full price')}</span>
         </div>
       </FloatPreview>
     );
@@ -529,7 +724,7 @@ function ExitPopup({ p, ctx }) {
         <h2>{p.title}</h2><p>{p.body}</p>
         <div className="code">{p.code}</div>
         <Btn big block onClick={() => { setOpen(false); ctx.onClaim?.(p.code); ctx.onNext(); }}>{p.buttonText}</Btn>
-        <a className="decline" onClick={() => setOpen(false)}>No thanks, I’ll pay full price</a>
+        <a className="decline" onClick={() => setOpen(false)}>{tr(ctx.lang, 'No thanks, I’ll pay full price')}</a>
       </div>
     </div>
   );
@@ -616,8 +811,24 @@ function Pricing({ p, ctx }) {
   );
 }
 
+const sessionLabel = (t, zone = 330) => fmtWhenShort(t, zone);
+const sessionZone = (vz, w) => vz || w?.timezone || (w?.tzOffset ?? 330);
+// the consent notice (DPDP) under forms — a required tick box when the seller asks for one
+function Consent({ ctx, checked, onChange }) {
+  const pv = ctx.privacy;
+  if (!pv || ctx.editable) return null;
+  const text = <>{pv.line} <a href={pv.policy} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Privacy Policy')}</a></>;
+  return pv.checkbox ? <label className="fconsent"><input type="checkbox" required checked={!!checked} onChange={(e) => onChange(e.target.checked)} /> <span>{text}</span></label> : <p className="fconsent">{text}</p>;
+}
+const consentOf = (ctx, agree) => (ctx.privacy ? { consent: ctx.privacy.checkbox ? !!agree : true } : {});
+
 function OptinForm({ p, ctx }) {
+  const vz = useViewerTz();
   const [f, setF] = useState({ name: '', email: '', phone: '' });
+  const [agree, setAgree] = useState(false);
+  const [err, setErr] = useState('');
+  const sessions = ctx.webinar?.sessions || [];
+  const [session, setSession] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const pts = (p.points || []).filter((x) => x.text);
@@ -632,12 +843,16 @@ function OptinForm({ p, ctx }) {
             <ul className="checks">{(p.points || []).map((x, i) => x.text ? <li key={i} data-item={`points.${i}`}><E ctx={ctx} k={`points.${i}.text`} v={x.text} /></li> : null)}</ul>
           </div>
         )}
-        <form className="pc formcard" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); await ctx.onOptin(f); setBusy(false); }}>
+        <form className="pc formcard" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setErr(''); try { await ctx.onOptin({ ...f, ...(session ? { session: Number(session) } : {}), ...consentOf(ctx, agree) }); } catch (x) { setErr(x.message); } setBusy(false); }}>
           {!pts.length && <><E ctx={ctx} k="title" v={p.title} as="h2" /><E ctx={ctx} k="subtitle" v={p.subtitle} as="p" className="sub" /></>}
-          <E ctx={ctx} k="nameLabel" v={p.nameLabel} as="label" keep /><input placeholder="e.g. Priya Sharma" value={f.name} onChange={set('name')} />
+          <E ctx={ctx} k="nameLabel" v={p.nameLabel} as="label" keep /><input placeholder={tr(ctx.lang, 'e.g. Priya Sharma')} value={f.name} onChange={set('name')} />
           <E ctx={ctx} k="emailLabel" v={p.emailLabel} as="label" keep /><input type="email" required placeholder="you@example.com" value={f.email} onChange={set('email')} />
           {p.askPhone && <><E ctx={ctx} k="phoneLabel" v={p.phoneLabel} as="label" keep /><input type="tel" placeholder="+91 98765 43210" value={f.phone} onChange={set('phone')} /></>}
-          <Btn big block type="submit" disabled={busy} ctx={ctx} k="buttonText">{busy ? 'Please wait…' : p.buttonText}</Btn>
+          {sessions.length > 1 && <><label>{tr(ctx.lang, 'Choose your session')}</label><select className="sess-pick" value={session || sessions[0]} onChange={(e) => setSession(e.target.value)}>{sessions.map((s) => <option key={s} value={s}>{sessionLabel(s, sessionZone(vz, ctx.webinar))}</option>)}</select></>}
+          {sessions.length === 1 && <p className="sess-one">📅 {sessionLabel(sessions[0], sessionZone(vz, ctx.webinar))}</p>}
+          <Consent ctx={ctx} checked={agree} onChange={setAgree} />
+          {err && <p className="c-err" role="alert">{err}</p>}
+          <Btn big block type="submit" disabled={busy} ctx={ctx} k="buttonText">{busy ? tr(ctx.lang, 'Please wait…') : p.buttonText}</Btn>
           {p.secureText && <E ctx={ctx} k="secureText" v={p.secureText} as="p" className="secure" />}
         </form>
       </div>
@@ -645,6 +860,7 @@ function OptinForm({ p, ctx }) {
   );
 }
 
+const IN_STATES = ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'];
 function Checkout({ p, ctx }) {
   const [f, setF] = useState({ name: '', email: '', phone: '' });
   const [bump, setBump] = useState(false);
@@ -654,11 +870,25 @@ function Checkout({ p, ctx }) {
   const [code, setCode] = useState('');
   const [coupon, setCoupon] = useState(null);
   const [cErr, setCErr] = useState('');
+  // physical products: delivery address, and online payment or Cash on Delivery
+  const ships = p.shipping === 'address';
+  const [addr, setAddr] = useState({ line1: '', line2: '', city: '', state: '', pincode: '' });
+  const [method, setMethod] = useState('online');
+  const shipFee = ships ? Number(p.shippingFee) || 0 : 0, codFee = p.cod && method === 'cod' ? Number(p.codFee) || 0 : 0;
+  // business buyers can ask for a GST invoice with their GSTIN (when the seller issues GST invoices)
+  const [biz, setBiz] = useState(false);
+  const [gst, setGst] = useState({ company: '', gstin: '' });
   const price = Number(p.price) || 0, bp = Number(p.bumpPrice) || 0, mrp = Number(p.mrp) || 0;
   // same rule as the server: never more than the price, never negative
   const discount = coupon ? Math.max(0, Math.min(price, coupon.type === 'percent' ? Math.round((price * Math.min(100, coupon.value)) / 100) : Math.round(coupon.value))) : 0;
   const [payErr, setPayErr] = useState('');
-  const total = price - discount + (bump && p.bumpEnabled ? bp : 0);
+  // memberships bill every month / year; a payment plan splits the price into monthly instalments
+  const per = p.billing === 'monthly' ? 'month' : p.billing === 'yearly' ? 'year' : '';
+  const canPlan = !per && p.planEnabled && Number(p.planCount) >= 2 && Number(p.planPrice) > 0;
+  const [payPlan, setPayPlan] = useState(false);
+  const instal = canPlan && payPlan;
+  const today = instal ? Number(p.planPrice) : price - discount;
+  const total = today + (bump && p.bumpEnabled ? bp : 0) + shipFee + (instal ? 0 : codFee);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   // A code claimed from the exit popup is applied automatically
   useEffect(() => {
@@ -678,40 +908,159 @@ function Checkout({ p, ctx }) {
   return (
     <Sec type="checkout">
       <div className="co-grid">
-        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await ctx.onCheckout({ ...f, withBump: bump, coupon: coupon?.code }); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
+        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await ctx.onCheckout({ ...f, total, withBump: bump, coupon: coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}) }); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
           <div className="co-step"><span className="co-n">1</span> <E ctx={ctx} k="step1" v={p.step1} keep /></div>
-          <input placeholder="Full name" required value={f.name} onChange={set('name')} />
-          <div className="two"><input type="email" placeholder="Email" required value={f.email} onChange={set('email')} onBlur={onEmailBlur} /><input type="tel" placeholder="WhatsApp number" value={f.phone} onChange={set('phone')} onBlur={onEmailBlur} /></div>
+          <input placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
+          <div className="two"><input type="email" placeholder={tr(ctx.lang, 'Email')} required value={f.email} onChange={set('email')} onBlur={onEmailBlur} /><input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} value={f.phone} onChange={set('phone')} onBlur={onEmailBlur} /></div>
+          {ctx.gstInvoices && !ctx.editable && (biz ? (
+            <div className="co-gst">
+              <input placeholder={tr(ctx.lang, 'Business name')} value={gst.company} onChange={(e) => setGst({ ...gst, company: e.target.value })} />
+              <input placeholder={tr(ctx.lang, 'GSTIN (15 characters)')} value={gst.gstin} maxLength={15} pattern="[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z][Zz][0-9A-Za-z]" title="15 characters, like 27ABCDE1234F1Z5" onChange={(e) => setGst({ ...gst, gstin: e.target.value.toUpperCase() })} />
+            </div>
+          ) : <a className="coupon-link co-gst-l" onClick={() => setBiz(true)}>{tr(ctx.lang, 'Buying for a business? Add your GSTIN')}</a>)}
+          {ships && (
+            <div className="co-addr">
+              <input required placeholder={tr(ctx.lang, 'House / flat, street')} value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} />
+              <input placeholder={tr(ctx.lang, 'Area, landmark (optional)')} value={addr.line2} onChange={(e) => setAddr({ ...addr, line2: e.target.value })} />
+              <div className="three"><input required placeholder={tr(ctx.lang, 'City')} value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} />
+                <select value={addr.state} onChange={(e) => setAddr({ ...addr, state: e.target.value })}><option value="">{tr(ctx.lang, 'State')}</option>{IN_STATES.map((s) => <option key={s}>{s}</option>)}</select>
+                <input required inputMode="numeric" pattern="[1-9][0-9]{5}" maxLength={6} placeholder={tr(ctx.lang, 'PIN code')} value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, '') })} /></div>
+            </div>
+          )}
           <div className="co-step"><span className="co-n">2</span> <E ctx={ctx} k="step2" v={p.step2} keep /></div>
-          <div className="paym">{['UPI', 'Card', 'NetBanking', 'Wallet'].map((m) => (
-            <label key={m} className={`pm ${pm === m ? 'on' : ''}`}><input type="radio" name="pm" checked={pm === m} onChange={() => setPm(m)} />{m}</label>
-          ))}</div>
+          {canPlan && (
+            <div className="paym two-way co-plan">
+              <label className={`pm ${!payPlan ? 'on' : ''}`}><input type="radio" name="plan" checked={!payPlan} onChange={() => setPayPlan(false)} /><b>{tr(ctx.lang, 'Pay in full')}</b><small>{money(p.currency, price - discount)}{discount ? '' : ` · ${tr(ctx.lang, 'best value')}`}</small></label>
+              <label className={`pm ${payPlan ? 'on' : ''}`}><input type="radio" name="plan" checked={payPlan} onChange={() => { setPayPlan(true); setCoupon(null); setMethod('online'); }} /><b>{tr(ctx.lang, '{n} monthly payments', { n: Number(p.planCount) })}</b><small>{tr(ctx.lang, '{amount}/month · auto-debit', { amount: money(p.currency, Number(p.planPrice)) })}</small></label>
+            </div>
+          )}
+          {p.cod && !instal && !per ? (
+            <div className="paym two-way">
+              <label className={`pm ${method === 'online' ? 'on' : ''}`}><input type="radio" name="pm" checked={method === 'online'} onChange={() => setMethod('online')} /><b>{tr(ctx.lang, 'Pay online')}</b><small>{tr(ctx.lang, 'UPI · cards · netbanking')}</small></label>
+              <label className={`pm ${method === 'cod' ? 'on' : ''}`}><input type="radio" name="pm" checked={method === 'cod'} onChange={() => setMethod('cod')} /><b>{tr(ctx.lang, 'Cash on Delivery')}</b><small>{Number(p.codFee) > 0 ? `+${money(p.currency, Number(p.codFee))}` : tr(ctx.lang, 'Pay when it arrives')}</small></label>
+            </div>
+          ) : (
+            <div className="paym">{(p.currency && p.currency !== '₹' ? ['Card', 'Apple Pay', 'Google Pay'] : ['UPI', 'Card', 'NetBanking', 'Wallet']).map((m) => (
+              <label key={m} className={`pm ${pm === m ? 'on' : ''}`}><input type="radio" name="pm" checked={pm === m} onChange={() => setPm(m)} />{m}</label>
+            ))}</div>
+          )}
           {p.bumpEnabled && (
             <label className={`bump ${bump ? 'on' : ''}`}>
               <input type="checkbox" checked={bump} onChange={(e) => setBump(e.target.checked)} />
-              <span><b>👉 Yes! <E ctx={ctx} k="bumpTitle" v={p.bumpTitle} keep /> — just {money(p.currency, bp)}</b><br /><E ctx={ctx} k="bumpDescription" v={p.bumpDescription} /></span>
+              <span><b>{tr(ctx.lang, '👉 Yes!')} <E ctx={ctx} k="bumpTitle" v={p.bumpTitle} keep /> — just {money(p.currency, bp)}</b><br /><E ctx={ctx} k="bumpDescription" v={p.bumpDescription} /></span>
             </label>
           )}
           {payErr && <p className="c-err" role="alert">{payErr}</p>}
-          {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? 'Processing…' : `${p.buttonText || 'Pay Securely'} · ${money(p.currency, total)}`}</Btn>}
+          {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Processing…') : method === 'cod' && p.cod && !instal && !per ? tr(ctx.lang, 'Place order · pay {amount} on delivery', { amount: money(p.currency, total) }) : per ? tr(ctx.lang, 'Subscribe · {amount}/{per}', { amount: money(p.currency, today), per: tr(ctx.lang, per) }) : `${p.buttonText || tr(ctx.lang, 'Pay Securely')} · ${money(p.currency, total)}${instal ? tr(ctx.lang, ' today') : ''}`}</Btn>}
           {p.secureText && <E ctx={ctx} k="secureText" v={p.secureText} as="p" className="secure" />}
+          {ctx.privacy && !ctx.editable && <p className="fconsent">{tr(ctx.lang, 'By paying you agree to the')} <a href={ctx.privacy.terms} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Terms')}</a>, <a href={ctx.privacy.terms.replace(/terms$/, 'refund')} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Refund Policy')}</a> {tr(ctx.lang, 'and')} <a href={ctx.privacy.policy} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Privacy Policy')}</a>.</p>}
         </form>
         <aside className="pc co-sum">
           {p.summaryTitle && <E ctx={ctx} k="summaryTitle" v={p.summaryTitle} as="h4" />}
-          <div className="line"><span><E ctx={ctx} k="productName" v={p.productName} keep /><E ctx={ctx} k="description" v={p.description} as="small" /></span><b>{money(p.currency, price)}</b></div>
+          <div className="line"><span><E ctx={ctx} k="productName" v={p.productName} keep /><E ctx={ctx} k="description" v={p.description} as="small" /></span><b>{instal ? <>{money(p.currency, Number(p.planPrice))}<small>/month × {Number(p.planCount)}</small></> : <>{money(p.currency, price)}{per && <small>/{per}</small>}</>}</b></div>
           {bump && p.bumpEnabled && <div className="line"><span>{p.bumpTitle}</span><b>{money(p.currency, bp)}</b></div>}
           {coupon && <div className="line disc"><span>🎁 Coupon {coupon.code} applied</span><b>−{money(p.currency, discount)}</b></div>}
-          <div className="line total"><span>Total</span><b>{money(p.currency, total)}</b></div>
+          {ships && <div className="line"><span>{tr(ctx.lang, 'Delivery')}</span><b>{shipFee ? money(p.currency, shipFee) : tr(ctx.lang, 'FREE')}</b></div>}
+          {codFee > 0 && <div className="line"><span>{tr(ctx.lang, 'Cash on Delivery fee')}</span><b>{money(p.currency, codFee)}</b></div>}
+          <div className="line total"><span>{tr(ctx.lang, instal || per ? 'Due today' : 'Total')}</span><b>{money(p.currency, total)}</b></div>
+          {instal && <p className="co-plan-note">Then {money(p.currency, Number(p.planPrice))} on the same date each month for {Number(p.planCount) - 1} more month{Number(p.planCount) > 2 ? 's' : ''} — {money(p.currency, Number(p.planPrice) * Number(p.planCount))} in all. Charged automatically to your card or UPI AutoPay.</p>}
+          {per && <p className="co-plan-note">{tr(ctx.lang, 'Renews every {per} until you cancel — cancel any time from your library link.', { per: tr(ctx.lang, per) })}</p>}
           {mrp > price && <div className="save">🎉 You save {money(p.currency, mrp - price + discount)} today</div>}
-          {showCoupon ? (
+          {instal ? null : showCoupon ? (
             <div className="coupon">
-              <input placeholder="Coupon code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
-              <button type="button" onClick={apply}>Apply</button>
+              <input placeholder={tr(ctx.lang, 'Coupon code')} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+              <button type="button" onClick={apply}>{tr(ctx.lang, 'Apply')}</button>
             </div>
-          ) : <a className="coupon-link" onClick={() => setShowCoupon(true)}>Have a coupon code?</a>}
+          ) : <a className="coupon-link" onClick={() => setShowCoupon(true)}>{tr(ctx.lang, 'Have a coupon code?')}</a>}
           {cErr && <small className="c-err">{cErr}</small>}
           {(p.perks || []).some((x) => x.text) && <ul className="checks sm">{p.perks.map((x, i) => x.text ? <li key={i} data-item={`perks.${i}`}><E ctx={ctx} k={`perks.${i}.text`} v={x.text} /></li> : null)}</ul>}
         </aside>
+      </div>
+    </Sec>
+  );
+}
+
+// ---------- booking calendar (the "book your call" step) ----------
+const tzLabel = (z, t) => zoneLabel(z, t);
+// editor / template preview: a believable week of slots (nothing is booked)
+function sampleSlots() {
+  const out = [];
+  const base = new Date(); base.setUTCHours(0, 0, 0, 0);
+  for (let d = 1; d <= 10; d++) for (const h of [4.5, 5.5, 7.5, 8.5, 10.5]) if (d % 7 !== 0) out.push(base.getTime() + d * 864e5 + h * 3600e3);
+  return out;
+}
+function Booking({ p, ctx }) {
+  const [cal, setCal] = useState(null);
+  const [slots, setSlots] = useState(null);
+  const [day, setDay] = useState(null);
+  const [pick, setPick] = useState(null);
+  const [form, setForm] = useState(() => ({ name: ctx.prefill?.name || '', email: ctx.prefill?.email || '', phone: ctx.prefill?.phone || '', notes: '' }));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [done, setDone] = useState(null);
+  // slots are shown in the visitor's own time zone (the host's zone until the page is running in their browser)
+  const vz = useViewerTz();
+  const hostZone = cal?.timezone || (cal?.tzOffset ?? 330);
+  const off = vz || hostZone;
+  const otherZone = vz && cal?.timezone && zoneLabel(vz) !== zoneLabel(cal.timezone);
+  useEffect(() => {
+    let on = true;
+    if (!ctx.onSlots || !ctx.live) { setCal({ name: 'Strategy call', duration: 30, tzOffset: 330 }); setSlots(sampleSlots()); return; }
+    ctx.onSlots().then((r) => { if (!on) return; if (r.error) { setErr(r.error); setSlots([]); } else { setCal(r.calendar); setSlots(r.slots); } }).catch(() => on && setErr('Couldn’t load the calendar — please refresh'));
+    return () => { on = false; };
+  }, [ctx.live]);
+  const days = useMemo(() => [...new Set((slots || []).map((s) => dayKey(s, off)))], [slots, off]);
+  useEffect(() => { if (days.length && !days.includes(day)) setDay(days[0]); }, [days]);
+  const daySlots = (slots || []).filter((s) => dayKey(s, off) === day);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!ctx.live || !pick) return;
+    setBusy(true); setErr('');
+    const r = await ctx.onBook({ ...form, start: pick });
+    setBusy(false);
+    if (r?.error) { setErr(r.error); if (r.taken) { setPick(null); const again = await ctx.onSlots(); if (!again.error) setSlots(again.slots); } return; }
+    setDone(r);
+  };
+  if (done) {
+    const g = new URLSearchParams({ action: 'TEMPLATE', text: cal?.name || 'Call', dates: `${new Date(done.start).toISOString().replace(/[-:]|\.\d{3}/g, '')}/${new Date(done.end).toISOString().replace(/[-:]|\.\d{3}/g, '')}`, details: done.meetingLink ? `Join: ${done.meetingLink}` : '' });
+    return (
+      <Sec type="booking" id="booking">
+        <div className="pc bk-card bk-done">
+          <div className="tick">✓</div>
+          <E ctx={ctx} k="successTitle" v={p.successTitle || tr(ctx.lang, 'Your call is booked ✅')} as="h2" keep />
+          <p className="bk-when"><b>{fmtDay(done.start, off)}</b> · {fmtTime(done.start, off)} {tzLabel(off)}</p>
+          <E ctx={ctx} k="successText" v={p.successText} as="p" className="sub" multiline />
+          <div className="bk-acts">
+            {done.meetingLink && <a className="btn" href={done.meetingLink} target="_blank" rel="noreferrer"><span>{tr(ctx.lang, 'Joining link')}</span><span className="arr">→</span></a>}
+            <a className="link-arrow" href={`https://calendar.google.com/calendar/render?${g}`} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Add to Google Calendar ↗')}</a>
+            {done.manage && <a className="link-arrow" href={done.manage}>{tr(ctx.lang, 'Reschedule or cancel')}</a>}
+          </div>
+        </div>
+      </Sec>
+    );
+  }
+  return (
+    <Sec type="booking" id="booking">
+      <Head eyebrow={p.eyebrow} title={p.title} subtitle={p.subtitle} ctx={ctx} />
+      <div className="pc bk-card">
+        <div className="bk-head"><b>{cal?.name || 'Call'}</b>{cal?.price > 0 && <span className="bk-price">₹{Number(cal.price).toLocaleString('en-IN')}</span>}<span>⏱ {cal?.duration || 30} min</span>{cal?.location && <span>📍 {cal.location}</span>}<span title={otherZone ? `The host is in ${zoneCity(cal.timezone)} (${zoneLabel(cal.timezone)})` : undefined}>🌏 {vz ? `Your time · ${tzLabel(off)}` : tzLabel(off)}</span></div>
+        {!slots ? <div className="bk-load">{tr(ctx.lang, 'Loading available times…')}</div> : !slots.length ? <p className="bk-empty">{err || tr(ctx.lang, 'No times are free right now — please check back soon or message us on WhatsApp.')}</p> : (
+          <>
+            <div className="bk-days" role="tablist">{days.slice(0, 21).map((d) => { const t = slots.find((s) => dayKey(s, off) === d); return <button type="button" key={d} role="tab" aria-selected={d === day} className={d === day ? 'on' : ''} onClick={() => { setDay(d); setPick(null); }}>{fmtDay(t, off).split(' ').map((x, i) => <span key={i}>{x}</span>)}</button>; })}</div>
+            <div className="bk-slots">{daySlots.map((s) => <button type="button" key={s} className={s === pick ? 'on' : ''} onClick={() => setPick(s)}>{fmtTime(s, off)}</button>)}</div>
+            {pick && (
+              <form className="bk-form" onSubmit={submit}>
+                <p className="bk-picked">📅 <b>{fmtDay(pick, off)}</b> at <b>{fmtTime(pick, off)}</b> {tzLabel(off)}</p>
+                <div className="two"><input required placeholder={tr(ctx.lang, 'Full name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><input required type="email" placeholder={tr(ctx.lang, 'Email')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                <input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <textarea rows={2} placeholder={tr(ctx.lang, 'Anything we should know before the call? (optional)')} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                {err && <p className="c-err" role="alert">{err}</p>}
+                {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Confirm my call'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Booking…') : cal?.price > 0 ? tr(ctx.lang, 'Pay {amount} & confirm', { amount: `₹${Number(cal.price).toLocaleString('en-IN')}` }) : p.buttonText || tr(ctx.lang, 'Confirm my call')}</Btn>}
+                {cal?.price > 0 && <p className="bk-policy">{cal.refundHours ? `Full refund if you cancel at least ${cal.refundHours >= 48 && cal.refundHours % 24 === 0 ? `${cal.refundHours / 24} days` : `${cal.refundHours} hours`} before the call.` : 'Full refund if you cancel any time before the call.'} Rescheduling is free.</p>}
+              </form>
+            )}
+          </>
+        )}
       </div>
     </Sec>
   );
@@ -885,11 +1234,14 @@ function HtmlEmbed({ p, ctx }) {
 export const FORM_FIELD_TYPES = [['text', 'Short text'], ['email', 'Email'], ['tel', 'Phone / WhatsApp'], ['number', 'Number'], ['textarea', 'Long answer'], ['select', 'Dropdown'], ['checkbox', 'Checkbox'], ['date', 'Date']];
 function FormBlock({ p, ctx }) {
   const fields = p.fields || [];
+  const [agree, setAgree] = useState(false);
   const [vals, setVals] = useState({});
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [rejected, setRejected] = useState(false);
   const [err, setErr] = useState('');
   const set = (i, v) => setVals({ ...vals, [i]: v });
+  const list = (s) => String(s || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
   const submit = async (e) => {
     e.preventDefault();
     if (!ctx.live) return;
@@ -903,9 +1255,13 @@ function FormBlock({ p, ctx }) {
       if (fd.type === 'tel' && !phone) phone = v;
       if (!name && /name/i.test(fd.label || '') && fd.type === 'text') name = v;
     });
+    // qualification: an answer listed under "not a fit" for its question
+    const hasRules = fields.some((fd) => list(fd.reject).length);
+    const qualified = !fields.some((fd, i) => list(fd.reject).includes(String(vals[i] ?? '').trim().toLowerCase()));
     try {
-      await ctx.onForm?.({ email, phone, name, fields: answers });
-      if (p.after === 'next') ctx.onFormNext?.(); else setDone(true);
+      await ctx.onForm?.({ email, phone, name, fields: answers, ...(hasRules ? { qualified } : {}), ...consentOf(ctx, agree) });
+      if (hasRules && !qualified) setRejected(true);
+      else if (p.after === 'next') ctx.onFormNext?.(); else setDone(true);
     } catch (x) { setErr(x.message || 'Something went wrong — please try again.'); }
     setBusy(false);
   };
@@ -914,7 +1270,8 @@ function FormBlock({ p, ctx }) {
       <form className="pc formcard form-b" onSubmit={submit}>
         {p.title && <E ctx={ctx} k="title" v={p.title} as="h2" />}
         {p.subtitle && <E ctx={ctx} k="subtitle" v={p.subtitle} as="p" className="sub" />}
-        {done ? <div className="form-done">✅ <E ctx={ctx} k="successMessage" v={p.successMessage || 'Thank you! We’ll be in touch shortly.'} keep /></div> : (
+        {rejected ? <div className="form-done reject"><E ctx={ctx} k="rejectMessage" v={p.rejectMessage || 'Thank you for applying. Based on your answers this isn’t the right fit just yet — we’ve noted your details and will reach out if that changes.'} keep multiline /></div>
+          : done ? <div className="form-done">✅ <E ctx={ctx} k="successMessage" v={p.successMessage || tr(ctx.lang, 'Thank you! We’ll be in touch shortly.')} keep /></div> : (
           <>
             {fields.map((fd, i) => {
               const id = `ff-${i}`;
@@ -924,13 +1281,14 @@ function FormBlock({ p, ctx }) {
                 <div key={i} className="ffield">
                   <label htmlFor={id}>{fd.label}{fd.required && <span className="req"> *</span>}</label>
                   {fd.type === 'textarea' ? <textarea rows={4} placeholder={fd.placeholder || ''} {...common} />
-                    : fd.type === 'select' ? <select {...common}><option value="">Choose…</option>{String(fd.options || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => <option key={o}>{o}</option>)}</select>
+                    : fd.type === 'select' ? <select {...common}><option value="">{tr(ctx.lang, 'Choose…')}</option>{String(fd.options || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => <option key={o}>{o}</option>)}</select>
                       : <input type={fd.type || 'text'} placeholder={fd.placeholder || ''} {...common} />}
                 </div>
               );
             })}
             {err && <p className="c-err">{err}</p>}
-            <Btn big block type="submit" disabled={busy}>{busy ? 'Sending…' : p.buttonText || 'Submit'}</Btn>
+            <Consent ctx={ctx} checked={agree} onChange={setAgree} />
+            <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Sending…') : p.buttonText || tr(ctx.lang, 'Submit')}</Btn>
             {p.note && <p className="secure">{p.note}</p>}
           </>
         )}
@@ -983,7 +1341,7 @@ export const defaultSection = () => ({
 });
 
 // Only allow safe link targets (no javascript: URLs)
-export const safeHref = (u = '') => (/^(https?:|mailto:|tel:|#|\/)/i.test(String(u).trim()) ? String(u).trim() : '');
+export const safeHref = (u = '') => (/^(https?:|mailto:|tel:|#|\/(?![\/\\]))/i.test(String(u).trim()) ? String(u).trim() : '');
 
 function ElementContent({ el, ctx }) {
   const p = el.props || {};
@@ -1125,6 +1483,7 @@ function renderBlock(block, ctx) {
     case 'checkout': return <Checkout p={p} ctx={ctx} />;
     case 'offer': return <Offer p={p} ctx={ctx} />;
     case 'crosssell': return <CrossSell p={p} ctx={{ ...ctx, blockId: block.id }} />;
+    case 'booking': return <Booking p={p} ctx={{ ...ctx, onSlots: ctx.onSlots && (() => ctx.onSlots(block.id)), onBook: ctx.onBook && ((d) => ctx.onBook(block.id, d)) }} />;
     case 'faq':
       return (
         <Sec type="faq" className="alt" v={vOf('faq', p)}>
@@ -1150,6 +1509,22 @@ function renderBlock(block, ctx) {
             <div className="tick">✓</div>
             <E ctx={ctx} k="headline" v={p.headline} as="h1" isRich />
             <E ctx={ctx} k="body" v={p.body} as="p" className="lead" multiline />
+            {ctx.delivery?.webinar && (
+              <div className="pc ty-seat">
+                <small>Your seat</small>
+                <b>{sessionLabel(ctx.delivery.webinar.start, ctx.delivery.webinar.timezone || ctx.delivery.webinar.tzOffset)}</b>
+                <span className="muted">{ctx.delivery.webinar.name}</span>
+                {ctx.delivery.webinar.join && <div className="row center"><a className="btn" href={ctx.delivery.webinar.join}><span>Open my joining page</span><span className="arr">→</span></a><a className="link-arrow" href={`${ctx.delivery.webinar.join.replace('/webinar/', '/api/webinar-reg/').replace('?t=', '/ics?t=')}`}>Add to calendar</a></div>}
+                <small className="muted">Your personal joining link is also in your email.</small>
+              </div>
+            )}
+            {(ctx.delivery?.access || ctx.delivery?.invoice) && (
+              <div className="ty-access">
+                {ctx.delivery.access && <a className="btn big" href={ctx.delivery.access}><span>Open your purchase</span><span className="arr">→</span></a>}
+                {ctx.delivery.invoice && <a className="link-arrow" href={ctx.delivery.invoice} target="_blank" rel="noreferrer">Download your invoice ↗</a>}
+                {ctx.delivery.access && <small className="muted">We’ve also emailed you a link to your library.</small>}
+              </div>
+            )}
             {(p.steps || []).length > 0 && (
               <div className="ty-steps">{p.steps.map((s, i) => <div className="pc" key={i} data-item={`steps.${i}`}><span className="num">{i + 1}</span><E ctx={ctx} k={`steps.${i}.text`} v={s.text} /></div>)}</div>
             )}

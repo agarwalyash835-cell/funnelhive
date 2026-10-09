@@ -8,12 +8,23 @@ import { logActivity, contactKey, ensureMeta, metaFor, stageFor } from './crm.js
 import { funnelUrl } from './domains.js';
 import { enqueue as fireWebhook, checkWebhookUrl } from './webhooks.js';
 import { accessFor } from './billing.js';
+import { sellerTz, zoned, localYmd, addDays } from './tz.js';
+import { broadcastSeen } from './broadcasts.js';
 
 export const TRIGGERS = {
   lead: 'Someone signs up (opt-in or form)',
   purchase: 'Someone buys',
   offer: 'Someone accepts an upsell / downsell / add-on',
   abandoned: 'Someone starts checkout but doesn’t pay',
+  refund: 'Someone is refunded',
+  booking: 'Someone books a call',
+  booking_cancelled: 'Someone cancels a booked call',
+  shipped: 'An order is shipped (courier + tracking)',
+  renewal: 'A membership renews / an instalment is paid',
+  payment_failed: 'A membership or instalment payment fails',
+  webinar_registered: 'Someone registers for a webinar',
+  webinar_attended: 'Someone attended a webinar (after it ends)',
+  webinar_missed: 'Someone registered but missed a webinar (after it ends)',
   stage: 'A contact moves to a pipeline stage',
   tag: 'A tag is added to a contact',
   date: 'A date in a contact field arrives (birthday, renewal…)',
@@ -38,11 +49,16 @@ let originFallback = () => process.env.APP_URL || 'http://localhost:4000';
 const sig = (userId, key) => crypto.createHmac('sha256', SECRET).update(`unsub:${userId}:${key}`).digest('hex').slice(0, 24);
 const unsubUrl = (origin, userId, key) => `${origin}/u/${userId}/${encodeURIComponent(key)}/${sig(userId, key)}`;
 
+// open / click tracking and the unsubscribe link for one email (automations and broadcasts)
+export const emailTracking = (origin, userId, key, msgId) => {
+  const unsubscribeUrl = unsubUrl(origin, userId, key);
+  return { unsubscribeUrl, track: { pixel: `${origin}/t/o/${msgId}.gif`, link: (url) => (url === unsubscribeUrl ? url : `${origin}/t/c/${msgId}?u=${encodeURIComponent(url)}&s=${linkSig(msgId, url)}`) } };
+};
 const linkSig = (id, url) => crypto.createHmac('sha256', SECRET).update(`click:${id}:${url}`).digest('hex').slice(0, 16);
 
 // ---------- template variables ----------
-export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'business'];
-function fill(text, ctx) {
+export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'access_link', 'invoice_link', 'booking_time', 'booking_link', 'meeting_link', 'webinar_time', 'join_link', 'tracking_link', 'courier', 'tracking_id', 'business'];
+export function fill(text, ctx) {
   return String(text || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {
     const v = ctx[k.toLowerCase()];
     return v == null || v === '' ? (k.toLowerCase() === 'first_name' ? 'there' : '') : String(v);
@@ -70,6 +86,7 @@ export const RULE_FIELDS = {
   bought: 'Has bought', tag: 'Has tag', stage: 'Pipeline stage', has: 'Has contact detail', source: 'Came from (source)',
   custom: 'Custom field', amount: 'Order amount (from the trigger)', funnel: 'Trigger funnel', unsubscribed: 'Unsubscribed from emails',
   opened: 'Opened an email (from this automation)', clicked: 'Clicked a link in an email (from this automation)',
+  qualified: 'Application qualified (from the trigger)',
 };
 const RULE_OPS = ['is', 'not', 'equals', 'not_equals', 'contains', 'gt', 'lt', 'empty', 'filled'];
 function cleanRule(r = {}) {
@@ -84,7 +101,8 @@ let stepBudget = 0;
 function cleanSteps(list, depth = 0) {
   return (Array.isArray(list) ? list : []).map((x) => cleanStep(x, depth)).filter(Boolean);
 }
-function cleanStep(s = {}, depth = 0) {
+function cleanStep(s, depth = 0) {
+  if (!s || typeof s !== 'object') return null;
   const type = STEP_TYPES.includes(s.type) ? s.type : null;
   if (!type || stepBudget-- <= 0) return null;
   const id = str(s.id, 20) || uid();
@@ -167,8 +185,13 @@ function contextFor(userId, data) {
   const name = data.name || '';
   return {
     key: data.key || contactKey(data.email, data.phone), name, first_name: name.split(/\s+/)[0] || '', email: data.email || '', phone: data.phone || '',
+    qualified: typeof data.qualified === 'boolean' ? data.qualified : null,
     product: data.product || '', amount: data.amount != null ? `₹${Number(data.amount).toLocaleString('en-IN')}` : '', amountRaw: data.amount != null ? Number(data.amount) : null, source: data.source || '', funnel: f?.name || '', funnelId: f?.id || null,
     funnel_link: f ? funnelUrl(f, origin) : '', checkout_link: f ? funnelUrl(f, origin, checkout?.slug) : '', business: userOf(userId)?.settings?.businessName || '', origin,
+    access_link: data.accessLink || '', invoice_link: data.invoiceLink || '',
+    booking_time: data.bookingTime || '', booking_link: data.bookingLink || '', meeting_link: data.meetingLink || '',
+    webinar_time: data.webinarTime || '', join_link: data.joinLink || '',
+    tracking_link: data.trackingLink || '', courier: data.courier || '', tracking_id: data.trackingId || '',
   };
 }
 // Called by the app when something happens; starts every matching active automation
@@ -268,6 +291,7 @@ export function evalRule(r, rule) {
     }
     case 'source': return cmp(rule.op === 'not' ? 'not_equals' : rule.op === 'is' ? 'equals' : rule.op, sourceOf(r), rule.value);
     case 'funnel': { const hit = r.ctx.funnelId === rule.funnelId; return neg ? !hit : hit; }
+    case 'qualified': { const hit = r.ctx.qualified === true; return neg ? !hit : hit; }
     case 'amount': return r.ctx.amountRaw != null && cmp(rule.op, r.ctx.amountRaw, rule.value);
     case 'custom': return cmp(rule.op === 'is' ? 'equals' : rule.op === 'not' ? 'not_equals' : rule.op, m?.custom?.[rule.fieldId], rule.value);
     default: return false;
@@ -290,11 +314,11 @@ function settle(steps, pos) {
 const nextPos = (steps, pos) => settle(steps, [...pos.slice(0, -1), pos.at(-1) + 1]);
 const posLabel = (pos) => pos.map((x) => (typeof x === 'number' ? x + 1 : BRANCH_LABEL[x] || x)).join(' → ');
 // next HH:MM in India time (or REPORT_TZ_OFFSET_MIN)
-export function nextTimeOfDay(hhmm, now = Date.now()) {
+export function nextTimeOfDay(hhmm, now = Date.now(), tz = process.env.REPORT_TZ_OFFSET_MIN ? `fixed:${TZ_MIN}` : 'Asia/Kolkata') {
   const [h, m] = hhmm.split(':').map(Number);
-  const local = new Date(now + TZ_MIN * 60000);
-  let t = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), h, m) - TZ_MIN * 60000;
-  if (t <= now) t += 86400000;
+  const today = localYmd(tz, now);
+  let t = zoned(tz, today, h * 60 + m);
+  if (t <= now) t = zoned(tz, addDays(today, 1), h * 60 + m);
   return t;
 }
 // per-step counters, updated on the stored automation (several runs may finish steps at once)
@@ -384,7 +408,7 @@ export async function advance(id) {
       const where = posLabel(r.pos);
       if (s.type === 'wait') {
         if (!r.waitUntil) {
-          r.waitUntil = s.mode === 'until' ? nextTimeOfDay(s.time) : Date.now() + s.amount * UNITS[s.unit] * SCALE;
+          r.waitUntil = s.mode === 'until' ? nextTimeOfDay(s.time, Date.now(), sellerTz(u)) : Date.now() + s.amount * UNITS[s.unit] * SCALE;
           r.nextAt = r.waitUntil;
           note(r, { step: where, type: 'wait', result: 'waiting', detail: s.mode === 'until' ? `until ${s.time}` : `${s.amount} ${s.amount === 1 ? s.unit.replace(/s$/, '') : s.unit}` });
           return;
@@ -457,10 +481,10 @@ function contactInfo(userId, key) {
   return { key, email: m?.email || last?.email || (key.startsWith('phone:') ? '' : key), phone: m?.phone || last?.phone || (key.startsWith('phone:') ? key.slice(6) : ''), name: m?.name || last?.name || '', funnelId: last?.funnelId, source: last?.source };
 }
 // "A date arrives": birthday / renewal / course start stored in a date custom field (India time)
-const ymd = (t) => new Date(t + TZ_MIN * 60000).toISOString().slice(0, 10);
 function scanDates(now = Date.now()) {
-  const today = ymd(now);
   for (const a of T.automations.all({ triggerType: 'date', active: 1 })) {
+    // dates fire on the seller's own calendar day and clock
+    const tz = sellerTz(userOf(a.userId)), today = localYmd(tz, now);
     if (!a.trigger.fieldId || !/^[\w-]{1,20}$/.test(a.trigger.fieldId)) continue;
     const t = a.trigger;
     // only contacts that have this date filled in (filtered inside SQLite)
@@ -472,13 +496,12 @@ function scanDates(now = Date.now()) {
       // the day it should fire: the date (this year's, for yearly ones) shifted by the offset
       let base = String(v).slice(0, 10);
       if (t.yearly) base = `${today.slice(0, 4)}${base.slice(4)}`;
-      let d0 = Date.parse(`${base}T00:00:00Z`);
-      if (!Number.isFinite(d0) && base.slice(5) === '02-29') d0 = Date.parse(`${base.slice(0, 4)}-02-28T00:00:00Z`); // leap-day birthdays → 28 Feb
-      if (!Number.isFinite(d0)) continue;
-      const fireDay = ymd(d0 - TZ_MIN * 60000 + t.offsetDays * 86400000 + 12 * 3600000);
+      if (!Number.isFinite(Date.parse(`${base}T00:00:00Z`)) && base.slice(5) === '02-29') base = `${base.slice(0, 4)}-02-28`; // leap-day birthdays → 28 Feb
+      if (!Number.isFinite(Date.parse(`${base}T00:00:00Z`))) continue;
+      const fireDay = addDays(base, t.offsetDays);
       if (fireDay !== today) continue;
       const [h, mi] = t.time.split(':').map(Number);
-      const at = Date.parse(`${today}T00:00:00Z`) - TZ_MIN * 60000 + (h * 60 + mi) * 60000;
+      const at = zoned(tz, today, h * 60 + mi);
       if (now < at) continue;
       const mark = t.yearly ? today.slice(0, 4) : 'once';
       m.dateFired ||= {};
@@ -641,9 +664,13 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
     const a = own(req, res);
     if (!a) return;
     if (!a.active) return res.status(400).json({ error: 'Turn the automation on first' });
-    const key = String(req.body.key || '');
-    const c = key ? metaFor(req.user.id, key) : null;
+    // by contact key, or (integrations) by email / phone — a new contact is added
+    const email = String(req.body.email || '').trim().toLowerCase().slice(0, 200), phone = String(req.body.phone || '').trim().slice(0, 40);
+    const key = String(req.body.key || contactKey(email, phone) || '');
+    if (!req.body.key && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email' });
+    let c = key ? metaFor(req.user.id, key) : null;
     const lead = key ? [T.leads.find({ userId: req.user.id, ckey: key }, { order: 'at', desc: true }), T.orders.find({ userId: req.user.id, ckey: key }, { order: 'at', desc: true })].filter(Boolean).sort((x, y) => y.at - x.at)[0] : null;
+    if (!c && !lead && !req.body.key && key) { c = ensureMeta(req.user.id, key); Object.assign(c, { manual: true, email, phone, name: String(req.body.name || '').slice(0, 120), at: Date.now() }); T.crm.put(c); }
     if (!c && !lead) return res.status(404).json({ error: 'Contact not found' });
     const r = start(a, { key, email: c?.email || lead?.email || (key.startsWith('phone:') ? '' : key), phone: c?.phone || lead?.phone || (key.startsWith('phone:') ? key.slice(6) : ''), name: c?.name || lead?.name || '', funnelId: a.trigger.funnelId || lead?.funnelId });
     if (!r) return res.status(409).json({ error: 'This contact is already in this automation' });
@@ -704,6 +731,7 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
   // ---- email open & click tracking ----
   const GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
   const first = (msg, kind) => {
+    if (msg.broadcastId) return broadcastSeen(msg, kind);
     const a = T.automations.get(msg.automationId);
     if (kind === 'open') logActivity(msg.userId, msg.key, { type: 'email', title: `Opened email: ${msg.subject}`, by: 'automation', automation: a?.name, status: 'opened' });
     else logActivity(msg.userId, msg.key, { type: 'email', title: `Clicked a link in: ${msg.subject}`, text: msg.lastUrl, by: 'automation', automation: a?.name, status: 'clicked' });
@@ -719,7 +747,7 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
     const ok = m && /^https?:\/\//i.test(url) && String(req.query.s || '').length === 16 && crypto.timingSafeEqual(Buffer.from(String(req.query.s)), Buffer.from(linkSig(m.id, url)));
     if (!ok) return res.status(400).type('html').send('<p style="font:16px system-ui;padding:40px;text-align:center">This link isn’t valid.</p>');
     m.clicks++; m.lastUrl = url;
-    if (!m.opens) { m.opens = 1; m.openedAt = Date.now(); } // a click proves the email was opened (images may be blocked)
+    if (!m.opens) { m.opens = 1; m.openedAt = Date.now(); if (m.broadcastId) first(m, 'open'); } // a click proves the email was opened (images may be blocked)
     if (m.clicks === 1) { m.clickedAt = Date.now(); first(m, 'click'); }
     T.msgs.put(m);
     res.redirect(302, url);

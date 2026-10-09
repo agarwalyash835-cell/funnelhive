@@ -232,6 +232,10 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
             <header className="cp-head">
               <span className="who-av lg">{initial(c)}</span>
               <div className="cp-id"><h2>{label(c)}</h2><div><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type}</span>{c.unsubscribed && <span className="pill warn" title="Clicked unsubscribe — automated emails are skipped">unsubscribed</span>}{(c.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}</div></div>
+              <button className="icon-btn danger" title="Erase this contact’s data (privacy request)" onClick={async () => {
+                if (prompt(`Erase everything about ${label(c)}? Sign-ups, messages, bookings and product access are deleted; orders and invoices are kept for tax records without their name and contact details. This can’t be undone. Type ERASE to confirm.`) !== 'ERASE') return;
+                try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'DELETE'); toast('Contact erased'); onChanged?.(); onClose(); } catch (x) { toast(x.message); }
+              }}><Trash2 size={17} /></button>
               <button className="icon-btn" onClick={onClose} title="Close"><X size={18} /></button>
             </header>
             <div className="cp-contact">

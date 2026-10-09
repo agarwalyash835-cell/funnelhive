@@ -49,13 +49,18 @@ export const stageFor = (p, meta, isCustomer) => {
 
 // ---------- contacts ----------
 // All of a seller's contacts — or just one (onlyKey) — from their sign-ups, orders and CRM records
-const funnelNames = (userId) => Object.fromEntries(q("SELECT id, json_extract(data, '$.name') AS name FROM funnels WHERE userId = ?").all(userId).map((r) => [r.id, r.name]));
+// live funnels by id; a deleted funnel's leads and orders carry its name (funnelName) — see deleteFunnel
+const funnelNames = (userId) => {
+  const m = Object.fromEntries(q("SELECT id, json_extract(data, '$.name') AS name FROM funnels WHERE userId = ?").all(userId).map((r) => [r.id, r.name]));
+  for (const r of q("SELECT DISTINCT funnelId, json_extract(data, '$.funnelName') AS name FROM orders WHERE userId = ? AND json_extract(data, '$.funnelName') IS NOT NULL UNION SELECT DISTINCT funnelId, json_extract(data, '$.funnelName') FROM leads WHERE userId = ? AND json_extract(data, '$.funnelName') IS NOT NULL").all(userId, userId)) m[r.funnelId] ||= `${r.name} (deleted)`;
+  return m;
+};
 function buildContacts(userId, onlyKey) {
   const name = funnelNames(userId);
   const where = onlyKey ? { userId, ckey: onlyKey } : { userId };
   const m = {};
-  const get = (key) => (m[key] ||= { key, email: key.startsWith('phone:') ? '' : key, name: '', phone: '', type: 'lead', orders: 0, ltv: 0, funnels: new Set(), source: 'direct', firstSeen: Infinity, lastSeen: 0, refs: { leads: [], orders: [], abandoned: [] } });
-  const touch = (c, x) => { c.firstSeen = Math.min(c.firstSeen, x.at); c.lastSeen = Math.max(c.lastSeen, x.at); c.funnels.add(name[x.funnelId]); c.name ||= x.name || ''; c.phone ||= x.phone || ''; if (x.source) c.source = x.source; };
+  const get = (key) => (m[key] ||= { key, email: key.startsWith('phone:') ? '' : key, name: '', phone: '', type: 'lead', orders: 0, ltv: 0, funnels: new Set(), fids: new Set(), source: 'direct', firstSeen: Infinity, lastSeen: 0, refs: { leads: [], orders: [], abandoned: [] } });
+  const touch = (c, x) => { c.firstSeen = Math.min(c.firstSeen, x.at); c.lastSeen = Math.max(c.lastSeen, x.at); c.funnels.add(name[x.funnelId]); c.fids.add(x.funnelId); c.name ||= x.name || ''; c.phone ||= x.phone || ''; if (x.source) c.source = x.source; };
   for (const l of T.leads.iter(where, { order: 'at' })) if (name[l.funnelId] && (l.email || l.phone)) { const c = get(contactKey(l.email, l.phone)); touch(c, l); c.refs.leads.push(l); if (l.fields) c.fields = { ...(c.fields || {}), ...l.fields }; }
   for (const o of T.orders.iter(where, { order: 'at' })) if (name[o.funnelId] && o.email) { const c = get(contactKey(o.email)); touch(c, o); c.type = 'customer'; c.orders++; c.ltv += o.total; c.refs.orders.push(o); }
   for (const a of T.abandoned.iter(where, { order: 'at' })) if (name[a.funnelId] && a.email && m[contactKey(a.email)]) m[contactKey(a.email)].refs.abandoned.push(a);
@@ -78,6 +83,12 @@ const listItem = (c, pipelines) => ({
   stages: Object.fromEntries(pipelines.map((p) => [p.id, stageFor(p, c.meta, c.type === 'customer')])),
 });
 
+// every contact as the Contacts page lists them, plus the funnels they came through (for segments)
+export function contactList(userId) {
+  const pipelines = pipelinesFor(userId);
+  return Object.values(buildContacts(userId).contacts).map((c) => ({ ...listItem(c, pipelines), funnelIds: [...c.fids] }));
+}
+
 const ITEM_TITLE = { main: 'Bought', bump: 'Added order bump', upsell: 'Accepted upsell', downsell: 'Accepted downsell', crosssell: 'Bought add-on' };
 function timeline(userId, c, funnelName) {
   const out = [];
@@ -95,7 +106,7 @@ function timeline(userId, c, funnelName) {
   sessions.forEach((s, i) => out.push({ type: 'visit', at: s.at, title: i === 0 ? 'First visit' : 'Came back', text: `${funnelName[s.funnelId]} · ${s.pages.size} page${s.pages.size > 1 ? 's' : ''} viewed${s.source && s.source !== 'direct' ? ` · from ${s.source}` : ''}` }));
   if (!sessions.length && c.firstSeen !== Infinity && !c.meta?.manual) out.push({ type: 'visit', at: c.firstSeen, title: 'First came in', text: `${[...c.funnels].filter(Boolean)[0] || ''}${c.source && c.source !== 'direct' ? ` · from ${c.source}` : ''}` });
   if (c.meta?.manual) out.push({ type: 'created', at: c.meta.at, title: 'Added by you' });
-  for (const l of c.refs.leads) out.push({ type: 'lead', at: l.at, title: `Signed up on ${funnelName[l.funnelId]}`, text: [stepName(l.funnelId, l.stepId), l.source && l.source !== 'direct' ? `from ${l.source}` : ''].filter(Boolean).join(' · '), fields: l.fields });
+  for (const l of c.refs.leads) out.push({ type: 'lead', at: l.at, title: l.qualified === undefined ? `Signed up on ${funnelName[l.funnelId]}` : `Applied on ${funnelName[l.funnelId]} — ${l.qualified ? 'qualified ✓' : 'not a fit'}`, text: [stepName(l.funnelId, l.stepId), l.source && l.source !== 'direct' ? `from ${l.source}` : ''].filter(Boolean).join(' · '), fields: l.fields });
   for (const a of c.refs.abandoned) out.push({ type: 'abandon', at: a.at, title: 'Started checkout but didn’t pay', text: `${funnelName[a.funnelId]}${a.recovered ? ' · bought later' : ''}` });
   for (const o of c.refs.orders) {
     for (const it of o.items || []) out.push({ type: it.kind === 'main' ? 'purchase' : it.kind, at: it.at || o.at, title: `${ITEM_TITLE[it.kind] || 'Bought'}: ${it.name}`, amount: it.price, text: `${funnelName[o.funnelId]}${it.kind === 'main' && o.coupon ? ` · coupon ${o.coupon}` : ''}` });
@@ -106,7 +117,7 @@ function timeline(userId, c, funnelName) {
   return out.sort((a, b) => b.at - a.at || (rank[b.type] ?? 9) - (rank[a.type] ?? 9));
 }
 
-const cleanFields = (list) => (Array.isArray(list) ? list : []).slice(0, 30).map((f) => ({
+const cleanFields = (list) => (Array.isArray(list) ? list : []).filter((f) => f && typeof f === 'object').slice(0, 30).map((f) => ({
   id: str(f.id, 20) || uid(), label: str(f.label, 60) || 'Untitled field', type: FIELD_TYPES.includes(f.type) ? f.type : 'text',
   ...(f.type === 'select' ? { options: str(f.options, 1000) } : {}),
 })).filter((f, i, a) => a.findIndex((x) => x.id === f.id) === i);

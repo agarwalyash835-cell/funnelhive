@@ -191,7 +191,7 @@ export default function Hive() {
                 <button className={device === 'mobile' ? 'on' : ''} onClick={() => setDevice('mobile')} title="Phone"><Smartphone size={14} /></button>
               </div>
               <Link className="btn ghost sm" to={`/funnels/${funnel.id}`}><Pencil size={13} /> Edit</Link>
-              <a className="btn ghost sm" href={`/f/${funnel.slug}${step ? `/${step.slug}` : ''}${funnel.published ? '' : '?preview=1'}`} target="_blank" rel="noreferrer"><ExternalLink size={13} /> {funnel.published ? 'Live' : 'Preview'}</a>
+              <a className="btn ghost sm" href={`/f/${funnel.slug}${step ? `/${step.slug}` : ''}${funnel.published ? '' : `?preview=1&pv=${funnel.previewKey || ''}`}`} target="_blank" rel="noreferrer"><ExternalLink size={13} /> {funnel.published ? 'Live' : 'Preview'}</a>
             </> : <span className="muted sm">The funnel Hive builds or edits shows up here, live.</span>}
           </div>
           <div className="hv-canvas">

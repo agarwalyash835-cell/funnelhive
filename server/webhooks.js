@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { subscribers } from './api.js';
 import { T, q, uid, JOBS } from './db.js';
 
 const SCALE = Number(process.env.WEBHOOK_RETRY_SCALE || 1); // tests shrink the delays
@@ -13,14 +14,32 @@ const MAX_PER_USER = 500;
 // ---- SSRF guard: a webhook may never reach this server's own network ----
 // (localhost, private LANs, cloud metadata at 169.254.169.254, …). Tests run receivers on 127.0.0.1.
 export const allowPrivate = () => (process.env.WEBHOOK_ALLOW_PRIVATE ? process.env.WEBHOOK_ALLOW_PRIVATE === '1' : process.env.NODE_ENV === 'test');
-function isPrivateIp(ip) {
+export function isPrivateIp(ip) {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split('.').map(Number);
     return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
   }
-  const v = ip.toLowerCase();
-  if (v.startsWith('::ffff:')) return isPrivateIp(v.slice(7));
-  return v === '::' || v === '::1' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe8') || v.startsWith('fe9') || v.startsWith('fea') || v.startsWith('feb') || v.startsWith('ff');
+  const v = ip.toLowerCase().replace(/%.*$/, '');
+  if (!net.isIPv6(v)) return true; // anything we can't parse is refused
+  const g = expand6(v);
+  // IPv4-mapped (::ffff:a.b.c.d), IPv4-compatible (::a.b.c.d), NAT64 (64:ff9b::a.b.c.d) and IPv4-translated
+  // addresses reach the IPv4 address in their last 32 bits — judge them as that address
+  const v4 = (hi, lo) => [hi >> 8, hi & 255, lo >> 8, lo & 255].join('.');
+  if (g.slice(0, 5).every((x) => x === 0) && (g[5] === 0xffff || g[5] === 0)) return g[5] === 0 && g[6] === 0 && g[7] <= 1 ? true : isPrivateIp(v4(g[6], g[7]));
+  if (g[0] === 0x64 && g[1] === 0xff9b) return isPrivateIp(v4(g[6], g[7]));
+  if (g.slice(0, 4).every((x) => x === 0) && g[4] === 0xffff && g[5] === 0) return isPrivateIp(v4(g[6], g[7]));
+  const first = g[0];
+  return first === 0 || (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00 || first === 0x2002 || (first === 0x2001 && g[1] === 0);
+}
+// "::ffff:7f00:1" → [0,0,0,0,0,0xffff,0x7f00,1] (handles :: and a trailing dotted IPv4)
+function expand6(ip) {
+  let s = ip;
+  const m = /(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  if (m) { const [a, b, c, d] = m[1].split('.').map(Number); s = s.slice(0, -m[1].length) + ((a << 8) | b).toString(16) + ':' + ((c << 8) | d).toString(16); }
+  const [head, tail] = s.split('::');
+  const h = head ? head.split(':') : [], t = tail !== undefined ? (tail ? tail.split(':') : []) : null;
+  const parts = t === null ? h : [...h, ...Array(8 - h.length - t.length).fill('0'), ...t];
+  return parts.map((x) => parseInt(x || '0', 16));
 }
 // Throws unless the host name resolves only to public internet addresses
 export async function checkPublicHost(host) {
@@ -63,6 +82,8 @@ export function ensureSecret(user) {
 
 // Queue an event; the first attempt happens right away
 export function enqueue(userId, event, data, urlOverride) {
+  // REST-hook subscribers (Zapier, Pabbly, Make…) get their events too
+  if (!urlOverride) for (const sub of subscribers(userId, event)) enqueue(userId, event, data, sub);
   const u = userOf(userId);
   const url = urlOverride || u?.settings?.webhookUrl;
   if (!url) return null;

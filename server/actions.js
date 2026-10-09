@@ -2,9 +2,9 @@
 import { uid } from './db.js';
 import { shiftHue } from './template-kit.js';
 
-import { PAGE_STYLES as STYLES } from './page-styles.js';
+import { PAGE_STYLES as STYLES, VARIANTS } from './page-styles.js';
 const COLORS = { red: '#ef4444', orange: '#f97316', amber: '#f59e0b', yellow: '#eab308', green: '#16a34a', emerald: '#10b981', teal: '#14b8a6', cyan: '#06b6d4', blue: '#2563eb', indigo: '#6366f1', violet: '#7c3aed', purple: '#9333ea', pink: '#ec4899', rose: '#e11d48', maroon: '#9f1239', gold: '#a16207', brown: '#78350f', black: '#111827', saffron: '#ff9933' };
-const STYLE_ALIASES = { dark: 'midnight', premium: 'luxe', luxury: 'luxe', elegant: 'luxe', minimal: 'clean', simple: 'clean', playful: 'playful', fun: 'playful', kids: 'playful', friendly: 'fresh', magazine: 'editorial', editorial: 'editorial', earthy: 'organic', handmade: 'organic', organic: 'organic', techy: 'tech', neon: 'tech', tech: 'tech', royal: 'royal', gold: 'royal', golden: 'royal', loud: 'bold', brutal: 'bold', light: 'aurora', gradient: 'aurora' };
+const STYLE_ALIASES = { dark: 'midnight', premium: 'luxe', luxury: 'luxe', elegant: 'luxe', minimal: 'clean', simple: 'clean', playful: 'playful', fun: 'playful', kids: 'playful', friendly: 'fresh', magazine: 'editorial', editorial: 'editorial', earthy: 'organic', handmade: 'organic', organic: 'organic', techy: 'tech', neon: 'tech', tech: 'tech', royal: 'royal', gold: 'royal', golden: 'royal', noir: 'noir', monochrome: 'noir', glass: 'glass', glassy: 'glass', frosted: 'glass', swiss: 'swiss', pastel: 'pastel', dreamy: 'pastel', studio: 'studio', startup: 'studio', modern: 'studio', loud: 'bold', brutal: 'bold', light: 'aurora', gradient: 'aurora' };
 
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'step';
 const blk = (type, props) => ({ id: uid(), type, props });
@@ -91,6 +91,7 @@ export function applyActions(f, actions = [], currentStepId) {
         case 'rename': f.name = a.name; done.push(`Renamed funnel to “${a.name}”`); break;
         case 'add_step': {
           let s;
+          if ((a.stepType === 'upsell' || a.stepType === 'downsell') && !f.steps.some((x) => x.type === 'checkout')) { done.push(`Skipped the ${a.stepType}: this funnel has no checkout for it to follow`); break; }
           if ((a.stepType === 'upsell' || a.stepType === 'downsell') && !a.blocks) s = offerStep(a.stepType, f);
           else s = { id: uid(), name: a.name || a.stepType, type: a.stepType || 'landing', slug: slugify(a.slug || a.name || a.stepType), blocks: normBlocks(a.blocks) };
           s.slug = uniqueSlug(f, s.slug);
@@ -126,9 +127,27 @@ export function applyActions(f, actions = [], currentStepId) {
           if (b) { b.props = { ...b.props, ...a.props }; done.push(`Updated the ${b.type} section`); }
           break;
         }
+        case 'set_price': {
+          const n = Math.round(Number(a.price));
+          if (!(n > 0)) break;
+          const old = mainPrice(f);
+          const inr = (x) => `₹${Number(x).toLocaleString('en-IN')}`;
+          const priceLike = (v) => /^\s*₹\s*\d[\d,]*\s*$/.test(String(v ?? ''));
+          const swap = (v) => (typeof v === 'string' ? v.split(inr(old)).reduce((acc, part, i) => (i === 0 ? part : /^,?\d/.test(part) ? `${acc}${inr(old)}${part}` : `${acc}${inr(n)}${part}`), '') : Array.isArray(v) ? v.map(swap) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)])) : v);
+          for (const s of f.steps) for (const b of s.blocks) {
+            if (b.type === 'pricing' || b.type === 'checkout') { b.props.price = n; if (!(Number(b.props.mrp) > n)) b.props.mrp = Math.round((n * 2.2) / 100) * 100 - 1; }
+            else if (b.type === 'hero' && priceLike(b.props.cardPrice)) b.props.cardPrice = inr(n);
+            else if (b.type === 'stickybar' && priceLike(b.props.price)) b.props.price = inr(n);
+            if (old !== n && !['pricing', 'checkout', 'offer', 'crosssell'].includes(b.type)) b.props = swap(b.props);
+          }
+          done.push(`Set the price to ${inr(n)} everywhere it’s shown`); break;
+        }
         case 'update_all': {
           let n = 0;
-          for (const s of f.steps) for (const b of s.blocks) if (b.type === a.blockType) { b.props = { ...b.props, ...a.props }; n++; }
+          for (const s of f.steps) {
+            if (a.firstOnly && a.stepId && s.id !== a.stepId) continue;
+            for (const b of s.blocks) if (b.type === a.blockType) { b.props = { ...b.props, ...a.props }; n++; if (a.firstOnly) break; }
+          }
           if (n) done.push(`Updated ${n} ${a.blockType} block${n > 1 ? 's' : ''}`);
           break;
         }
@@ -145,7 +164,8 @@ const HELP = `Here's what I can do right now — just ask in plain English:
 • "Make it dark" · "switch to luxe style" · "change colour to green"
 • "Change the headline to …" · "set price to 999" · "rename funnel to …"
 • "Remove the countdown" · "add a checkout page"
-Add an ANTHROPIC_API_KEY on the server and I can also rewrite copy and redesign whole pages.`;
+• "Change the hero to video / poster / stage / bento"
+Add a KIE_API_KEY on the server and I can also rewrite copy and redesign whole pages.`;
 
 const BLOCK_WORDS = { faq: 'faq', faqs: 'faq', testimonial: 'testimonials', testimonials: 'testimonials', reviews: 'testimonials', countdown: 'countdown', timer: 'countdown', guarantee: 'guarantee', bonus: 'bonuses', bonuses: 'bonuses', stock: 'stock', scarcity: 'stock', 'live viewers': 'livecount', 'social proof': 'proof', popup: 'exitpopup', 'exit popup': 'exitpopup', 'sticky bar': 'stickybar', whatsapp: 'whatsapp', video: 'video', stats: 'stats', 'how it works': 'steps', 'hello bar': 'hellobar', cta: 'cta', 'call to action': 'cta', text: 'text' };
 
@@ -160,10 +180,13 @@ function parseClause(m, raw, f, step, state) {
     if (!state.hasCheckout) { actions.push(checkoutStep(f)); state.hasCheckout = true; }
     else if (/bump/.test(m)) actions.push({ type: 'update_all', blockType: 'checkout', props: { bumpEnabled: true } });
   }
-  if (adding && /up-?sell/.test(m)) actions.push({ type: 'add_step', stepType: 'upsell' });
-  if (adding && /down-?sell/.test(m)) actions.push({ type: 'add_step', stepType: 'downsell' });
-  if (/cross-?sell|also bought/.test(m)) {
-    const ty = f.steps.find((s) => s.type === 'thankyou');
+  const needsSale = (what) => { if (state.hasCheckout) return true; state.notes.push(`This funnel has no checkout, so there’s nothing for ${what} to follow — say “add a checkout page” first.`); return false; };
+  if (adding && /up-?sell/.test(m) && needsSale('an upsell')) actions.push({ type: 'add_step', stepType: 'upsell' });
+  if (adding && /down-?sell/.test(m) && needsSale('a downsell')) actions.push({ type: 'add_step', stepType: 'downsell' });
+  if (/cross-?sell|also bought/.test(m) && needsSale('cross-sells')) {
+    // the thank-you page after the purchase (a webinar also has one right after the free registration)
+    const co = f.steps.findIndex((s) => s.type === 'checkout');
+    const ty = f.steps.find((s, i) => s.type === 'thankyou' && i > co);
     if (ty) actions.push({ type: 'add_block', stepId: ty.id, blockType: 'crosssell', props: crossSellBlock(f).props, index: 1 });
     else actions.push({ type: 'add_step', stepType: 'thankyou', name: 'Thank you', blocks: [{ type: 'thankyou', props: { headline: 'Order confirmed! 🎉', body: 'Details are on your email & WhatsApp.', steps: [] } }, crossSellBlock(f)] });
   }
@@ -176,25 +199,30 @@ function parseClause(m, raw, f, step, state) {
   const theme = {};
   const isCopyEdit = /headline|rename|call it|name it/.test(m); // quoted copy may contain words like "fresh" or "gold"
   const styleWord = isCopyEdit ? null : Object.keys(STYLE_ALIASES).find((w) => new RegExp(`\\b${w}\\b`).test(m)) || STYLES.find((x) => m.includes(x));
-  if (styleWord && /(make|switch|style|theme|look|use|change|go|more)/.test(m)) theme.style = STYLE_ALIASES[styleWord] || styleWord;
   const hex = m.match(/#[0-9a-f]{6}\b/);
   const colorWord = isCopyEdit ? null : Object.keys(COLORS).find((c) => new RegExp(`\\b${c}\\b`).test(m));
+  // "change colour to gold" is a colour; "make it royal / gold style" is a style
+  const colourAsk = /colou?r|brand|primary|accent/.test(m) && !/style|theme|look/.test(m);
+  if (styleWord && !(colourAsk && COLORS[styleWord]) && /(make|switch|style|theme|look|use|change|go|more)/.test(m)) theme.style = STYLE_ALIASES[styleWord] || styleWord;
   if ((hex || colorWord) && /(colou?r|brand|primary|accent|make|theme)/.test(m)) theme.primary = hex ? hex[0] : COLORS[colorWord];
   if (Object.keys(theme).length) actions.push({ type: 'set_theme', ...theme });
+  const heroLayout = /\bhero\b/.test(m) && (VARIANTS.hero.find((v) => new RegExp(`\\b${v}\\b`).test(m)) || (/\bticket\b/.test(m) ? 'event' : /\bvideo beside|split video\b/.test(m) ? 'videosplit' : null));
+  if (heroLayout && /(make|change|switch|use|set|turn)/.test(m)) actions.push({ type: 'update_all', blockType: 'hero', firstOnly: true, stepId: step.id, props: { variant: heroLayout } });
   const quoted = raw.match(/(?:\bto\b|:)\s*["“']?(.+?)["”']?\s*$/i);
   if (/headline/.test(m) && quoted) actions.push({ type: 'update_block', stepId: step.id, blockType: 'hero', props: { headline: quoted[1] } });
   if (/(rename|call it|name it)/.test(m) && quoted) actions.push({ type: 'rename', name: quoted[1] });
   const price = m.match(/price.*?(?:₹|rs\.?|inr)?\s*(\d[\d,]*)/);
   if (price && /(set|change|make|update)/.test(m)) {
     const n = Number(price[1].replace(/,/g, ''));
-    actions.push({ type: 'update_all', blockType: 'pricing', props: { price: n } }, { type: 'update_all', blockType: 'checkout', props: { price: n } });
+    if (state.hasCheckout || f.steps.some((s) => s.blocks.some((b) => b.type === 'pricing'))) actions.push({ type: 'set_price', price: n });
+    else state.notes.push('This funnel doesn’t sell anything directly (it has no checkout or price box), so there’s no price to change.');
   }
   return actions;
 }
 
 export function parseCommand(msg, f, stepId) {
   const step = findStep(f, stepId) || f.steps[0];
-  const state = { hasCheckout: f.steps.some((s) => s.blocks.some((b) => b.type === 'checkout')) };
+  const state = { hasCheckout: f.steps.some((s) => s.blocks.some((b) => b.type === 'checkout')), notes: [] };
   // Quoted text (headlines, names) must not be split into clauses
   const clauses = /headline|rename|call it|name it/i.test(msg) ? [msg] : msg.split(/\s*(?:,|;|\band then\b|\bthen\b|\band\b|\balso\b)\s*/i).filter(Boolean);
   // "add an upsell and a downsell": a clause without its own verb inherits the previous one
@@ -208,11 +236,13 @@ export function parseCommand(msg, f, stepId) {
   });
   // Checkout must exist before upsells/downsells are positioned after it
   const order = { checkout: 0, upsell: 1, downsell: 2 };
-  return actions.sort((a, b) => (a.type === 'add_step' && b.type === 'add_step' ? (order[a.stepType] ?? 3) - (order[b.stepType] ?? 3) : 0));
+  const sorted = actions.sort((a, b) => (a.type === 'add_step' && b.type === 'add_step' ? (order[a.stepType] ?? 3) - (order[b.stepType] ?? 3) : 0));
+  sorted.notes = state.notes;
+  return sorted;
 }
 
 export function offlineChat(msg, f, stepId) {
   const actions = parseCommand(msg, f, stepId);
-  if (!actions.length) return { reply: HELP, actions: [] };
-  return { reply: null, actions };
+  if (!actions.length) return { reply: actions.notes?.length ? actions.notes.join(' ') : HELP, actions: [] };
+  return { reply: actions.notes?.length ? actions.notes.join(' ') : null, actions };
 }

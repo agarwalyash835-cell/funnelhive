@@ -55,6 +55,24 @@ export const OfferMix = ({ byKind }) => (
   <HBars format={inr} items={Object.entries(KIND_LABEL).map(([k, label]) => ({ label, value: byKind[k] || 0 }))} />
 );
 
+// Revenue by ad campaign (UTM tags), so a seller sees which ad actually sold
+export function Campaigns({ rows = [] }) {
+  const tagged = rows.filter((r) => r.campaign || r.medium);
+  const spend = rows.some((r) => r.spend != null);
+  const roasCls = (x) => (x == null ? '' : x >= 2 ? 'ok' : x >= 1 ? 'warn' : 'bad');
+  if (!rows.length) return <Empty icon="tag" title="No campaign data yet" text="Add UTM tags to your ad links (utm_source, utm_campaign, utm_content) — every lead and sale is matched to its campaign automatically." />;
+  return (
+    <div className="tbl-wrap"><table className="tbl compact">
+      <thead><tr><th>Source / medium</th><th>Campaign</th><th>Ad / content</th><th className="r">Leads</th><th className="r">Orders</th><th className="r">Revenue</th>{spend && <><th className="r">Ad spend</th><th className="r">ROAS</th><th className="r">Cost / lead</th></>}</tr></thead>
+      <tbody>{rows.slice(0, 25).map((r, i) => (
+        <tr key={i}><td><span className="src">{r.source}</span>{r.medium && <small className="muted"> / {r.medium}</small>}</td><td className={r.campaign ? 'strong' : 'muted'}>{r.campaign || '(no campaign)'}</td><td className="muted sm">{r.content || '—'}</td>
+          <td className="r">{num(r.leads)}</td><td className="r">{num(r.orders)}</td><td className="r strong">{inr(r.revenue)}{r.refunded > 0 && <small className="sub-t">−{inr(r.refunded)} refunded</small>}</td>
+          {spend && <><td className="r">{r.spend != null ? inr(r.spend) : '—'}{r.unmatched && <small className="sub-t" title="Spend with no tagged visits — check this campaign’s UTM tags">no UTM match</small>}</td><td className="r">{r.roas != null ? <span className={`pill ${roasCls(r.roas)}`}>{r.roas}×</span> : '—'}</td><td className="r muted">{r.cpl != null ? inr(r.cpl) : '—'}</td></>}</tr>
+      ))}</tbody>
+    </table>{!tagged.length && <p className="hint pad">None of your traffic is tagged yet. Tag ad links like <code>?utm_source=facebook&amp;utm_medium=paid&amp;utm_campaign=diwali&amp;utm_content=reel-1</code> to see revenue per campaign and per ad.</p>}</div>
+  );
+}
+
 export const Sources = ({ rows }) => (
   <table className="tbl compact">
     <thead><tr><th>Source</th><th className="r">Visitors</th><th className="r">Orders</th><th className="r">Revenue</th></tr></thead>
@@ -107,7 +125,7 @@ export default function Dashboard() {
             <p>Describe your business in one line and our AI builds the full funnel — landing page, checkout, order bump, upsell, downsell, cross-sells and thank-you page — ready to publish.</p>
             <div className="row">
               <button className="btn primary lg" onClick={() => setCreate(true)}><Icon name="wand" /> Build with AI</button>
-              <Link className="btn ghost lg" to="/templates"><Icon name="layout" /> Browse 53 templates</Link>
+              <Link className="btn ghost lg" to="/templates"><Icon name="layout" /> Browse 100+ templates</Link>
             </div>
             <button className="linkish" onClick={seed} disabled={seeding}>{seeding ? 'Loading demo…' : 'Or explore with demo data →'}</button>
           </div>
@@ -154,6 +172,7 @@ export default function Dashboard() {
             </Panel>
             <Panel title="Traffic sources" pad={false}><Sources rows={data.sources} /></Panel>
           </div>
+          <Panel title="Ad campaigns" pad={false}><Campaigns rows={data.campaigns} /></Panel>
           <Panel title="Recent orders" actions={<Link className="btn ghost sm" to="/orders">All orders</Link>} pad={false}>
             {data.recentOrders.length ? (
               <table className="tbl">

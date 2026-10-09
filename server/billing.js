@@ -26,6 +26,12 @@ export function newBilling(now = Date.now()) {
 export function accessFor(u, now = Date.now()) {
   if (!u) return { ok: false, status: 'none', pagesLive: false };
   if (isAdmin(u)) return { ok: true, status: 'admin', pagesLive: true, admin: true };
+  // a client account of an agency: covered by the agency's plan
+  if (u.agencyId && u.billing?.status !== 'suspended') {
+    const a = T.users.get(u.agencyId);
+    const x = accessFor(a, now);
+    return { ...x, agencyManaged: true, agency: a?.settings?.whiteLabel?.brand || a?.settings?.businessName || a?.name || '', ...(x.ok ? {} : { reason: 'Your agency’s plan has ended — please contact them.' }) };
+  }
   if (!u.billing) {
     // accounts created before subscriptions existed get a fresh trial
     u.billing = newBilling(now);
@@ -60,6 +66,8 @@ export function lockedOut(req) {
   const a = accessFor(req.user);
   req.access = a;
   if (a.ok || req.method === 'GET' || req.method === 'HEAD' || OPEN_WHEN_LOCKED.test(req.originalUrl || req.url)) return null;
+  const url = req.originalUrl || req.url;
+  if (/^\/api\/funnels\/[\w-]+$/.test(url) && (req.method === 'DELETE' || (req.method === 'PUT' && Object.keys(req.body || {}).every((k) => k === 'published' || k === 'baseVersion') && req.body?.published === false))) return null;
   return a.reason || 'Your subscription is not active.';
 }
 
@@ -105,11 +113,13 @@ function taxSplit(total, sellerState) {
 export function pricing() {
   const p = platform();
   const out = {};
-  for (const k of ['monthly', 'yearly']) {
+  for (const k of INTERVALS) {
     const total = chargeFor(k);
-    out[k] = { amount: total, perMonth: k === 'yearly' ? Math.round(total / 12) : total, gstIncluded: true, ...taxSplit(total, p.company.state) };
+    out[k] = { amount: total, perMonth: k.endsWith('yearly') ? Math.round(total / 12) : total, gstIncluded: true, ...taxSplit(total, p.company.state) };
   }
   out.yearlySaves = out.monthly.amount * 12 - out.yearly.amount;
+  out.agencyYearlySaves = out.agency_monthly.amount * 12 - out.agency_yearly.amount;
+  out.agencyClients = p.agency.maxClients;
   return out;
 }
 
@@ -133,7 +143,7 @@ export function issueInvoice(u, { key, total, interval, from, to, paymentId, at 
     return T.invoices.insert({
       id: uid(), userId: u.id, key, number: `${p.company.invoicePrefix || 'FH'}/${fy}/${String(seq.n).padStart(4, '0')}`, at, status: 'paid', paymentId: paymentId || null,
       interval, period: { from, to }, total, ...taxSplit(total, d.state),
-      item: `${p.brand} subscription — ${interval === 'yearly' ? 'Yearly' : 'Monthly'} plan`,
+      item: `${p.brand} subscription — ${planName(interval || 'monthly')} plan`,
       billedTo: { name: d.name || u.name, email: u.email, gstin: d.gstin || '', address: d.address || '', state: d.state || '', stateCode: STATES[d.state] || '' },
       company: { ...p.company, stateCode: STATES[p.company.state] || '' }, brand: p.brand,
     });
@@ -141,22 +151,26 @@ export function issueInvoice(u, { key, total, interval, from, to, paymentId, at 
 }
 
 // ---------- Razorpay Subscriptions ----------
+export const INTERVALS = ['monthly', 'yearly', 'agency_monthly', 'agency_yearly'];
+const periodOf = (interval) => (interval.endsWith('yearly') ? 'yearly' : 'monthly');
+const planName = (interval) => `${interval.startsWith('agency_') ? 'Agency ' : ''}${periodOf(interval) === 'yearly' ? 'Yearly' : 'Monthly'}`;
 async function planId(rzp, interval) {
   const amount = chargeFor(interval);
   const known = platform().razorpay.planIds?.[`${rzp.keyId}:${interval}`];
   if (known?.amount === amount) return known.id;
   // plans can't be edited on Razorpay: a new price means a new plan (existing subscribers keep theirs)
-  const plan = await rzpCall(rzp, 'POST', '/plans', { period: interval, interval: 1, item: { name: `${platform().brand} ${interval === 'yearly' ? 'Yearly' : 'Monthly'}`, amount: amount * 100, currency: 'INR' } });
+  const plan = await rzpCall(rzp, 'POST', '/plans', { period: periodOf(interval), interval: 1, item: { name: `${platform().brand} ${planName(interval)}`, amount: amount * 100, currency: 'INR' } });
   savePlatform((s) => { s.razorpay ||= {}; s.razorpay.planIds = { ...s.razorpay.planIds, [`${rzp.keyId}:${interval}`]: { id: plan.id, amount } }; });
   return plan.id;
 }
 // Brings our copy of a subscription in line with Razorpay's; issues the invoice for a newly paid period
 export function applySubscription(userId, sub, { paymentId } = {}) {
-  let invoice = null;
+  let invoice = null, replaced = null;
   const u = T.users.update(userId, (x) => {
     const b = (x.billing ||= newBilling());
     if (b.subscriptionId !== sub.id) {
       if (b.pending?.id !== sub.id) return; // an old subscription: ignore
+      if (b.subscriptionId && ['authenticated', 'active'].includes(sub.status)) replaced = b.subscriptionId; // a plan switch
       b.subscriptionId = sub.id; b.interval = b.pending.interval; b.amount = b.pending.amount; delete b.pending; delete b.cancelAtPeriodEnd; delete b.halted;
     }
     const end = sub.current_end ? sub.current_end * 1000 : 0;
@@ -171,6 +185,8 @@ export function applySubscription(userId, sub, { paymentId } = {}) {
     }
     b.rzpStatus = sub.status; b.syncedAt = Date.now();
   });
+  // switching plans: the old subscription stops (the new one starts when the paid period ends)
+  if (replaced) { const rzp = platformRzp(); if (rzp) rzpCall(rzp, 'POST', `/subscriptions/${replaced}/cancel`, { cancel_at_cycle_end: 0 }).catch((e) => console.error('old subscription cancel failed', e.message)); }
   if (u && u.billing?.subscriptionId === sub.id && sub.status === 'active' && sub.current_start) {
     invoice = issueInvoice(u, { key: `${sub.id}:${sub.current_start}`, total: u.billing.amount || chargeFor(u.billing.interval), interval: u.billing.interval, from: sub.current_start * 1000, to: (sub.current_end || 0) * 1000, paymentId });
     T.users.update(userId, (x) => { x.billing.lastPaymentAt = Date.now(); delete x.billing.notified; });
@@ -206,20 +222,21 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
 
   // 1. Start a subscription: returns what Razorpay Checkout needs
   app.post('/api/billing/subscribe', auth, limiter, wrap(async (req, res) => {
-    const interval = req.body.interval === 'yearly' ? 'yearly' : 'monthly';
+    const interval = INTERVALS.includes(req.body.interval) ? req.body.interval : 'monthly';
+    if (req.user.agencyId) return res.status(400).json({ error: 'This account is covered by your agency’s plan' });
     const rzp = platformRzp();
     if (!rzp) return res.status(503).json({ error: 'Online payments aren’t set up yet — please contact support.' });
     const u = req.user;
     const b = u.billing || newBilling();
     if (!b.details?.state) return res.status(400).json({ error: 'Add your billing details first', needDetails: true });
     const a = accessFor(u);
-    if (b.subscriptionId && ['active', 'past_due'].includes(b.status) && !b.cancelAtPeriodEnd && !b.halted) return res.status(409).json({ error: 'You already have an active subscription' });
+    if (b.subscriptionId && ['active', 'past_due'].includes(b.status) && !b.cancelAtPeriodEnd && !b.halted && b.interval === interval) return res.status(409).json({ error: 'You already have an active subscription' });
     // paid time left (trial, or a cancelled plan's remaining period) is honoured: the first charge waits for it
     const startAt = Math.max(a.ok && b.status === 'trialing' ? b.trialEndsAt : 0, a.ok && ['cancelled', 'active'].includes(b.status) ? b.currentPeriodEnd || 0 : 0);
     let sub;
     try {
       sub = await rzpCall(rzp, 'POST', '/subscriptions', {
-        plan_id: await planId(rzp, interval), total_count: interval === 'yearly' ? 10 : 120, quantity: 1, customer_notify: 1,
+        plan_id: await planId(rzp, interval), total_count: periodOf(interval) === 'yearly' ? 10 : 120, quantity: 1, customer_notify: 1,
         ...(startAt > Date.now() + DAY ? { start_at: Math.floor(startAt / 1000) } : {}),
         notes: { userId: u.id, email: u.email, interval },
       });
@@ -227,7 +244,7 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
     T.users.update(u.id, (x) => { x.billing ||= b; x.billing.pending = { id: sub.id, interval, amount: chargeFor(interval), at: Date.now() }; });
     const p = platform();
     res.json({
-      key: rzp.keyId, subscription_id: sub.id, name: p.brand, description: `${interval === 'yearly' ? 'Yearly' : 'Monthly'} plan · ₹${chargeFor(interval).toLocaleString('en-IN')}${startAt > Date.now() + DAY ? ` · first charge on ${new Date(startAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}`,
+      key: rzp.keyId, subscription_id: sub.id, name: p.brand, description: `${planName(interval)} plan · ₹${chargeFor(interval).toLocaleString('en-IN')}${startAt > Date.now() + DAY ? ` · first charge on ${new Date(startAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}`,
       prefill: { name: b.details.name || u.name, email: u.email }, notes: { userId: u.id }, startsLater: startAt > Date.now() + DAY,
     });
   }));

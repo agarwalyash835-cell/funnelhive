@@ -3,6 +3,7 @@
 // HTTPS: run behind Caddy with on-demand TLS — Caddy asks /api/domains/tls-check before issuing a certificate.
 import dns from 'node:dns/promises';
 import crypto from 'node:crypto';
+import { brandForHost } from './agency.js';
 import { T, uid, JOBS } from './db.js';
 
 const HOST_RE = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -16,10 +17,24 @@ export const normalizeDomain = (raw) => String(raw || '').trim().toLowerCase().r
 export const activeDomain = (host) => (host ? T.domains.find({ domain: host, status: 'active' }) : null);
 export const domainOfFunnel = (funnelId) => T.domains.find({ funnelId, status: 'active' })?.domain || null;
 // Public address of a funnel (custom domain when connected), optionally of one step
+// PAGES_URL (optional): live funnel pages on their own domain (e.g. https://pages.yourbrand.in), apart from the
+// dashboard — buyers' pages never share cookies or reputation with the app
+export const pagesBase = () => String(process.env.PAGES_URL || '').replace(/\/+$/, '');
 export function funnelUrl(f, origin, stepSlug) {
   const d = domainOfFunnel(f.id);
   if (d) return `https://${d}${stepSlug ? `/${stepSlug}` : ''}`;
-  return `${origin}/f/${f.slug}${stepSlug ? `/${stepSlug}` : ''}`;
+  return `${pagesBase() || origin}/f/${f.slug}${stepSlug ? `/${stepSlug}` : ''}`;
+}
+// what may be served on the pages domain: funnel pages and what buyers open from them
+const PAGES_PATHS = /^\/(f|access|invoice|booking|webinar|legal|share|report|uploads|assets|t|u|favicon|robots\.txt|sitemap)(\/|$|\.)|^\/api\/(public|access|booking|webinar-reg|report|share|health|site|stripe\/webhook|razorpay\/webhook)(\/|$)/;
+export function pagesSplit(req, res, next) {
+  const pages = pagesBase(), app = String(process.env.APP_URL || '').replace(/\/+$/, '');
+  if (!pages || !app) return next();
+  const host = req.hostname, pagesHost = new URL(pages).hostname, appHost = new URL(app).hostname;
+  if (host === pagesHost && !PAGES_PATHS.test(req.path)) return res.redirect(301, `${app}${req.originalUrl}`);
+  // a live page opened on the dashboard's domain moves to the pages domain (previews stay with the editor)
+  if (host === appHost && /^\/f\//.test(req.path) && req.query.preview !== '1') return res.redirect(301, `${pages}${req.originalUrl}`);
+  next();
 }
 
 async function check(d) {
@@ -100,7 +115,7 @@ export function registerDomains(app, { auth }) {
     res.json({ ok: true });
   });
   // Caddy on_demand_tls "ask" endpoint: only issue certificates for connected domains
-  app.get('/api/domains/tls-check', (req, res) => res.status(activeDomain(normalizeDomain(req.query.domain)) ? 200 : 404).end());
+  app.get('/api/domains/tls-check', (req, res) => res.status(activeDomain(normalizeDomain(req.query.domain)) || brandForHost(normalizeDomain(req.query.domain)) ? 200 : 404).end());
 
   // re-check pending domains in the background for 3 days after they're added
   if (JOBS) setInterval(() => {
@@ -116,6 +131,8 @@ export function domainRouter(renderFunnel) {
     if (!host || appHosts().has(host)) return next();
     const d = activeDomain(host);
     if (!d) return next();
+    // buyers' libraries and invoices open on the brand's own domain too (served by the app)
+    if (/^\/(access|invoice|booking|webinar|legal)(\/|$)/.test(req.path) || req.path.startsWith('/api/access') || req.path.startsWith('/api/booking/') || req.path.startsWith('/api/webinar-reg/')) return next();
     if (/^\/(api\/public\/|assets\/|uploads\/|u\/)/.test(req.path) || /\.(js|css|map|png|jpe?g|webp|gif|avif|svg|ico|woff2?)$/.test(req.path)) return next();
     if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
     const f = T.funnels.get(d.funnelId);

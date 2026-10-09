@@ -49,7 +49,7 @@ test('every template passes the bar it defines', () => {
   }
 });
 
-test('stress: 530 randomly damaged funnels always come back to zero issues', () => {
+test('stress: 1,030 randomly damaged funnels always come back to zero issues', () => {
   let damagedIssues = 0;
   for (let round = 0; round < 10; round++) {
     for (const t of M.allTemplates()) {
@@ -78,12 +78,31 @@ test('content the AI got right is kept, not overwritten by the template', () => 
   assert.equal(f.steps[0].blocks.find((b) => b.type === 'hero').props.headline, 'Custom birthday cakes baked fresh in Pune — *delivered in 3 hours*');
 });
 
-test('templates are genuinely different: own page plan, layouts and style', () => {
+test('templates are genuinely different: own page plan, layouts and style', async () => {
   const L = M.allTemplates();
   const plan = (t) => t.steps[0].blocks.map((b) => `${b.type}:${b.props.variant || ''}`).join(',');
   assert.equal(new Set(L.map(plan)).size, L.length, 'no two landing pages share the same sections, order and layouts');
   assert.ok(new Set(L.map((t) => t.style)).size >= 10, 'at least 10 visual styles in use');
-  assert.equal(new Set(L.map((t) => t.hero.props.variant)).size, 4, 'all four hero designs in use');
+  const { VARIANTS, PAGE_STYLES } = await import('../page-styles.js');
+  assert.equal(new Set(L.map((t) => t.hero.props.variant)).size, VARIANTS.hero.length, 'every hero design in use');
+  assert.equal(new Set(L.map((t) => t.style)).size, PAGE_STYLES.length, 'every page style in use');
+  const looks = L.map((t) => `${t.style}/${t.hero.props.variant}`);
+  assert.deepEqual(looks.filter((x, i) => looks.indexOf(x) !== i), [], 'no two templates share a style + hero design');
   const headings = new Set(L.map((t) => t.steps[0].blocks.find((b) => b.type === 'features')?.props.title));
   assert.ok(headings.size >= 12, `section headings are written per kind of business (${headings.size} different)`);
+});
+
+test('gallery order: neighbouring cards never share a style or hero design, and funnel types stay mixed', () => {
+  const G = M.templateList();
+  assert.equal(G.length, M.allTemplates().length);
+  for (let i = 1; i < G.length; i++) {
+    for (const k of [1, 2, 3]) {
+      const a = G[i], b = G[i - k];
+      if (!b) continue;
+      assert.ok(a.style !== b.style || a.hero.props.variant !== b.hero.props.variant, `${b.id} and ${a.id} look alike`);
+      if (k === 1) assert.notEqual(a.style, b.style, `${b.id} and ${a.id} sit side by side with the same style`);
+    }
+  }
+  // every block of 12 cards (three rows) shows at least two kinds of funnel
+  for (let i = 0; i + 12 <= G.length; i += 12) assert.ok(new Set(G.slice(i, i + 12).map((t) => t.type)).size >= 2, `cards ${i}–${i + 11}`);
 });

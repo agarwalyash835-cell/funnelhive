@@ -15,7 +15,8 @@ import { Worker } from 'node:worker_threads';
 
 export const dir = process.env.DATA_DIR || path.dirname(fileURLToPath(import.meta.url));
 fs.mkdirSync(dir, { recursive: true });
-export const uid = () => crypto.randomUUID().slice(0, 8);
+// 16 hex characters (64 bits): no realistic chance of two records getting the same id
+export const uid = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 // In cluster mode only one process runs background jobs (automations, webhook retries, backups…)
 export const JOBS = process.env.FF_JOBS !== '0';
 // One contact per email (or per phone number when there is no email)
@@ -55,7 +56,8 @@ const SCHEMA = {
   funnels: { cols: { userId: 0, slug: 0, updatedAt: 0 }, unique: [['slug']], index: [['userId', 'updatedAt']] },
   revisions: { cols: { funnelId: 0, userId: 0, at: 0 }, index: [['funnelId', 'at']] },
   leads: { cols: { userId: 0, funnelId: 0, ckey: (l) => contactKey(l.email, l.phone), visitor: 0, source: 0, at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor']] },
-  orders: { cols: { userId: 0, funnelId: 0, ckey: (o) => contactKey(o.email), visitor: 0, source: 0, total: 0, at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor']] },
+  // inr: the order's value in rupees for reports (foreign-currency orders × their exchange rate)
+  orders: { cols: { userId: 0, funnelId: 0, ckey: (o) => contactKey(o.email), visitor: 0, source: 0, total: 0, inr: (o) => Math.round((Number(o.total) || 0) * (Number(o.fx) || 1) * 100) / 100, at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor'], ['funnelId', 'ckey']] },
   abandoned: { cols: { userId: 0, funnelId: 0, ckey: (a) => contactKey(a.email), visitor: 0, at: 0, recovered: (a) => bool(a.recovered), demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'ckey'], ['userId', 'ckey'], ['visitor']] },
   coupons: { cols: { userId: 0, code: 0 }, unique: [['userId', 'code']] },
   webhooks: { cols: { userId: 0, status: 0, nextAt: 0, at: 0 }, index: [['userId', 'at'], ['status', 'nextAt']] },
@@ -65,11 +67,37 @@ const SCHEMA = {
   automations: { cols: { userId: 0, triggerType: (a) => a.trigger?.type || null, active: (a) => bool(a.active), hookToken: 0 }, index: [['userId', 'triggerType', 'active'], ['triggerType', 'active'], ['hookToken']] },
   runs: { cols: { userId: 0, automationId: 0, key: 0, email: (r) => lower(r.ctx?.email), status: 0, nextAt: 0, at: 0, doneAt: 0 }, index: [['automationId', 'key'], ['automationId', 'status'], ['status', 'nextAt'], ['userId', 'status', 'email']] },
   domains: { cols: { userId: 0, domain: 0, funnelId: 0, status: 0, createdAt: 0 }, index: [['domain'], ['userId'], ['funnelId'], ['status', 'createdAt']] },
-  msgs: { cols: { userId: 0, automationId: 0, runId: 0, at: 0 }, index: [['automationId'], ['runId'], ['at']] },
+  msgs: { cols: { userId: 0, automationId: 0, runId: 0, broadcastId: 0, at: 0 }, index: [['automationId'], ['runId'], ['broadcastId'], ['at']] },
+  // one-off email / WhatsApp sends to a segment of contacts, and each recipient's delivery
+  // team members: staff invited into a seller's workspace with a role
+  members: { cols: { ownerId: 0, userId: 0, email: (m) => lower(m.email), status: 0, at: 0 }, unique: [['ownerId', 'email']], index: [['userId', 'status']] },
+  adspend: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // ad spend per campaign per day (Meta sync, CSV)
+  activity: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // who changed what in an account
+  apikeys: { cols: { userId: 0, hash: 0 }, unique: [['hash']], index: [['userId']] }, // public API keys (hashed)
+  hooksubs: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // REST-hook subscriptions (Zapier & co.)
+  stripecust: { cols: { userId: 0, key: 0 }, unique: [['userId', 'key']] }, // a seller's Stripe customers (per buyer email) and products
+  rzplans: { cols: { userId: 0, key: 0 }, unique: [['userId', 'key']] }, // Razorpay plans made for payment plans / memberships
+  broadcasts: { cols: { userId: 0, status: 0, scheduledAt: 0, at: 0 }, index: [['userId', 'at'], ['status', 'scheduledAt']] },
+  bsends: { cols: { userId: 0, broadcastId: 0, status: 0, nextAt: 0, sentAt: 0, at: 0 }, index: [['broadcastId', 'status'], ['status', 'nextAt'], ['userId', 'sentAt']] },
   autoversions: { cols: { automationId: 0, at: 0 }, index: [['automationId', 'at']] },
   payments: { cols: { userId: 0, funnelId: 0, rzpOrderId: 0, status: 0, at: 0 }, index: [['rzpOrderId'], ['status', 'at']] },
   hive: { cols: { userId: 0, updatedAt: 0 }, index: [['userId', 'updatedAt']] },
   mcptokens: { cols: { userId: 0, hash: 0 }, unique: [['hash']], index: [['userId']] },
+  // digital products a seller delivers, what each buyer can access, buyers' library links, download log
+  products: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] },
+  access: { cols: { userId: 0, productId: 0, ckey: (a) => contactKey(a.email), orderId: 0, leadId: 0, at: 0, revoked: (a) => bool(a.revoked) }, index: [['userId', 'ckey'], ['productId', 'at'], ['orderId'], ['leadId'], ['userId', 'at']] },
+  portals: { cols: { userId: 0, ckey: 0, tokenHash: 0 }, unique: [['tokenHash'], ['userId', 'ckey']] },
+  downloads: { cols: { userId: 0, accessId: 0, at: 0 }, index: [['accessId', 'at'], ['userId', 'at']] },
+  // server-side conversions (Meta Conversions API, GA4 Measurement Protocol): a queue with retries
+  conversions: { cols: { userId: 0, status: 0, nextAt: 0, at: 0 }, index: [['status', 'nextAt'], ['userId', 'at']] },
+  // booking calendars (availability) and the calls booked on them
+  calendars: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] },
+  bookings: { cols: { userId: 0, calendarId: 0, ckey: (b) => contactKey(b.email, b.phone), status: 0, start: 0, at: 0 }, index: [['calendarId', 'start'], ['userId', 'start'], ['status', 'start'], ['userId', 'ckey']] },
+  // webinars (schedule + joining link) and the people registered for each session
+  webinars: { cols: { userId: 0, funnelId: 0, at: 0 }, index: [['userId', 'at'], ['funnelId']] },
+  registrations: { cols: { userId: 0, webinarId: 0, ckey: (r) => contactKey(r.email, r.phone), session: 0, at: 0 }, index: [['webinarId', 'session'], ['session'], ['userId', 'at'], ['webinarId', 'ckey']] },
+  // GST invoices and credit notes a seller issues to their buyers
+  sinvoices: { cols: { userId: 0, orderId: 0, number: 0, at: 0 }, unique: [['userId', 'number']], index: [['userId', 'at'], ['orderId']] },
   // platform: subscription invoices, admin audit log, platform settings (plans, prices)
   invoices: { cols: { userId: 0, status: 0, at: 0, number: 0 }, index: [['userId', 'at'], ['status', 'at']], unique: [['number']] },
   audit: { cols: { actorId: 0, userId: 0, at: 0 }, index: [['at'], ['userId', 'at']] },
@@ -80,6 +108,17 @@ const COLS = Object.fromEntries(Object.entries(SCHEMA).map(([t, d]) => [t, Objec
 function createTable(t) {
   const d = SCHEMA[t];
   sql.exec(`CREATE TABLE IF NOT EXISTS ${t} (id TEXT PRIMARY KEY, ${COLS[t].map((c) => `${c}`).concat('data TEXT NOT NULL').join(', ')})`);
+  const have = sql.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  const missing = COLS[t].filter((c) => !have.includes(c));
+  if (missing.length) {
+    for (const c of missing) sql.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`);
+    const set = sql.prepare(`UPDATE ${t} SET ${missing.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`);
+    sql.exec('BEGIN');
+    try {
+      for (const row of sql.prepare(`SELECT id, data FROM ${t}`).all()) { const o = JSON.parse(row.data); set.run(...missing.map((c) => colValue(t, c, o)), row.id); }
+      sql.exec('COMMIT');
+    } catch (e) { sql.exec('ROLLBACK'); throw e; }
+  }
   for (const cols of d.unique || []) sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_${t}_${cols.join('_')} ON ${t} (${cols.join(', ')})`);
   for (const cols of d.index || []) sql.exec(`CREATE INDEX IF NOT EXISTS ix_${t}_${cols.join('_')} ON ${t} (${cols.join(', ')})`);
 }
@@ -118,6 +157,7 @@ const parse = (row) => (row ? JSON.parse(row.data) : null);
 
 function table(t) {
   const cols = COLS[t];
+  const insertText = `INSERT INTO ${t} (id, ${cols.concat('data').join(', ')}) VALUES (${['?', ...cols, 'data'].map(() => '?').join(', ')})`;
   const upsertText = `INSERT INTO ${t} (id, ${cols.concat('data').join(', ')}) VALUES (${['?', ...cols, 'data'].map(() => '?').join(', ')}) ON CONFLICT(id) DO UPDATE SET ${cols.concat('data').map((c) => `${c} = excluded.${c}`).join(', ')}`;
   const api = {
     name: t,
@@ -141,7 +181,16 @@ function table(t) {
       q(upsertText).run(String(obj.id), ...cols.map((c) => colValue(t, c, obj)), JSON.stringify(obj));
       return obj;
     },
-    insert(obj) { return api.put(obj); },
+    insert(obj) {
+      const generated = !obj.id;
+      for (let i = 0; ; i++) {
+        obj.id ||= uid();
+        try { q(insertText).run(String(obj.id), ...cols.map((c) => colValue(t, c, obj)), JSON.stringify(obj)); return obj; } catch (e) {
+          if (!/UNIQUE constraint failed: \w+\.id\b|PRIMARY KEY/i.test(e.message) || !generated || i > 3) throw e;
+          obj.id = uid();
+        }
+      }
+    },
     // read → change → write as one step (also across processes); fn may mutate the record or return a replacement
     update(id, fn) {
       return tx(() => {
@@ -170,9 +219,23 @@ if (JOBS) setInterval(() => { try { q('DELETE FROM counters WHERE reset < ?').ru
 // ---------- page-view events (high volume: real columns, no JSON) ----------
 const EVENT_COLS = ['userId', 'funnelId', 'stepId', 'type', 'variant', 'source', 'visitor', 'at', 'demo'];
 const insertEvent = () => q(`INSERT INTO events (${EVENT_COLS.join(', ')}) VALUES (${EVENT_COLS.map(() => '?').join(', ')})`);
+// Page views arrive by the thousand: each process collects them and writes them in one transaction every
+// second (EVENTS_FLUSH_MS), instead of one write-lock round per view. Tests write straight away.
+const FLUSH_MS = Number(process.env.EVENTS_FLUSH_MS ?? (process.env.NODE_ENV === 'test' ? 0 : 1000));
+let pending = [];
+const writeEvents = (list) => tx(() => { const s = insertEvent(); for (const e of list) s.run(...EVENT_COLS.map((c) => (c === 'demo' ? (e.demo ? 1 : 0) : e[c] ?? null))); });
+export function flushEvents() {
+  if (!pending.length) return;
+  const list = pending; pending = [];
+  try { writeEvents(list); } catch (e) { console.error('page-view write failed', e.message); if (pending.length < 50000) pending = list.concat(pending); }
+}
+if (FLUSH_MS > 0) {
+  setInterval(flushEvents, FLUSH_MS).unref();
+  process.once('beforeExit', flushEvents); // and on SIGTERM / SIGINT, in the shutdown handler below
+}
 export const Events = {
-  add(e) { insertEvent().run(...EVENT_COLS.map((c) => (c === 'demo' ? (e.demo ? 1 : 0) : e[c] ?? null))); },
-  addMany(list) { tx(() => { const s = insertEvent(); for (const e of list) s.run(...EVENT_COLS.map((c) => (c === 'demo' ? (e.demo ? 1 : 0) : e[c] ?? null))); }); },
+  add(e) { if (FLUSH_MS > 0) { pending.push(e); if (pending.length >= 2000) flushEvents(); } else writeEvents([e]); },
+  addMany(list) { writeEvents(list); },
 };
 
 // ---------- migrations ----------
@@ -244,7 +307,7 @@ sql.exec('PRAGMA analysis_limit = 1000; PRAGMA optimize = 0x10002;');
 // ---------- maintenance ----------
 // Flush the write-ahead log on shutdown
 // (the cluster's primary process only runs upgrades; its app processes each handle their own shutdown)
-if (process.env.FF_PRIMARY !== '1') for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { sql.exec('PRAGMA wal_checkpoint(TRUNCATE)'); sql.close(); } catch {} process.exit(0); });
+if (process.env.FF_PRIMARY !== '1') for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { flushEvents(); sql.exec('PRAGMA wal_checkpoint(TRUNCATE)'); sql.close(); } catch {} process.exit(0); });
 
 // Daily backups (keeps the last 7). VACUUM INTO copies one consistent snapshot (writes carry on meanwhile) and runs
 // on its own thread with its own connection, so requests aren't held up even on a multi-gigabyte database.
@@ -259,6 +322,8 @@ function snapshotTo(target) {
   });
 }
 const backupDir = path.join(dir, 'backups');
+let lastOffsite = null;
+export const offsiteStatus = () => lastOffsite;
 let backingUp = false;
 export async function backupNow() {
   if (backingUp) return null;
@@ -271,6 +336,11 @@ export async function backupNow() {
       for (const x of [tmp, `${tmp}-journal`]) fs.rmSync(x, { force: true });
       await snapshotTo(tmp);
       fs.renameSync(tmp, f);
+      // a copy off this server (S3 / R2 / B2…): survives losing the machine
+      const { s3Enabled, putFile } = await import('./storage.js');
+      if (s3Enabled()) {
+        try { await putFile(`backups/${path.basename(f)}`, f, 'application/vnd.sqlite3'); lastOffsite = { at: Date.now(), ok: true, file: path.basename(f) }; } catch (e) { lastOffsite = { at: Date.now(), ok: false, error: e.message }; console.error('Off-site backup failed', e.message); }
+      }
     }
     fs.readdirSync(backupDir).filter((n) => n.endsWith('.db')).sort().slice(0, -7).forEach((n) => fs.rmSync(path.join(backupDir, n)));
     return f;

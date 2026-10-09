@@ -5,7 +5,8 @@ import { encrypt, decrypt } from './messaging.js';
 
 export const DEFAULTS = {
   brand: 'FunnelHive',
-  plans: { monthly: { amount: 1499 }, yearly: { amount: 14999 } },
+  plans: { monthly: { amount: 1499 }, yearly: { amount: 14999 }, agency_monthly: { amount: 4999 }, agency_yearly: { amount: 49999 } },
+  agency: { maxClients: 25, trialClients: 2 }, // the Agency plan: client accounts it includes (and to try during the trial)
   pricesIncludeGst: true, // the price shown is what the seller pays
   gstRate: 18,
   trialDays: 14,
@@ -27,7 +28,8 @@ export function platform() {
   const s = T.platform.get(ID) || {};
   cache = {
     ...DEFAULTS, ...s,
-    plans: { monthly: { ...DEFAULTS.plans.monthly, ...s.plans?.monthly }, yearly: { ...DEFAULTS.plans.yearly, ...s.plans?.yearly } },
+    plans: Object.fromEntries(Object.keys(DEFAULTS.plans).map((k) => [k, { ...DEFAULTS.plans[k], ...s.plans?.[k] }])),
+    agency: { ...DEFAULTS.agency, ...s.agency },
     aiCredits: { ...DEFAULTS.aiCredits, ...s.aiCredits },
     company: { ...DEFAULTS.company, ...s.company },
     razorpay: { ...DEFAULTS.razorpay, ...s.razorpay, planIds: { ...s.razorpay?.planIds } },

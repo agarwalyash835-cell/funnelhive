@@ -10,13 +10,13 @@ export const useSite = () => {
 
 const FEATURES = [
   ['sparkles', 'Hive AI builds it for you', 'Describe your business in a chat. Hive AI writes and designs the landing page, checkout, upsell, downsell and thank-you page — then sets up your follow-up automations.'],
-  ['layout', '53 templates for Indian niches', 'Coaching, courses, D2C brands, clinics, salons, real estate, events… each one a complete funnel you can edit with drag & drop.'],
+  ['layout', '100+ templates for Indian niches', 'Sales pages, video sales letters with qualifying applications, and webinar funnels — for coaching, courses, D2C brands, clinics, real estate, events… each one complete and editable with drag & drop.'],
   ['wallet', 'Checkout that converts', 'Razorpay checkout with UPI, cards and netbanking, order bumps, one-click upsells, cross-sells, coupons and abandoned-cart recovery.'],
   ['users', 'CRM & pipelines', 'Every lead and buyer in one place with a full timeline — visits, sign-ups, purchases, emails and WhatsApp messages. Kanban pipelines and custom fields.'],
   ['flow', 'Email + WhatsApp automations', 'Welcome sequences, cart reminders, post-purchase upsells and birthday offers with if/else branches, A/B splits and open & click tracking.'],
   ['globe', 'Your own domain', 'Publish on offer.yourbrand.in with free SSL. Pages are server-rendered, so they load fast and look great when shared on WhatsApp.'],
   ['chart', 'Analytics & A/B tests', 'Views, conversion, revenue per visitor and traffic sources per step — plus split tests that tell you when a winner is real.'],
-  ['shield', 'Built for India', 'Prices in ₹, reports in IST, UPI checkout, GST invoices, WhatsApp built in, plus Meta Pixel and Google Analytics 4.'],
+  ['shield', 'Built for India, ready for the world', 'UPI, GST invoices and WhatsApp built in — plus Stripe in $, € and £, your own time zone, Meta Pixel and Google Analytics 4.'],
 ];
 const STEPS = [['Tell Hive AI what you sell', 'One line is enough: “Online yoga classes for working women, ₹499”.'], ['Review and tweak', 'Edit any text or section, swap images, change colours. Everything is drag & drop.'], ['Publish and start selling', 'Connect Razorpay, publish on your domain, and watch leads and orders arrive.']];
 

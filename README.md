@@ -21,7 +21,7 @@ If `npm install` in `client/` fails with an esbuild ENOENT error on Windows, mov
 
 ## Test
 ```bash
-npm test        # 98 tests: API, billing, admin, cluster, automations, CRM, AI, security, SSR…
+npm test        # 113 tests: API, billing, admin, cluster, automations, CRM, AI, security, SSR…
 ```
 The server-rendering tests run when the client has been built (`npm run build`).
 
@@ -60,6 +60,31 @@ Tools act through the platform's own API as the token's owner, so every validati
 - **Custom domains**: Settings → Custom domains. The seller adds a TXT record (ownership) and a CNAME to `APP_URL`'s
   host (or an A record to `SERVER_IP`); FunnelHive re-checks DNS automatically and then serves the funnel there.
 
+### Payments for sellers
+- **Razorpay** (₹, UPI, cards, netbanking): Settings → Payments. Payment plans ("3 × ₹10,999") and memberships
+  (monthly / yearly) use Razorpay **Subscriptions** — enable it in the seller's Razorpay account and add the webhook with
+  `payment.captured`, `order.paid`, `refund.processed` and all `subscription.*` events.
+- **Stripe** (USD, EUR, GBP, AUD, CAD, SGD, AED; Apple / Google Pay): Settings → Payments → Stripe (publishable + secret
+  key, webhook signing secret). A checkout priced in a foreign currency charges through Stripe; upsells reuse the saved
+  card in one click. Revenue is reported in rupees at `FX_RATES` (e.g. `USD:84,EUR:91`).
+- **Cash on Delivery** and shipping are set per checkout; Orders exports a courier-ready CSV.
+
+### Google Calendar (bookings)
+Set `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (same Google Cloud project as sign-in), enable the **Google Calendar
+API**, and add `https://<APP_URL>/api/google/calendar/callback` as an authorised redirect URI. Sellers connect in
+Bookings → Calendars: busy times block slots and every booking is added with a Google Meet link.
+
+### Agencies, teams, API, privacy
+- **Teams**: Settings → Team (admin, marketer, sales, viewer). `TEAM_MAX` (default 25).
+- **Agency plan**: Admin → Plan & settings sets its price and how many client accounts it includes. Agencies manage
+  client accounts from **Agency**, white-label the app (name, logo, colour, their own app domain — pointed at this
+  server; HTTPS comes from the same Caddy on-demand TLS check), copy / share / export funnels and send client reports.
+- **Public API & Zapier**: Settings → API & integrations (keys); reference at `/developers`. The Zapier app is in
+  `integrations/zapier` (`zapier push`); Pabbly / Make / n8n use the REST API and REST hooks directly.
+- **Privacy (DPDP)**: Settings → Privacy & policies — consent banner, consent box on forms, generated Privacy / Terms /
+  Refund / Contact pages at `/legal/<seller>/…`, erasing a contact on request.
+- **Ad spend**: Settings → Ad spend & ROAS — Meta synced daily (Marketing API token), Google Ads by CSV.
+
 ## Selling it (SaaS)
 1. Put your login email in `ADMIN_EMAILS` (server/.env), sign up with it and verify the email — the **Admin** item
    appears in the sidebar.
@@ -74,10 +99,22 @@ Tools act through the platform's own API as the token's owner, so every validati
 5. Review the policy pages (`/terms`, `/privacy`, `/refunds`, `/contact`) with your lawyer — Razorpay asks for them.
 
 ## Scale
+Optional infrastructure settings (server/.env):
+- `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_PUBLIC_URL` — any S3-compatible bucket
+  (Cloudflare R2, AWS S3, Backblaze B2, Spaces, MinIO): backups are copied off the server (set a lifecycle rule on
+  `backups/`), images are served from the bucket / CDN, product files are delivered by 5-minute signed links.
+- `PAGES_URL` — live funnel pages on their own domain (e.g. `https://pages.yourbrand.in`), apart from the dashboard.
+- `METRICS_TOKEN` — Prometheus metrics at `/metrics` and queue details at `/api/health?detail=1` (Bearer token).
+  `/api/health` returns 503 when the database or the background jobs stop.
+- `SENTRY_DSN` — server errors go to Sentry. `LOG_REQUESTS=1` — one JSON log line per request.
+- `BROADCAST_SHARED_DAILY` (default 300) — daily broadcast-email cap for sellers on the shared mail server.
+
 Each record is stored on its own with indexed columns; reports are aggregated inside SQLite. `npm start` runs one app
 process per CPU core (max 4, `WEB_CONCURRENCY`); one of them runs background jobs, and automation steps / webhooks are
 claimed so nothing is sent twice. Measured on a 4-core laptop with 1000 sellers, 10,000 funnels and 2 million page
-views: **390 requests/s, 0 errors** (live pages 2–4 ms each). Reproduce with `server/scripts/seed-load.mjs` +
+views: **390 requests/s, 0 errors** (live pages 2–4 ms each). Re-measured on 8 Oct 2026 on an 8-core laptop also running
+the load generator: 294 requests/s of mixed traffic, 0 errors; single requests take 4–16 ms. Page views are written in
+one batch per second per process (`EVENTS_FLUSH_MS`). Reproduce with `server/scripts/seed-load.mjs` +
 `server/scripts/loadtest.mjs`. Beyond one server (tens of thousands of sellers), move to Postgres and a job queue.
 
 ## Data, backups, security
@@ -96,6 +133,11 @@ views: **390 requests/s, 0 errors** (live pages 2–4 ms each). Reproduce with `
   funnel flow map with accept/decline branches, 6 visual styles + colour palettes, step SEO
 - **Selling**: checkout with order bump, coupons, UPI/cards UI, abandoned-checkout capture,
   one-click upsells & downsells (accepting skips the downsell), one-click cross-sells on the thank-you page
+- **Digital products**: files (streamed uploads, private storage), links and courses (lessons, modules, drip, progress)
+  attached to checkout / bump / upsell / cross-sell / free opt-ins; delivered only after a verified payment; buyer library
+  with expiring signed downloads, download limits, access duration, manual grant / revoke / link reset, lost-link recovery
+- **GST invoices & refunds**: per-payment invoices (CGST+SGST / IGST, buyer GSTIN at checkout), credit notes, GST CSV;
+  refunds through Razorpay (or synced from the Razorpay dashboard) remove access and net out of every report
 - **Optimisation**: A/B split tests per step (traffic split, sticky assignment, winner promotion),
   FOMO kit (hello bar, countdowns, live viewers, stock bar, social-proof popups, exit popup, sticky bar, WhatsApp)
 - **Analytics**: dashboard KPIs with period deltas & sparklines, revenue/orders/leads/visitors chart,
@@ -104,7 +146,9 @@ views: **390 requests/s, 0 errors** (live pages 2–4 ms each). Reproduce with `
 - **Automations**: triggers (sign-up, purchase, cart, stage, tag, date, webhook), waits, email & WhatsApp, if/else, A/B
   split, open/click tracking, version history
 - **SaaS**: landing & pricing pages, trial, Razorpay Subscriptions, GST invoices, admin panel, data export & account deletion
-- **Integrations**: Meta Pixel + GA4 (PageView/Lead/Purchase), webhooks (lead.created, order.created/updated),
+- **Integrations**: Meta Pixel + GA4 (PageView, ViewContent, Lead, InitiateCheckout, AddPaymentInfo, Purchase) plus server-side
+  Meta Conversions API + GA4 Measurement Protocol with shared event ids; UTM / fbclid / gclid on every lead and order and a
+  campaigns report; webhooks (lead.created, order.created/updated/refunded),
   payment provider keys (Razorpay/Stripe/Cashfree/PhonePe), custom domain instructions
 - **Templates**: 53 India-focused funnels (5 steps for paid offers), 15+ sections per landing page
 - **Onboarding**: 3-step empty state, setup checklist, one-click demo data
@@ -115,6 +159,7 @@ views: **390 requests/s, 0 errors** (live pages 2–4 ms each). Reproduce with `
   email (SMTP/Resend) + WhatsApp Cloud API · `server/domains.js` custom domains · `server/webhooks.js` signed webhooks ·
   `server/actions.js` funnel-edit actions + offline command parser · `server/templates.js` / `template-kit.js` template library ·
   `server/db.js` storage · `server/analytics.js` reports · `server/billing.js` subscriptions & invoices · `server/platform.js` platform settings ·
+  `server/products.js` digital products & buyer library · `server/sales.js` GST invoices & refunds · `server/tracking.js` attribution & server-side conversions ·
   `server/admin.js` admin API · `server/account.js` export/delete · `server/start.js` cluster entry
 - `client/src/blocks.jsx` section renderer (shared by editor and live pages) · `client/src/pages/*` app screens ·
   `client/src/ui.jsx` app shell & components · `client/src/charts.jsx` SVG charts

@@ -29,6 +29,9 @@ const FAKE_NAME = /^(happy |satisfied |verified )?(customer|client|student|user)
 const IMAGE_OK = new Set(['image']); // optional in every template
 
 const empty = (v) => v == null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
+const priceLike = (v) => /^\s*(₹|rs\.?|inr)?\s*\d[\d,]*(\.\d+)?\s*(\/-)?\s*$/i.test(String(v ?? ''));
+// lists a template can't lend items to: a seller's application questions (and their reject rules) are their own
+const OWN_LISTS = new Set(['form.fields']);
 const num = (v) => Number(String(v ?? '').replace(/[^\d.]/g, ''));
 
 // ---------- the bar, measured from the templates ----------
@@ -56,7 +59,7 @@ export function barText(blueprint) {
 ${blueprint.map((s, i) => `   ${i + 1}. ${s.type}: ${s.blocks.join(', ')}`).join('\n')}
 2. Every block has all its fields filled with specific copy (as in the example). Minimum list sizes: ${lists}.
 3. No placeholders anywhere ("Your Product", "Benefit one", "[link]", "lorem", "Expert Name"…). Invent realistic specifics: Indian names with cities, numbers, results.
-4. One price everywhere: checkout.price = pricing.price, and hero.cardPrice / stickybar.price show that same amount (e.g. "₹1,999"). Every mrp is higher than its price. Upsell and downsell offers have their own lower prices.
+4. One price everywhere: checkout.price = pricing.price, and any hero.cardPrice / stickybar.price that shows a price shows that same amount (e.g. "₹1,999"). A free registration page (webinar, lead magnet) says "FREE" instead; an application funnel says "By application". Every mrp is higher than its price. Upsell and downsell offers have their own lower prices.
 5. Hero headline has one *highlighted phrase* in stars. Testimonials and proof use "Name, City" style Indian names. stock.label contains {n}. proof.intervalSec ≥ 9.
 6. theme.style is one of ${STYLES.join('|')}; primary and secondary are #rrggbb colours.`;
 }
@@ -87,8 +90,8 @@ export function audit(f, blueprint) {
   for (const b of all) {
     const p = b.props || {};
     for (const k of keys[b.type] || []) if (empty(p[k]) && typeof p[k] !== 'boolean' && typeof p[k] !== 'number') add(b.si, b.bi, b.type, `${k} is empty`);
-    for (const [k, v] of Object.entries(p)) if (Array.isArray(v) && mins[`${b.type}.${k}`] && v.length < mins[`${b.type}.${k}`]) add(b.si, b.bi, b.type, `${k} needs at least ${mins[`${b.type}.${k}`]} items (has ${v.length})`);
-    const bad = strings(p).find((x) => PLACEHOLDER.test(x));
+    for (const [k, v] of Object.entries(p)) if (Array.isArray(v) && !OWN_LISTS.has(`${b.type}.${k}`) && mins[`${b.type}.${k}`] && v.length < mins[`${b.type}.${k}`]) add(b.si, b.bi, b.type, `${k} needs at least ${mins[`${b.type}.${k}`]} items (has ${v.length})`);
+    const bad = strings(Object.fromEntries(Object.entries(p).filter(([k]) => !OWN_LISTS.has(`${b.type}.${k}`)))).find((x) => PLACEHOLDER.test(x));
     if (bad) add(b.si, b.bi, b.type, `placeholder text: "${bad.slice(0, 60)}"`);
     if ('mrp' in p && 'price' in p && !(num(p.mrp) > num(p.price))) add(b.si, b.bi, b.type, 'mrp must be higher than price');
     if (['checkout', 'pricing', 'offer'].includes(b.type) && !(num(p.price) > 0)) add(b.si, b.bi, b.type, 'price must be a positive number');
@@ -111,10 +114,9 @@ export function audit(f, blueprint) {
   if (main) {
     const pr = first('pricing');
     if (pr && num(pr.props.price) !== main) add(pr.si, pr.bi, 'pricing', `price must equal the checkout price (${main})`);
-    const h = first('hero');
-    if (h && h.props.cardPrice && num(h.props.cardPrice) !== main) add(h.si, h.bi, 'hero', `cardPrice must show the checkout price (₹${main.toLocaleString('en-IN')})`);
-    const sb = first('stickybar');
-    if (sb && sb.props.price && num(sb.props.price) !== main) add(sb.si, sb.bi, 'stickybar', `price must show the checkout price (₹${main.toLocaleString('en-IN')})`);
+    // every hero / sticky bar that shows a price shows this one ("FREE" on a webinar registration page is fine)
+    for (const h of all.filter((b) => b.type === 'hero' && priceLike(b.props?.cardPrice) && num(b.props.cardPrice) !== main)) add(h.si, h.bi, 'hero', `cardPrice must show the checkout price (₹${main.toLocaleString('en-IN')})`);
+    for (const sb of all.filter((b) => b.type === 'stickybar' && priceLike(b.props?.price) && num(b.props.price) !== main)) add(sb.si, sb.bi, 'stickybar', `price must show the checkout price (₹${main.toLocaleString('en-IN')})`);
   }
   return issues;
 }
@@ -126,8 +128,11 @@ export function enforce(f, tpl, blueprint) {
   const { keys, mins } = qualityBar();
   f.theme = { ...tpl.theme, ...(STYLES.includes(f.theme?.style) ? { style: f.theme.style } : {}), ...(HEX.test(f.theme?.primary || '') ? { primary: f.theme.primary } : {}), ...(HEX.test(f.theme?.secondary || '') ? { secondary: f.theme.secondary } : {}) };
   // steps: keep the AI's step when its type matches the blueprint, otherwise take the template's
+  const phase = (list, i) => list.slice(0, i).filter((s) => s.type === 'checkout').length;
+  const bpPhase = blueprint.map((_, i) => phase(blueprint, i));
+  const aiPhase = f.steps.map((_, i) => phase(f.steps, i));
   const steps = blueprint.map((bp, i) => {
-    const mine = f.steps.find((s) => s.type === bp.type && !s._used);
+    const mine = f.steps.find((s, j) => s.type === bp.type && !s._used && aiPhase[j] === bpPhase[i]) || (blueprint.filter((x) => x.type === bp.type).length === 1 && f.steps.find((s) => s.type === bp.type && !s._used));
     if (mine) { mine._used = true; return mine; }
     filled.push(`${bp.type} page`);
     return refStep(tpl, i, bp.type);
@@ -144,12 +149,14 @@ export function enforce(f, tpl, blueprint) {
       if (!b) { filled.push(`${bp.type}: ${t} section`); return structuredClone(ref); }
       b = { ...b, props: { ...b.props } };
       for (const k of keys[t] || []) if (empty(b.props[k]) && !empty(ref?.props?.[k])) { b.props[k] = structuredClone(ref.props[k]); filled.push(`${t}.${k}`); }
+      if (b.props.variant != null && VARIANTS[t] && !VARIANTS[t].includes(b.props.variant)) b.props.variant = ref?.props?.variant && VARIANTS[t].includes(ref.props.variant) ? ref.props.variant : VARIANTS[t][0];
       for (const [k, v] of Object.entries(b.props)) {
+        if (OWN_LISTS.has(`${t}.${k}`)) continue;
         const min = mins[`${t}.${k}`];
         if (Array.isArray(v) && min && v.length < min && Array.isArray(ref?.props?.[k])) { b.props[k] = [...v, ...structuredClone(ref.props[k]).slice(v.length)]; filled.push(`${t}.${k}`); }
       }
       // placeholder text → the template's wording for that field
-      for (const [k, v] of Object.entries(b.props)) if (strings(v).some((x) => PLACEHOLDER.test(x)) && ref?.props?.[k] != null) { b.props[k] = structuredClone(ref.props[k]); filled.push(`${t}.${k}`); }
+      for (const [k, v] of Object.entries(b.props)) if (!OWN_LISTS.has(`${t}.${k}`) && strings(v).some((x) => PLACEHOLDER.test(x)) && ref?.props?.[k] != null) { b.props[k] = structuredClone(ref.props[k]); filled.push(`${t}.${k}`); }
       return b;
     });
     // keep valid extra sections the AI added (before the closing call to action)
@@ -182,8 +189,8 @@ function fixups(f, filled) {
     for (const b of all) {
       const p = b.props;
       if (b.type === 'pricing' && num(p.price) !== main) { p.price = main; filled.push('pricing.price'); }
-      if (b.type === 'hero' && p.cardPrice && num(p.cardPrice) !== main) { p.cardPrice = rs; filled.push('hero.cardPrice'); }
-      if (b.type === 'stickybar' && p.price && num(p.price) !== main) { p.price = rs; filled.push('stickybar.price'); }
+      if (b.type === 'hero' && priceLike(p.cardPrice) && num(p.cardPrice) !== main) { p.cardPrice = rs; filled.push('hero.cardPrice'); }
+      if (b.type === 'stickybar' && priceLike(p.price) && num(p.price) !== main) { p.price = rs; filled.push('stickybar.price'); }
     }
   }
   for (const b of all) {
@@ -191,7 +198,7 @@ function fixups(f, filled) {
     if ('mrp' in p && 'price' in p && !(num(p.mrp) > num(p.price))) { const m = Math.round((num(p.price) * 2.2) / 100) * 100 - 1; p.mrp = typeof p.mrp === 'string' ? `₹${m.toLocaleString('en-IN')}` : m; filled.push(`${b.type}.mrp`); }
     if (b.type === 'hero' && !/\*[^*]+\*/.test(p.headline || '')) { const w = String(p.headline || '').split(' — '); p.headline = w.length > 1 ? `${w[0]} — *${w.slice(1).join(' — ')}*` : String(p.headline || '').replace(/(\S+\s+\S+)$/, '*$1*'); filled.push('hero.headline highlight'); }
     if (b.type === 'stock' && !String(p.label || '').includes('{n}')) { p.label = 'Hurry! Only {n} left at this price'; filled.push('stock.label'); }
-    if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) { delete p.variant; filled.push(`${b.type}.variant`); }
+    if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) { if (VARIANTS[b.type]) p.variant = VARIANTS[b.type][0]; else delete p.variant; filled.push(`${b.type}.variant`); }
     if (b.type === 'proof' && num(p.intervalSec) < 9) { p.intervalSec = 9; filled.push('proof.intervalSec'); }
     if (b.type === 'livecount' && !(num(p.max) > num(p.min) && num(p.min) > 0)) { p.min = 24; p.max = 68; filled.push('livecount'); }
     if (b.type === 'countdown' && !(num(p.minutes) > 0)) { p.minutes = 30; filled.push('countdown.minutes'); }

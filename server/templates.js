@@ -1,5 +1,8 @@
 import { uid } from './db.js';
 import { CAT, X, LOOK, GENERIC_QUOTES, LADDER, shiftHue } from './template-kit.js';
+import { VSL } from './templates-vsl.js';
+import { WEBINARS } from './templates-webinar.js';
+import { buildVsl, buildWebinar } from './template-funnels.js';
 
 const CITIES = ['Mumbai', 'Delhi', 'Bengaluru', 'Pune', 'Hyderabad', 'Chennai', 'Kolkata', 'Jaipur', 'Ahmedabad', 'Lucknow', 'Indore', 'Chandigarh', 'Surat', 'Nagpur', 'Kochi', 'Bhopal', 'Patna', 'Coimbatore'];
 const NAMES = ['Rahul S.', 'Priya M.', 'Ankit P.', 'Sneha R.', 'Vikram J.', 'Anjali K.', 'Rohit D.', 'Neha G.', 'Arjun V.', 'Pooja T.', 'Karan B.', 'Divya N.', 'Aman C.', 'Kavya L.', 'Imran Q.', 'Simran K.', 'Suresh R.', 'Meera I.'];
@@ -186,20 +189,22 @@ const COPY_BY_KIND = (k, x) => ({
     testimonials: ['From parents', 'What parents are telling us'], mentor: 'Who teaches your child', bonuses: ['Free with enrolment', 'Extras for your child'], faq: ['For parents', 'Questions parents ask'],
   },
 })[k];
-// styles spread across the library so neighbouring templates don't look alike
-const STYLE_OF = {
-  upsc: 'clean', neet: 'aurora', jee: 'tech', spokenenglish: 'fresh', ca: 'editorial', coding: 'tech', excel: 'clean', govtexam: 'bold',
-  stocks: 'midnight', mutualfunds: 'clean', gst: 'editorial', startup: 'bold', dropship: 'tech', affiliate: 'midnight',
-  yoga: 'organic', weightloss: 'bold', diabetes: 'clean', gym: 'bold', pcod: 'aurora', meditation: 'organic',
-  ayurveda: 'organic', skincare: 'aurora', haircare: 'fresh', pickle: 'organic', organic: 'fresh', dryfruits: 'luxe', sweets: 'royal', tea: 'organic', ethnicwear: 'royal', jewellery: 'luxe',
-  salon: 'luxe', mehendi: 'royal', spa: 'organic', clinic: 'clean', cardriving: 'playful', cleaning: 'fresh', pestcontrol: 'bold', wedding: 'editorial',
-  realestate: 'luxe', plots: 'organic', interior: 'editorial', insurance: 'clean', loan: 'aurora', solar: 'fresh',
-  digitalmarketing: 'bold', website: 'tech', appdev: 'midnight', webinar: 'bold', astrology: 'royal', kirtan: 'organic',
-  kidsabacus: 'playful', tutoring: 'playful', coaching: 'fresh',
+// Every template has its own style + hero design, so no two cards in the gallery look alike
+const LOOK_OF = {
+  upsc: 'clean/split', neet: 'aurora/bento', jee: 'tech/split', spokenenglish: 'fresh/center', ca: 'editorial/editorial', coding: 'tech/bento', excel: 'swiss/split', kidsabacus: 'playful/split', govtexam: 'bold/editorial',
+  yoga: 'organic/split', weightloss: 'bold/split', diabetes: 'clean/center', gym: 'noir/banner', ayurveda: 'organic/banner', pcod: 'pastel/split',
+  skincare: 'pastel/bento', haircare: 'fresh/bento', salon: 'luxe/banner', mehendi: 'royal/split', spa: 'studio/center',
+  pickle: 'organic/center', organic: 'fresh/split', dryfruits: 'luxe/bento', sweets: 'royal/banner', tea: 'organic/editorial', ethnicwear: 'royal/center', jewellery: 'luxe/split',
+  stocks: 'midnight/split', mutualfunds: 'glass/center', gst: 'swiss/editorial', startup: 'studio/editorial', dropship: 'tech/editorial', affiliate: 'midnight/center', insurance: 'clean/banner', loan: 'aurora/split',
+  realestate: 'luxe/center', plots: 'studio/banner', interior: 'editorial/split', coaching: 'fresh/banner', clinic: 'aurora/center', cardriving: 'playful/center',
+  astrology: 'royal/editorial', meditation: 'pastel/center', wedding: 'editorial/center', webinar: 'bold/bento', kirtan: 'organic/bento',
+  digitalmarketing: 'bold/banner', website: 'tech/center', appdev: 'midnight/bento', solar: 'fresh/editorial', cleaning: 'studio/split', pestcontrol: 'swiss/banner', tutoring: 'playful/bento',
 };
+const STYLE_OF = Object.fromEntries(Object.entries(LOOK_OF).map(([id, l]) => [id, l.split('/')[0]]));
+const HERO_OF = Object.fromEntries(Object.entries(LOOK_OF).map(([id, l]) => [id, l.split('/')[1]]));
 const shortName = (p) => (p.length > 26 ? p.split(/ [—–-] | for | & /)[0] : p);
 
-const TEMPLATES = N.map(([id, category, product, baseColor, price, mrp, headline, sub, feats, quotes, faqs, badge]) => {
+const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, sub, feats, quotes, faqs, badge]) => {
   const c = CAT[category];
   const colorOverride = (LOOK[id] || [])[1];
   const style = STYLE_OF[id] || (LOOK[id] || ['aurora'])[0];
@@ -267,7 +272,7 @@ const TEMPLATES = N.map(([id, category, product, baseColor, price, mrp, headline
     whatsapp: { number: '919999999999', message: `Hi! I want to know more about ${product}.`, label: 'Chat with us' },
   };
   const priceBox = isLead
-    ? { type: 'optin', props: { eyebrow: '100% free · No obligation', title: kind === 'event' ? 'Save your free seat' : 'Book your FREE consultation', subtitle: kind === 'event' ? 'We’ll send the joining link on WhatsApp and email.' : 'Share your details and our expert will call you within 24 hours.', buttonText: cta, askPhone: true, points: featItems.map((f) => ({ text: f.title })) } }
+    ? { type: 'optin', props: { ...(kind === 'event' ? { webinarId: '' } : {}), eyebrow: '100% free · No obligation', title: kind === 'event' ? 'Save your free seat' : 'Book your FREE consultation', subtitle: kind === 'event' ? 'We’ll send the joining link on WhatsApp and email.' : 'Share your details and our expert will call you within 24 hours.', buttonText: cta, askPhone: true, points: featItems.map((f) => ({ text: f.title })) } }
     : { type: 'pricing', props: { variant: ['money', 'product', 'agency'].includes(kind) ? 'split' : 'card', badge: `🔥 ${disc}% OFF — limited time`, title: product, mrp, price, currency: '₹', bullets: [...featItems.map((f) => ({ text: f.title })), ...bonusItems.map((b) => ({ text: `BONUS: ${b.title} (${b.value})` }))], buttonText: cta, note: '🔒 Secure checkout · 7-day money-back guarantee' } };
 
   const landing = [];
@@ -283,14 +288,14 @@ const TEMPLATES = N.map(([id, category, product, baseColor, price, mrp, headline
     const [type, layout] = Array.isArray(entry) ? entry : [entry];
     if (isLead && ['bonuses', 'stock'].includes(type) && kind !== 'event') return; // nothing to buy yet
     if (kind === 'product' && type === 'problem' && (FOOD.has(id) || FASHION.has(id))) return; // food & fashion lead with the product, not a problem
-    landing.push({ type, props: { ...(layout ? { variant: pick(layout, i * 3 + (h >> 5) + id.length * 7 + (id === 'wedding' ? 2 : 0)) } : {}), ...S[type] } });
+    landing.push({ type, props: { ...(type === 'hero' && HERO_OF[id] ? { variant: HERO_OF[id] } : layout ? { variant: pick(layout, i * 3 + (h >> 5) + id.length * 7 + (id === 'wedding' ? 2 : 0)) } : {}), ...S[type] } });
   });
   for (const type of EXTRAS[kind]) landing.push({ type, props: S[type] });
   const tone = { course: 'Reserve your seat', money: 'Lock in your price', transform: 'Start your plan', product: 'Complete your order', booking: 'Confirm your booking', kids: 'Confirm your child’s seat', spiritual: 'Confirm your session', agency: 'Start your project' }[kind] || 'Complete your order';
   const checkout = [
     { type: 'hellobar', props: { messages: [{ text: `⏰ ${tone} — your price is held for 15 minutes` }, { text: '🔒 100% secure payment · 7-day money-back guarantee' }] } },
     { type: 'countdown', props: { label: 'Your price is locked for', minutes: 15 } },
-    { type: 'checkout', props: { productName: product, description: kind === 'product' ? 'Ships in 24 hours · tracking on WhatsApp' : 'Instant confirmation on email & WhatsApp', price, mrp, currency: '₹', bumpEnabled: c.bump[1] > 0, bumpTitle: c.bump[0], bumpDescription: `One-time offer — add this for just ₹${c.bump[1]}. Not available later.`, bumpPrice: c.bump[1], buttonText: 'Pay Securely' } },
+    { type: 'checkout', props: { productName: product, description: kind === 'product' ? 'Ships in 24 hours · tracking on WhatsApp' : 'Instant confirmation on email & WhatsApp', price, mrp, currency: '₹', ...(kind === 'product' ? { shipping: 'address', shippingFee: 0, cod: true, codFee: 0 } : {}), bumpEnabled: c.bump[1] > 0, bumpTitle: c.bump[0], bumpDescription: `One-time offer — add this for just ₹${c.bump[1]}. Not available later.`, bumpPrice: c.bump[1], buttonText: 'Pay Securely' } },
     { type: 'testimonials', props: { variant: kind === 'product' || kind === 'kids' ? 'chat' : 'cards', eyebrow: 'You are in good company', title: `Join ${stats[0].value} happy ${who}`, items: testimonials.slice(0, 3) } },
     { type: 'guarantee', props: { variant: 'strip', title: c.guarantee[0], body: c.guarantee[1], days: c.guarantee[2] } },
     { type: 'proof', props: { action, intervalSec: 9, items: proof } },
@@ -334,10 +339,43 @@ const TEMPLATES = N.map(([id, category, product, baseColor, price, mrp, headline
     ];
   const theme = { style, primary: color, secondary: shiftHue(color, ['luxe', 'royal', 'editorial'].includes(style) ? 18 : 38) };
   const hero = landing.find((b) => b.type === 'hero');
-  return { id, category, name: product, style, kind, headline, steps, theme, hero };
+  return { id, category, name: product, style, kind, type: isLead ? (kind === 'event' ? 'webinar' : 'lead') : 'sales', headline, steps, theme, hero };
 });
 
-export const templateList = () => TEMPLATES.map(({ id, category, name, style, kind, headline, theme, hero }) => ({ id, category, name, style, kind, headline, theme, hero: { id: 'h', ...hero } }));
+// VSL + application and webinar funnels, written separately (templates-vsl.js, templates-webinar.js)
+const FUNNELS = [...VSL.map(buildVsl), ...WEBINARS.map(buildWebinar)].map(({ color, ...t }) => ({
+  ...t, theme: { style: t.style, primary: color, secondary: shiftHue(color, ['luxe', 'royal', 'editorial', 'noir'].includes(t.style) ? 18 : 38) }, hero: t.steps[0].blocks.find((b) => b.type === 'hero'),
+}));
+const TEMPLATES = [...SALES, ...FUNNELS];
+
+// Gallery order: each card should look different from the ones beside and above it — another style, hero design,
+// colour, funnel type and industry — while sales, VSL and webinar funnels stay evenly mixed down the page.
+const DARK = new Set(['midnight', 'tech', 'royal', 'noir', 'glass']);
+const hueOf = (hex) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)); const mx = Math.max(r, g, b), mn = Math.min(r, g, b); if (mx === mn) return 0; const d = mx - mn; const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return h * 60; };
+function galleryOrder(list) {
+  const look = (t) => ({ t, style: t.style, hero: t.hero.props.variant, type: t.type === 'lead' ? 'sales' : t.type, cat: t.category, dark: DARK.has(t.style) || ['cinema', 'banner'].includes(t.hero.props.variant), hue: hueOf(t.theme.primary) });
+  const left = list.map(look);
+  const share = {}; for (const x of left) share[x.type] = (share[x.type] || 0) + 1 / left.length;
+  const out = [left.splice(left.findIndex((x) => x.t.id === 'v-founders'), 1)[0] || left.shift()];
+  const placed = { [out[0].type]: 1 };
+  const diff = (a, b, near) => 3 * (a.style !== b.style) + 2 * (a.hero !== b.hero) + 1.2 * (a.type !== b.type) + (a.cat !== b.cat) + (near ? 1.5 * (a.dark !== b.dark) : 0) + Math.min(60, Math.abs(((a.hue - b.hue + 540) % 360) - 180)) / 60;
+  while (left.length) {
+    let best = 0, top = -Infinity;
+    left.forEach((c, i) => {
+      let s = 0;
+      [1, 0.8, 0.55, 0.35].forEach((w, k) => { const p = out[out.length - 1 - k]; if (p) s += w * diff(c, p, k === 0); });
+      s += 6 * (share[c.type] - (placed[c.type] || 0) / out.length);
+      if (s > top + 1e-9) { top = s; best = i; }
+    });
+    const [x] = left.splice(best, 1);
+    placed[x.type] = (placed[x.type] || 0) + 1;
+    out.push(x);
+  }
+  return out.map((x) => x.t);
+}
+let GALLERY = null;
+
+export const templateList = () => (GALLERY ||= galleryOrder(TEMPLATES)).map(({ id, category, name, style, kind, type, headline, theme, hero }) => ({ id, category, name, style, kind, type, headline, theme, hero: { id: 'h', ...hero } }));
 export const getTemplate = (id) => {
   const t = TEMPLATES.find((x) => x.id === id);
   if (!t) return null;
@@ -356,6 +394,7 @@ const RELATED = {
   fitness: 'gym weightloss', workout: 'gym weightloss', diet: 'weightloss', sugar: 'diabetes', hair: 'haircare', skin: 'skincare', makeup: 'salon', bridal: 'salon mehendi', parlour: 'salon',
   flat: 'realestate apartment', apartment: 'realestate', villa: 'realestate', plot: 'plots', land: 'plots', interior: 'interior', dentist: 'clinic dental', doctor: 'clinic', hospital: 'clinic',
   photographer: 'wedding photography', photography: 'wedding', marketing: 'digitalmarketing', seo: 'digitalmarketing', ads: 'digitalmarketing', website: 'website', app: 'appdev', solar: 'solar',
+  transplant: 'hairtransplant', baldness: 'hairtransplant', ivf: 'ivf fertility', fertility: 'ivf', implant: 'implants dental', franchise: 'franchise', export: 'export', fundraising: 'fundraise', investor: 'fundraise', matchmaking: 'matchmaking', panchakarma: 'panchakarma', crm: 'crm', vastu: 'vastu', thyroid: 'thyroid', anxiety: 'anxiety', parenting: 'parenting', reels: 'reels', instagram: 'reels digitalmarketing',
   cleaning: 'cleaning', pest: 'pestcontrol', driving: 'cardriving', astrology: 'astrology', horoscope: 'astrology', meditation: 'meditation', spiritual: 'meditation kirtan', gita: 'kirtan',
   tea: 'tea', coffee: 'tea', spice: 'organic pickle', pickle: 'pickle', grocery: 'organic', dryfruit: 'dryfruits', nuts: 'dryfruits', webinar: 'webinar masterclass', coaching: 'coaching tutoring',
 };
@@ -365,7 +404,7 @@ let INDEX = null;
 function index() {
   if (INDEX) return INDEX;
   const docs = TEMPLATES.map((t) => {
-    const title = new Set(words(`${t.id} ${t.name} ${t.category}`));
+    const title = new Set(words(`${t.id.replace(/^[vw]-/, '')} ${t.name} ${t.category}`));
     const body = new Set(words(`${t.headline} ${JSON.stringify(t.steps[0].blocks.map((b) => b.props))}`));
     return { t, title, body };
   });
@@ -378,15 +417,34 @@ export function similarTemplates(prompt, k = 2) {
   const { docs, idf } = index();
   const q = words(prompt);
   if (/\bca\b|chartered accountan/i.test(prompt)) q.unshift('ca'); // too short for the word filter, but a template of its own
+  if (/\bai\b|artificial intelligence/i.test(prompt)) q.unshift('ai');
   const own = new Set(q);
   const related = [...new Set(q.flatMap((w) => (RELATED[w] || '').split(' ').filter((x) => x && !own.has(x))))];
   const expanded = [...new Set(q), ...related];
   const nq = own.size;
+  // words that name a kind of funnel say which pool to pick from, not which niche — no exact-id bonus for them
+  const FUNNEL_WORDS = new Set(['webinar', 'masterclass', 'workshop', 'seminar', 'session', 'training', 'vsl', 'application', 'apply', 'call']);
   const score = (d) => expanded.reduce((a, w, i) => {
     const weight = i < nq ? 1 : 0.8; // related words count a little less than the user's own words
-    return a + weight * (d.t.id === w ? 12 + 3 * idf(w) : idf(w) * (d.title.has(w) ? 3 : d.body.has(w) ? 1 : 0));
+    return a + weight * (d.t.id.replace(/^[vw]-/, '') === w && !FUNNEL_WORDS.has(w) ? 12 + 3 * idf(w) : idf(w) * (d.title.has(w) ? 3 : d.body.has(w) ? 1 : 0));
   }, 0);
-  return docs.map((d) => [score(d), d.t]).sort((x, y) => y[0] - x[0]).slice(0, k).map(([, t]) => t);
+  // VSL and webinar funnels only win when the seller describes that kind of funnel ("free masterclass",
+  // "apply for a call"); a bakery selling cakes wants a sales page, not the webinar about starting a bakery.
+  // A clear ask picks from that kind of funnel only; "consultation" alone just tilts towards it.
+  const webinar = /webinar|masterclass|workshop|live (session|class|training)|info session|seminar/i.test(prompt);
+  const vsl = !webinar && /\bvsl\b|video sales|\bapply\b|application|qualif|strategy call|discovery call|high[- ]ticket|book a call|book a demo|product demo|live demo/i.test(prompt);
+  const leaning = /consultation/i.test(prompt);
+  const sells = /₹|\brs\.?\s*\d|\bupsell|\bsell\b|\bcourse\b|\bprogramme\b|\bprogram\b/i.test(prompt);
+  const fit = (t) => {
+    if (t.type === 'webinar') return webinar ? (t.steps.some((s) => s.type === 'checkout') || !sells ? 1 : 0.4) : vsl ? 0 : 0.2; // selling after the webinar needs the replay + checkout
+    if (t.type === 'vsl') return vsl ? 1 : webinar ? 0 : leaning ? 1.6 : 0.2;
+    return webinar || vsl ? 0 : 1;
+  };
+  const ranked = (pool) => pool.map((d) => [score(d) * fit(d.t), d.t]).sort((x, y) => y[0] - x[0]);
+  let best = ranked(docs);
+  // no niche word matched: any funnel of the kind asked for beats a sales page from the wrong kind
+  if ((webinar || vsl) && !(best[0]?.[0] > 0)) best = docs.filter((d) => fit(d.t) >= 1).map((d) => [0, d.t]);
+  return best.slice(0, k).map(([, t]) => t);
 }
 export const allTemplates = () => TEMPLATES;
 
@@ -405,23 +463,45 @@ const nine = (n) => Math.max(49, Math.round(n / 10) * 10 - 1);
 
 export function parsePrompt(prompt) {
   const raw = prompt.replace(/\s+/g, ' ').trim();
-  const pm = raw.match(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s*(k)?/i) || raw.match(/([\d,]+)\s*(k)?\s*(?:rs\.?|rupees|inr|\/-)/i);
-  const price = pm ? Math.round(Number(pm[1].replace(/,/g, '')) * (pm[2] ? 1000 : 1)) : null;
+  const pm = raw.match(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s*(k|l|lakh)?/i) || raw.match(/([\d,]+)\s*(k)?\s*(?:rs\.?|rupees|inr|\/-)/i);
+  const mult = (u) => (!u ? 1 : /^k$/i.test(u) ? 1000 : 100000);
+  const price = pm ? Math.round(Number(pm[1].replace(/,/g, '')) * mult(pm[2])) : null;
   const city = ALL_CITIES.find((c) => new RegExp(`\\b${c}\\b`, 'i').test(raw)) || null;
-  const aud = raw.match(/\bfor ([a-z][a-z\s&-]{2,40}?)(?=,|\.|\bin\b|\bat\b|\bwith\b|₹|\brs\b|$)/i);
-  let name = raw
+  // "for working moms" → an audience; "for a call", "for founders starting out — apply" stop at the verb/dash
+  const aud = raw.match(/\bfor ((?!a\b|an\b|the\b|a call)[a-z][a-z\s&-]{2,40}?)(?=,|\.|\s[—–-]\s|\bin\b|\bat\b|\bwith\b|\bwho\b|\bthat\b|\bto\b|\bapply|\bstarting|\bselling|\bupsell|₹|\brs\b|$)/i);
+  const audience = aud && aud[1].trim().split(/\s+/).length <= 5 ? aud[1].trim().replace(/\s+/g, ' ') : null;
+  // the business name is the first clause, before any dash / colon / call to action
+  // ("Free masterclass: how to start a home bakery" → the clause after the colon)
+  const clauses = raw.split(/\s[—–-]\s|:|;|\bapply\b|\bbook a\b|\bupsell\b|\bselling\b|\bsell my\b/i).map((s) => s.trim()).filter(Boolean);
+  const isFunnelWords = (s) => /^(?:a\s+)?(?:free\s+|live\s+|online\s+)*(?:webinar|masterclass|workshop|session|training)s?$/i.test(s);
+  let name = (clauses.find((s) => !isFunnelWords(s)) || '')
+    .replace(/^how to (?:start|build|grow|launch|run|get|learn|make)\s+/i, '')
     .replace(pm?.[0] || '\u0000', '')
-    .replace(/\b(?:i|we)\s+(?:sell|offer|run|teach|provide|make|am|are|do|have)\b/gi, '')
+    .replace(/\b(?:i|we)\s+(?:sell|offer|run|teach|provide|make|am|are|do|have|host)\b/gi, '')
+    .replace(/^\s*(?:a\s+)?(?:free|live|online)\s+(?:webinar|masterclass|workshop|session)\s*(?:on|about)?\s*/i, '')
     .replace(/\b(?:my|our|a|an)\b/gi, ' ')
     .replace(city ? new RegExp(`\\b(?:in|at|from)\\s+${city}\\b`, 'i') : /\u0000/, '')
-    .replace(aud?.[0] || '\u0000', '')
+    .replace(audience ? aud[0] : '\u0000', '')
     .replace(/\b(?:delivered|available)\s+(?:across|all over|in)\s+india\b/i, '')
-    .replace(/[,.;:!]+/g, ' ')
+    .replace(/[,.!?]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  const words = name.split(' ').filter(Boolean).slice(0, 6);
+  let words = name.split(' ').filter(Boolean).slice(0, 6);
+  while (words.length && SMALL.has(words.at(-1).toLowerCase())) words.pop(); // no "Candles at" / "Coaching for"
   name = words.length >= 1 && words.join('').length >= 4 ? titleCase(words.join(' ')) : null;
-  return { name, price, city, audience: aud ? aud[1].trim().replace(/\s+/g, ' ') : null };
+  return { name, price, city, audience };
+}
+
+const priceLike = (v) => /^\s*₹\s*\d[\d,]*\s*$/.test(String(v ?? ''));
+const inrStr = (n) => '₹' + Number(n).toLocaleString('en-IN');
+// replace one exact amount ("₹5,999") in every piece of copy, without touching ₹59,999 or ₹5,9990
+const swapAmount = (v, from, to) => (typeof v === 'string' ? v.split(from).reduce((acc, part, i) => (i === 0 ? part : /^,?\d/.test(part) ? `${acc}${from}${part}` : `${acc}${to}${part}`), '') : v);
+function swapEverywhere(obj, from, to) {
+  if (!from || from === to) return obj;
+  if (typeof obj === 'string') return swapAmount(obj, from, to);
+  if (Array.isArray(obj)) return obj.map((x) => swapEverywhere(x, from, to));
+  if (obj && typeof obj === 'object') return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, swapEverywhere(v, from, to)]));
+  return obj;
 }
 
 function personalize(f, templateName, prompt) {
@@ -430,25 +510,27 @@ function personalize(f, templateName, prompt) {
   if (name && name.toLowerCase() !== templateName.toLowerCase()) json = json.split(templateName).join(name);
   f = JSON.parse(json);
   f.name = name || templateName;
-  const blocks = f.steps.flatMap((s) => s.blocks);
-  const hero = blocks.find((b) => b.type === 'hero')?.props;
-  const oldPrice = Number(blocks.find((b) => b.type === 'checkout')?.props.price || blocks.find((b) => b.type === 'pricing')?.props.price || 0);
+  const blocks = () => f.steps.flatMap((s) => s.blocks);
+  const main = blocks().find((b) => b.type === 'checkout') || blocks().find((b) => b.type === 'pricing');
+  const oldPrice = Number(main?.props.price || 0), oldMrp = Number(main?.props.mrp || 0);
   if (price && oldPrice) {
     const r = price / oldPrice;
-    const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
-    for (const b of blocks) {
+    const newMrp = Math.max(nine(oldMrp * r), price + 1);
+    // the amounts written into headlines, sticky bars and calls to action move with the price
+    for (const st of f.steps) st.blocks = swapEverywhere(swapEverywhere(swapEverywhere(st.blocks, inrStr(oldPrice), inrStr(price)), inrStr(oldMrp), inrStr(newMrp)), inrStr(oldMrp - oldPrice), inrStr(newMrp - price));
+    for (const b of blocks()) {
       const p = b.props;
-      if (b.type === 'pricing' || b.type === 'checkout') { p.mrp = nine(Number(p.mrp || 0) * r); p.price = price; }
-      if (b.type === 'checkout' && p.bumpPrice) p.bumpPrice = nine(p.bumpPrice * Math.sqrt(r));
-      if (b.type === 'offer') { p.price = nine(p.price * r); p.mrp = nine(p.mrp * r); }
+      if (b.type === 'pricing' || b.type === 'checkout') { p.mrp = newMrp; p.price = price; }
+      if (b.type === 'checkout' && p.bumpPrice) { const old = p.bumpPrice; p.bumpPrice = nine(p.bumpPrice * Math.sqrt(r)); if (p.bumpDescription) p.bumpDescription = p.bumpDescription.replace(`₹${old}`, `₹${p.bumpPrice}`).replace(inrStr(old), inrStr(p.bumpPrice)); }
+      if (b.type === 'offer') { p.price = nine(p.price * r); p.mrp = Math.max(nine(p.mrp * r), p.price + 1); }
       if (b.type === 'crosssell') p.items = p.items.map((it) => ({ ...it, price: nine(Number(it.price) * r) }));
-      if (b.type === 'stickybar' && /₹/.test(p.price || '')) p.price = inr(price);
+      if (b.type === 'stickybar' && priceLike(p.price)) p.price = inrStr(price);
+      if (b.type === 'hero' && priceLike(p.cardPrice)) { p.cardPrice = inrStr(price); if (priceLike(p.cardMrp)) p.cardMrp = inrStr(newMrp); }
     }
-    if (hero?.cardPrice?.startsWith('₹')) { hero.cardPrice = inr(price); if (hero.cardMrp) hero.cardMrp = inr(blocks.find((b) => b.type === 'pricing' || b.type === 'checkout').props.mrp); }
-    // bump descriptions mention the old bump price
-    for (const b of blocks) if (b.type === 'checkout' && b.props.bumpDescription) b.props.bumpDescription = b.props.bumpDescription.replace(/₹\d[\d,]*/, `₹${b.props.bumpPrice}`);
   }
-  if (hero && city) hero.badge = `📍 Trusted in ${city} & across India`;
+  const hero = blocks().find((b) => b.type === 'hero')?.props;
+  // the city goes on a sales page's badge — a webinar's or VSL's badge says what the session / video is
+  if (hero && city && ['split', 'center', 'banner', 'editorial', 'bento', undefined].includes(hero.variant)) hero.badge = `📍 Trusted in ${city} & across India`;
   if (hero && audience) hero.subheadline = `${hero.subheadline.replace(/\s*$/, '')} Made for ${audience}.`;
   return f;
 }

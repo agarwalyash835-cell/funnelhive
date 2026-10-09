@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, loadRazorpay, fmtDate } from '../api';
 import { Layout, Panel, Icon, inr, num, toast } from '../ui';
 
-const FEATURES = ['Unlimited funnels & pages', '53 expert templates', 'Hive AI funnel builder', 'CRM, pipelines & automations', 'Email + WhatsApp automations', 'Razorpay checkout, upsells & coupons', 'Custom domains with free SSL', 'A/B tests & analytics'];
+const FEATURES = ['Unlimited funnels & pages', '100+ expert templates', 'Hive AI funnel builder', 'CRM, pipelines & automations', 'Email + WhatsApp automations', 'Razorpay checkout, upsells & coupons', 'Custom domains with free SSL', 'A/B tests & analytics'];
 
 export function statusLine(a) {
   if (!a) return '';
@@ -11,7 +11,7 @@ export function statusLine(a) {
     case 'admin': return 'Platform admin — no subscription needed';
     case 'comped': return 'Complimentary access';
     case 'trialing': return `Free trial · ${a.daysLeft} day${a.daysLeft === 1 ? '' : 's'} left (until ${fmtDate(a.trialEndsAt)})`;
-    case 'active': return a.currentPeriodEnd && a.currentPeriodEnd > (a.trialEndsAt || 0) ? `${a.interval === 'yearly' ? 'Yearly' : 'Monthly'} plan · renews ${fmtDate(a.currentPeriodEnd)}` : `${a.interval === 'yearly' ? 'Yearly' : 'Monthly'} plan · first charge ${fmtDate(a.currentPeriodEnd)}`;
+    case 'active': return a.currentPeriodEnd && a.currentPeriodEnd > (a.trialEndsAt || 0) ? `${a.interval?.startsWith('agency') ? 'Agency ' : ''}${a.interval?.endsWith('yearly') ? 'Yearly' : 'Monthly'} plan · renews ${fmtDate(a.currentPeriodEnd)}` : `${a.interval?.startsWith('agency') ? 'Agency ' : ''}${a.interval?.endsWith('yearly') ? 'Yearly' : 'Monthly'} plan · first charge ${fmtDate(a.currentPeriodEnd)}`;
     case 'past_due': return `Payment issue — Razorpay is retrying. Your access continues until ${fmtDate(a.endsAt)}.`;
     case 'cancelled': return `Cancelled · access until ${fmtDate(a.currentPeriodEnd)}`;
     case 'suspended': return 'Suspended — please contact support';
@@ -21,15 +21,20 @@ export function statusLine(a) {
 
 export default function Billing() {
   const [b, setB] = useState(null);
-  const [interval, setPeriod] = useState('yearly');
+  const [period, setPeriod] = useState('yearly');
+  const [tier, setTier] = useState('pro');
+  const interval = tier === 'agency' ? `agency_${period}` : period;
   const [details, setDetails] = useState(null);
   const [busy, setBusy] = useState(false);
   const load = () => api('/billing').then((x) => { setB(x); setDetails((d) => d || { name: '', state: '', gstin: '', address: '', ...x.details }); });
   useEffect(() => { load(); }, []);
   if (!b) return <Layout title="Plan & billing"><div className="skeleton" /></Layout>;
   const a = b.access, price = b.prices[interval];
+  if (a.agencyManaged) return <Layout title="Plan & billing"><section className="bill-status st-active"><Icon name="check" size={20} /><div><b>This account is covered by {a.agency || 'your agency'}’s plan</b><small>Billing, invoices and plan changes are handled by your agency.</small></div></section></Layout>;
   const hasDetails = !!b.details?.state;
-  const canSubscribe = !a.admin && a.status !== 'comped' && a.status !== 'suspended' && !(b.subscriptionId && ['active', 'past_due'].includes(a.planStatus) && !a.cancelAtPeriodEnd && !b.halted);
+  const subscribed = b.subscriptionId && ['active', 'past_due'].includes(a.planStatus) && !a.cancelAtPeriodEnd && !b.halted;
+  const switching = subscribed && a.interval !== interval;
+  const canSubscribe = !a.admin && a.status !== 'comped' && a.status !== 'suspended' && (!subscribed || switching);
 
   const saveDetails = async (e) => {
     e?.preventDefault();
@@ -70,13 +75,13 @@ export default function Billing() {
 
         {canSubscribe && (
           <div className="bill-grid">
-            <Panel title="Choose your plan" actions={<div className="seg"><button className={interval === 'monthly' ? 'on' : ''} onClick={() => setPeriod('monthly')}>Monthly</button><button className={interval === 'yearly' ? 'on' : ''} onClick={() => setPeriod('yearly')}>Yearly <span className="save-tag">2 months free</span></button></div>}>
+            <Panel title="Choose your plan" actions={<div className="row"><div className="seg"><button className={tier === 'pro' ? 'on' : ''} onClick={() => setTier('pro')}>Pro</button><button className={tier === 'agency' ? 'on' : ''} onClick={() => setTier('agency')}>Agency</button></div><div className="seg"><button className={period === 'monthly' ? 'on' : ''} onClick={() => setPeriod('monthly')}>Monthly</button><button className={period === 'yearly' ? 'on' : ''} onClick={() => setPeriod('yearly')}>Yearly <span className="save-tag">2 months free</span></button></div></div>}>
               <div className="plan-card">
-                <div className="plan-price"><span className="amt">{inr(price.amount)}</span><span className="per">/{interval === 'yearly' ? 'year' : 'month'}</span></div>
-                <p className="muted sm">{interval === 'yearly' ? `Just ${inr(price.perMonth)}/month · you save ${inr(b.prices.yearlySaves)} a year` : 'Billed monthly · cancel any time'}{b.companyRegistered ? ' · incl. 18% GST' : ''}</p>
-                <ul className="plan-feats">{FEATURES.map((f) => <li key={f}><Icon name="check" size={15} />{f}</li>)}<li><Icon name="sparkles" size={15} />{num(b.aiCredits.paid)} AI credits every month</li></ul>
+                <div className="plan-price"><span className="amt">{inr(price.amount)}</span><span className="per">/{period === 'yearly' ? 'year' : 'month'}</span></div>
+                <p className="muted sm">{period === 'yearly' ? `Just ${inr(price.perMonth)}/month · you save ${inr(tier === 'agency' ? b.prices.agencyYearlySaves : b.prices.yearlySaves)} a year` : 'Billed monthly · cancel any time'}{b.companyRegistered ? ' · incl. 18% GST' : ''}</p>
+                <ul className="plan-feats">{tier === 'agency' && <><li><Icon name="layers" size={15} /><b>Up to {num(b.prices.agencyClients)} client accounts</b> — one login, one bill</li><li><Icon name="palette" size={15} />White-label: your brand, logo and app domain</li><li><Icon name="chart" size={15} />Client report links · copy funnels to clients</li></>}{FEATURES.map((f) => <li key={f}><Icon name="check" size={15} />{f}</li>)}<li><Icon name="sparkles" size={15} />{num(b.aiCredits.paid)} AI credits every month</li></ul>
                 {!b.ready ? <p className="err">Online payments aren’t set up on this server yet. Please contact support.</p> : (
-                  <button className="btn primary lg block" disabled={busy || !details?.name || !details?.state} onClick={subscribe}>{busy ? <><span className="spin" /> Opening Razorpay…</> : a.status === 'trialing' ? `Subscribe — first charge after your trial` : `Subscribe for ${inr(price.amount)}`}</button>
+                  <button className="btn primary lg block" disabled={busy || !details?.name || !details?.state} onClick={subscribe}>{busy ? <><span className="spin" /> Opening Razorpay…</> : switching ? `Switch to this plan — from your next renewal` : a.status === 'trialing' ? `Subscribe — first charge after your trial` : `Subscribe for ${inr(price.amount)}`}</button>
                 )}
                 <p className="hint center">Secure payment by Razorpay · UPI Autopay, cards, netbanking{b.mode === 'test' ? ' · TEST MODE' : ''}</p>
               </div>

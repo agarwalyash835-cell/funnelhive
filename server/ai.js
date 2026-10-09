@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { similarTemplates, allTemplates, matchTemplate } from './templates.js';
-import { audit, enforce, barText, blueprintOf } from './quality.js';
+import { audit, enforce, barText, blueprintOf, qualityBar } from './quality.js';
 import { uid } from './db.js';
 import { PAGE_STYLES, STYLE_HINTS, variantsText } from './page-styles.js';
 
@@ -68,7 +68,8 @@ function blockGallery() {
   return GALLERY;
 }
 const KNOWN_TYPES = () => new Set([...allTemplates().flatMap((t) => t.steps.flatMap((st) => st.blocks.map((b) => b.type))), 'section', 'image', 'gallery', 'spacer', 'divider', 'html', 'form', 'text', 'video']);
-const exampleFunnel = (t) => JSON.stringify({ name: t.name, theme: t.theme, steps: t.steps.map((st) => ({ name: st.name, type: st.type, slug: st.slug, blocks: st.blocks.map((b) => ({ type: b.type, props: trim(b.props, 4, 300) })) })) });
+const keepFor = (type, props) => Object.fromEntries(Object.entries(props).filter(([k]) => !SKIP.has(k)).map(([k, v]) => [k, Array.isArray(v) ? trim(v, Math.max(4, qualityBar().mins[`${type}.${k}`] || 0), 300) : trim(v, 4, 300)]));
+const exampleFunnel = (t) => JSON.stringify({ name: t.name, theme: t.theme, steps: t.steps.map((st) => ({ name: st.name, type: st.type, slug: st.slug, blocks: st.blocks.map((b) => ({ type: b.type, props: keepFor(b.type, b.props) })) })) });
 const knowledge = () => `\n\nREFERENCE — one example of every block from our best-performing template library. Match this level of specificity, structure and Indian-market tone (don't copy the wording):\n${blockGallery()}`;
 
 export const BLOCK_SPEC = `Block types and their props (all strings unless noted):
@@ -78,15 +79,17 @@ export const BLOCK_SPEC = `Block types and their props (all strings unless noted
 - video: url
 - text: title, body
 - countdown: label, minutes (number)
-- optin: title, subtitle, buttonText, askPhone (boolean)
-- checkout: productName, description, price (number), currency, bumpEnabled (boolean), bumpTitle, bumpDescription, bumpPrice (number), buttonText
+- optin: eyebrow, title, subtitle, buttonText, askPhone (boolean), points: [{text}], productId (leave "" — the seller picks a free product to send on sign-up). On a webinar registration page add webinarId: "" — sign-ups then get a seat in the next live session, a personal joining link and reminders.
+- form (applications, surveys): title, subtitle, fields: [{label, type 'text'|'email'|'tel'|'number'|'select'|'textarea'|'checkbox', required (bool), options "A, B, C" (select only), reject "A" (select only: answers that mean "not a fit")}], buttonText, after 'message'|'next', successMessage, rejectMessage (kind words for applicants who aren't a fit), note. Always include Full name, Email and WhatsApp fields, then 3–4 qualifying select questions with reject rules on budget/readiness.
+- checkout: productName, description, price (number), currency ("₹" default; "$" "€" "£" for buyers abroad), bumpEnabled (boolean), bumpTitle, bumpDescription, bumpPrice (number), buttonText. Optional: billing ("monthly" | "yearly" for a membership, price is per period), planEnabled + planCount + planPrice (an EMI-style monthly plan next to pay-in-full, e.g. 3 × 10999 for a 29999 programme), shipping ("address" for physical products) + shippingFee, cod (true to offer Cash on Delivery, ₹ only) + codFee. productId / bumpProductId: leave "" (the seller attaches the digital product that's delivered after payment)
 - offer: progress, headline, description, productName, emoji, price (number), mrp (number), currency, bullets: [{text}], minutes (number), acceptText, declineText   (use on upsell/downsell steps)
 - crosssell: title, subtitle, items: [{emoji, name, desc, price (number)}], buttonText   (one-click add-ons, usually on the thank-you page)
 - section: a free-form section. layout ('1' | '1-1' | '2-1' | '1-2' | '1-1-1' | '1-1-1-1'), valign ('top'|'center'), gap ('sm'|'md'|'lg'), columns: [{elements: [{type, props}]}]. Element types: heading {text, level 'h1'|'h2'|'h3', align}, text {text, size 'sm'|'md'|'lg', align}, button {label, action 'next'|'url'|'scroll', url, variant 'primary'|'outline', align, full (bool)}, image {src, alt, link, rounded, shadow}, list {items: [{text}], icon 'check'|'dot'|'num'}, price {price, mrp, currency, note}, video {url}, spacer {height}, divider {style}
 - Any block may include props._style: {bg '#hex', bgImage url, overlay 0-80, textColor '#hex', padTop/padBottom 'none'|'sm'|'md'|'lg'|'xl', width 'narrow'|'wide'|'full', align 'left'|'center', hideMobile, hideDesktop, anchor}
 - faq: title, items: [{q, a}]
 - cta: headline, buttonText
-- thankyou: headline, body
+- thankyou: headline, body, steps: [{text}] (what happens next)
+- booking (a booking calendar — the "book your call" step after an application): calendarId (leave ""), eyebrow, title, subtitle, buttonText, successTitle, successText, qualifiedOnly (bool)
 - pricing: badge, mrp (number), price (number), currency, bullets: [{text}], buttonText, note
 - hellobar: messages: [{text}]   (FOMO, rotates every 9-10s)
 - livecount: text, min (number), max (number)   (FOMO live viewers)
@@ -104,11 +107,14 @@ Landing-page block types (use them for rich 12+ section pages):
 - mentor: eyebrow, name, role, bio, points: [{text}]
 - bonuses: eyebrow, title, items: [{icon, title, value}], totalText
 - guarantee: title, body, days (number)
-- cta also accepts subheadline, note. hero also accepts secondaryText, socialText, rating, reviews, cardEmoji, cardTitle, cardPrice, cardMrp, cardPoints [{text}], chip1, chip2. Wrap words in *stars* in headlines to highlight.
+- cta also accepts subheadline, note. hero also accepts secondaryText, socialText, rating, reviews, cardEmoji, cardTitle, cardPrice, cardMrp, cardPoints [{text}], chip1, chip2, cardTag. Wrap words in *stars* in headlines to highlight.
+- hero variants video | videosplit | cinema (video sales letters) also take: videoUrl (leave ""), videoNote ("Watch the free 14-minute breakdown"), videoLength ("14:32"); cardPoints become chapters written "01:10 · Chapter title"; cardPrice "By application".
+- hero variants event | stage | poster (webinars, live events) also take: eventDate ("This Sunday" — never a calendar date), eventTime ("7:00 PM IST"), eventLength ("90 min · Live on Zoom"), hostName, hostRole, cardTag ("Live masterclass"); cardTitle is the session name; cardPrice "FREE"; cardPoints are "this is for you if…" bullets.
 Section layouts: most sections take props.variant to pick their design — ${variantsText()}. Mix layouts so the page has rhythm (e.g. a centred hero, a numbered zigzag of features, a WhatsApp-chat testimonial wall) and fit them to the business; follow the example's choices unless the brief suggests better.
 Theme: {"style": one of ${PAGE_STYLES.join('|')}, "primary": "#hex", "secondary": "#hex"}. Styles: ${Object.entries(STYLE_HINTS).map(([k, v]) => `${k} (${v})`).join('; ')}.
 Audience defaults to India: use ₹ prices, Indian names/cities, UPI/COD mentions. hero also accepts badge.
-Step types: landing, optin, sales, checkout, upsell, downsell, thankyou.`;
+Step types: landing, optin, sales, checkout, upsell, downsell, thankyou.
+Funnel shapes (follow the example's): sales funnel = sales → checkout → upsell → downsell → thankyou (with cross-sells). Video sales letter + application (high-ticket, "apply for a call") = sales (video hero, no price) → optin (form with qualifying questions, after "next") → thankyou ("call booked"). Webinar = optin (registration: event hero, FREE) → thankyou (you're registered) → sales (replay: video hero + pricing for the paid programme) → checkout → upsell → thankyou (welcome).`;
 
 function extractJson(text) {
   const s = text.indexOf('{');
@@ -350,7 +356,7 @@ export async function runAgent(kind, ctx) {
   const a = AGENTS[kind];
   const out = await ask(
     `You are an expert Indian direct-response marketer acting as the "${a.name}" (${a.desc}). Write in natural Indian English (Hinglish words are fine where natural). Respond with ONLY JSON: {"outputs": [string, ...]} — each string is one complete, ready-to-use piece.`,
-    `Product: ${ctx.product}\nPrice: ₹${ctx.price}\nMain promise: ${ctx.headline}\nAudience: ${ctx.audience}\nExtra instructions: ${ctx.extra || 'none'}`
+    `Product: ${ctx.product}\nPrice: ${typeof ctx.price === 'number' ? `₹${ctx.price.toLocaleString('en-IN')}` : ctx.price}\nMain promise: ${ctx.headline}\nAudience: ${ctx.audience}\nExtra instructions: ${ctx.extra || 'none'}`
   );
   return { outputs: out.outputs || [], usedAI: true };
 }

@@ -1,6 +1,6 @@
 // The page styles and section layouts the renderer supports (client/src/blocks.jsx STYLES / VARIANTS).
 // Used by the AI prompts, the quality gate, chat commands and Hive AI.
-export const PAGE_STYLES = ['aurora', 'midnight', 'luxe', 'fresh', 'bold', 'clean', 'editorial', 'organic', 'tech', 'playful', 'royal'];
+export const PAGE_STYLES = ['aurora', 'midnight', 'luxe', 'fresh', 'bold', 'clean', 'editorial', 'organic', 'tech', 'playful', 'royal', 'noir', 'glass', 'swiss', 'pastel', 'studio'];
 
 export const STYLE_HINTS = {
   aurora: 'light, soft gradients — courses, wellness, general',
@@ -14,11 +14,16 @@ export const STYLE_HINTS = {
   tech: 'dark grid, neon, monospace — coding, apps, SaaS, websites, crypto/trading tools',
   playful: 'bright & chunky — kids, snacks, fun products, events',
   royal: 'jewel tones & gold — weddings, jewellery, ethnic wear, spiritual',
+  noir: 'black & white, one glowing accent — high-ticket coaching, executives, premium services',
+  glass: 'frosted glass on a colour mesh — AI, SaaS, agencies, modern finance',
+  swiss: 'grid, oversized type, sharp corners — consulting, careers, finance education',
+  pastel: 'soft pastel gradients, rounded — women’s health, parenting, wellness, baking',
+  studio: 'warm neutral, modern startup — franchises, D2C, B2B, lifestyle',
 };
 
 // section type → layouts (first = default)
 export const VARIANTS = {
-  hero: ['split', 'center', 'banner', 'editorial'],
+  hero: ['split', 'center', 'banner', 'editorial', 'bento', 'video', 'videosplit', 'cinema', 'event', 'stage', 'poster'],
   stats: ['strip', 'cards', 'band'],
   problem: ['cards', 'list', 'split'],
   features: ['cards', 'grid', 'list', 'zigzag'],

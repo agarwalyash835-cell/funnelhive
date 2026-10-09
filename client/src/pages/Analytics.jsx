@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Panel, Icon, Empty, RangePicker, inr, num, ago, downloadCSV } from '../ui';
-import { Kpis, TrendPanel, OfferMix, Sources } from './Dashboard';
+import { Kpis, TrendPanel, OfferMix, Sources, Campaigns } from './Dashboard';
 
 const STEP_IC = { landing: '🏠', optin: '📝', sales: '💡', checkout: '💳', upsell: '⬆️', downsell: '⬇️', thankyou: '🎉' };
 const pct = (a, b) => (b ? +((a / b) * 100).toFixed(1) : 0);
@@ -68,6 +68,7 @@ export default function Analytics() {
               </table>
             </Panel>
           )}
+          <Panel title="Ad campaigns" pad={false}><Campaigns rows={d.campaigns} /></Panel>
           <div className="grid-1-1">
             <Panel title="Traffic sources" pad={false}><Sources rows={d.sources} /></Panel>
             <Panel title="Recent leads" pad={false} actions={d.leads.length > 0 && <button className="btn ghost sm" onClick={() => downloadCSV('leads.csv', d.leads.map(({ email, name, phone, source, at }) => ({ email, name, phone, source, date: new Date(at).toISOString() })))}><Icon name="download" size={15} /> CSV</button>}>

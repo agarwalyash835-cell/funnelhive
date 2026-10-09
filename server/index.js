@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'node:crypto';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -11,13 +12,13 @@ import { templateList, getTemplate, matchTemplate } from './templates.js';
 import { applyActions, offlineChat } from './actions.js';
 import { abResult } from './stats.js';
 import { DAY, reportRange } from './time.js';
-import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, bumpRate } from './analytics.js';
+import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, bumpRate, campaigns, refundsTotal } from './analytics.js';
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, verifyTotp, otpauthUrl } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm } from './crm.js';
-import { initMessaging, registerChannels } from './messaging.js';
+import { initMessaging, registerChannels, sendEmail } from './messaging.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, registerRazorpaySettings } from './razorpay.js';
-import { registerDomains, domainRouter, funnelUrl, domainOfFunnel } from './domains.js';
+import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit } from './domains.js';
 import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerHive } from './hive.js';
 import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, usageSummary, AI_COST, pricing } from './billing.js';
@@ -26,11 +27,34 @@ import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
 import { verifyGoogleToken, googleClientId } from './google.js';
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
+import { registerProducts, deliver, resolveToken } from './products.js';
+import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId } from './tracking.js';
+import { registerSales, issueInvoice, invoiceUrl, invoicingOf, cleanInvoicing, cleanBuyerGst, refundFromWebhook, INVOICING_DEFAULTS } from './sales.js';
+import { linkBase } from './products.js';
+import { registerBookings, confirmPaidBooking } from './bookings.js';
+import { registerGcal } from './gcal.js';
+import { stripeCreds, isoOf, startStripePayment, startStripeSubscription, chargeSaved, confirmedIntent, validStripeWebhook, registerStripeSettings } from './stripe.js';
+import { fxRate } from './fx.js';
+import { registerLegal, publicPrivacy, privacyOf, consentLine } from './legal.js';
+import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
+import { registerAgency, logRequest, brandFor, brandForHost } from './agency.js';
+import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
+import { deleteAccount as deleteAccountData } from './account.js';
+import { registerFulfilment, cleanAddress } from './fulfilment.js';
+import { registerBroadcasts } from './broadcasts.js';
+import { registerTeam, enterWorkspace, allows } from './team.js';
+import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan } from './plans.js';
+import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
+import { registerObserve, requestMetrics, reportError } from './observe.js';
+import { sellerTz, offsetAt, validTz, COMMON_TZ } from './tz.js';
+import { registerWebinars, registrationFor, previewSession } from './webinars.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', process.env.TRUST_PROXY ? (/^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY) : 'loopback, linklocal, uniquelocal');
+app.use(requestMetrics); // request counts and timings (observe.js)
+app.use(pagesSplit); // PAGES_URL: live pages and the dashboard on separate domains (domains.js)
 app.disable('x-powered-by');
 app.use(securityHeaders);
 // Same-origin by default; allow extra origins (e.g. a marketing site) via CORS_ORIGINS=https://a.com,https://b.com
@@ -39,25 +63,36 @@ app.use(cors({ origin: (origin, cb) => cb(null, !origin || ALLOWED.includes(orig
 app.use('/api/uploads', express.json({ limit: '8mb' }));
 app.use('/api/razorpay/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
+app.use('/api/stripe/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use(express.json({ limit: '4mb' }));
 // Requests on a seller's own domain (offer.theirbrand.in) show their funnel
 app.use(domainRouter((...a) => renderFunnel(...a)));
 
 const isTest = process.env.NODE_ENV === 'test';
 const authLimiter = rateLimit({ windowMs: 15 * 60000, max: isTest ? 1000 : 20, message: 'Too many attempts — please wait 15 minutes and try again.', shared: true, name: 'auth' });
-const publicLimiter = rateLimit({ windowMs: 60000, max: isTest ? 5000 : 120 });
+// Many real buyers can share one IP (mobile carrier NAT, office Wi-Fi): page-view pings get a high limit of their own,
+// sign-ups and payments a generous one
+const publicLimiter = rateLimit({ windowMs: 60000, max: isTest ? 5000 : 300 });
+// activity log: every successful change, and who made it (see agency.js)
+app.use('/api', (req, res, next) => { res.on('finish', () => logRequest(req, res)); next(); });
+// API keys: 120 requests a minute each
+const keyLimiter = rateLimit({ windowMs: 60000, max: isTest ? 100000 : 120, key: (req) => String(req.headers.authorization || req.headers['x-api-key'] || '').slice(-12), message: 'API rate limit: 120 requests a minute per key' });
+app.use('/api', (req, res, next) => (/fh_live_/.test(String(req.headers.authorization || req.headers['x-api-key'] || '')) ? keyLimiter(req, res, next) : next()));
+const eventLimiter = rateLimit({ windowMs: 60000, max: isTest ? 5000 : 1500 });
 const aiLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 20, key: (req) => req.user?.id || req.ip, message: 'You are sending AI requests too quickly — please wait a minute.' });
-app.use('/api/public', (req, res, next) => (req.method === 'POST' ? publicLimiter(req, res, next) : next()));
+app.use('/api/public', (req, res, next) => (req.method !== 'POST' ? next() : req.path.endsWith('/event') ? eventLimiter(req, res, next) : publicLimiter(req, res, next)));
 
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
   console.error(e);
+  reportError(e, { route: `${req.method} ${req.route?.path || req.path}`, userId: req.user?.id });
   res.status(500).json({ error: e.message });
 });
 
 // ---------- auth ----------
-const DEFAULT_SETTINGS = { businessName: '', currency: '₹', supportWhatsapp: '', payments: { provider: 'razorpay', razorpayKey: '', stripeKey: '', cashfreeKey: '', phonepeKey: '', mode: 'test' }, tracking: { fbPixel: '', ga4: '' }, webhookUrl: '', customDomain: '' };
+const DEFAULT_SETTINGS = { businessName: '', currency: '₹', supportWhatsapp: '', payments: { provider: 'razorpay', razorpayKey: '', stripeKey: '', cashfreeKey: '', phonepeKey: '', mode: 'test' }, tracking: { fbPixel: '', ga4: '' }, webhookUrl: '', customDomain: '', invoicing: { ...INVOICING_DEFAULTS } };
 // pv (password version) lets us invalidate every existing session when the password changes
-const sign = (u) => jwt.sign({ id: u.id, pv: u.pv || 0 }, SECRET, { expiresIn: '30d' });
+// ws: a team member working in another seller's workspace (see team.js)
+const sign = (u, ws) => jwt.sign({ id: u.id, pv: u.pv || 0, ...(ws ? { ws } : {}) }, SECRET, { expiresIn: '30d' });
 // an admin "logging in as" a seller (support): short-lived, and the seller's account shows it
 const signAs = (u, adminId) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId }, SECRET, { expiresIn: '2h' });
 const pubUser = (u) => ({ id: u.id, email: u.email, name: u.name });
@@ -65,13 +100,32 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const withDefaults = (u) => { u.settings = { ...DEFAULT_SETTINGS, ...(u.settings || {}) }; return u; };
 const auth = (req, res, next) => {
   try {
-    const t = (req.headers.authorization || '').replace('Bearer ', '');
+    const t = (req.headers.authorization || '').replace('Bearer ', '') || String(req.headers['x-api-key'] || '');
+    // an API key (Zapier, Pabbly, your own code): the seller's account, with a key's limits — see api.js
+    if (isApiKey(t)) {
+      const k = keyUser(t);
+      if (!k) return res.status(401).json({ error: 'Invalid API key' });
+      const path = req.originalUrl.split('?')[0];
+      if (KEY_NEVER.test(path) || !allows(k.role, req.method, path)) return res.status(403).json({ error: k.role === 'viewer' ? 'This API key is read-only' : 'API keys can’t do that' });
+      req.user = withDefaults(k.user); req.apiKey = k.key; req.role = k.role;
+      const locked = lockedOut(req);
+      if (locked) return res.status(402).json({ error: locked, locked: true });
+      return next();
+    }
     const p = jwt.verify(t, SECRET);
     req.user = T.users.get(p.id);
     if (!req.user || (p.pv || 0) !== (req.user.pv || 0)) throw new Error();
     if (p.imp) req.impersonator = p.imp;
+    if (p.ws) {
+      // a team member acting in the owner's workspace: everything below works on the owner's data
+      const w = enterWorkspace(req.user, p.ws);
+      if (!w) return res.status(401).json({ error: 'You no longer have access to that team', workspaceGone: true });
+      req.actor = req.user; req.role = w.member.role; req.user = w.owner;
+      if (!allows(req.role, req.method, req.originalUrl.split('?')[0])) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
+      if (Date.now() - (w.member.lastSeenAt || 0) > 10 * 60000) T.members.update(w.member.id, (m) => { m.lastSeenAt = Date.now(); });
+    }
     withDefaults(req.user);
-    if (Date.now() - (req.user.lastSeenAt || 0) > 10 * 60000 && !p.imp) T.users.update(req.user.id, (u) => { u.lastSeenAt = Date.now(); });
+    if (Date.now() - (req.user.lastSeenAt || 0) > 10 * 60000 && !p.imp && !p.ws) T.users.update(req.user.id, (u) => { u.lastSeenAt = Date.now(); });
   } catch {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -132,7 +186,7 @@ app.post('/api/auth/google', authLimiter, wrap(async (req, res) => {
   let user = T.users.find({ email: g.email });
   if (!user) {
     if (!platform().signupsOpen) return res.status(403).json({ error: 'New sign-ups are paused right now — please check back soon.' });
-    user = { id: uid(), email: g.email, name: g.name, hash: bcrypt.hashSync(randomToken(), 10), googleId: g.sub, settings: { ...DEFAULT_SETTINGS }, emailVerified: true, pv: 0, createdAt: Date.now(), billing: newBilling() };
+    user = { id: uid(), email: g.email, name: g.name, hash: bcrypt.hashSync(randomToken(), 10), passwordSet: false, googleId: g.sub, settings: { ...DEFAULT_SETTINGS }, emailVerified: true, pv: 0, createdAt: Date.now(), billing: newBilling() };
     try { T.users.insert(user); } catch { user = T.users.find({ email: g.email }); }
   } else if (!user.googleId || !user.emailVerified) {
     user = T.users.update(user.id, (u) => { u.googleId ||= g.sub; u.emailVerified = true; });
@@ -171,7 +225,10 @@ app.post('/api/auth/reset', authLimiter, (req, res) => {
   if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const user = userByToken(token, 'resetHash', 'resetExp');
   if (!user) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+  // with 2-step login on, the reset link alone isn't enough: the authenticator code is needed too
+  if (user.totpEnabled && !verifyTotp(user.totpSecret, req.body.code)) return res.status(req.body.code ? 401 : 200).json({ twoFactorRequired: true, ...(req.body.code ? { error: 'That 2-step code is not valid' } : {}) });
   user.hash = bcrypt.hashSync(password, 10);
+  user.passwordSet = true;
   user.pv = (user.pv || 0) + 1; // signs out every other session
   user.emailVerified = true; // they proved access to the inbox
   delete user.resetHash; delete user.resetExp;
@@ -220,13 +277,13 @@ app.post('/api/auth/2fa/disable', auth, authLimiter, (req, res) => {
 
 const mine = (req) => T.funnels.all({ userId: req.user.id });
 const ownFunnel = (req, id) => { const f = T.funnels.get(id); return f && f.userId === req.user.id ? f : null; };
+// the editor's preview links carry this key, so unpublished funnels can't be read by guessing a slug
+const previewKey = (f) => crypto.createHmac('sha256', SECRET).update(`pv.${f.id}`).digest('base64url').slice(0, 22);
+const validPreviewKey = (f, k) => typeof k === 'string' && k.length === 22 && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(previewKey(f)));
+const withKey = (f) => ({ ...f, previewKey: previewKey(f) });
 
-// Liveness/readiness for Docker, load balancers and uptime monitors
-const startedAt = Date.now();
-app.get('/api/health', (_, res) => {
-  q('SELECT 1').get(); // the database answers
-  res.json({ ok: true, uptimeSec: Math.round((Date.now() - startedAt) / 1000) });
-});
+// health, metrics and error reporting: observe.js
+registerObserve(app);
 
 const demoCount = (userId) => ({
   events: q('SELECT COUNT(*) AS n FROM events WHERE userId = ? AND demo = 1').get(userId).n,
@@ -236,10 +293,12 @@ app.get('/api/me', auth, (req, res) => {
   const s = req.user.settings;
   const funnels = q('SELECT COUNT(*) AS n, COALESCE(SUM(json_extract(data, \'$.published\')), 0) AS pub FROM funnels WHERE userId = ?').get(req.user.id);
   res.json({
-    ...pubUser(req.user), hasDemo: !!q('SELECT 1 FROM events WHERE userId = ? AND demo = 1 LIMIT 1').get(req.user.id) || T.orders.exists({ userId: req.user.id, demo: 1 }) || T.leads.exists({ userId: req.user.id, demo: 1 }),
-    aiEnabled: aiEnabled(), aiProvider: aiProvider(), mailEnabled: mailEnabled(), emailVerified: req.user.emailVerified !== false, twoFactor: !!req.user.totpEnabled, settings: s,
-    billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: isAdmin(req.user), brand: platform().brand, announcement: platform().announcement || '',
-    impersonating: !!req.impersonator,
+    ...pubUser(req.actor || req.user), hasDemo: !!q('SELECT 1 FROM events WHERE userId = ? AND demo = 1 LIMIT 1').get(req.user.id) || T.orders.exists({ userId: req.user.id, demo: 1 }) || T.leads.exists({ userId: req.user.id, demo: 1 }),
+    aiEnabled: aiEnabled(), aiProvider: aiProvider(), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
+    billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && isAdmin(req.user), brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
+    impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
+    workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role } : null,
+    teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
     onboarding: {
       funnel: funnels.n > 0,
       published: funnels.pub > 0,
@@ -259,6 +318,8 @@ app.put('/api/settings', auth, wrap(async (req, res) => {
   const body = req.body || {};
   const next = { ...s };
   for (const k of SETTING_KEYS) if (k in body) next[k] = String(body[k] ?? '').trim().slice(0, 300);
+  // the business's time zone: booking hours, webinars, "wait until 10:00" and report days follow it
+  if ('timezone' in body) { const tz = String(body.timezone || '').trim(); if (tz && !validTz(tz)) return res.status(400).json({ error: 'Unknown time zone' }); next.timezone = tz || 'Asia/Kolkata'; }
   if (body.payments && typeof body.payments === 'object') {
     next.payments = { ...s.payments };
     for (const k of ['provider', 'razorpayKey', 'stripeKey', 'cashfreeKey', 'phonepeKey', 'mode']) if (k in body.payments) next.payments[k] = String(body.payments[k] ?? '').trim().slice(0, 200);
@@ -275,6 +336,11 @@ app.put('/api/settings', auth, wrap(async (req, res) => {
       if (v && !/^G-[A-Z0-9]{4,20}$/.test(v)) return res.status(400).json({ error: 'The Google Analytics 4 ID looks like G-XXXXXXX (from Admin → Data streams)' });
       next.tracking.ga4 = v;
     }
+  }
+  if (body.invoicing && typeof body.invoicing === 'object') {
+    const inv = cleanInvoicing(body.invoicing, s.invoicing);
+    if (inv.error) return res.status(400).json(inv);
+    next.invoicing = inv;
   }
   if (next.webhookUrl && next.webhookUrl !== s.webhookUrl) {
     try { next.webhookUrl = await checkWebhookUrl(next.webhookUrl); } catch (e) { return res.status(400).json({ error: e.message }); }
@@ -392,9 +458,12 @@ function ensurePopupCoupons(f) {
   for (const s of f.steps) for (const b of [...s.blocks, ...(s.ab?.blocks || [])]) {
     if (b.type !== 'exitpopup') continue;
     const code = String(b.props?.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!code || T.coupons.exists({ userId: f.userId, code })) continue;
+    if (!code) continue;
+    const ex = T.coupons.find({ userId: f.userId, code });
+    // a code another funnel's popup created also works here; codes the seller made themselves are left alone
+    if (ex) { if (ex.auto && ex.funnelIds?.length && !ex.funnelIds.includes(f.id)) T.coupons.put({ ...ex, funnelIds: [...ex.funnelIds, f.id] }); continue; }
     const pct = Number(code.match(/(\d{1,2})$/)?.[1]) || 10;
-    T.coupons.insert({ id: uid(), userId: f.userId, code, type: 'percent', value: Math.min(pct, 90), active: true, uses: 0, auto: true, createdAt: Date.now() });
+    T.coupons.insert({ id: uid(), userId: f.userId, code, type: 'percent', value: Math.min(pct, 50), active: true, uses: 0, auto: true, funnelIds: [f.id], createdAt: Date.now() });
   }
 }
 
@@ -408,7 +477,7 @@ app.get('/api/funnels', auth, (req, res) => {
   const since = Date.now() - 30 * DAY;
   const stats = totalsByFunnel(req.user.id, since, Date.now());
   res.json(T.funnels.all({ userId: req.user.id }, { order: 'updatedAt', desc: true }).map((f) => ({
-    id: f.id, name: f.name, slug: f.slug, published: f.published, theme: f.theme, steps: f.steps.map((s) => ({ id: s.id, name: s.name, type: s.type })), hero: f.steps[0]?.blocks.find((b) => b.type === 'hero') || null, createdAt: f.createdAt, updatedAt: f.updatedAt, stats: stats(f.id),
+    id: f.id, name: f.name, slug: f.slug, published: f.published, theme: f.theme, previewKey: previewKey(f), steps: f.steps.map((s) => ({ id: s.id, name: s.name, type: s.type })), hero: f.steps[0]?.blocks.find((b) => b.type === 'hero') || null, createdAt: f.createdAt, updatedAt: f.updatedAt, stats: stats(f.id),
   })));
 });
 
@@ -420,7 +489,7 @@ app.post('/api/funnels', auth, (req, res) => {
   }));
 });
 
-app.get('/api/funnels/:id', auth, (req, res) => { const f = owned(req, res); if (f) res.json(f); });
+app.get('/api/funnels/:id', auth, (req, res) => { const f = owned(req, res); if (f) res.json(withKey(f)); });
 
 // ---------- version history ----------
 // A restore point is the state *before* a burst of edits; bursts within 60s share one point.
@@ -437,6 +506,12 @@ app.put('/api/funnels/:id', auth, (req, res) => {
   const f = owned(req, res);
   if (!f) return;
   f.version ||= 1;
+  const b = req.body || {};
+  if ('steps' in b && (!Array.isArray(b.steps) || b.steps.some((s) => !s || typeof s !== 'object' || !Array.isArray(s.blocks)))) return res.status(400).json({ error: 'steps must be a list of pages' });
+  if ('name' in b && (typeof b.name !== 'string' || !b.name.trim())) return res.status(400).json({ error: 'Give the funnel a name' });
+  if ('name' in b) b.name = b.name.trim().slice(0, 120);
+  if ('published' in b && typeof b.published !== 'boolean') return res.status(400).json({ error: 'published must be true or false' });
+  if ('theme' in b && (!b.theme || typeof b.theme !== 'object' || Array.isArray(b.theme))) return res.status(400).json({ error: 'Invalid theme' });
   if (req.body.baseVersion != null && Number(req.body.baseVersion) !== f.version) {
     return res.status(409).json({ error: 'This funnel was changed somewhere else (another tab, device or teammate).', funnel: f });
   }
@@ -449,7 +524,7 @@ app.put('/api/funnels/:id', auth, (req, res) => {
     f.updatedAt = Date.now();
     T.funnels.put(f);
   });
-  res.json(f);
+  res.json(withKey(f));
 });
 
 app.get('/api/funnels/:id/revisions', auth, (req, res) => {
@@ -470,7 +545,7 @@ app.post('/api/funnels/:id/revisions/:rid/restore', auth, (req, res) => {
     ensurePopupCoupons(f);
     T.funnels.put(f);
   });
-  res.json(f);
+  res.json(withKey(f));
 });
 
 // ---------- image uploads ----------
@@ -480,7 +555,7 @@ const CDN_URL = /^https:\/\/[^\s"'<>]+$/.test(process.env.CDN_URL || '') ? proce
 globalThis.__FF_CDN__ = CDN_URL; // read by the server renderer
 const IMG_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' };
 const MAGIC = { png: [0x89, 0x50, 0x4e, 0x47], jpg: [0xff, 0xd8, 0xff], gif: [0x47, 0x49, 0x46], webp: [0x52, 0x49, 0x46, 0x46] };
-app.post('/api/uploads', auth, rateLimit({ windowMs: 60000, max: isTest ? 500 : 30, key: (req) => req.user.id }), (req, res) => {
+app.post('/api/uploads', auth, rateLimit({ windowMs: 60000, max: isTest ? 500 : 30, key: (req) => req.user.id }), wrap(async (req, res) => {
   const ext = IMG_TYPES[req.body.type];
   if (!ext) return res.status(400).json({ error: 'Please upload a PNG, JPG, WebP, GIF or AVIF image' });
   const buf = Buffer.from(String(req.body.data || '').replace(/^data:[^,]+,/, ''), 'base64');
@@ -489,6 +564,7 @@ app.post('/api/uploads', auth, rateLimit({ windowMs: 60000, max: isTest ? 500 : 
   // check the bytes really are that image type (not a renamed script)
   if (MAGIC[ext] && !MAGIC[ext].every((b, i) => buf[i] === b)) return res.status(400).json({ error: 'That file does not look like a valid image' });
   if (ext === 'webp' && buf.toString('latin1', 8, 12) !== 'WEBP') return res.status(400).json({ error: 'That file does not look like a valid image' });
+  if (ext === 'avif' && !(buf.toString('latin1', 4, 8) === 'ftyp' && /^avi[fs]$/.test(buf.toString('latin1', 8, 12)))) return res.status(400).json({ error: 'That file does not look like a valid image' });
   // optional phone-sized copy from the editor's optimiser → served through srcset
   const small = ext === 'webp' && req.body.small ? Buffer.from(String(req.body.small).replace(/^data:[^,]+,/, ''), 'base64') : null;
   const smallOk = small && small.length && small.length <= 1024 * 1024 && small.toString('latin1', 0, 4) === 'RIFF' && small.toString('latin1', 8, 12) === 'WEBP';
@@ -496,11 +572,25 @@ app.post('/api/uploads', auth, rateLimit({ windowMs: 60000, max: isTest ? 500 : 
   fs.mkdirSync(dir, { recursive: true });
   const base = `${Date.now().toString(36)}-${uid()}`;
   const name = smallOk ? `${base}.v.webp` : `${base}.${ext}`;
+  // with a storage bucket, images live there (and are served by any server, or straight from its public URL / CDN)
+  if (s3Enabled()) {
+    try {
+      await putObject(`uploads/${req.user.id}/${name}`, buf, req.body.type);
+      if (smallOk) await putObject(`uploads/${req.user.id}/${base}.v-800.webp`, small, 'image/webp');
+      return res.json({ url: publicUrlFor(`uploads/${req.user.id}/${name}`) || `/uploads/${req.user.id}/${name}`, bytes: buf.length });
+    } catch (e) { console.error('storage upload failed — kept on disk', e.message); }
+  }
   fs.writeFileSync(path.join(dir, name), buf);
   if (smallOk) fs.writeFileSync(path.join(dir, `${base}.v-800.webp`), small);
   res.json({ url: `/uploads/${req.user.id}/${name}`, bytes: buf.length });
-});
+}));
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true, setHeaders: (res) => res.setHeader('Content-Security-Policy', "default-src 'none'") }));
+// not on this server's disk: it's in the bucket
+app.get('/uploads/:uid/:name', (req, res, next) => {
+  if (!s3Enabled() || !/^[\w-]+$/.test(req.params.uid) || !/^[\w.-]+$/.test(req.params.name)) return next();
+  const key = `uploads/${req.params.uid}/${req.params.name}`;
+  res.set('Cache-Control', 'public, max-age=86400').redirect(301, publicUrlFor(key) || presign(key, { expires: 86400 }));
+});
 
 app.post('/api/funnels/:id/duplicate', auth, (req, res) => {
   const f = owned(req, res);
@@ -513,7 +603,8 @@ app.post('/api/funnels/:id/duplicate', auth, (req, res) => {
 function deleteFunnel(f) {
   tx(() => {
     T.funnels.del(f.id);
-    for (const t of ['leads', 'orders', 'abandoned', 'revisions']) T[t].delWhere({ funnelId: f.id });
+    for (const t of ['leads', 'orders']) for (const r of T[t].all({ funnelId: f.id })) if (!r.funnelName) { r.funnelName = f.name; T[t].put(r); }
+    for (const t of ['abandoned', 'revisions']) T[t].delWhere({ funnelId: f.id });
     q('DELETE FROM events WHERE funnelId = ?').run(f.id);
   });
   renderCache.clear();
@@ -526,7 +617,8 @@ app.delete('/api/funnels/:id', auth, (req, res) => {
 });
 
 // ---------- analytics ----------
-const range = (req) => reportRange(Math.min(365, Math.max(1, Number(req.query.days) || 30)));
+// report days follow the seller's own time zone
+const range = (req) => reportRange(Math.min(365, Math.max(1, Number(req.query.days) || 30)), Date.now(), offsetAt(sellerTz(req.user)) * 60000);
 
 app.get('/api/analytics/overview', auth, (req, res) => {
   const { days, from, to } = range(req);
@@ -535,9 +627,10 @@ app.get('/api/analytics/overview', auth, (req, res) => {
   const name = Object.fromEntries(funnels.map((f) => [f.id, f.name]));
   const per = totalsByFunnel(req.user.id, from, to);
   res.json({
-    days, totals: totals(scope, from, to), prev: totals(scope, from - days * DAY, from), series: series(scope, from, days), sources: sources(scope, from), byKind: revenueByKind(scope, from),
+    days, totals: totals(scope, from, to), prev: totals(scope, from - days * DAY, from), series: series(scope, from, days, range(req).off), sources: sources(scope, from), byKind: revenueByKind(scope, from),
+    campaigns: withSpend(req.user.id, campaigns(scope, from, to), from, to), refunded: refundsTotal(scope, from, to), adSpend: totalSpend(req.user.id, from, to),
     funnels: funnels.map((f) => ({ id: f.id, name: f.name, published: f.published, ...per(f.id) })).sort((a, b) => b.revenue - a.revenue),
-    recentOrders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 8 }).filter((o) => name[o.funnelId]).map((o) => ({ ...o, funnel: name[o.funnelId] })),
+    recentOrders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 8 }).map((o) => ({ ...o, funnel: name[o.funnelId] || `${o.funnelName || 'Deleted funnel'} (deleted)` })),
   });
 });
 
@@ -548,8 +641,8 @@ app.get('/api/funnels/:id/analytics', auth, (req, res) => {
   const scope = { funnelId: f.id };
   const count = stepCounts(f.id, from);
   res.json({
-    days, totals: totals(scope, from, to), prev: totals(scope, from - days * DAY, from), series: series(scope, from, days), sources: sources(scope, from), byKind: revenueByKind(scope, from),
-    bumpRate: bumpRate(f.id, from),
+    days, totals: totals(scope, from, to), prev: totals(scope, from - days * DAY, from), series: series(scope, from, days, range(req).off), sources: sources(scope, from), byKind: revenueByKind(scope, from),
+    bumpRate: bumpRate(f.id, from), campaigns: campaigns(scope, from, to), refunded: refundsTotal(scope, from, to),
     steps: f.steps.map((s) => ({
       id: s.id, name: s.name, type: s.type, views: count(s.id, 'view'), conversions: count(s.id, 'convert'),
       ab: s.ab?.enabled ? (() => {
@@ -569,24 +662,36 @@ registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerRazorpaySettings(app, { auth, wrap });
 registerDomains(app, { auth });
 registerAutomations(app, { auth, secret: SECRET, appUrl, rateLimit, isTest });
+registerBroadcasts(app, { auth, rateLimit, isTest });
+registerTeam(app, { auth, sign, rateLimit, isTest });
+registerPlans(app, { auth, resolveToken });
 registerHive(app, { auth, sign, port: process.env.PORT || 4000, rateLimit, isTest, appUrl, credits: credits('hive') });
 registerBilling(app, { auth, wrap, rateLimit, isTest });
 registerAdmin(app, { auth, wrap, signAs });
 registerAccount(app, { auth, rateLimit, isTest });
+registerProducts(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl });
+registerTracking(app, { auth, wrap });
+registerSales(app, { auth, wrap, secret: SECRET, appUrl });
 
 const ORDERS_MAX = 5000; // newest first; CSV export covers the same list
 app.get('/api/orders', auth, (req, res) => {
   const name = Object.fromEntries(T.funnels.all({ userId: req.user.id }).map((f) => [f.id, f.name]));
+  const invoices = {};
+  const bases = {}; // one domain lookup per funnel, not per invoice
+  const baseOf = (fid) => (bases[fid] ??= linkBase(fid, process.env.APP_URL || appUrl(req)));
+  for (const i of T.sinvoices.all({ userId: req.user.id }, { order: 'at' })) (invoices[i.orderId] ||= []).push({ id: i.id, number: i.number, type: i.type, total: i.total, url: invoiceUrl(baseOf(i.funnelId), i) });
   res.json({
-    orders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: ORDERS_MAX }).filter((o) => name[o.funnelId]).map((o) => ({ ...o, funnel: name[o.funnelId] })),
+    payments: !!rzpCreds(req.user),
+    orders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: ORDERS_MAX }).map((o) => ({ ...o, funnel: name[o.funnelId] || `${o.funnelName || 'Deleted funnel'} (deleted)`, invoices: invoices[o.id] || [] })),
     abandoned: T.abandoned.all({ userId: req.user.id, recovered: 0 }, { order: 'at', desc: true, limit: ORDERS_MAX }).filter((a) => name[a.funnelId]).map((a) => ({ ...a, funnel: name[a.funnelId] })),
   });
 });
 
 // ---------- public site: prices and company details for the landing, pricing and policy pages ----------
-app.get('/api/site', (_, res) => {
+app.get('/api/site', (req, res) => {
   const p = platform(), pr = pricing();
-  res.json({ brand: p.brand, googleClientId: googleClientId() || null, trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: { name: p.company.name, email: p.company.email, address: p.company.address, state: p.company.state, gstin: p.company.gstin } });
+  const wl = brandForHost(req.hostname); // an agency's own app domain: their brand on the login page
+  res.json({ ...(wl ? { whiteLabel: wl } : {}), pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: { name: p.company.name, email: p.company.email, address: p.company.address, state: p.company.state, gstin: p.company.gstin } });
 });
 
 // ---------- templates ----------
@@ -602,7 +707,13 @@ app.post('/api/templates/:tid/use', auth, (req, res) => {
 app.post('/api/ai/generate', auth, aiLimiter, credits('generate'), wrap(async (req, res) => {
   const { prompt } = req.body;
   if (!prompt || prompt.length < 5) return res.status(400).json({ error: 'Describe your business or offer in a sentence' });
-  const gen = aiEnabled() ? await generateFunnel(prompt) : matchTemplate(prompt);
+  // Hindi pages: the copy is written in Hindi, and the page's built-in words follow (theme.lang)
+  const hindi = req.body.lang === 'hi';
+  const ask = hindi ? `${prompt}
+
+Write every word of the page copy in Hindi (Devanagari script) — natural, conversational Hindi a buyer in India would use. Keep brand names, prices, numbers and units as they are.` : prompt;
+  const gen = aiEnabled() ? await generateFunnel(ask) : matchTemplate(prompt);
+  if (hindi) gen.theme = { ...gen.theme, lang: 'hi', headingFont: gen.theme?.headingFont || 'Mukta', bodyFont: gen.theme?.bodyFont || 'Hind' };
   const usedAI = aiEnabled() && !gen.fallback;
   const quality = gen.quality;
   delete gen.fallback; delete gen.quality;
@@ -639,7 +750,7 @@ app.post('/api/ai/chat', auth, aiLimiter, credits('chat'), wrap(async (req, res)
     });
   }
   const reply = out.reply || (changes.length ? `Done! ${changes.join(' · ')}. Anything else?` : 'I could not find anything to change there.');
-  res.json({ reply, changes, funnel: f, usedAI: aiEnabled() });
+  res.json({ reply, changes, funnel: withKey(f), usedAI: aiEnabled() });
 }));
 
 app.get('/api/ai/agents', auth, (_, res) => res.json(AGENTS));
@@ -648,7 +759,8 @@ app.post('/api/ai/agent', auth, aiLimiter, credits('agent'), wrap(async (req, re
   if (!AGENTS[kind]) return res.status(400).json({ error: 'Unknown agent' });
   const f = ownFunnel(req, funnelId) || T.funnels.find({ userId: req.user.id });
   const hero = f?.steps.flatMap((s) => s.blocks).find((b) => b.type === 'hero')?.props || {};
-  const price = f?.steps.flatMap((s) => s.blocks).find((b) => b.type === 'checkout' || b.type === 'pricing')?.props.price || 999;
+  const priced = f?.steps.flatMap((s) => s.blocks).find((b) => b.type === 'checkout' || b.type === 'pricing')?.props.price;
+  const price = priced || (f?.steps.some((s) => s.blocks.some((b) => b.type === 'form')) ? 'by application (high-ticket — sold on a call)' : f ? 'free (lead generation)' : 999);
   const ctx = { product: f?.name || req.body.product || 'your product', price, headline: (hero.headline || f?.name || '').replace(/\*/g, ''), audience: req.body.audience || 'people', extra };
   res.json(await runAgent(kind, ctx));
 }));
@@ -658,14 +770,14 @@ app.post('/api/ai/agent', auth, aiLimiter, credits('agent'), wrap(async (req, re
 app.post('/api/demo/seed', auth, (req, res) => {
   const userId = req.user.id;
   tx(() => {
-    if (!T.funnels.exists({ userId })) for (const id of ['yoga', 'skincare']) { const t = getTemplate(id); const f = createFunnel(userId, { name: t.name, theme: t.theme, steps: t.steps }); f.demo = true; T.funnels.put(f); }
+    if (!T.funnels.all({ userId }).some((f) => f.demo)) for (const id of ['yoga', 'skincare']) { const t = getTemplate(id); const f = createFunnel(userId, { name: `${t.name} (demo)`, theme: t.theme, steps: t.steps }); f.demo = true; T.funnels.put(f); }
     const SRC = ['facebook', 'facebook', 'instagram', 'instagram', 'google', 'youtube', 'whatsapp', 'direct', 'direct', 'email'];
     const NAMES = ['Rahul Sharma', 'Priya Mehta', 'Ankit Patel', 'Sneha Reddy', 'Vikram Joshi', 'Anjali Kapoor', 'Rohit Das', 'Neha Gupta', 'Arjun Verma', 'Pooja Nair', 'Karan Bhatia', 'Divya Iyer', 'Aman Khan', 'Kavya Rao'];
     const now = Date.now();
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
     const events = [];
     const ev = (e) => events.push({ ...e, userId, demo: true });
-    for (const f of T.funnels.all({ userId })) {
+    for (const f of T.funnels.all({ userId }).filter((x) => x.demo)) {
       f.published = true;
       T.funnels.put(f);
       const base = { funnelId: f.id, userId, demo: true };
@@ -717,8 +829,11 @@ app.delete('/api/demo', auth, (req, res) => {
   tx(() => {
     q('DELETE FROM events WHERE userId = ? AND demo = 1').run(userId);
     for (const t of ['orders', 'leads', 'abandoned']) T[t].delWhere({ userId, demo: 1 });
-    // Funnels the seeder created (and nothing else) are removed too
-    for (const f of T.funnels.all({ userId })) if (f.demo) { deleteFunnel(f); demoFunnels++; }
+    // Funnels the seeder created are removed too — unless real people signed up or bought there, then they're kept as normal funnels
+    for (const f of T.funnels.all({ userId })) if (f.demo) {
+      if (T.orders.exists({ funnelId: f.id }) || T.leads.exists({ funnelId: f.id })) { delete f.demo; f.published = false; T.funnels.put(f); continue; }
+      deleteFunnel(f); demoFunnels++;
+    }
   });
   res.json({ removed: { ...removed, funnels: demoFunnels } });
 });
@@ -726,13 +841,26 @@ app.delete('/api/demo', auth, (req, res) => {
 // ---------- public funnel runtime ----------
 // a funnel is live when it's published and its owner's account still serves pages
 const live = (f, preview) => f && (f.published || preview) && accessFor(T.users.get(f.userId)).pagesLive;
+// Previews of unpublished funnels need the key the editor puts on its preview links (?preview=1&pv=…)
+const draftOk = (f, req) => f && (f.published || (req.query.preview === '1' && validPreviewKey(f, req.query.pv)));
 const pub = (req, res) => {
   const f = T.funnels.find({ slug: req.params.slug });
-  if (!live(f, req.query.preview === '1')) { res.status(404).json({ error: 'This page is not available right now.' }); return null; }
+  if (!draftOk(f, req) || !live(f, req.query.preview === '1')) { res.status(404).json({ error: 'This page is not available right now.' }); return null; }
   return f;
 };
 const isPreview = (req) => req.query.preview === '1';
 const allBlocks = (s) => [...s.blocks, ...(s.ab?.blocks || [])];
+// a paid call is a sale like any other: an order, a GST invoice, the Purchase event
+const bookingSale = (f, pay, paymentId, base) => recordOrder(f, { ...pay.charge, couponObj: null }, pay.buyer, { payment: { id: paymentId, provider: 'razorpay', mode: pay.mode }, verified: true, base: base || pay.base });
+registerBookings(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl, pub, isPreview, allBlocks, sale: bookingSale });
+registerGcal(app, { auth, secret: SECRET, appUrl });
+registerStripeSettings(app, { auth, wrap });
+registerLegal(app, { auth, appUrl });
+registerApi(app, { auth });
+registerAdSpend(app, { auth, wrap });
+registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signFor: sign });
+registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
+registerFulfilment(app, { auth, appUrl });
 
 // Templates ship with a placeholder WhatsApp number. On live pages it becomes the seller's
 // "Support WhatsApp" from Settings; with none set, the button is hidden instead of linking nowhere.
@@ -749,8 +877,12 @@ function resolveWhatsApp(steps, supportNumber) {
   return steps.map((s) => ({ ...s, blocks: fix(s.blocks), ...(s.ab ? { ab: { ...s.ab, blocks: fix(s.ab.blocks || []) } } : {}) }));
 }
 
+// a funnel sells in one currency: its checkout's (₹ by default)
+const funnelIso = (f) => isoOf(f.steps.flatMap((s) => allBlocks(s)).find((b) => b.type === 'checkout')?.props?.currency);
 function publicData(f, owner = T.users.get(f.userId)) {
-  return { name: f.name, slug: f.slug, theme: f.theme, steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: owner?.settings?.tracking || {} };
+  const t = owner?.settings?.tracking || {};
+  const inv = invoicingOf(owner);
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '') } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: { fbPixel: t.fbPixel || '', ga4: t.ga4 || '' }, ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}) };
 }
 app.get('/api/public/:slug', (req, res) => {
   const f = pub(req, res);
@@ -771,7 +903,9 @@ const visitorOf = (req) => (typeof req.body.visitor === 'string' && /^[\w-]{4,64
 app.post('/api/public/:slug/lead', (req, res) => {
   const f = pub(req, res);
   if (!f) return;
-  const { email, name, phone, stepId, source } = req.body;
+  const { email, name, phone, source } = req.body;
+  const stepId = typeof req.body.stepId === 'string' ? req.body.stepId : '';
+  if (!f.steps.some((s) => s.id === stepId)) return res.status(400).json({ error: 'Bad step' });
   const cleanEmail = String(email || '').trim().slice(0, 200);
   const cleanPhone = String(phone || '').trim().slice(0, 40);
   if (cleanEmail && !EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Please enter a valid email address' });
@@ -781,25 +915,47 @@ app.post('/api/public/:slug/lead', (req, res) => {
   if (req.body.fields && typeof req.body.fields === 'object') {
     for (const [k, v] of Object.entries(req.body.fields).slice(0, 30)) fields[String(k).slice(0, 80)] = typeof v === 'boolean' ? v : String(v ?? '').slice(0, 2000);
   }
-  const lead = { id: uid(), userId: f.userId, funnelId: f.id, stepId, email: cleanEmail, name: String(name || '').slice(0, 120), phone: cleanPhone, source: String(source || 'direct').slice(0, 40), visitor: visitorOf(req), at: Date.now(), ...(Object.keys(fields).length ? { fields } : {}) };
-  if (!isPreview(req)) {
+  // applications: the step's form says which answers mean "not a fit" — checked here, not trusted from the browser
+  const step = f.steps.find((s) => s.id === stepId);
+  const low = (v) => String(v ?? '').trim().toLowerCase();
+  const rules = (step ? allBlocks(step) : []).filter((b) => b.type === 'form').flatMap((b) => (b.props.fields || []).filter((fd) => fd.reject).map((fd) => [fd.label, String(fd.reject).split(',').map(low).filter(Boolean)]));
+  // an applicant who skips a qualifying question doesn't pass it
+  const qualified = rules.length ? !rules.some(([label, bad]) => !low(fields[label]) || bad.includes(low(fields[label]))) : undefined;
+  const attr = cleanAttr(req.body.attr);
+  // consent (DPDP): required when the seller asks for a ticked box; recorded with the wording shown
+  const owner = ownerOf(f);
+  if (privacyOf(owner).checkbox && req.body.consent !== true) return res.status(400).json({ error: 'Please tick the box to agree before continuing', consent: false });
+  const consent = req.body.consent === true || req.body.consent === false ? { given: req.body.consent, at: Date.now(), text: consentLine(owner).slice(0, 400) } : null;
+  const lead = { id: uid(), userId: f.userId, funnelId: f.id, stepId, ...(consent ? { consent } : {}), email: cleanEmail, name: String(name || '').slice(0, 120), phone: cleanPhone, source: String(source || 'direct').slice(0, 40), visitor: visitorOf(req), at: Date.now(), ...(Object.keys(fields).length ? { fields } : {}), ...(qualified !== undefined ? { qualified } : {}), ...(attr ? { attr } : {}) };
+  // the browser reports the same Lead with this id, so Meta counts it once
+  const eventId = safeEventId(req.body.eventId) || `lead-${lead.id}`;
+  let access = null, webinar = null;
+  if (isPreview(req)) webinar = previewSession(f, step, allBlocks);
+  else {
     T.leads.insert(lead);
+    // a webinar registration page: this sign-up gets a seat in a session (the next one, or the one they picked)
+    if (qualified !== false) webinar = registrationFor(f, step, allBlocks, req.body, { email: cleanEmail, name: lead.name, phone: cleanPhone, leadId: lead.id, base: appUrl(req) });
     const { userId, ...out } = lead;
-    fireWebhook(f.userId, 'lead.created', { funnel: f.name, ...out });
-    fireAutomation(f.userId, 'lead', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source });
+    // a free product attached to this opt-in / form (lead magnet) — not for applicants who aren't a fit
+    const gift = (step ? allBlocks(step) : []).find((b) => (b.type === 'optin' || b.type === 'form') && b.props?.productId)?.props.productId;
+    if (gift && cleanEmail && qualified !== false) access = deliver({ f, owner: ownerOf(f), email: cleanEmail, name: lead.name, phone: cleanPhone, grants: [{ productId: gift }], leadId: lead.id, base: appUrl(req) });
+    fireWebhook(f.userId, 'lead.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}) });
+    fireAutomation(f.userId, 'lead', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { accessLink: access.library } : {}) });
+    trackServer(f.userId, { name: 'Lead', id: eventId, buyer: lead, tk: cleanTk(req.body.tk, req) });
   }
-  res.json({ ok: true });
+  res.json({ ok: true, eventId, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
 });
 
 app.post('/api/public/:slug/abandon', (req, res) => {
   const f = pub(req, res);
   if (!f) return;
-  const { email, name, phone, stepId } = req.body;
+  const email = String(req.body.email || '').trim().slice(0, 200), name = String(req.body.name || '').slice(0, 120), phone = String(req.body.phone || '').slice(0, 40);
+  const stepId = f.steps.some((s) => s.id === req.body.stepId) ? req.body.stepId : null;
   const ckey = contactKey(email);
-  if (!isPreview(req) && email && EMAIL_RE.test(String(email)) && !T.orders.exists({ funnelId: f.id, ckey })) {
+  if (!isPreview(req) && email && EMAIL_RE.test(email) && !T.orders.exists({ funnelId: f.id, ckey })) {
     const ex = T.abandoned.find({ funnelId: f.id, ckey });
     if (ex) T.abandoned.put(Object.assign(ex, { name: name || ex.name, phone: phone || ex.phone, visitor: ex.visitor || visitorOf(req), at: Date.now() }));
-    else T.abandoned.insert({ id: uid(), userId: f.userId, funnelId: f.id, stepId, email: String(email).slice(0, 200), name: String(name || '').slice(0, 120), phone: String(phone || '').slice(0, 40), visitor: visitorOf(req), at: Date.now(), recovered: false });
+    else { const attr = cleanAttr(req.body.attr); T.abandoned.insert({ id: uid(), userId: f.userId, funnelId: f.id, stepId, email: String(email).slice(0, 200), name: String(name || '').slice(0, 120), phone: String(phone || '').slice(0, 40), visitor: visitorOf(req), at: Date.now(), recovered: false, ...(attr ? { attr } : {}) }); }
   }
   res.json({ ok: true });
 });
@@ -812,7 +968,8 @@ function couponFor(f, code, { email, subtotal } = {}) {
   if (c.maxUses && c.uses >= c.maxUses) return { reason: 'This code has reached its usage limit' };
   if (c.funnelIds?.length && !c.funnelIds.includes(f.id)) return { reason: 'This code can’t be used for this product' };
   if (c.minOrder && subtotal != null && subtotal < c.minOrder) return { reason: `This code needs a minimum order of ₹${c.minOrder.toLocaleString('en-IN')}` };
-  if (c.oncePerCustomer && email && T.orders.all({ userId: f.userId, ckey: contactKey(email) }).some((o) => o.coupon === c.code)) return { reason: 'You’ve already used this code' };
+  if (c.oncePerCustomer && !email) return { reason: 'Enter your email first — this code is one per customer' };
+  if (c.oncePerCustomer && T.orders.all({ userId: f.userId, ckey: contactKey(email) }).some((o) => o.coupon === c.code)) return { reason: 'You’ve already used this code' };
   return { coupon: c };
 }
 // Never more than the price, never negative
@@ -840,32 +997,45 @@ function buildCharge(f, body) {
   if (!step) return { status: 400, error: 'Bad step' };
   const blocks = allBlocks(step);
   const items = [];
-  let discount = 0, usedCoupon = null, couponObj = null;
+  let discount = 0, usedCoupon = null, couponObj = null, plan = null;
   if (blockId) {
     const cs = blocks.find((b) => b.id === blockId && b.type === 'crosssell');
-    const it = cs?.props.items?.[itemIndex];
-    if (!it) return { status: 400, error: 'Item not found' };
-    items.push({ name: it.name, price: Number(it.price) || 0, kind: 'crosssell' });
+    const idx = Number(itemIndex);
+    const it = Number.isInteger(idx) && idx >= 0 && Array.isArray(cs?.props.items) ? cs.props.items[idx] : null;
+    if (!it || typeof it !== 'object' || !it.name) return { status: 400, error: 'Item not found' };
+    items.push({ name: it.name, price: Number(it.price) || 0, kind: 'crosssell', ...(it.productId ? { productId: String(it.productId) } : {}) });
   } else {
     const b = blocks.find((x) => x.type === 'checkout' || x.type === 'offer');
     if (!b) return { status: 400, error: 'Nothing to buy on this step' };
     const p = b.props;
     if (b.type === 'checkout') {
       const price = Number(p.price) || 0;
+      // instalments / membership (Razorpay Subscriptions) — see plans.js
+      plan = planFor(p, body);
+      if (plan?.error) return { status: 400, error: plan.error };
+      if (plan?.type === 'installments' && coupon) return { status: 400, error: 'Coupons apply when you pay in full — remove it to pay in instalments', coupon: false };
       if (coupon) {
         const r = couponFor(f, coupon, { email, subtotal: price });
         // never charge a different amount than the shopper saw: a code that stopped working is reported, not ignored
         if (!r.coupon) return { status: 400, error: `${r.reason} — remove it to continue`, coupon: false };
         discount = discountFor(r.coupon, price); usedCoupon = r.coupon.code; couponObj = r.coupon;
       }
-      items.push({ name: p.productName, price: price - discount, kind: 'main' });
-      if (withBump && p.bumpEnabled) items.push({ name: p.bumpTitle, price: Number(p.bumpPrice) || 0, kind: 'bump' });
-    } else items.push({ name: p.productName || p.headline, price: Number(p.price) || 0, kind: step.type === 'downsell' ? 'downsell' : 'upsell' });
+      if (plan) plan.amount = plan.type === 'installments' ? plan.amount : price - discount;
+      items.push({ name: p.productName, price: plan ? plan.amount : price - discount, kind: 'main', ...(p.productId ? { productId: String(p.productId) } : {}) });
+      if (withBump && p.bumpEnabled) items.push({ name: p.bumpTitle, price: Number(p.bumpPrice) || 0, kind: 'bump', ...(p.bumpProductId ? { productId: String(p.bumpProductId) } : {}) });
+      if (p.shipping === 'address' && Number(p.shippingFee) > 0) items.push({ name: 'Shipping', price: Math.round(Number(p.shippingFee)), kind: 'shipping' });
+      if (body.method === 'cod' && p.cod && Number(p.codFee) > 0) items.push({ name: 'Cash on Delivery fee', price: Math.round(Number(p.codFee)), kind: 'cod_fee' });
+    } else items.push({ name: p.productName || p.headline, price: Number(p.price) || 0, kind: step.type === 'downsell' ? 'downsell' : 'upsell', ...(p.productId ? { productId: String(p.productId) } : {}) });
   }
-  return { step, items, total: items.reduce((a, i) => a + i.price, 0), discount, usedCoupon, couponObj };
+  const chk = blocks.find((x) => x.type === 'checkout')?.props;
+  return { step, items, total: items.reduce((a, i) => a + i.price, 0), discount, usedCoupon, couponObj, ...(plan ? { plan } : {}), needsAddress: !blockId && chk?.shipping === 'address', codAllowed: !blockId && !!chk?.cod };
 }
-// Records a paid charge: a new order, or more items on the buyer's order (upsells, cross-sells)
-function recordOrder(f, charge, buyer, { orderId, preview, payment } = {}) {
+// a checkout that ships something needs a valid address
+const addressError = (charge, buyer) => (charge.needsAddress && !buyer.address ? (buyer.addressError || 'Please enter your delivery address') : null);
+// Records a paid charge: a new order, or more items on the buyer's order (upsells, cross-sells).
+// verified: the money really arrived (Razorpay, or a free order while Razorpay is connected) — only then are
+// products delivered, invoices issued and the sale reported to the ad platforms from the server.
+function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = false, base = '', testMode = false, cod = false } = {}) {
   const now = Date.now();
   const items = charge.items.map((i) => ({ ...i, at: now, ...(payment ? { paymentId: payment.id } : {}) }));
   let order;
@@ -879,22 +1049,46 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment } = {}) {
     tx(() => {
       if (charge.couponObj) T.coupons.update(charge.couponObj.id, (c) => { c.uses = (c.uses || 0) + 1; });
       const ex = orderId && T.orders.get(orderId);
-      if (ex && ex.funnelId === f.id) { order = ex; order.items.push(...items); order.total += charge.total; T.orders.put(order); }
+      if (ex && ex.funnelId === f.id) { order = ex; order.items.push(...items); for (const it of items) it.txn = `${order.id}-${order.items.length}`; order.total += charge.total; T.orders.put(order); }
       else {
-        order = T.orders.insert({ id: uid(), userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}) });
+        const id = uid();
+        for (const it of items) it.txn = `${id}-${items.length}`;
+        order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...(funnelIso(f) !== 'INR' ? { currency: funnelIso(f), fx: fxRate(funnelIso(f)) } : {}) });
         if (buyer.email) for (const a of T.abandoned.all({ funnelId: f.id, ckey: contactKey(buyer.email) })) { a.recovered = true; T.abandoned.put(a); }
       }
     });
     const updated = order.items.length > items.length;
+    const first = order.items.length - items.length;
+    const owner = ownerOf(f);
+    let access = null, invoice = null;
+    if (verified) {
+      const inv = issueInvoice(owner, order, items.map((it, i) => ({ index: first + i, name: it.name, kind: it.kind, amount: it.price })).filter((l) => l.amount > 0), { paymentId: payment?.id || null, gst: order.gst || buyer.gst || (order.address?.state ? { state: order.address.state } : null), test: payment ? payment.mode === 'test' : testMode });
+      invoice = inv ? invoiceUrl(linkBase(f.id, base), inv) : null;
+      const grants = items.map((it, i) => (it.productId ? { productId: it.productId, item: first + i } : null)).filter(Boolean);
+      const delivered = updated && T.access.exists({ orderId: order.id });
+      if (grants.length && order.email) access = deliver({ f, owner, email: order.email, name: order.name, phone: order.phone, grants, orderId: order.id, base, invoiceUrl: invoice, notify: !delivered });
+      else if (invoice && order.email) {
+        const biz = owner.settings?.businessName || f.name;
+        sendEmail(owner, { to: order.email, subject: `Your invoice from ${biz}`, text: `Hi ${String(order.name || '').split(/\s+/)[0] || 'there'},\n\nThank you for your purchase. Your invoice: ${invoice}\n\n— ${biz}` }).catch((e) => console.error('invoice email failed', e.message));
+      }
+      trackServer(f.userId, { name: 'Purchase', id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
+    } else if (cod) {
+      // a Cash on Delivery order is a real sale: reported now; invoiced and delivered when the cash is collected
+      trackServer(f.userId, { name: 'Purchase', id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
+    } else if (items.some((it) => it.productId)) order = T.orders.update(order.id, (o) => { o.undelivered = true; }) || order; // demo checkout: nothing is handed out without a payment
     const { userId, ...out } = order;
-    fireWebhook(f.userId, updated ? 'order.updated' : 'order.created', { funnel: f.name, ...out });
-    fireAutomation(f.userId, updated ? 'offer' : 'purchase', { email: order.email, phone: order.phone, name: order.name, funnelId: f.id, product: items[0]?.name, amount: charge.total, source: order.source });
+    fireWebhook(f.userId, updated ? 'order.updated' : 'order.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}), ...(invoice ? { invoice } : {}) });
+    fireAutomation(f.userId, updated ? 'offer' : 'purchase', { email: order.email, phone: order.phone, name: order.name, funnelId: f.id, product: items[0]?.name, amount: charge.total, source: order.source, ...(access ? { accessLink: access.library } : {}), ...(invoice ? { invoiceLink: invoice } : {}) });
+    return { orderId: order.id, total: order.total, added: charge.total, txn: items[0]?.txn || `${order.id}-${order.items.length}`, discount: charge.discount, preview, ...(access ? { access: access.receipt } : {}), ...(invoice ? { invoice } : {}) };
   }
   // `added` is what this request charged — pixels report that, so upsells aren't double-counted
   return { orderId: order.id, total: order.total, added: charge.total, txn: `${order.id}-${order.items.length}`, discount: charge.discount, preview };
 }
 const ownerOf = (f) => T.users.get(f.userId);
-const buyerOf = (req, b = req.body) => ({ email: String(b.email || '').trim().slice(0, 200), name: String(b.name || '').slice(0, 120), phone: String(b.phone || '').slice(0, 40), source: String(b.source || 'direct').slice(0, 40), visitor: visitorOf(req) });
+const buyerOf = (req, b = req.body) => {
+  const attr = cleanAttr(b.attr), gst = cleanBuyerGst(b.gst), address = cleanAddress(b.address);
+  return { ...(address && !address.error ? { address } : {}), ...(address?.error ? { addressError: address.error } : {}), email: String(b.email || '').trim().slice(0, 200), name: String(b.name || '').slice(0, 120), phone: String(b.phone || '').slice(0, 40), source: String(b.source || 'direct').slice(0, 40), visitor: visitorOf(req), tk: cleanTk(b.tk, req), ...(attr ? { attr } : {}), ...(gst && !gst.error ? { gst } : {}), ...(gst?.error ? { gstError: gst.error } : {}) };
+};
 
 // Demo / preview checkout (no payment provider). Refused once real payments are connected,
 // so nobody can create "paid" orders without paying.
@@ -905,17 +1099,40 @@ app.post('/api/public/:slug/order', (req, res) => {
   if (!preview && rzpCreds(ownerOf(f))) return res.status(409).json({ error: 'This funnel takes payments through Razorpay', provider: 'razorpay' });
   const charge = buildCharge(f, req.body);
   if (charge.error) return res.status(charge.status).json(charge);
-  res.json(recordOrder(f, charge, buyerOf(req), { orderId: req.body.orderId, preview }));
+  const buyer = buyerOf(req);
+  if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
+  if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
+  delete buyer.tk; // nothing is reported to ad platforms from the server for unpaid demo orders
+  res.json(recordOrder(f, charge, buyer, { orderId: req.body.orderId, preview, base: appUrl(req) }));
+});
+
+// ---------- Cash on Delivery ----------
+// Works with or without Razorpay. The order is booked unpaid (status "cod") and settled when it's delivered.
+const codLimiter = rateLimit({ windowMs: 3600000, max: isTest ? 1000 : 10, message: 'Too many orders from this network — please try again later.' });
+app.post('/api/public/:slug/cod', codLimiter, (req, res) => {
+  const f = pub(req, res);
+  if (!f) return;
+  const charge = buildCharge(f, { ...req.body, method: 'cod' });
+  if (charge.error) return res.status(charge.status).json(charge);
+  if (!charge.codAllowed) return res.status(400).json({ error: 'Cash on Delivery isn’t available for this product' });
+  if (charge.plan) return res.status(400).json({ error: 'Instalments and memberships are paid online' });
+  const buyer = buyerOf(req);
+  if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
+  if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
+  if (!/^\d{10}$/.test(String(buyer.phone).replace(/\D/g, '').replace(/^91(?=\d{10}$)/, ''))) return res.status(400).json({ error: 'Please enter your 10-digit mobile number — the courier will call before delivery' });
+  if (isPreview(req)) return res.json(recordOrder(f, charge, buyer, { preview: true }));
+  res.json({ provider: 'cod', ...recordOrder(f, charge, buyer, { cod: true, base: appUrl(req) }) });
 });
 
 // ---------- Razorpay ----------
-function finalizePayment(pay, paymentId) {
+function finalizePayment(pay, paymentId, base) {
+  if (pay.kind === 'booking') { confirmPaidBooking(pay, paymentId, base); return pay.result || null; }
   if (pay.status === 'paid') return pay.result;
   const f = T.funnels.get(pay.funnelId);
   if (!f) return null;
   pay.status = 'paid'; pay.paymentId = paymentId; pay.paidAt = Date.now();
   const charge = { ...pay.charge, couponObj: pay.charge.usedCoupon ? T.coupons.find({ userId: f.userId, code: pay.charge.usedCoupon }) : null };
-  pay.result = recordOrder(f, charge, pay.buyer, { orderId: pay.orderId, payment: { id: paymentId, provider: 'razorpay', mode: pay.mode } });
+  pay.result = recordOrder(f, charge, pay.buyer, { orderId: pay.orderId, payment: { id: paymentId, provider: pay.provider || 'razorpay', mode: pay.mode, ...(pay.plan ? { subId: pay.stripeSub || pay.rzpOrderId } : {}), ...(pay.stripeCustomer ? { customer: pay.stripeCustomer } : {}) }, verified: true, base: base || pay.base });
   T.payments.put(pay);
   return pay.result;
 }
@@ -926,16 +1143,67 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
   const preview = isPreview(req);
   const owner = ownerOf(f);
   const creds = rzpCreds(owner);
-  if (preview || !creds) return res.json({ provider: 'demo' });
+  const prevCod = !preview && req.body.orderId && T.orders.get(req.body.orderId);
+  const onCod = prevCod && prevCod.funnelId === f.id && prevCod.status === 'cod'; // COD works without Razorpay
+  const sc = stripeCreds(owner), iso = funnelIso(f);
+  const prevStripe = prevCod && prevCod.funnelId === f.id && prevCod.stripeCustomer;
+  const useStripe = !!sc && (iso !== 'INR' || !creds || !!prevStripe);
+  if (!onCod && (preview || (!creds && !sc))) return res.json({ provider: 'demo' });
+  if (!onCod && iso !== 'INR' && !sc) return res.status(400).json({ error: `This checkout is priced in ${iso} — card payments in ${iso} need Stripe connected (Settings → Payments)` });
   const charge = buildCharge(f, req.body);
   if (charge.error) return res.status(charge.status).json(charge);
   const buyer = buyerOf(req);
+  if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
+  if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
   const prev = req.body.orderId && T.orders.get(req.body.orderId);
+  // one-click offers after a Cash on Delivery checkout are added to that COD order (paid together on delivery)
+  if (prev && prev.funnelId === f.id && prev.status === 'cod') return res.json({ provider: 'cod', ...recordOrder(f, charge, { ...buyer, email: prev.email, name: prev.name, phone: prev.phone }, { orderId: prev.id, cod: true, base: appUrl(req) }) });
   const orderId = prev && prev.funnelId === f.id ? prev.id : undefined;
   if (orderId && !buyer.email) Object.assign(buyer, { email: prev.email, name: prev.name, phone: prev.phone });
   // nothing to charge (e.g. a 100% coupon): record it straight away
-  if (charge.total <= 0) return res.json({ provider: 'free', ...recordOrder(f, charge, buyer, { orderId }) });
-  const pay = { id: uid(), userId: f.userId, funnelId: f.id, stepId: charge.step.id, orderId, buyer, charge: { items: charge.items, total: charge.total, discount: charge.discount, usedCoupon: charge.usedCoupon }, mode: creds.mode, status: 'created', at: Date.now() };
+  if (charge.total <= 0) return res.json({ provider: 'free', ...recordOrder(f, charge, buyer, { orderId, verified: true, base: appUrl(req), testMode: (useStripe ? sc : creds).mode === 'test' }) });
+  const pay = { id: uid(), userId: f.userId, funnelId: f.id, stepId: charge.step.id, orderId, buyer, charge: { items: charge.items, total: charge.total, discount: charge.discount, usedCoupon: charge.usedCoupon }, mode: (useStripe ? sc : creds).mode, status: 'created', at: Date.now(), base: appUrl(req), ...(useStripe ? { provider: 'stripe', currency: iso } : {}) };
+  // the buyer pressed Pay on the checkout: InitiateCheckout, with the browser's event id so Meta counts it once
+  if (!orderId && charge.items[0]?.kind === 'main') trackServer(f.userId, { name: 'InitiateCheckout', id: safeEventId(req.body.eventId) || `ic-${pay.id}`, value: charge.total, currency: funnelIso(f), items: charge.items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer, tk: buyer.tk });
+  if (useStripe) {
+    const description = charge.items.map((i) => i.name).join(' + ');
+    try {
+      if (charge.plan) {
+        if (orderId) return res.status(400).json({ error: 'Instalments and memberships can’t be added to an earlier order' });
+        pay.plan = charge.plan; pay.charge.plan = charge.plan;
+        const r = await startStripeSubscription(sc, { userId: f.userId, pay, iso, buyer, plan: charge.plan, name: charge.items[0].name });
+        Object.assign(pay, { stripeSub: r.subscription, stripeCustomer: r.customer, rzpOrderId: r.subscription });
+        T.payments.insert(pay);
+        return res.json(r);
+      }
+      // one-click: the card saved at checkout
+      if (prevStripe) {
+        pay.stripeCustomer = prevStripe;
+        const pi = await chargeSaved(sc, { pay, iso, customer: prevStripe, description });
+        if (pi?.status === 'succeeded') { Object.assign(pay, { stripeIntent: pi.id, rzpOrderId: pi.id }); T.payments.insert(pay); return res.json({ provider: 'stripe', ...finalizePayment(pay, pi.id, appUrl(req)) }); }
+      }
+      if (!orderId && charge.items[0]?.kind === 'main') trackServer(f.userId, { name: 'InitiateCheckout', id: safeEventId(req.body.eventId) || `ic-${pay.id}`, value: charge.total, currency: funnelIso(f), items: charge.items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer, tk: buyer.tk });
+      const r = await startStripePayment(sc, { userId: f.userId, pay, iso, buyer, description });
+      Object.assign(pay, { stripeIntent: r.intent, stripeCustomer: r.customer, rzpOrderId: r.intent });
+      T.payments.insert(pay);
+      return res.json({ ...r, amount: charge.total, currency: iso, name: (owner.settings || {}).businessName || f.name, description, color: f.theme?.primary || '#6366f1' });
+    } catch (e) {
+      console.error('Stripe payment failed', e.message);
+      return res.status(502).json({ error: 'Card payments are temporarily unavailable — please try again in a minute' });
+    }
+  }
+  if (charge.plan) {
+    if (orderId) return res.status(400).json({ error: 'Instalments and memberships can’t be added to an earlier order' });
+    let sub;
+    try { sub = await startSubscription(creds, { userId: f.userId, charge, payId: pay.id, funnelName: f.name }); } catch (e) {
+      console.error('Razorpay subscription failed', e.message);
+      return res.status(502).json({ error: e.status === 400 ? `Payment plans need Subscriptions turned on in your Razorpay account (${e.message})` : 'Payments are temporarily unavailable — please try again in a minute' });
+    }
+    pay.rzpOrderId = sub.id; pay.plan = charge.plan; pay.charge.plan = charge.plan;
+    T.payments.insert(pay);
+    const s = owner.settings || {};
+    return res.json({ provider: 'razorpay', payment: pay.id, key: creds.keyId, subscription_id: sub.id, name: s.businessName || f.name, description: `${charge.items[0].name} — ${charge.plan.type === 'installments' ? `${charge.plan.count} monthly payments` : `billed ${charge.plan.interval}`}`.slice(0, 250), prefill: { name: buyer.name, email: buyer.email, contact: buyer.phone }, color: f.theme?.primary || '#6366f1' });
+  }
   let rzp;
   try { rzp = await rzpCreateOrder(creds, { amount: Math.round(charge.total * 100), receipt: pay.id, notes: { funnel: f.name.slice(0, 200), payment: pay.id } }); } catch (e) {
     console.error('Razorpay order failed', e.message);
@@ -957,10 +1225,42 @@ app.post('/api/public/:slug/pay/verify', (req, res) => {
   const pay = T.payments.get(req.body.payment);
   if (!pay || pay.funnelId !== f.id) return res.status(404).json({ error: 'Payment not found' });
   const creds = rzpCreds(ownerOf(f));
-  const { razorpay_order_id: oid, razorpay_payment_id: pid, razorpay_signature: sig } = req.body;
+  const { razorpay_order_id: oid, razorpay_payment_id: pid, razorpay_signature: sig, razorpay_subscription_id: sid } = req.body;
+  if (pay.plan) {
+    if (!creds || sid !== pay.rzpOrderId || !validSubscription(creds.secret, sid, pid, sig)) return res.status(400).json({ error: 'We couldn’t confirm this payment. If money was deducted it will be refunded automatically — please contact the seller.' });
+    return res.json(finalizePayment(pay, pid, appUrl(req)));
+  }
   if (!creds || oid !== pay.rzpOrderId || !validPayment(creds.secret, oid, pid, sig)) return res.status(400).json({ error: 'We couldn’t confirm this payment. If money was deducted it will be refunded automatically — please contact the seller.' });
-  res.json(finalizePayment(pay, pid));
+  res.json(finalizePayment(pay, pid, appUrl(req)));
 });
+// Stripe: the Payment Element confirmed on the page — read it back from Stripe before it counts
+app.post('/api/public/:slug/pay/stripe/verify', wrap(async (req, res) => {
+  const f = pub(req, res);
+  if (!f) return;
+  const pay = T.payments.get(req.body.payment);
+  if (!pay || pay.funnelId !== f.id || pay.provider !== 'stripe') return res.status(404).json({ error: 'Payment not found' });
+  if (pay.status === 'paid') return res.json(pay.result);
+  const sc = stripeCreds(ownerOf(f));
+  const id = sc && await confirmedIntent(sc, pay).catch(() => null);
+  if (!id) return res.status(400).json({ error: 'We couldn’t confirm this payment yet. If money was deducted it will be refunded automatically — please contact the seller.' });
+  res.json(finalizePayment(pay, id, appUrl(req)));
+}));
+app.post('/api/stripe/webhook/:uid', wrap(async (req, res) => {
+  const owner = T.users.get(req.params.uid);
+  const sc = owner && stripeCreds(owner);
+  const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
+  if (!sc?.webhookSecret || !validStripeWebhook(sc.webhookSecret, raw, req.headers['stripe-signature'])) return res.status(400).json({ error: 'Invalid signature' });
+  let ev;
+  try { ev = JSON.parse(raw); } catch { return res.status(400).json({ error: 'Bad JSON' }); }
+  const obj = ev.data?.object || {};
+  // a one-time payment (or a subscription's first invoice) that the browser never reported back
+  if (ev.type === 'payment_intent.succeeded' && obj.metadata?.payment) {
+    const pay = T.payments.get(obj.metadata.payment);
+    if (pay && pay.userId === owner.id && pay.status !== 'paid' && await confirmedIntent(sc, pay).catch(() => null)) finalizePayment(pay, obj.id, appUrl(req));
+  }
+  if ((ev.type.startsWith('invoice.') || ev.type.startsWith('customer.subscription.')) && (obj.subscription || obj.object === 'subscription')) syncStripePlan(obj.subscription || obj.id, { finalize: finalizePayment, base: appUrl(req) });
+  res.json({ received: true });
+}));
 // 3. Webhook backup: Razorpay → /api/razorpay/webhook/<seller id>, signed with the webhook secret
 app.post('/api/razorpay/webhook/:uid', (req, res) => {
   const owner = T.users.get(req.params.uid);
@@ -973,8 +1273,11 @@ app.post('/api/razorpay/webhook/:uid', (req, res) => {
     const entity = ev.payload?.payment?.entity || {};
     const oid = entity.order_id || ev.payload?.order?.entity?.id;
     const pay = oid && T.payments.find({ rzpOrderId: oid, userId: owner.id });
-    if (pay && entity.id) finalizePayment(pay, entity.id);
+    if (pay && entity.id) finalizePayment(pay, entity.id, appUrl(req));
   }
+  // refunds made in the Razorpay dashboard are recorded here too (access removed, credit note, reports)
+  if (String(ev.event).startsWith('subscription.')) onSubscriptionEvent(ev, { finalize: finalizePayment, base: appUrl(req) });
+  if (['refund.processed', 'refund.created'].includes(ev.event) && ev.payload?.refund?.entity) refundFromWebhook(owner, ev.payload.refund.entity);
   res.json({ ok: true }); // always 200 for events we don't use, so Razorpay doesn't retry them
 });
 
@@ -1015,7 +1318,7 @@ app.get(['/f/:slug', '/f/:slug/:step'], (req, res, next) => {
   if (!indexHtml) return next();
   const f = T.funnels.find({ slug: req.params.slug });
   const preview = isPreview(req);
-  if (!f || (!f.published && !preview)) return next();
+  if (!f || !draftOk(f, req)) return next();
   renderFunnel(req, res, f, req.params.step, { preview });
 });
 function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } = {}) {
@@ -1023,7 +1326,7 @@ function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } 
   const owner = ownerOf(f);
   if (!accessFor(owner).pagesLive) return res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not available</title><p style="font:16px system-ui;padding:40px;text-align:center">This page isn’t available right now.</p>');
   const base = domain ? `https://${domain}` : appUrl(req);
-  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}]);
+  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin)]);
   let html = cacheGet(key);
   if (!html) {
     html = renderHtml(f, owner, stepSlug, { domain, preview, base });

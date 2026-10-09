@@ -2,6 +2,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, register } from './helpers.mjs';
+// checkouts of physical products ask where to ship
+const ADDR = { line1: '4 Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' };
 
 let srv, api, T, funnel;
 before(async () => {
@@ -30,9 +32,17 @@ test('health endpoint for Docker / load balancers', async () => {
   assert.equal(h.data.ok, true);
 });
 
-test('templates: 53 listed, each loads with a hero', async () => {
+test('templates: 103 listed (53 sales, 25 VSL + application, 25+ webinar), each loads with a hero', async () => {
   const list = (await api('/templates')).data;
-  assert.equal(list.length, 53);
+  assert.equal(list.length, 103);
+  assert.equal(list.filter((t) => t.type === 'vsl').length, 25);
+  assert.ok(list.filter((t) => t.type === 'webinar').length >= 25);
+  assert.ok(list.every((t) => t.hero?.type === 'hero'));
+  const vsl = (await api('/templates/v-founders')).data;
+  assert.deepEqual(vsl.steps.map((s) => s.type), ['sales', 'optin', 'thankyou']);
+  assert.ok(vsl.steps[1].blocks.find((b) => b.type === 'form').props.fields.some((f) => f.reject), 'the application screens applicants');
+  const web = (await api('/templates/w-ai')).data;
+  assert.deepEqual(web.steps.map((s) => s.type), ['optin', 'thankyou', 'sales', 'checkout', 'upsell', 'thankyou']);
   const t = (await api('/templates/yoga')).data;
   assert.deepEqual(t.steps.map((s) => s.type), ['sales', 'checkout', 'upsell', 'downsell', 'thankyou']);
 });
@@ -91,7 +101,7 @@ test('public runtime: checkout + bump + coupon, upsell, cross-sell', async () =>
   const co = pub.steps.find((s) => s.type === 'checkout');
   const chk = co.blocks.find((b) => b.type === 'checkout').props;
   assert.equal((await api(`/public/${funnel.slug}/coupon`, 'POST', { code: 'SAVE10' })).data.valid, true);
-  const o = (await api(`/public/${funnel.slug}/order`, 'POST', { stepId: co.id, email: 'b@x.dev', withBump: true, coupon: 'SAVE10' })).data;
+  const o = (await api(`/public/${funnel.slug}/order`, 'POST', { stepId: co.id, email: 'b@x.dev', withBump: true, coupon: 'SAVE10', address: ADDR })).data;
   const disc = Math.round(chk.price * 0.1);
   assert.equal(o.total, chk.price - disc + chk.bumpPrice);
   const up = pub.steps.find((s) => s.type === 'upsell');
@@ -114,7 +124,7 @@ test('public runtime: leads, events, abandoned carts recovered by purchase', asy
   await api(`/public/${funnel.slug}/abandon`, 'POST', { stepId: co.id, email: 'ab@x.dev', name: 'Ab' });
   let d = (await api('/orders', 'GET', null, T)).data;
   assert.ok(d.abandoned.some((a) => a.email === 'ab@x.dev'));
-  await api(`/public/${funnel.slug}/order`, 'POST', { stepId: co.id, email: 'ab@x.dev' });
+  await api(`/public/${funnel.slug}/order`, 'POST', { stepId: co.id, email: 'ab@x.dev', address: ADDR });
   d = (await api('/orders', 'GET', null, T)).data;
   assert.ok(!d.abandoned.some((a) => a.email === 'ab@x.dev'));
   const contacts = (await api('/contacts', 'GET', null, T)).data;

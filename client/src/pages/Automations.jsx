@@ -5,6 +5,7 @@ import {
   ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History,
 } from 'lucide-react';
 import { api } from '../api';
+import { useBizTz, zoneCity } from '../tzfmt';
 import { Layout, Panel, Empty, Modal, toast, ago, num } from '../ui';
 
 const BRANCH_KEYS = { condition: ['yes', 'no'], split: ['a', 'b'] };
@@ -303,7 +304,7 @@ function Builder({ id }) {
           {s.type === 'wait' && <>
             <div className="seg sm"><button className={s.mode !== 'until' ? 'on' : ''} onClick={() => update(path, i, { mode: 'duration', amount: s.amount || 1, unit: s.unit || 'days' })}>For a while</button><button className={s.mode === 'until' ? 'on' : ''} onClick={() => update(path, i, { mode: 'until', time: s.time || '10:00' })}>Until a time of day</button></div>
             {s.mode === 'until'
-              ? <div className="au-inline">Wait until <input type="time" value={s.time || '10:00'} onChange={(e) => update(path, i, { time: e.target.value })} /> India time, then continue <span className="muted sm">— e.g. so WhatsApp doesn’t arrive at night</span></div>
+              ? <div className="au-inline">Wait until <input type="time" value={s.time || '10:00'} onChange={(e) => update(path, i, { time: e.target.value })} /> {zoneCity(window.__FF_BIZ_TZ__ || 'Asia/Kolkata')} time, then continue <span className="muted sm">— e.g. so WhatsApp doesn’t arrive at night</span></div>
               : <div className="au-inline">Wait <input type="number" min="1" value={s.amount ?? 1} onChange={(e) => update(path, i, { amount: e.target.value })} /><select value={s.unit || 'days'} onChange={(e) => update(path, i, { unit: e.target.value })}><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option></select> then continue</div>}
           </>}
           {(s.type === 'email' || s.type === 'notify') && <>
@@ -410,7 +411,7 @@ function Builder({ id }) {
                 {!dateFields.length && <p className="hint warn">Create a date field first (e.g. “Birthday” or “Renewal date”) in <Link to="/contacts">Contacts → Custom fields</Link>, and fill it in on your contacts.</p>}
                 <div className="au-inline">Start <input type="number" min="0" max="365" value={Math.abs(a.trigger.offsetDays || 0)} onChange={(e) => setTrigger({ offsetDays: (a.trigger.offsetDays < 0 ? -1 : 1) * Math.abs(Number(e.target.value) || 0) })} /> days
                   <select value={!a.trigger.offsetDays ? 'on' : a.trigger.offsetDays < 0 ? 'before' : 'after'} onChange={(e) => { const n = Math.abs(a.trigger.offsetDays || 1); setTrigger({ offsetDays: e.target.value === 'on' ? 0 : e.target.value === 'before' ? -n : n }); }}><option value="before">before</option><option value="on">— on the day</option><option value="after">after</option></select>
-                  the date, at <input type="time" value={a.trigger.time || '10:00'} onChange={(e) => setTrigger({ time: e.target.value })} /> India time</div>
+                  the date, at <input type="time" value={a.trigger.time || '10:00'} onChange={(e) => setTrigger({ time: e.target.value })} /> {zoneCity(window.__FF_BIZ_TZ__ || 'Asia/Kolkata')} time</div>
                 <label className="tog"><input type="checkbox" checked={!!a.trigger.yearly} onChange={(e) => setTrigger({ yearly: e.target.checked })} /><span />Every year (birthdays, anniversaries)</label>
               </>}
               {a.trigger.type === 'manual' && <p className="hint">Add people from their contact screen, or select many in Contacts → “Add to automation”.</p>}

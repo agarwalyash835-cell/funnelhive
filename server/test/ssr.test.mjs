@@ -44,8 +44,13 @@ test('unpublished funnels are not rendered; previews are noindex', { skip: !buil
   const d = (await api('/funnels', 'POST', { name: 'Secret draft' }, T)).data;
   const live = await page(`/f/${d.slug}`);
   assert.doesNotMatch(live.html, /Secret draft|__FUNNEL__/);
-  const pv = await page(`/f/${d.slug}?preview=1`);
+  const guess = await page(`/f/${d.slug}?preview=1`);
+  assert.doesNotMatch(guess.html, /Secret draft|__FUNNEL__/, 'a draft can’t be read by guessing its slug');
+  assert.equal((await api(`/public/${d.slug}?preview=1`)).status, 404);
+  const { previewKey } = (await api(`/funnels/${d.id}`, 'GET', null, T)).data;
+  const pv = await page(`/f/${d.slug}?preview=1&pv=${previewKey}`);
   assert.match(pv.html, /<meta name="robots" content="noindex">/);
+  assert.equal((await api(`/public/${d.slug}?preview=1&pv=${previewKey}`)).status, 200);
 });
 
 test('funnel content cannot break out of the HTML (XSS)', { skip: !built && 'client not built' }, async () => {

@@ -1,0 +1,9 @@
+{
+  "name": "funnelhive-zapier",
+  "version": "1.0.0",
+  "description": "FunnelHive for Zapier — triggers for leads, orders and bookings; actions for contacts, tags, automations and product access",
+  "main": "index.js",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "dependencies": { "zapier-platform-core": "15.19.0" }
+}
