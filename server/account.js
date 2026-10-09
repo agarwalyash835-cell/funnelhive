@@ -5,6 +5,7 @@ import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { newBilling } from './billing.js';
 import { s3Enabled, deletePrefix } from './storage.js';
+import { dropRollups } from './rollup.js';
 import { T, q, tx, dir as DATA_DIR } from './db.js';
 
 const OWNED = ['funnels', 'revisions', 'leads', 'orders', 'abandoned', 'coupons', 'webhooks', 'saved', 'crm', 'pipelines', 'automations', 'runs', 'domains', 'msgs', 'payments', 'hive', 'mcptokens', 'products', 'access', 'portals', 'downloads', 'conversions', 'calendars', 'bookings', 'webinars', 'registrations', 'broadcasts', 'bsends', 'apikeys', 'hooksubs', 'stripecust', 'rzplans', 'activity', 'adspend'];
@@ -15,6 +16,7 @@ export function exportAccount(userId) {
   const out = { exportedAt: new Date().toISOString(), account: strip(u) };
   for (const t of OWNED) out[t] = T[t].all({ userId }).map(({ hash, tokenHash, tokenEnc, ...r }) => r);
   out.events = q('SELECT funnelId, stepId, type, variant, source, visitor, at FROM events WHERE userId = ? ORDER BY at').all(userId);
+  out.pageViewsByDay = q('SELECT funnelId, stepId, type, variant, source, day, n FROM pv_days WHERE userId = ? ORDER BY day').all(userId); // older page views, as daily totals
   out.invoices = T.invoices.all({ userId });
   out.salesInvoices = T.sinvoices.all({ userId });
   return out;
@@ -31,6 +33,7 @@ export function deleteAccount(userId) {
     for (const a of T.automations.all({ userId })) T.autoversions.delWhere({ automationId: a.id });
     for (const t of OWNED) T[t].delWhere({ userId });
     q('DELETE FROM events WHERE userId = ?').run(userId);
+    dropRollups.user(userId);
     T.members.delWhere({ ownerId: userId }); // their team
     T.members.delWhere({ userId }); // teams they were on
     q('DELETE FROM usage WHERE userId = ?').run(userId);

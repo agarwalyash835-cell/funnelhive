@@ -47,6 +47,7 @@ import { planFor, startSubscription, validSubscription, onSubscriptionEvent, reg
 import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
 import { registerObserve, requestMetrics, reportError } from './observe.js';
 import { sellerTz, offsetAt, validTz, COMMON_TZ } from './tz.js';
+import { dropRollups, trimRollups } from './rollup.js';
 import { registerWebinars, registrationFor, previewSession } from './webinars.js';
 
 const SECRET = loadSecret(DATA_DIR);
@@ -606,6 +607,7 @@ function deleteFunnel(f) {
     for (const t of ['leads', 'orders']) for (const r of T[t].all({ funnelId: f.id })) if (!r.funnelName) { r.funnelName = f.name; T[t].put(r); }
     for (const t of ['abandoned', 'revisions']) T[t].delWhere({ funnelId: f.id });
     q('DELETE FROM events WHERE funnelId = ?').run(f.id);
+    dropRollups.funnel(f.id);
   });
   renderCache.clear();
 }
@@ -828,6 +830,7 @@ app.delete('/api/demo', auth, (req, res) => {
   let demoFunnels = 0;
   tx(() => {
     q('DELETE FROM events WHERE userId = ? AND demo = 1').run(userId);
+    dropRollups.demo(userId);
     for (const t of ['orders', 'leads', 'abandoned']) T[t].delWhere({ userId, demo: 1 });
     // Funnels the seeder created are removed too — unless real people signed up or bought there, then they're kept as normal funnels
     for (const f of T.funnels.all({ userId })) if (f.demo) {
@@ -1288,7 +1291,8 @@ function housekeeping() {
   const now = Date.now();
   q("DELETE FROM payments WHERE status IS NOT 'paid' AND at < ?").run(now - 30 * DAY);
   // in batches so a large delete never holds the database for long
-  for (let i = 0; i < 50; i++) if (!q('DELETE FROM events WHERE id IN (SELECT id FROM events WHERE at < ? ORDER BY at LIMIT 5000)').run(now - EVENTS_KEEP_DAYS * DAY).changes) break;
+  // page views: rollup.js folds old raw rows into daily totals; the totals are trimmed after EVENTS_KEEP_DAYS
+  trimRollups(now - EVENTS_KEEP_DAYS * DAY).catch((e) => console.error('page-view totals trim failed', e.message));
 }
 if (JOBS && !isTest) { setTimeout(housekeeping, 60000).unref(); setInterval(housekeeping, 6 * 3600000).unref(); }
 

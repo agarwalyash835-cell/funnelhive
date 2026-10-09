@@ -108,6 +108,10 @@ Optional infrastructure settings (server/.env):
   `/api/health` returns 503 when the database or the background jobs stop.
 - `SENTRY_DSN` — server errors go to Sentry. `LOG_REQUESTS=1` — one JSON log line per request.
 - `BROADCAST_SHARED_DAILY` (default 300) — daily broadcast-email cap for sellers on the shared mail server.
+- `EVENTS_RAW_DAYS` (default 90) — page views are kept one row each for this long, then folded into daily totals per
+  funnel / step / source / A-B variant (in each seller's time zone) and deleted, so the database stops growing with
+  traffic. Reports give the same numbers; unique visitors on days older than the window become the sum of daily uniques.
+  `EVENTS_KEEP_DAYS` (default 400) — how long the daily totals are kept.
 
 Each record is stored on its own with indexed columns; reports are aggregated inside SQLite. `npm start` runs one app
 process per CPU core (max 4, `WEB_CONCURRENCY`); one of them runs background jobs, and automation steps / webhooks are

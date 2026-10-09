@@ -302,7 +302,9 @@ if (fs.existsSync(legacyJson) && T.users.count() === 0 && T.funnels.count() === 
 }
 if (v0 < 2) sql.exec('PRAGMA user_version = 2');
 // planner statistics (sampled, so it stays quick on big databases)
-sql.exec('PRAGMA analysis_limit = 1000; PRAGMA optimize = 0x10002;');
+// several processes open the database at once (cluster start): if another one is busy, skip — the hourly
+// PRAGMA optimize below catches up; a busy database must never stop a process from starting
+try { sql.exec('PRAGMA analysis_limit = 1000; PRAGMA optimize = 0x10002;'); } catch (e) { if (!/locked|busy/i.test(e.message)) throw e; }
 
 // ---------- maintenance ----------
 // Flush the write-ahead log on shutdown
