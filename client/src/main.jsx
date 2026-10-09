@@ -38,6 +38,9 @@ import './styles.css';
 import './page-variants.css';
 import './page-premium.css';
 import './app-products.css';
+import './glass.css';
+import { applyLook } from './ui';
+applyLook();
 
 const Private = ({ children }) => (loggedIn() ? children : <Navigate to="/login" />);
 

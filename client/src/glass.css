@@ -1,0 +1,150 @@
+/* =====================================================================
+   LIQUID GLASS — the app's look (dashboard, sign-in, editor chrome).
+   Translucent, blurred surfaces with a specular edge over a soft colour field.
+   Only applies with <html class="glass"> and only inside the app's own containers, so
+   sellers' funnel pages, buyer pages and the editor canvas are never touched.
+   The sidebar toggle (or localStorage ff_ui = "classic") switches back to the classic look.
+   ===================================================================== */
+html.glass .app, html.glass .auth, html.glass .ed-top, html.glass .ed-left, html.glass .ed-right {
+  --g-fill: rgba(255, 255, 255, .58);
+  --g-fill-2: rgba(255, 255, 255, .38);
+  --g-fill-strong: rgba(255, 255, 255, .78);
+  --g-edge: rgba(255, 255, 255, .75);
+  --g-hair: rgba(20, 24, 54, .08);
+  --g-blur: blur(22px) saturate(180%);
+  --g-spec: inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 -1px 0 rgba(255, 255, 255, .25);
+  --g-shadow: 0 1px 1px rgba(20, 24, 54, .04), 0 10px 30px -12px rgba(30, 34, 90, .22);
+  --c-surface: var(--g-fill-strong); --c-surface-2: var(--g-fill-2); --c-line: var(--g-hair); --c-line-2: rgba(20, 24, 54, .055);
+  --c-accent-soft: rgba(91, 91, 246, .12); --c-ok-soft: rgba(15, 157, 88, .12); --c-warn-soft: rgba(245, 158, 11, .14); --c-bad-soft: rgba(220, 38, 38, .1);
+  --r-sm: 11px; --r: 16px; --r-lg: 22px;
+  --sh-1: var(--g-shadow); --sh-2: 0 2px 4px rgba(20, 24, 54, .04), 0 18px 40px -14px rgba(30, 34, 90, .3);
+}
+
+/* the colour field the glass sits on */
+html.glass .app, html.glass .auth { position: relative; isolation: isolate; background: #eef0fb; }
+html.glass .app::before, html.glass .auth-form::before {
+  content: ''; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(42% 38% at 12% 8%, rgba(129, 140, 248, .55), transparent 70%),
+    radial-gradient(38% 34% at 92% 6%, rgba(236, 72, 153, .32), transparent 70%),
+    radial-gradient(46% 40% at 78% 92%, rgba(56, 189, 248, .38), transparent 70%),
+    radial-gradient(40% 36% at 6% 96%, rgba(167, 139, 250, .4), transparent 70%),
+    linear-gradient(160deg, #f3f4ff, #eef2fb 45%, #f6f0fb);
+  filter: saturate(115%);
+  animation: glassDrift 40s ease-in-out infinite alternate;
+}
+@keyframes glassDrift { to { transform: translate3d(2%, -2%, 0) scale(1.04); } }
+
+/* one recipe for every glass surface */
+html.glass .app :is(.panel, .kpi, .fcard, .empty, .tcard, .ai-card, .plan-card, .credits, .bill-form, .how, .search, .seg, .app-banner, .verify-banner, .trial-chip),
+html.glass .app .m-box, html.glass .ed-top, html.glass .ed-left, html.glass .ed-right {
+  background: var(--g-fill); backdrop-filter: var(--g-blur); -webkit-backdrop-filter: var(--g-blur);
+  border: 1px solid var(--g-edge); box-shadow: var(--g-spec), var(--g-shadow);
+}
+html.glass .app .panel, html.glass .app .kpi, html.glass .app .fcard { border-radius: var(--r-lg); }
+html.glass .app .panel-h { border-bottom-color: var(--c-line-2); }
+html.glass .app .kpi.warn { background: linear-gradient(180deg, rgba(255, 244, 224, .75), var(--g-fill)); }
+html.glass .app .fcard:hover { box-shadow: var(--g-spec), var(--sh-2); }
+
+/* the sidebar: a floating pane of frosted glass */
+html.glass .app { grid-template-columns: 260px 1fr; }
+html.glass .side {
+  margin: 12px 0 12px 12px; height: calc(100vh - 24px); top: 12px; border-radius: 26px; padding: 18px 12px;
+  background: rgba(255, 255, 255, .5); color: var(--c-ink-2);
+  backdrop-filter: blur(28px) saturate(190%); -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid var(--g-edge); box-shadow: var(--g-spec), 0 20px 50px -20px rgba(30, 34, 90, .35);
+}
+html.glass .side .brand { color: var(--c-ink); }
+html.glass .side nav a { color: var(--c-ink-2); border-radius: 13px; }
+html.glass .side nav a:hover { background: rgba(255, 255, 255, .55); color: var(--c-ink); }
+html.glass .side nav a.active {
+  color: var(--c-accent); background: rgba(255, 255, 255, .85);
+  box-shadow: inset 0 1px 0 #fff, 0 6px 18px -8px rgba(91, 91, 246, .45);
+}
+html.glass .side .ai-status { background: rgba(255, 255, 255, .5); color: var(--c-muted); }
+html.glass .side .ai-status.on { color: #7c3aed; }
+html.glass .side .me { border-color: rgba(255, 255, 255, .7); background: rgba(255, 255, 255, .4); }
+html.glass .side .me b { color: var(--c-ink); }
+html.glass .side .me small { color: var(--c-muted); }
+html.glass .side .me .icon-btn { color: var(--c-muted); }
+html.glass .side .me .icon-btn:hover { background: rgba(255, 255, 255, .7); color: var(--c-ink); }
+html.glass .side-foot .trial-chip { color: var(--c-ink-2); }
+
+/* controls */
+html.glass .app :is(input, textarea, select), html.glass .auth :is(input, textarea, select), html.glass :is(.ed-left, .ed-right, .ed-top) :is(input, textarea, select) {
+  background: rgba(255, 255, 255, .62); border-color: rgba(20, 24, 54, .1); box-shadow: inset 0 1px 2px rgba(20, 24, 54, .04);
+}
+html.glass .app :is(input, textarea, select):focus, html.glass .auth :is(input, textarea, select):focus, html.glass :is(.ed-left, .ed-right, .ed-top) :is(input, textarea, select):focus {
+  background: rgba(255, 255, 255, .9); border-color: rgba(91, 91, 246, .55); box-shadow: 0 0 0 4px rgba(91, 91, 246, .14);
+}
+html.glass .app .search input { background: transparent; box-shadow: none; }
+html.glass :is(.app, .auth, .ed-top, .ed-left, .ed-right) .btn { border-radius: 999px; }
+html.glass :is(.app, .auth, .ed-top, .ed-left, .ed-right) .btn.primary {
+  background: linear-gradient(135deg, rgba(99, 102, 241, .92), rgba(168, 85, 247, .92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -2px 6px rgba(76, 29, 149, .25), 0 10px 24px -10px rgba(91, 91, 246, .7);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+html.glass :is(.app, .auth, .ed-top, .ed-left, .ed-right) .btn.ghost {
+  background: rgba(255, 255, 255, .55); border-color: var(--g-edge); box-shadow: var(--g-spec), 0 4px 12px -6px rgba(30, 34, 90, .2);
+  backdrop-filter: blur(14px) saturate(170%); -webkit-backdrop-filter: blur(14px) saturate(170%);
+}
+html.glass :is(.app, .auth, .ed-top, .ed-left, .ed-right) .btn.ghost:hover { background: rgba(255, 255, 255, .8); }
+html.glass :is(.app, .ed-top, .ed-left, .ed-right) .icon-btn { border-radius: 12px; }
+html.glass :is(.app, .ed-top, .ed-left, .ed-right) .icon-btn:hover { background: rgba(255, 255, 255, .7); }
+html.glass .app .seg { border-radius: 999px; padding: 3px; }
+html.glass .app .seg button { border-radius: 999px; }
+html.glass .app .seg button.on { background: rgba(255, 255, 255, .92); box-shadow: inset 0 1px 0 #fff, 0 3px 10px -4px rgba(30, 34, 90, .3); }
+html.glass .app .pill { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+
+/* tables */
+html.glass .app .tbl th { background: rgba(255, 255, 255, .35); }
+html.glass .app .tbl tbody tr:hover { background: rgba(255, 255, 255, .45); }
+
+/* modals: frosted scrim, glass sheet */
+html.glass .app .m-scrim { background: rgba(30, 34, 70, .28); backdrop-filter: blur(10px) saturate(140%); -webkit-backdrop-filter: blur(10px) saturate(140%); }
+html.glass .app .m-box { background: rgba(255, 255, 255, .72); border-radius: 28px; }
+html.glass .app .m-head { border-bottom-color: var(--c-line-2); }
+
+/* topbar & content breathe a little more */
+html.glass .topbar { padding-top: 26px; }
+html.glass .tb-title h1 { letter-spacing: -.03em; }
+
+/* sign-in: the form floats on glass beside the art panel */
+html.glass .auth-form { position: relative; isolation: isolate; overflow: hidden; }
+html.glass .auth-form::before { position: absolute; }
+html.glass .auth-form form {
+  background: var(--g-fill); backdrop-filter: var(--g-blur); -webkit-backdrop-filter: var(--g-blur);
+  border: 1px solid var(--g-edge); box-shadow: var(--g-spec), var(--g-shadow); border-radius: 28px; padding: 30px 28px; max-width: 420px;
+}
+html.glass .auth-quote { backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 20px; }
+
+/* editor chrome (not the canvas) */
+html.glass .ed { background: #eef0fb; }
+html.glass .ed-top { margin: 8px 8px 0; border-radius: 18px; }
+html.glass .ed-cols { gap: 8px; padding: 8px; }
+html.glass .ed-left, html.glass .ed-right { border-radius: 18px; overflow: hidden; }
+html.glass .ed-canvas { border-radius: 18px; }
+
+/* mobile: the sidebar slides in as a sheet */
+@media (max-width: 1000px) {
+  html.glass .app { grid-template-columns: 1fr; }
+  html.glass .side { margin: 0; top: 0; height: 100vh; border-radius: 0 26px 26px 0; }
+  html.glass .ed-top { margin: 0; border-radius: 0; }
+}
+
+/* no blur support, or the person asked for less transparency: solid frosted surfaces */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html.glass .app, html.glass .auth, html.glass .ed-top, html.glass .ed-left, html.glass .ed-right { --g-fill: rgba(255, 255, 255, .92); --g-fill-2: rgba(255, 255, 255, .8); }
+  html.glass .side { background: rgba(255, 255, 255, .93); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  html.glass .app, html.glass .auth, html.glass .ed-top, html.glass .ed-left, html.glass .ed-right { --g-fill: rgba(255, 255, 255, .95); --g-fill-2: rgba(255, 255, 255, .88); --g-fill-strong: #fff; }
+  html.glass .side { background: rgba(255, 255, 255, .96); }
+}
+@media (prefers-reduced-motion: reduce) { html.glass .app::before, html.glass .auth-form::before { animation: none; } }
+
+/* short screens: the menu scrolls, the account row always stays in view */
+html.glass .side nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; margin: 0 -4px; padding: 0 4px 8px; }
+html.glass .side nav::-webkit-scrollbar { display: none; }
+html.glass .side nav a { padding: 8px 10px; }
+html.glass .side-foot { flex: none; padding-top: 8px; }

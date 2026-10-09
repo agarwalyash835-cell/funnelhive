@@ -77,7 +77,7 @@ code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-si
 .side nav a { display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 9px; font-weight: 500; font-size: 13.5px; transition: background .15s, color .15s; }
 .side nav a:hover { background: var(--c-side-2); color: #fff; }
 .side nav a.active { background: linear-gradient(90deg, rgba(91, 91, 246, .22), rgba(91, 91, 246, .06)); color: #fff; box-shadow: inset 2px 0 0 var(--c-accent); }
-.side-foot { margin-top: auto; display: grid; gap: 12px; }
+.side-foot { margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .ai-status { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 8px 10px; border-radius: 9px; background: var(--c-side-2); }
 .ai-status.on { color: #c4b5fd; }
 .me { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; border: 1px solid var(--c-side-2); }
