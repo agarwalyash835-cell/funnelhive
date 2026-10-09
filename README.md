@@ -136,6 +136,10 @@ one batch per second per process (`EVENTS_FLUSH_MS`). Reproduce with `server/scr
 ## Data, backups, security
 - SQLite database at `DATA_DIR/funnelhive.db` (WAL journal; older databases and `data.json` are upgraded automatically on start).
 - Online backups every 6 hours to `DATA_DIR/backups` (one per day, last 7 kept; Admin → Back up now); uploads in `DATA_DIR/uploads`. Copy backups off the server too.
+- **Restore drill** (do it monthly): `node server/scripts/restore-drill.mjs` (or `--bucket` for the off-site copy)
+  checks the newest backup and boots the app on a throwaway copy with background jobs off — nothing is sent.
+- **Smoke test** after every deploy: `node server/scripts/smoke.mjs https://app.yourdomain.com [--funnel <slug>] [--token $METRICS_TOKEN]`
+  — read-only; exits 1 if health, pages, the app bundle or public APIs fail.
 - Sessions are signed with `JWT_SECRET` (auto-generated and stored if unset); password changes/resets sign out other devices.
 - Rate limits on login, public endpoints and AI; same-origin CORS; security headers; optional TOTP 2-step login.
 - Email verification and password reset links are emailed via Resend when `RESEND_API_KEY` is set, otherwise printed in the server log.
