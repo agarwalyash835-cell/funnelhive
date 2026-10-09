@@ -1743,3 +1743,29 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 /* sign-up honeypot (bots fill it, people never see it) and the Turnstile check */
 .auth-form .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 .auth-form .ts-box { margin: 4px 0 12px; min-height: 65px; }
+
+/* quotes: the seller's editor and the client's page */
+.q-items input { width: 100%; }
+.q-items .sub-in { margin-top: 4px; font-size: 12px; }
+.quote-pub { max-width: 760px; }
+.quote-pub h1 { margin: 6px 0 10px; }
+.quote-pub .q-for, .quote-pub .q-small { color: #6b7280; font-size: 14px; }
+.quote-pub .q-note { background: #fef3c7; color: #92400e; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
+.quote-pub .q-intro, .quote-pub .q-terms p { white-space: pre-wrap; line-height: 1.6; }
+.quote-pub .q-tbl { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 15px; }
+.quote-pub .q-tbl th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; border-bottom: 1px solid #e5e7eb; padding: 8px 6px; }
+.quote-pub .q-tbl td { padding: 10px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+.quote-pub .q-tbl td small { display: block; color: #6b7280; margin-top: 2px; white-space: pre-wrap; }
+.quote-pub .q-tbl .r { text-align: right; }
+.quote-pub .q-tbl .tot td { font-weight: 700; border-bottom: 0; }
+.quote-pub .q-terms { background: #f8fafc; border-radius: 10px; padding: 12px 16px; margin: 16px 0; }
+.quote-pub .q-terms h3 { margin: 0 0 6px; font-size: 14px; }
+.quote-pub .q-pay { text-align: center; margin: 28px 0 16px; }
+.quote-pub .q-btn { background: var(--primary, #6366f1); color: #fff; border: 0; border-radius: 12px; padding: 14px 26px; font-size: 16px; font-weight: 700; cursor: pointer; max-width: 100%; }
+.quote-pub .q-btn:disabled { opacity: .6; cursor: default; }
+.quote-pub .q-link { background: none; border: 0; color: #6b7280; text-decoration: underline; cursor: pointer; margin-top: 6px; }
+.quote-pub .q-state { padding: 14px; border-radius: 10px; background: #f1f5f9; font-weight: 600; margin: 8px 0; }
+.quote-pub .q-state.ok { background: #dcfce7; color: #166534; }
+.q-edit .form2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 14px; }
+.q-edit .fld input, .q-edit .fld select, .q-edit .fld textarea { width: 100%; }
+.q-items td input[type=number] { min-width: 60px; }

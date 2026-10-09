@@ -33,6 +33,7 @@ import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId } from '
 import { registerSales, issueInvoice, invoiceUrl, invoicingOf, cleanInvoicing, cleanBuyerGst, refundFromWebhook, INVOICING_DEFAULTS } from './sales.js';
 import { linkBase } from './products.js';
 import { registerBookings, confirmPaidBooking } from './bookings.js';
+import { registerQuotes, confirmQuotePayment } from './quotes.js';
 import { registerGcal } from './gcal.js';
 import { stripeCreds, isoOf, startStripePayment, startStripeSubscription, chargeSaved, confirmedIntent, validStripeWebhook, registerStripeSettings } from './stripe.js';
 import { fxRate } from './fx.js';
@@ -697,7 +698,7 @@ app.get('/api/orders', auth, (req, res) => {
   for (const i of T.sinvoices.all({ userId: req.user.id }, { order: 'at' })) (invoices[i.orderId] ||= []).push({ id: i.id, number: i.number, type: i.type, total: i.total, url: invoiceUrl(baseOf(i.funnelId), i) });
   res.json({
     payments: !!rzpCreds(req.user),
-    orders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: ORDERS_MAX }).map((o) => ({ ...o, funnel: name[o.funnelId] || `${o.funnelName || 'Deleted funnel'} (deleted)`, invoices: invoices[o.id] || [] })),
+    orders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: ORDERS_MAX }).map((o) => ({ ...o, funnel: name[o.funnelId] || (o.quoteId ? o.funnelName : `${o.funnelName || 'Deleted funnel'} (deleted)`), invoices: invoices[o.id] || [] })),
     abandoned: T.abandoned.all({ userId: req.user.id, recovered: 0 }, { order: 'at', desc: true, limit: ORDERS_MAX }).filter((a) => name[a.funnelId]).map((a) => ({ ...a, funnel: name[a.funnelId] })),
   });
 });
@@ -869,6 +870,7 @@ const allBlocks = (s) => [...s.blocks, ...(s.ab?.blocks || [])];
 // a paid call is a sale like any other: an order, a GST invoice, the Purchase event
 const bookingSale = (f, pay, paymentId, base) => recordOrder(f, { ...pay.charge, couponObj: null }, pay.buyer, { payment: { id: paymentId, provider: pay.provider || 'razorpay', mode: pay.mode, currency: pay.currency || 'INR', ...(pay.stripeCustomer ? { customer: pay.stripeCustomer } : {}) }, verified: true, base: base || pay.base });
 registerBookings(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl, pub, isPreview, allBlocks, sale: bookingSale });
+registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerGcal(app, { auth, secret: SECRET, appUrl });
 registerStripeSettings(app, { auth, wrap });
 registerLegal(app, { auth, appUrl });
@@ -1143,6 +1145,7 @@ app.post('/api/public/:slug/cod', codLimiter, (req, res) => {
 // ---------- Razorpay ----------
 function finalizePayment(pay, paymentId, base) {
   if (pay.kind === 'booking') { confirmPaidBooking(pay, paymentId, base); return pay.result || null; }
+  if (pay.kind === 'quote') return confirmQuotePayment(pay, paymentId, base);
   if (pay.status === 'paid') return pay.result;
   const f = T.funnels.get(pay.funnelId);
   if (!f) return null;

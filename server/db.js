@@ -95,6 +95,7 @@ const SCHEMA = {
   bookings: { cols: { userId: 0, calendarId: 0, ckey: (b) => contactKey(b.email, b.phone), status: 0, start: 0, at: 0 }, index: [['calendarId', 'start'], ['userId', 'start'], ['status', 'start'], ['userId', 'ckey']] },
   // webinars (schedule + joining link) and the people registered for each session
   webinars: { cols: { userId: 0, funnelId: 0, at: 0 }, index: [['userId', 'at'], ['funnelId']] },
+  quotes: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // proposals with a pay link
   registrations: { cols: { userId: 0, webinarId: 0, ckey: (r) => contactKey(r.email, r.phone), session: 0, at: 0 }, index: [['webinarId', 'session'], ['session'], ['userId', 'at'], ['webinarId', 'ckey']] },
   // GST invoices and credit notes a seller issues to their buyers
   sinvoices: { cols: { userId: 0, orderId: 0, number: 0, at: 0 }, unique: [['userId', 'number']], index: [['userId', 'at'], ['orderId']] },

@@ -56,4 +56,9 @@ test('funnel and image limits: trial defaults from the admin, raised for one sel
   const d = (await api(`/admin/users/${sellerId}`, 'GET', null, admin)).data;
   assert.deepEqual([d.limits.funnels, d.limits.storageMB, d.usage.funnels], [50, 10, have + 2]);
   assert.ok(d.usage.storageMB >= 0);
+  // an agency's client accounts can be raised for that agency alone
+  assert.equal((await api(`/admin/users/${sellerId}/action`, 'POST', { action: 'set_limits', agencyClients: 40 }, admin)).status, 200);
+  assert.equal((await api(`/admin/users/${sellerId}`, 'GET', null, admin)).data.limits.agencyClients, 40);
+  assert.equal((await api('/agency', 'GET', null, seller)).data.limit, 40);
+  assert.equal((await api(`/admin/users/${sellerId}/action`, 'POST', { action: 'set_limits', agencyClients: 0 }, admin)).status, 400);
 });

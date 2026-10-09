@@ -95,6 +95,7 @@ const NAV = [
   ['/bookings', 'clock', 'Bookings'],
   ['/webinars', 'play', 'Webinars'],
   ['/orders', 'cart', 'Orders'],
+  ['/quotes', 'receipt', 'Quotes'],
   ['/agency', 'layers', 'Agency'],
   ['/settings', 'settings', 'Settings'],
   ['/billing', 'card', 'Plan & billing'],

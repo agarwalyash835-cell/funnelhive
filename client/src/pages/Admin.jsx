@@ -123,8 +123,8 @@ function SellerModal({ id, onClose, onChange }) {
   const [u, setU] = useState(null);
   const [days, setDays] = useState(7);
   const [limit, setLimit] = useState('');
-  const [lim, setLim] = useState({ funnels: '', storageMB: '' });
-  const load = () => api(`/admin/users/${id}`).then((x) => { setU(x); setLimit(x.creditLimit ?? ''); setLim({ funnels: x.limitOverrides?.funnels ?? '', storageMB: x.limitOverrides?.storageMB ?? '' }); });
+  const [lim, setLim] = useState({ funnels: '', storageMB: '', agencyClients: '' });
+  const load = () => api(`/admin/users/${id}`).then((x) => { setU(x); setLimit(x.creditLimit ?? ''); setLim({ funnels: x.limitOverrides?.funnels ?? '', storageMB: x.limitOverrides?.storageMB ?? '', agencyClients: x.limitOverrides?.agencyClients ?? '' }); });
   useEffect(() => { load(); }, [id]);
   const act = async (action, extra = {}, msg) => {
     try {
@@ -151,7 +151,7 @@ function SellerModal({ id, onClose, onChange }) {
         <div className="seller-actions">
           <div className="row"><input type="number" min="1" max="365" value={days} onChange={(e) => setDays(e.target.value)} style={{ width: 80 }} /><button className="btn ghost sm" onClick={() => act('extend_trial', { days }, `Trial extended by ${days} days`)}>Extend trial</button></div>
           <div className="row"><input type="number" min="0" placeholder="Plan default" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 120 }} /><button className="btn ghost sm" onClick={() => act('set_credits', { limit }, 'AI credit limit saved')}>Set AI credits</button></div>
-          <div className="row"><input type="number" min="0" placeholder={`Funnels (${u.limits.funnels})`} value={lim.funnels} onChange={(e) => setLim({ ...lim, funnels: e.target.value })} style={{ width: 130 }} /><input type="number" min="0" placeholder={`Images MB (${u.limits.storageMB})`} value={lim.storageMB} onChange={(e) => setLim({ ...lim, storageMB: e.target.value })} style={{ width: 150 }} /><button className="btn ghost sm" onClick={() => act('set_limits', lim, 'Limits saved')}>Set limits</button></div>
+          <div className="row"><input type="number" min="0" placeholder={`Funnels (${u.limits.funnels})`} value={lim.funnels} onChange={(e) => setLim({ ...lim, funnels: e.target.value })} style={{ width: 130 }} /><input type="number" min="0" placeholder={`Images MB (${u.limits.storageMB})`} value={lim.storageMB} onChange={(e) => setLim({ ...lim, storageMB: e.target.value })} style={{ width: 150 }} /><input type="number" min="1" placeholder={`Client accounts (${u.limits.agencyClients})`} value={lim.agencyClients} onChange={(e) => setLim({ ...lim, agencyClients: e.target.value })} style={{ width: 170 }} /><button className="btn ghost sm" onClick={() => act('set_limits', lim, 'Limits saved')}>Set limits</button></div>
           <div className="row">
             {u.access.status === 'comped' ? <button className="btn ghost sm" onClick={() => act('uncomp')}>End free access</button> : <button className="btn ghost sm" onClick={() => { const note = prompt('Reason for free access (e.g. partner, beta tester)?', ''); if (note !== null) act('comp', { note }, 'Free access granted'); }}>Give free access</button>}
             {u.access.status === 'suspended' ? <button className="btn ghost sm" onClick={() => act('unsuspend')}>Unsuspend</button> : <button className="btn ghost sm danger" onClick={() => { const note = prompt('Reason for suspending (pages go offline and the seller is signed out)?', ''); if (note !== null) act('suspend', { note }, 'Seller suspended'); }}>Suspend</button>}

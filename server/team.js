@@ -29,7 +29,7 @@ const ANY = /^\/api\/(me$|team\/(workspaces|switch|leave|accept)$|hive\/status$)
 const SECRET = /^\/api\/(settings|webhooks|keys|adspend\/meta|v1\/hooks|hive\/tokens|channels\/|domains|demo|conversions\/[^/]+\/retry)/;
 const WRITE = {
   marketer: /^\/api\/(funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|contacts|pipelines|crm\/|products|calendars|webinars|bookings)/,
-  sales: /^\/api\/(contacts|pipelines|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$)/,
+  sales: /^\/api\/(contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$)/,
   viewer: null,
 };
 // reading anything AI-driven goes through the AI routes, which act as the owner: not for sales / viewers

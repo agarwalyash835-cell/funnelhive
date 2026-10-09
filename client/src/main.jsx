@@ -16,6 +16,8 @@ import Library from './pages/Library';
 import SaleInvoice from './pages/SaleInvoice';
 import Bookings from './pages/Bookings';
 import BookingManage from './pages/BookingManage';
+import Quotes from './pages/Quotes';
+import QuotePublic from './pages/QuotePublic';
 import Webinars from './pages/Webinars';
 import Broadcasts from './pages/Broadcasts';
 import { AcceptInvite } from './pages/Team';
@@ -79,6 +81,8 @@ createRoot(document.getElementById('root')).render(onDomain ? (
       <Route path="/invoice/:id" element={<SaleInvoice />} />
       <Route path="/bookings" element={<Private><Bookings /></Private>} />
       <Route path="/booking/:id" element={<BookingManage />} />
+      <Route path="/quotes" element={<Private><Quotes /></Private>} />
+      <Route path="/q/:id" element={<QuotePublic />} />
       <Route path="/webinars" element={<Private><Webinars /></Private>} />
       <Route path="/broadcasts" element={<Private><Broadcasts /></Private>} />
       <Route path="/developers" element={<Private><Developers /></Private>} />

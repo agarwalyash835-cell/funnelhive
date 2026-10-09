@@ -333,6 +333,24 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Found ${r.length} booking${r.length === 1 ? '' : 's'}`,
   },
   {
+    name: 'create_quote',
+    description: 'Write a quote / proposal with a private pay link for a client (consulting, coaching, done-for-you work): client name + email, title, intro, line items [{name, detail, qty, price}], currency (INR default; USD, EUR, GBP, AUD, CAD, SGD, AED), deposit % paid first (0 = full), validDays, terms. Returns the link. It is NOT emailed unless send is true — only set send when the user explicitly asks to send it.',
+    schema: S({ clientName: str('Client name'), clientEmail: str('Client email'), clientCompany: str('Company (optional)'), title: str('Proposal title'), intro: str('What you’ll do and the outcome'), items: arr('Line items [{name, detail, qty, price}]'), currency: str('INR, USD, EUR, GBP, AUD, CAD, SGD or AED'), deposit: num('Deposit % paid first, 0 = full payment'), validDays: num('Days the quote is valid (default 14)'), terms: str('Payment / delivery terms'), send: bool('Email the link to the client now') }, ['clientName', 'title', 'items']),
+    run: async (ctx, a) => {
+      const q = await ctx.call('POST', '/quotes', { client: { name: a.clientName, email: a.clientEmail || '', company: a.clientCompany || '' }, title: a.title, intro: a.intro || '', items: a.items, currency: a.currency || 'INR', deposit: a.deposit || 0, validDays: a.validDays || 14, terms: a.terms || '' });
+      if (!q.items.length) throw new Error('Add at least one line item with a name and price');
+      const sent = a.send && a.clientEmail ? await ctx.call('POST', `/quotes/${q.id}/send`, {}) : null;
+      return { ok: true, id: q.id, number: q.number, total: q.total, currency: q.currency, firstPayment: q.due, link: q.link, sent: !!sent };
+    },
+    summary: (r) => `${r.sent ? 'Sent' : 'Created'} quote ${r.number} (${r.currency} ${r.total})`,
+  },
+  {
+    name: 'list_quotes', description: 'Quotes / proposals with their status (draft, sent, viewed, deposit_paid, paid, declined, expired), totals and pay links.',
+    schema: S({}),
+    run: async (ctx) => (await ctx.call('GET', '/quotes')).slice(0, 30).map((q) => ({ number: q.number, title: q.title, client: q.client.name, total: q.total, paid: q.paid, currency: q.currency, status: q.status, link: q.link })),
+    summary: (r) => `Found ${r.length} quote${r.length === 1 ? '' : 's'}`,
+  },
+  {
     name: 'configure_webinar',
     description: 'Schedule a webinar behind a registration funnel: schedule {type: weekly (days ["sun"], times ["19:00"]) | daily (times, show = sessions to choose from) | once (dates ["2026-11-02T19:00"])}, timezone (IANA), duration (min), joinUrl (Zoom / Meet / YouTube Live), replayUrl, replayHours, reminder emails {day, hour, live, replay}. Identify it by funnelId or webinarId.',
     schema: S({ funnelId: str('Registration funnel id'), webinarId: str('Webinar id'), name: str('Webinar name'), schedule: obj('{ type, days, times, dates, show }'), timezone: str('IANA time zone'), duration: num('Minutes'), joinUrl: str('https:// link'), replayUrl: str('https:// link'), replayHours: num('Replay available hours (0 = always)'), emails: obj('{ day, hour, live, replay } booleans') }),
@@ -434,6 +452,7 @@ How to work:
 - Selling → configure_checkout: price & currency (₹ = Razorpay/UPI; $ € £ etc. = Stripe for buyers abroad), memberships (billing monthly/yearly), EMI-style payment plans (installments), order bump, shipping + Cash on Delivery for physical products, and the product delivered after payment (create_product / list_products first).
 - Calls → configure_calendar (hours, duration, time zone, meeting link, price and currency for paid calls, refund window); list_bookings. Webinars → configure_webinar (schedule, time zone, joining link, replay, reminders).
 - Numbers → get_sales (revenue, refunds, ROAS by campaign, COD to collect, orders to ship, failing payment plans) or get_analytics (traffic and conversion).
+- Custom work for one client (consulting, coaching packages, agency retainers) → create_quote: a proposal with line items, an optional deposit and a private pay link; send it only when asked. list_quotes shows who has paid.
 - Contacts → find_contacts / tag_contacts. Broadcasts → draft_broadcast ALWAYS first and tell the user who it reaches; call send_broadcast only when the user explicitly says to send or schedule that draft.
 - Agencies → list_clients, copy_funnel_to_client. Account → update_business (time zone, WhatsApp, consent banner / tick box).
 - Sellers can be anywhere: use the user's currency and time zone when they mention them (e.g. a US coach → $ and America/New_York); default to India (₹, IST) otherwise.

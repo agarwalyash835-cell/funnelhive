@@ -9,6 +9,7 @@ import { deleteAccount } from './account.js';
 import { saveIntlSettings, intlSettingsView } from './billing-intl.js';
 import { fxRate } from './fx.js';
 import { limitsFor, usageFor, saveLimits, LIMIT_DEFAULTS } from './limits.js';
+import { clientLimit } from './agency.js';
 import { DAY, localDate } from './time.js';
 
 const startedAt = Date.now();
@@ -80,7 +81,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (!u) return;
     const since = Date.now() - 30 * DAY;
     res.json({
-      ...row(u), billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: limitsFor(u), limitOverrides: u.limits || {}, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
+      ...row(u), billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(u.agencyMaxClients ? { agencyClients: u.agencyMaxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
       counts: {
         funnels: T.funnels.count({ userId: u.id }), published: q("SELECT COUNT(*) AS n FROM funnels WHERE userId = ? AND json_extract(data, '$.published') = 1").get(u.id).n,
         contacts: T.crm.count({ userId: u.id }), leads: T.leads.count({ userId: u.id }), automations: T.automations.count({ userId: u.id }), domains: T.domains.count({ userId: u.id }),
@@ -111,7 +112,11 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         // per-seller override of the plan's funnel / image-storage limits; empty = plan default
         const o = {};
         for (const k of ['funnels', 'storageMB']) { const v = req.body[k]; if (v === '' || v == null) continue; const n = Math.round(Number(v)); if (!(n >= 0 && n <= 10000000)) return res.status(400).json({ error: 'Enter valid numbers' }); o[k] = n; }
-        T.users.update(u.id, (x) => { if (Object.keys(o).length) x.limits = o; else delete x.limits; });
+        // an agency's client accounts (empty = what its plan includes)
+        const mc = req.body.agencyClients === '' || req.body.agencyClients == null ? null : Math.round(Number(req.body.agencyClients));
+        if (mc !== null && !(mc >= 1 && mc <= 10000)) return res.status(400).json({ error: 'Enter a number of client accounts between 1 and 10,000' });
+        T.users.update(u.id, (x) => { if (Object.keys(o).length) x.limits = o; else delete x.limits; if (mc) x.agencyMaxClients = mc; else delete x.agencyMaxClients; });
+        if (mc) o.agencyClients = mc;
         detail = Object.keys(o).length ? JSON.stringify(o) : 'plan default'; break;
       }
       case 'make_admin': T.users.update(u.id, (x) => { x.role = 'admin'; }); break;

@@ -75,6 +75,9 @@ API**, and add `https://<APP_URL>/api/google/calendar/callback` as an authorised
 Bookings → Calendars: busy times block slots and every booking is added with a Google Meet link.
 
 ### Agencies, teams, API, privacy
+- **Quotes** (consultants, coaches, done-for-you work): line items, any currency, an optional deposit, valid-until and
+  terms; the client opens a private link and pays (Razorpay for ₹, Stripe by card otherwise), then the balance later.
+  Each payment is an order with an invoice. Hive AI can write them (`create_quote`).
 - **Teams**: Settings → Team (admin, marketer, sales, viewer). `TEAM_MAX` (default 25).
 - **Agency plan**: Admin → Plan & settings sets its price and how many client accounts it includes. Agencies manage
   client accounts from **Agency**, white-label the app (name, logo, colour, their own app domain — pointed at this
