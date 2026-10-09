@@ -334,7 +334,9 @@ export async function backupNow() {
   try {
     fs.mkdirSync(backupDir, { recursive: true });
     const f = path.join(backupDir, `funnelhive-${new Date().toISOString().slice(0, 10)}.db`);
-    if (!fs.existsSync(f)) {
+    // every run refreshes today's file (one per day, holding that day's latest state) — skipping it when the
+    // file existed froze each day at its first backup and left the rest of the day unprotected
+    {
       const tmp = `${f}.partial`;
       for (const x of [tmp, `${tmp}-journal`]) fs.rmSync(x, { force: true });
       await snapshotTo(tmp);
