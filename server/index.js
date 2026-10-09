@@ -903,7 +903,7 @@ const funnelIso = (f) => isoOf(f.steps.flatMap((s) => allBlocks(s)).find((b) => 
 function publicData(f, owner = T.users.get(f.userId)) {
   const t = owner?.settings?.tracking || {};
   const inv = invoicingOf(owner);
-  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '') } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: { fbPixel: t.fbPixel || '', ga4: t.ga4 || '' }, ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}) };
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '') } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: { fbPixel: t.fbPixel || '', ga4: t.ga4 || '' }, ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}) };
 }
 app.get('/api/public/:slug', (req, res) => {
   const f = pub(req, res);
@@ -1117,7 +1117,7 @@ app.post('/api/public/:slug/order', (req, res) => {
   const f = pub(req, res);
   if (!f) return;
   const preview = isPreview(req);
-  if (!preview && rzpCreds(ownerOf(f))) return res.status(409).json({ error: 'This funnel takes payments through Razorpay', provider: 'razorpay' });
+  if (!preview && (rzpCreds(ownerOf(f)) || stripeCreds(ownerOf(f)))) return res.status(409).json({ error: 'This funnel takes real payments', provider: rzpCreds(ownerOf(f)) ? 'razorpay' : 'stripe' });
   const charge = buildCharge(f, req.body);
   if (charge.error) return res.status(charge.status).json(charge);
   const buyer = buyerOf(req);
@@ -1341,7 +1341,8 @@ app.get(['/f/:slug', '/f/:slug/:step'], (req, res, next) => {
   if (!indexHtml) return next();
   const f = T.funnels.find({ slug: req.params.slug });
   const preview = isPreview(req);
-  if (!f || !draftOk(f, req)) return next();
+  // an unknown or unpublished funnel is a real 404 (not a 200 page search engines would index)
+  if (!f || !draftOk(f, req)) return res.status(404).set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace('<!--ff-head-->', '<meta name="robots" content="noindex">'));
   renderFunnel(req, res, f, req.params.step, { preview });
 });
 function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } = {}) {
@@ -1349,7 +1350,7 @@ function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } 
   const owner = ownerOf(f);
   if (!accessFor(owner).pagesLive) return res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not available</title><p style="font:16px system-ui;padding:40px;text-align:center">This page isn’t available right now.</p>');
   const base = domain ? `https://${domain}` : appUrl(req);
-  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin)]);
+  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin), !!rzpCreds(owner), !!stripeCreds(owner)]);
   let html = cacheGet(key);
   if (!html) {
     html = renderHtml(f, owner, stepSlug, { domain, preview, base });
@@ -1364,7 +1365,9 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
   // Same rule as the browser: SEO title → this step's headline → step + funnel name
   const title = step.seo?.title || plain(step.blocks.find((b) => b.type === 'hero')?.props.headline) || `${step.name} · ${f.name}`;
   const desc = step.seo?.description || plain(hero.subheadline) || f.name;
-  const img = hero.image ? (/^https?:/.test(hero.image) ? hero.image : (CDN_URL && hero.image.startsWith('/uploads/') ? CDN_URL : base) + hero.image) : '';
+  // link-preview picture: the hero's image, else the first picture on this step
+  const pic = hero.image || step.blocks.map((b) => b.props?.image || b.props?.photo || b.props?.images?.[0]?.src || b.props?.items?.find?.((i) => i?.image)?.image).find((x) => typeof x === 'string' && x) || '';
+  const img = pic ? (/^https?:/.test(pic) ? pic : (CDN_URL && pic.startsWith('/uploads/') ? CDN_URL : base) + pic) : '';
   // canonical address: the custom domain when one is connected
   const url = domain ? `${base}${step === data.steps[0] ? '/' : `/${step.slug}`}` : funnelUrl(f, base, step === data.steps[0] ? null : step.slug);
   const head = [
@@ -1400,8 +1403,10 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
 }
 
 if (indexHtml) {
-  app.use(express.static(dist, { index: false }));
-  app.get('*', (_, res) => res.type('html').send(indexHtml));
+  // the build's files carry a content hash in their names (/assets/index-AbC123.js): cache them for a year;
+  // everything else (index.html, favicon…) is revalidated so a new deploy shows up straight away
+  app.use(express.static(dist, { index: false, setHeaders: (res, file) => { if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); } }));
+  app.get('*', (_, res) => res.set('Cache-Control', 'no-cache').type('html').send(indexHtml));
 }
 
 const port = process.env.PORT || 4000;

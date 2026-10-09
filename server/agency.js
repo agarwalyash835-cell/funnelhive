@@ -15,7 +15,7 @@ import { totals, sources } from './analytics.js';
 import { copyProduct } from './products.js';
 import { funnelLimitError } from './limits.js';
 import { randomToken, hashToken } from './security.js';
-import { sendMail, appUrl } from './mail.js';
+import { sendMail, appUrl, mailEnabled } from './mail.js';
 
 const DAY = 86400000;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -147,7 +147,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     T.users.update(c.id, (x) => { x.email = email; x.resetHash = hashToken(token); x.resetExp = Date.now() + 7 * DAY; x.invitedAt = Date.now(); });
     const b = brandFor(req.user)?.brand || platform().brand;
     await sendMail({ to: email, subject: `Your ${b} account is ready`, text: `Hi,\n\n${req.user.settings?.whiteLabel?.brand || req.user.settings?.businessName || req.user.name} has set up your ${b} account for ${c.settings?.businessName || ''}.\n\nChoose your password to log in (link valid for 7 days):\n${process.env.APP_URL || appUrl(req)}/reset?token=${token}\n` }).catch(() => {});
-    res.json({ ok: true, ...(process.env.NODE_ENV === 'test' ? { token } : {}) });
+    res.json({ ok: true, ...(process.env.NODE_ENV === 'test' ? { token } : {}), ...(mailEnabled() ? {} : { link: `${process.env.APP_URL || appUrl(req)}/reset?token=${token}` }) });
   });
   // hand the account over: the client becomes independent (their own trial / plan); the agency stays on its team
   app.post('/api/agency/clients/:cid/detach', auth, (req, res) => {

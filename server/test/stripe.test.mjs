@@ -143,3 +143,9 @@ test('a USD membership: first invoice on the page, renewals from the signed webh
   assert.equal(c.plan.cancelAtEnd, true);
   assert.equal(sub.cancel_at_period_end, true);
 });
+
+test('with Stripe connected the free demo order is refused (no bypassing the card form)', async () => {
+  const r = await api(`/public/${f.slug}/order`, 'POST', { stepId: co.id, email: 'free@x.com', name: 'Free Rider' });
+  assert.equal(r.status, 409);
+  assert.equal((await api(`/public/${f.slug}`)).data.testCheckout, undefined);
+});

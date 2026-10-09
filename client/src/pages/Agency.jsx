@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api, setToken, loggedIn } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, num, inr, ago } from '../ui';
 import { AuthShell } from './Auth';
+import { shareLink } from './Team';
 
 const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
 const open = async (ownerId) => { try { const r = await api('/team/switch', 'POST', { ownerId }); setToken(r.token); location.href = '/'; } catch (e) { toast(e.message); } };
@@ -76,7 +77,7 @@ function AddClient({ onClose, onDone }) {
 }
 function InviteClient({ c, onClose, onDone }) {
   const [email, setEmail] = useState('');
-  const send = async (e) => { e.preventDefault(); try { await api(`/agency/clients/${c.id}/invite`, 'POST', { email }); toast('Invitation sent'); onDone(); } catch (x) { toast(x.message); } };
+  const send = async (e) => { e.preventDefault(); try { const r = await api(`/agency/clients/${c.id}/invite`, 'POST', { email }); shareLink(r.link, email); onDone(); } catch (x) { toast(x.message); } };
   return (
     <Modal title={`Let ${c.business} log in`} onClose={onClose} width={460}>
       <form className="m-body" onSubmit={send}>

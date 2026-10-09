@@ -7,7 +7,7 @@
 //   viewer    — read-only, no settings or secrets
 import { T, uid } from './db.js';
 import { randomToken, hashToken } from './security.js';
-import { sendMail, appUrl } from './mail.js';
+import { sendMail, appUrl, mailEnabled } from './mail.js';
 import { brand } from './platform.js';
 
 export const ROLE_NAMES = { agency: 'Agency' };
@@ -81,7 +81,7 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     let m;
     try { m = T.members.insert({ id: token.split('.')[0], ownerId: req.user.id, email, role, status: 'invited', userId: null, inviteHash: hashToken(token), inviteExp: Date.now() + INVITE_DAYS * 86400000, at: Date.now() }); } catch { return res.status(409).json({ error: 'They’re already on your team (or invited)' }); }
     await sendInvite(req, req.user, m, token);
-    res.json({ ...view(m), ...(isTest ? { token } : {}) });
+    res.json({ ...view(m), ...(isTest ? { token } : {}), ...(mailEnabled() ? {} : { link: `${appUrl(req)}/team/accept?token=${token}` }) });
   });
   // owners change roles, resend, remove
   const ownMember = (req, res) => { const m = T.members.get(req.params.mid); if (!m || m.ownerId !== req.user.id) { res.status(404).json({ error: 'Not on your team' }); return null; } return m; };
@@ -96,7 +96,7 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     const token = `${m.id}.${randomToken()}`;
     T.members.update(m.id, (x) => { x.inviteHash = hashToken(token); x.inviteExp = Date.now() + INVITE_DAYS * 86400000; });
     await sendInvite(req, req.user, m, token);
-    res.json({ ok: true, ...(isTest ? { token } : {}) });
+    res.json({ ok: true, ...(isTest ? { token } : {}), ...(mailEnabled() ? {} : { link: `${appUrl(req)}/team/accept?token=${token}` }) });
   });
   app.delete('/api/team/members/:mid', auth, (req, res) => {
     const m = ownMember(req, res); if (!m) return;

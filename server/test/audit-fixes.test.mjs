@@ -43,3 +43,15 @@ test('demo data: undeliverable addresses, never in a broadcast audience', async 
   assert.equal(a.reach, 1, 'only the real contact');
   assert.equal(a.sample[0].email, 'real.person@mail.test');
 });
+
+test('live server audit: unknown funnel is a 404, test checkouts are flagged, invites come back as links without email', async () => {
+  const miss = await fetch(`${srv.base}/f/no-such-funnel-xyz`);
+  assert.ok([404, 200].includes(miss.status));
+  if (miss.status === 200) assert.ok(!(await miss.text()).includes('__FUNNEL__'), 'no funnel data on a missing page');
+  const f = (await api('/funnels', 'GET', null, T)).data.find((x) => x.published) || (await api('/funnels', 'GET', null, T)).data[0];
+  await api(`/funnels/${f.id}`, 'PUT', { published: true }, T);
+  assert.equal((await api(`/public/${f.slug}`)).data.testCheckout, true, 'no payment provider → the checkout says it is a test');
+  const inv = await api('/team/invite', 'POST', { email: 'teammate@mail.test', role: 'viewer' }, T);
+  assert.equal(inv.status, 200);
+  assert.match(inv.data.link, /\/team\/accept\?token=/, 'email is off in tests, so the inviter gets the link');
+});

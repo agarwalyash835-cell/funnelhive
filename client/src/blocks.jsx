@@ -863,6 +863,8 @@ function OptinForm({ p, ctx }) {
 }
 
 const IN_STATES = ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'];
+// the button shows the live total (bump, coupon, shipping) — a price typed into the label would be shown twice
+const payLabel = (t) => String(t || '').replace(/\s*[—–·:|-]?\s*(?:[₹$€£]|A\$|C\$|S\$|AED|Rs\.?|INR|USD)\s?[\d,]+(?:\.\d+)?\s*$/i, '').trim();
 function Checkout({ p, ctx }) {
   // details the visitor already gave on an earlier step (opt-in, form) are filled in
   const [f, setF] = useState(() => ({ name: ctx.prefill?.name || '', email: ctx.prefill?.email || '', phone: ctx.prefill?.phone || '' }));
@@ -913,6 +915,7 @@ function Checkout({ p, ctx }) {
       <div className="co-grid">
         <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await ctx.onCheckout({ ...f, total, withBump: bump, coupon: coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}) }); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
           <div className="co-step"><span className="co-n">1</span> <E ctx={ctx} k="step1" v={p.step1} keep /></div>
+          {ctx.testCheckout && !ctx.editable && <p className="co-test">{tr(ctx.lang, 'Test checkout — no payment will be taken. The seller hasn’t connected online payments yet.')}</p>}
           <input placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
           <div className="two"><input type="email" placeholder={tr(ctx.lang, 'Email')} required value={f.email} onChange={set('email')} onBlur={onEmailBlur} /><input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} value={f.phone} onChange={set('phone')} onBlur={onEmailBlur} /></div>
           {ctx.gstInvoices && !ctx.editable && (biz ? (
@@ -954,7 +957,7 @@ function Checkout({ p, ctx }) {
             </label>
           )}
           {payErr && <p className="c-err" role="alert">{payErr}</p>}
-          {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Processing…') : method === 'cod' && p.cod && !instal && !per ? tr(ctx.lang, 'Place order · pay {amount} on delivery', { amount: money(p.currency, total) }) : per ? tr(ctx.lang, 'Subscribe · {amount}/{per}', { amount: money(p.currency, today), per: tr(ctx.lang, per) }) : `${p.buttonText || tr(ctx.lang, 'Pay Securely')} · ${money(p.currency, total)}${instal ? tr(ctx.lang, ' today') : ''}`}</Btn>}
+          {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Processing…') : method === 'cod' && p.cod && !instal && !per ? tr(ctx.lang, 'Place order · pay {amount} on delivery', { amount: money(p.currency, total) }) : per ? tr(ctx.lang, 'Subscribe · {amount}/{per}', { amount: money(p.currency, today), per: tr(ctx.lang, per) }) : `${payLabel(p.buttonText) || tr(ctx.lang, 'Pay Securely')} · ${money(p.currency, total)}${instal ? tr(ctx.lang, ' today') : ''}`}</Btn>}
           {p.secureText && <E ctx={ctx} k="secureText" v={p.secureText} as="p" className="secure" />}
           {ctx.privacy && !ctx.editable && <p className="fconsent">{tr(ctx.lang, 'By paying you agree to the')} <a href={ctx.privacy.terms} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Terms')}</a>, <a href={ctx.privacy.terms.replace(/terms$/, 'refund')} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Refund Policy')}</a> {tr(ctx.lang, 'and')} <a href={ctx.privacy.policy} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Privacy Policy')}</a>.</p>}
         </form>

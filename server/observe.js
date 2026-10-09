@@ -56,7 +56,8 @@ export function registerObserve(app) {
     const hb = (() => { try { return T.platform.get(HEARTBEAT)?.at || 0; } catch { return 0; } })();
     const jobsOk = !hb ? process.env.NODE_ENV === 'test' || Date.now() - startedAt < 180000 : Date.now() - hb < 5 * 60000;
     const ok = db && jobsOk;
-    const detail = req.query.detail === '1' && (!process.env.METRICS_TOKEN || req.headers.authorization === `Bearer ${process.env.METRICS_TOKEN}`);
+    // internals (queues, backups, memory) only with METRICS_TOKEN — or with no token outside production (local dev)
+    const detail = req.query.detail === '1' && (process.env.METRICS_TOKEN ? req.headers.authorization === `Bearer ${process.env.METRICS_TOKEN}` : process.env.NODE_ENV !== 'production');
     res.status(ok ? 200 : 503).json({
       ok, db, jobs: jobsOk, uptimeSec: Math.round((Date.now() - startedAt) / 1000), worker,
       ...(detail ? { queues: queues(), dbMB: Math.round(dbBytes() / 1e6), lastBackup: backupFiles()[0] || null, offsite: offsiteStatus(), lagMs: lag, rssMB: Math.round(process.memoryUsage().rss / 1e6), load: os.loadavg()[0] } : {}),

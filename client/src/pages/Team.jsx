@@ -4,6 +4,12 @@ import { api, setToken } from '../api';
 import { Panel, Icon, toast, ago } from '../ui';
 import { AuthShell } from './Auth';
 
+// email isn't set up on the server: the invite link comes back to share yourself (copied to the clipboard)
+export const shareLink = (link, email, again) => {
+  if (!link) return toast(again ? 'Invitation sent again' : `Invitation sent to ${email}`);
+  navigator.clipboard?.writeText(link).then(() => toast(`Email isn’t set up yet — invite link for ${email} copied. Send it to them yourself.`), () => prompt(`Email isn’t set up yet. Send this invite link to ${email}:`, link));
+};
+
 const ROLE_NAME = { admin: 'Admin', marketer: 'Marketer', sales: 'Sales & support', viewer: 'Viewer', agency: 'Agency (manages this account)' };
 
 // Settings → Team: invite staff with a role (owners), see who's on the team (admins)
@@ -18,7 +24,7 @@ export function TeamPanel() {
   const invite = async (e) => {
     e.preventDefault();
     setBusy(true);
-    try { await api('/team/invite', 'POST', { email, role }); toast(`Invitation sent to ${email}`); setEmail(''); load(); } catch (x) { toast(x.message); }
+    try { const r = await api('/team/invite', 'POST', { email, role }); shareLink(r.link, email); setEmail(''); load(); } catch (x) { toast(x.message); }
     setBusy(false);
   };
   const act = async (fn, msg) => { try { await fn(); if (msg) toast(msg); load(); } catch (x) { toast(x.message); } };
@@ -40,7 +46,7 @@ export function TeamPanel() {
               <td><b>{m.name || m.email}</b><small className="sub-t">{m.name ? m.email : ''}{m.status === 'invited' ? ` · invited ${ago(m.at)}` : m.lastSeenAt ? ` · active ${ago(m.lastSeenAt)}` : ''}</small></td>
               <td>{d.canManage && m.role !== 'agency' ? <select value={m.role} onChange={(e) => act(() => api(`/team/members/${m.id}`, 'PUT', { role: e.target.value }), 'Role updated')}>{Object.keys(d.roles).map((k) => <option key={k} value={k}>{ROLE_NAME[k]}</option>)}</select> : ROLE_NAME[m.role]}{m.status === 'invited' && <span className="pill warn">pending</span>}</td>
               <td className="r">{d.canManage && <div className="row end">
-                {m.status === 'invited' && <button className="btn ghost sm" onClick={() => act(() => api(`/team/members/${m.id}/resend`, 'POST'), 'Invitation sent again')}>Resend</button>}
+                {m.status === 'invited' && <button className="btn ghost sm" onClick={() => act(async () => { const r = await api(`/team/members/${m.id}/resend`, 'POST'); shareLink(r.link, m.email, true); })}>Resend</button>}
                 <button className="icon-btn" title="Remove" onClick={() => confirm(`Remove ${m.email} from your team? They lose access immediately.`) && act(() => api(`/team/members/${m.id}`, 'DELETE'), 'Removed')}><Icon name="trash" size={15} /></button>
               </div>}</td>
             </tr>
