@@ -28,7 +28,7 @@ function ProductList() {
     <Layout title="Products" subtitle="What buyers get after they pay — files, links or a full course, delivered automatically." actions={<button className="btn primary" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> New product</button>}>
       {!d ? <div className="skeleton" /> : (
         <>
-          {!d.payments && <div className="setup-warn"><Icon name="shield" size={18} /><div><b>Products are delivered only after a real payment.</b> Connect Razorpay in <Link to="/settings">Settings → Payments</Link> — demo checkouts never hand out files. Free products on opt-ins work right away.</div></div>}
+          {!d.payments && <div className="setup-warn"><Icon name="shield" size={18} /><div><b>Products are delivered only after a real payment.</b> Connect Razorpay or Stripe in <Link to="/settings">Settings → Payments</Link> — demo checkouts never hand out files. Free products on opt-ins work right away.</div></div>}
           {!d.email.configured && <div className="setup-warn"><Icon name="send" size={18} /><div><b>Delivery emails are off.</b> Buyers still get an “Open your purchase” button on the thank-you page, but to email them their library link, connect email in <Link to="/settings">Settings → Email sending</Link>.</div></div>}
           <div className="kpis k4">
             <div className="kpi"><span className="kpi-l">Products</span><b className="kpi-v">{num(d.products.length)}</b></div>
@@ -361,7 +361,7 @@ function SettingsTab({ p, set, onDelete }) {
           <ul className="checks sm">
             <li>Files are private — every download link is signed and expires after 2 hours.</li>
             <li>Library links are emailed only to the buyer; you can reset one if it gets shared.</li>
-            <li>Nothing is delivered on demo checkouts — only after a verified Razorpay payment.</li>
+            <li>Nothing is delivered on demo checkouts — only after a verified payment (Razorpay or Stripe).</li>
             <li>Refunds (from Orders or your Razorpay dashboard) remove access automatically.</li>
           </ul>
         </Panel>

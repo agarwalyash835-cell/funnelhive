@@ -21,7 +21,7 @@ import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, re
 import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit } from './domains.js';
 import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerHive } from './hive.js';
-import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, usageSummary, AI_COST, pricing } from './billing.js';
+import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, creditsShort, usageSummary, AI_COST, pricing } from './billing.js';
 import { platform, isAdmin, brand } from './platform.js';
 import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
@@ -141,8 +141,11 @@ const auth = (req, res, next) => {
 };
 // AI features use monthly credits
 const credits = (kind) => (req, res, next) => {
-  const err = spendCredits(req.user, AI_COST[kind]);
-  return err ? res.status(402).json({ error: err, credits: true }) : next();
+  // checked up front, charged only when the request succeeded — a validation error or a failed AI call costs nothing
+  const err = creditsShort(req.user, AI_COST[kind]);
+  if (err) return res.status(402).json({ error: err, credits: true });
+  res.on('finish', () => { if (res.statusCode < 400) spendCredits(req.user, AI_COST[kind]); });
+  next();
 };
 // Saves changes made to req.user. After an `await`, re-read first so concurrent changes aren't lost.
 const saveUser = (u) => T.users.put(u);
@@ -492,7 +495,7 @@ app.get('/api/funnels', auth, (req, res) => {
 
 const funnelCap = (req, res, next) => { const e = funnelLimitError(req.user); return e ? res.status(403).json({ error: e, limit: 'funnels' }) : next(); };
 app.post('/api/funnels', auth, funnelCap, (req, res) => {
-  const name = req.body.name || 'Untitled funnel';
+  const name = (typeof req.body.name === 'string' && req.body.name.trim().slice(0, 120)) || 'Untitled funnel';
   res.json(createFunnel(req.user.id, {
     name, theme: { style: 'aurora', primary: '#6366f1', secondary: '#ec4899' },
     steps: [{ id: uid(), name: 'Landing page', type: 'landing', slug: 'start', blocks: [{ id: uid(), type: 'hero', props: { badge: '⭐ Trusted by 10,000+ customers', headline: 'Your big promise — *the result they want*', subheadline: 'One sentence that makes your visitor want it.', ctaText: 'Get Started', secondaryText: 'See how it works', socialText: 'Loved by 10,000+ customers', rating: 4.9, reviews: '2,300', image: '', cardEmoji: '🚀', cardTitle: name, cardPrice: '₹499', cardMrp: '₹1,999', cardPoints: [{ text: 'Key benefit one' }, { text: 'Key benefit two' }], chip1: '🔥 120 joined today', chip2: '🔒 Secure payment' } }] }],
@@ -807,7 +810,7 @@ app.post('/api/demo/seed', auth, (req, res) => {
           const source = pick(SRC), visitor = uid();
           ev({ funnelId: f.id, stepId: land.id, type: 'view', at, source, visitor });
           if (Math.random() > 0.22) continue;
-          const nm = pick(NAMES), email = `${nm.split(' ')[0].toLowerCase()}.${uid().slice(0, 4)}@gmail.com`;
+          const nm = pick(NAMES), email = `${nm.split(' ')[0].toLowerCase()}.${uid().slice(0, 4)}@example.com`; // a reserved domain: demo contacts can never be emailed for real
           ev({ funnelId: f.id, stepId: land.id, type: 'convert', at: at + 6e4, source, visitor });
           if (Math.random() < 0.35) ev({ funnelId: f.id, stepId: land.id, type: 'view', at: Math.min(Date.now() - 6e4, at + DAY * (0.5 + Math.random() * 3)), source: pick(SRC), visitor });
           if (!chk) { T.leads.insert({ id: uid(), ...base, stepId: land.id, email, name: nm, phone: '', source, visitor, at: at + 6e4 }); if (ty) ev({ funnelId: f.id, stepId: ty.id, type: 'view', at: at + 7e4, source, visitor }); continue; }
@@ -1403,4 +1406,11 @@ if (indexHtml) {
 
 const port = process.env.PORT || 4000;
 const worker = process.env.WORKER_INDEX;
+// anything a route throws (or a malformed JSON body): a JSON error — never an HTML page with the stack trace
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = Number(err.status || err.statusCode) || 500;
+  if (status >= 500) { console.error(err); reportError(err, { route: `${req.method} ${req.route?.path || req.path}`, userId: req.user?.id }); }
+  res.status(status).json({ error: status >= 500 ? 'Something went wrong — please try again' : err.type === 'entity.parse.failed' ? 'The request body isn’t valid JSON' : err.message || 'Bad request' });
+});
 app.listen(port, () => { if (!worker || worker === '0') console.log(`FunnelHive API on :${port} (AI ${aiEnabled() ? 'on' : 'off — offline assistant'}${ssr ? ', server rendering on' : ''}${worker ? `, ${process.env.WEB_CONCURRENCY} processes` : ''})`); });

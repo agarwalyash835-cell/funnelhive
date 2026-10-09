@@ -6,7 +6,7 @@ import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
 import { call as rzpCall } from './razorpay.js';
 import { deleteAccount } from './account.js';
-import { saveIntlSettings, intlSettingsView } from './billing-intl.js';
+import { saveIntlSettings, intlSettingsView, platformStripe } from './billing-intl.js';
 import { fxRate } from './fx.js';
 import { limitsFor, usageFor, saveLimits, LIMIT_DEFAULTS } from './limits.js';
 import { clientLimit } from './agency.js';
@@ -54,7 +54,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       system: {
         uptimeSec: Math.round((now - startedAt) / 1000), processes: Number(process.env.WEB_CONCURRENCY) || 1, dbBytes: dbBytes(), backups: backupFiles().slice(0, 7),
         memoryMb: Math.round(process.memoryUsage().rss / 1e6), loadavg: os.loadavg().map((x) => +x.toFixed(2)), node: process.version,
-        paymentsReady: !!platformRzp(), paymentsMode: platformRzp()?.mode || null, emailReady: !!(process.env.SMTP_HOST || process.env.RESEND_API_KEY),
+        paymentsReady: !!(platformRzp() || platformStripe()), paymentsMode: platformRzp()?.mode || platformStripe()?.mode || null,
+        payments: [platformRzp() && `Razorpay (${platformRzp().mode})`, platformStripe() && `Stripe (${platformStripe().mode})`].filter(Boolean), emailReady: !!(process.env.SMTP_HOST || process.env.RESEND_API_KEY),
       },
     });
   });

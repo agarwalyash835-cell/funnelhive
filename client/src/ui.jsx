@@ -144,7 +144,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
           <div className="tb-title"><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
           <div className="tb-actions">{actions}</div>
         </header>
-        {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} />You’re working in the <b>{me.workspace.name}</b> workspace as {({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer' })[me.workspace.role]}.</div>}
+        {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} />You’re working in the <b>{me.workspace.name}</b> workspace as {({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role]}.</div>}
         {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} />You’re signed in as <b>{me.email}</b> (support view).<button onClick={stopImpersonating}>Back to admin</button></div>}
         {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}
         {me?.billing && !me.billing.ok && <div className="app-banner bad"><Icon name="clock" size={15} />{me.billing.reason || 'Your account is read-only.'}{me.billing.status !== 'suspended' && <span>{me.billing.pagesLive ? ` Your live pages stay up until ${fmtDate(me.billing.pagesOfflineAt)}.` : ' Your live pages are offline.'}</span>}{me.billing.status !== 'suspended' && <Link to="/billing">Choose a plan</Link>}</div>}

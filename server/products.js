@@ -16,6 +16,7 @@ import { T, q, tx, uid, contactKey, dir as DATA_DIR } from './db.js';
 import { encrypt, decrypt, sendEmail, emailStatus } from './messaging.js';
 import { randomToken, hashToken } from './security.js';
 import { buyerPlans } from './plans.js';
+import { stripeCreds } from './stripe.js';
 import { s3Enabled, putFile, deleteObject, copyObject, presign } from './storage.js';
 import { domainOfFunnel } from './domains.js';
 
@@ -263,7 +264,7 @@ export function registerProducts(app, { auth, wrap, rateLimit, isTest, secret, a
       products: productsOf(req.user.id).map((p) => ({ id: p.id, name: p.name, description: p.description, cover: p.cover, kind: kindOf(p), files: p.files.length, lessons: p.lessons.length, links: p.links.length, bytes: p.files.reduce((s, f) => s + (f.size || 0), 0), buyers: counts[p.id] || 0, at: p.at, updatedAt: p.updatedAt })),
       storage: { used: storageUsed(req.user.id), max: STORAGE_MAX, fileMax: FILE_MAX },
       email: emailStatus(req.user),
-      payments: !!req.user.channels?.razorpay?.keyId,
+      payments: !!(req.user.channels?.razorpay?.keyId || stripeCreds(req.user)), // Razorpay or Stripe
       recoverUrl: `${process.env.APP_URL || appUrl(req)}/access?s=${req.user.id}`,
     });
   });

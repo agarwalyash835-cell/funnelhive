@@ -86,12 +86,16 @@ export function creditsUsed(userId, month = monthOf()) {
   return q('SELECT ai FROM usage WHERE k = ?').get(`${userId}:${month}`)?.ai || 0;
 }
 // Takes `n` credits, or returns an error message when the month's credits are used up
-export function spendCredits(u, n) {
+// → a message when this month's credits can't cover n more, else null (nothing is spent)
+export function creditsShort(u, n) {
   const limit = creditLimit(u), month = monthOf();
-  if (limit !== Infinity && creditsUsed(u.id, month) + n > limit) {
-    const next = new Date(Date.parse(`${month}-01T00:00:00Z`) + 32 * DAY);
-    return `You’ve used this month’s ${limit.toLocaleString('en-IN')} AI credits — they renew on 1 ${next.toLocaleString('en-IN', { month: 'long', timeZone: 'UTC' })}.`;
-  }
+  if (limit === Infinity || creditsUsed(u.id, month) + n <= limit) return null;
+  const next = new Date(Date.parse(`${month}-01T00:00:00Z`) + 32 * DAY);
+  return `You’ve used this month’s ${limit.toLocaleString('en-IN')} AI credits — they renew on 1 ${next.toLocaleString('en-IN', { month: 'long', timeZone: 'UTC' })}.`;
+}
+export function spendCredits(u, n) {
+  const short = creditsShort(u, n), month = monthOf();
+  if (short) return short;
   q('INSERT INTO usage (k, userId, month, ai) VALUES (?, ?, ?, ?) ON CONFLICT(k) DO UPDATE SET ai = ai + excluded.ai').run(`${u.id}:${month}`, u.id, month, n);
   return null;
 }

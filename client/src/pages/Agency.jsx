@@ -66,7 +66,7 @@ function AddClient({ onClose, onDone }) {
   const save = async (e) => { e.preventDefault(); setBusy(true); try { onDone(await api('/agency/clients', 'POST', v)); } catch (x) { toast(x.message); } setBusy(false); };
   return (
     <Modal title="Add a client account" onClose={onClose} width={460}>
-      <form className="form2" onSubmit={save}>
+      <form className="form2 m-body" onSubmit={save}>
         <label className="fld full"><span>Client’s business name</span><input required autoFocus value={v.business} onChange={(e) => setV({ ...v, business: e.target.value })} placeholder="Sharma Yoga Studio" /></label>
         <label className="fld full"><span>Contact person <small className="muted">· optional</small></span><input value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></label>
         <div className="row end full"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button></div>
@@ -79,7 +79,7 @@ function InviteClient({ c, onClose, onDone }) {
   const send = async (e) => { e.preventDefault(); try { await api(`/agency/clients/${c.id}/invite`, 'POST', { email }); toast('Invitation sent'); onDone(); } catch (x) { toast(x.message); } };
   return (
     <Modal title={`Let ${c.business} log in`} onClose={onClose} width={460}>
-      <form onSubmit={send}>
+      <form className="m-body" onSubmit={send}>
         <p className="muted sm">They get an email to choose a password and log in to their own account (with your branding). You keep managing it.</p>
         <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="owner@client.com" style={{ width: '100%' }} />
         <div className="row end" style={{ marginTop: 12 }}><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary">Send invitation</button></div>

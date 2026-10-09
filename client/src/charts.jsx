@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
+// the chart's width, measured as soon as its box exists (a callback ref, so a chart that appears later is measured too)
 function useWidth() {
-  const ref = useRef();
+  const [el, setEl] = useState(null);
   const [w, setW] = useState(600);
   useEffect(() => {
-    if (!ref.current) return;
+    if (!el) return undefined;
+    if (el.clientWidth) setW(el.clientWidth);
     const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
-    ro.observe(ref.current);
+    ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-  return [ref, w];
+  }, [el]);
+  return [setEl, w];
 }
 
 const niceMax = (v) => {

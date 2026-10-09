@@ -37,7 +37,7 @@ function Overview() {
       {(!s.paymentsReady || !s.emailReady) && (
         <div className="setup-warn">
           <Icon name="bolt" size={16} />
-          <div>{!s.paymentsReady && <p><b>Subscriptions can’t be paid yet.</b> Add your Razorpay keys in <Link to="/admin?tab=settings">Plan & settings</Link>.</p>}
+          <div>{!s.paymentsReady && <p><b>Subscriptions can’t be paid yet.</b> Add your Razorpay keys (India) and / or Stripe keys (other countries) in <Link to="/admin?tab=settings">Plan & settings</Link>.</p>}
             {!s.emailReady && <p><b>Emails aren’t being sent.</b> Set SMTP_HOST / SMTP_USER / SMTP_PASS (or RESEND_API_KEY) in server/.env for sign-up, reset and billing emails.</p>}</div>
         </div>
       )}
@@ -77,7 +77,7 @@ function Overview() {
           <div><span>Database</span><b>{mb(s.dbBytes)}</b></div>
           <div><span>Memory (this process)</span><b>{s.memoryMb} MB</b></div>
           <div><span>Load average</span><b>{s.loadavg.join(' · ')}</b></div>
-          <div><span>Payments</span><b>{s.paymentsReady ? `Razorpay (${s.paymentsMode})` : 'Not set up'}</b></div>
+          <div><span>Payments</span><b>{s.payments?.length ? s.payments.join(' · ') : 'Not set up'}</b></div>
           <div><span>Email</span><b>{s.emailReady ? 'Configured' : 'Not set up'}</b></div>
           <div><span>Latest backup</span><b>{s.backups[0] ? `${s.backups[0].name.replace(/^funnelhive-|\.db$/g, '')} · ${mb(s.backups[0].bytes)}` : 'None yet'}</b></div>
         </div>

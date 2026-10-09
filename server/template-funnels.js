@@ -3,6 +3,8 @@
 
 const hash = (s) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
+// "Wednesday evening" stays capitalised mid-sentence; "This Sunday" → "this Sunday"
+const lcWhen = (s) => (/^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
 const split = (s) => String(s).split('|');
 const pairs = (arr, ...keys) => arr.map((s) => Object.fromEntries(split(s).map((v, i) => [keys[i], v])));
 const emojiOf = (s) => (String(s).match(/^\S+/) || ['✦'])[0];
@@ -124,13 +126,13 @@ export function buildWebinar(t) {
     { type: 'stats', props: { variant: pick(['band', 'cards', 'strip'], 9), items: stats } },
     { type: 'optin', props: { webinarId: '', eyebrow: 'Free · Live · Limited seats', title: 'Save your free seat', subtitle: `${t.when} at ${t.time}. We’ll send the joining link on WhatsApp and email.`, buttonText: t.cta, askPhone: true, points: learn.map((l) => ({ text: l.title })) } },
     { type: 'faq', props: { variant: pick(['accordion', 'two'], 10), eyebrow: 'FAQ', title: 'About the session', items: faq } },
-    { type: 'cta', props: { variant: pick(['banner', 'plain'], 11), headline: `Join ${t.name} — ${t.when.toLowerCase()} at ${t.time}`, subheadline: `${t.social}. Your seat is free.`, buttonText: t.cta, note: '✅ Free · ✅ Live Q&A · ✅ Joining link on WhatsApp' } },
+    { type: 'cta', props: { variant: pick(['banner', 'plain'], 11), headline: `Join ${t.name} — ${lcWhen(t.when)} at ${t.time}`, subheadline: `${t.social}. Your seat is free.`, buttonText: t.cta, note: '✅ Free · ✅ Live Q&A · ✅ Joining link on WhatsApp' } },
     { type: 'proof', props: { action: 'just saved a seat', intervalSec: 10, items: popups(h) } },
     { type: 'stickybar', props: { text: `${t.name} · ${t.when}, ${t.time}`, price: 'FREE', buttonText: 'Save my seat' } },
     { type: 'whatsapp', props: { number: WA, message: `Hi! I have a question about ${t.name}.`, label: 'Chat with us' } },
   ];
   const registered = [
-    { type: 'thankyou', props: { headline: `You’re in! 🎉 See you ${t.when.toLowerCase()}`, body: `${t.name} · ${t.time} · ${t.length}. Your joining link is on its way to your email and WhatsApp.`, steps: t.confirm.map((text) => ({ text })) } },
+    { type: 'thankyou', props: { headline: `You’re in! 🎉 See you ${lcWhen(t.when)}`, body: `${t.name} · ${t.time} · ${t.length}. Your joining link is on its way to your email and WhatsApp.`, steps: t.confirm.map((text) => ({ text })) } },
     { type: 'countdown', props: { label: 'The masterclass starts in', minutes: countdownMins + 30 } },
     { type: 'mentor', props: { variant: 'card', eyebrow: 'See you there', ...host } },
     { type: 'whatsapp', props: { number: WA, message: `Hi! I just registered for ${t.name}.`, label: 'Message us' } },

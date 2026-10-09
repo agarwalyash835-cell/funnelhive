@@ -231,6 +231,8 @@ export default function Public() {
         const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, source, visitor, attr, tk: ids(), eventId: id });
         if (r?.error) throw new Error(r.error);
         store.set('ff_email', data.email, sessionStorage);
+        if (data.name) store.set('ff_name', data.name, sessionStorage);
+        if (data.phone) store.set('ff_phone', data.phone, sessionStorage);
         remember(r);
         track('Lead', {}, r?.eventId || id);
         await convert(); go(idx + 1);

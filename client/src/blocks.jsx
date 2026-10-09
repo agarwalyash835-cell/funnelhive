@@ -864,7 +864,8 @@ function OptinForm({ p, ctx }) {
 
 const IN_STATES = ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'];
 function Checkout({ p, ctx }) {
-  const [f, setF] = useState({ name: '', email: '', phone: '' });
+  // details the visitor already gave on an earlier step (opt-in, form) are filled in
+  const [f, setF] = useState(() => ({ name: ctx.prefill?.name || '', email: ctx.prefill?.email || '', phone: ctx.prefill?.phone || '' }));
   const [bump, setBump] = useState(false);
   const [pm, setPm] = useState('UPI');
   const [busy, setBusy] = useState(false);

@@ -90,10 +90,12 @@ function CopyTo({ f, onClose }) {
   const go = async (t) => { setBusy(t.id); try { const r = await api(`/funnels/${f.id}/copy-to`, 'POST', { accountId: t.id }); toast(`Copied to ${t.name}${r.products ? ` with ${r.products} product${r.products > 1 ? 's' : ''}` : ''}`); onClose(); } catch (e) { toast(e.message); } setBusy(null); };
   return (
     <Modal title={`Copy “${f.name}” to…`} onClose={onClose} width={480}>
-      {!list ? <div className="skeleton sm" /> : !list.length ? <p className="muted">No client accounts yet. Add clients on the <Link to="/agency">Agency</Link> page, or share this funnel as a link.</p> : (
-        <div className="cal-list">{list.map((t) => <button key={t.id} disabled={!!busy} onClick={() => go(t)}><b>{t.name}</b><small>{busy === t.id ? 'Copying…' : t.why === 'client' ? 'Client account' : `You’re ${t.why}`}</small></button>)}</div>
-      )}
-      <p className="hint">The copy is a draft with its own pages, paused automations and copies of the products it sells. Payments, domains and data stay separate.</p>
+      <div className="m-body">
+        {!list ? <div className="skeleton sm" /> : !list.length ? <p className="muted">No client accounts yet. Add clients on the <Link to="/agency">Agency</Link> page, or share this funnel as a link.</p> : (
+          <div className="cal-list">{list.map((t) => <button key={t.id} disabled={!!busy} onClick={() => go(t)}><b>{t.name}</b><small>{busy === t.id ? 'Copying…' : t.why === 'client' ? 'Client account' : `You’re ${t.why}`}</small></button>)}</div>
+        )}
+        <p className="hint">The copy is a draft with its own pages, paused automations and copies of the products it sells. Payments, domains and data stay separate.</p>
+      </div>
     </Modal>
   );
 }

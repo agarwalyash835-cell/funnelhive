@@ -49,9 +49,12 @@ const matches = (c, s, now) => {
   return true;
 };
 // who a broadcast reaches on a channel — and who it can't, and why
+// demo data (Dashboard → "explore with demo data") is never messaged, whatever address it has
+const demoKeys = (userId) => new Set(q("SELECT ckey FROM leads WHERE userId = ? AND demo = 1 UNION SELECT ckey FROM orders WHERE userId = ? AND demo = 1 UNION SELECT ckey FROM abandoned WHERE userId = ? AND demo = 1").all(userId, userId, userId).map((r) => r.ckey));
 export function audience(userId, segment, channel) {
   const now = Date.now();
-  const all = contactList(userId).filter((c) => matches(c, segment, now));
+  const demo = demoKeys(userId);
+  const all = contactList(userId).filter((c) => !demo.has(c.key) && matches(c, segment, now));
   const reach = [], left = { unsubscribed: 0, noAddress: 0 };
   for (const c of all) {
     if (c.unsubscribed) left.unsubscribed++;

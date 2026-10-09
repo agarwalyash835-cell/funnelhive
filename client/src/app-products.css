@@ -321,3 +321,9 @@ fieldset.plain:disabled { opacity: .75; }
 .kpi small.up { color: #16a34a; } .kpi small.down { color: #dc2626; }
 @media (max-width: 760px) { .report-cols { grid-template-columns: 1fr; } }
 .lang-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; } .lang-pick select { padding: 6px 8px; border-radius: 8px; }
+
+/* the buyer's manage page has no funnel theme: give the shared booking pickers their variables,
+   and keep the day strip scrolling inside its card (a start-aligned grid item would grow to fit every day) */
+.bk-manage { --accent: var(--acc); --line: #dcdce8; --surface: #fff; --ink: #14152a; --inr: 10px; --bf: Inter, system-ui, -apple-system, sans-serif; --hf: var(--bf); }
+.bk-manage .bk-sum { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.bk-manage .bk-days { width: 100%; max-width: 100%; }

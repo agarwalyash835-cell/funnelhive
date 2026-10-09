@@ -14,7 +14,7 @@ html.glass .app, html.glass .auth, html.glass .ed-top, html.glass .ed-left, html
   --g-blur: blur(22px) saturate(180%);
   --g-spec: inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 -1px 0 rgba(255, 255, 255, .25);
   --g-shadow: 0 1px 1px rgba(20, 24, 54, .04), 0 10px 30px -12px rgba(30, 34, 90, .22);
-  --c-surface: var(--g-fill-strong); --c-surface-2: var(--g-fill-2); --c-line: var(--g-hair); --c-line-2: rgba(20, 24, 54, .055);
+  --c-surface: #fcfcff; --c-surface-2: var(--g-fill-2); /* solid: anything floating (drawers, menus) stays readable; glass is opt-in below */ --c-line: var(--g-hair); --c-line-2: rgba(20, 24, 54, .055);
   --c-accent-soft: rgba(91, 91, 246, .12); --c-ok-soft: rgba(15, 157, 88, .12); --c-warn-soft: rgba(245, 158, 11, .14); --c-bad-soft: rgba(220, 38, 38, .1);
   --r-sm: 11px; --r: 16px; --r-lg: 22px;
   --sh-1: var(--g-shadow); --sh-2: 0 2px 4px rgba(20, 24, 54, .04), 0 18px 40px -14px rgba(30, 34, 90, .3);
@@ -37,7 +37,7 @@ html.glass .app::before, html.glass .auth-form::before {
 
 /* one recipe for every glass surface */
 html.glass .app :is(.panel, .kpi, .fcard, .empty, .tcard, .ai-card, .plan-card, .credits, .bill-form, .how, .search, .seg, .app-banner, .verify-banner, .trial-chip),
-html.glass .app .m-box, html.glass .ed-top, html.glass .ed-left, html.glass .ed-right {
+html.glass .app .m-box, html.glass .app .cpanel, html.glass .app .au-menu, html.glass .ed-top, html.glass .ed-left, html.glass .ed-right {
   background: var(--g-fill); backdrop-filter: var(--g-blur); -webkit-backdrop-filter: var(--g-blur);
   border: 1px solid var(--g-edge); box-shadow: var(--g-spec), var(--g-shadow);
 }
@@ -148,3 +148,13 @@ html.glass .side nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollba
 html.glass .side nav::-webkit-scrollbar { display: none; }
 html.glass .side nav a { padding: 8px 10px; }
 html.glass .side-foot { flex: none; padding-top: 8px; }
+
+/* side drawers and menus float over content: a denser glass so text behind never shows through */
+html.glass .app .cpanel { background: rgba(252, 252, 255, .86); border-radius: 26px 0 0 26px; }
+html.glass .app .au-menu { background: rgba(252, 252, 255, .9); }
+
+/* workspace switcher (agencies / team members) on the light glass sidebar */
+html.glass .side .ws-cur { border-color: rgba(255, 255, 255, .75); background: rgba(255, 255, 255, .45); color: var(--c-ink-2); }
+html.glass .side .ws-menu { background: rgba(252, 252, 255, .92); border-color: var(--g-edge); box-shadow: var(--g-spec), 0 18px 40px -14px rgba(30, 34, 90, .35); backdrop-filter: var(--g-blur); -webkit-backdrop-filter: var(--g-blur); }
+html.glass .side .ws-menu button { color: var(--c-ink); }
+html.glass .side .ws-menu button:hover, html.glass .side .ws-menu button.on { background: rgba(91, 91, 246, .1); }

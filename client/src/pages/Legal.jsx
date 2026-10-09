@@ -50,11 +50,11 @@ export const Privacy = () => (
   <Page title="Privacy policy">{(s) => <>
     <p>This policy explains what personal data {who(s)} collects through {s.brand} and how we use it, in line with India’s Digital Personal Data Protection Act, 2023.</p>
     <h2>Data about you (sellers)</h2>
-    <p>Your name, email, password (stored only as a secure hash), business details, billing details (name, state, GSTIN, address), payment records from Razorpay (we never see or store full card or UPI details), usage of the product and technical logs. We use it to run your account, bill you, prevent abuse, provide support and improve the product.</p>
+    <p>Your name, email, password (stored only as a secure hash), business details, billing details (name, country, state, GSTIN, address), payment records from Razorpay and Stripe (we never see or store full card or UPI details), usage of the product and technical logs. We use it to run your account, bill you, prevent abuse, provide support and improve the product.</p>
     <h2>Data about your customers</h2>
     <p>When visitors use your pages we store, on your behalf, what they submit (such as name, email, phone and form answers), their orders and their page visits. For this data you are the data fiduciary and we act as your processor: we use it only to provide the service to you.</p>
     <h2>Sharing</h2>
-    <p>We share data only with providers that help run the service — hosting, Razorpay for payments, email and WhatsApp delivery providers you connect, and our AI model provider for AI features — and when the law requires it. We do not sell personal data.</p>
+    <p>We share data only with providers that help run the service — hosting, Razorpay and Stripe for payments, email and WhatsApp delivery providers you connect, and our AI model provider for AI features — and when the law requires it. We do not sell personal data.</p>
     <h2>Cookies</h2>
     <p>The app uses browser storage to keep you signed in. Funnel pages may load the Meta Pixel or Google Analytics if the seller enables them.</p>
     <h2>Retention</h2>

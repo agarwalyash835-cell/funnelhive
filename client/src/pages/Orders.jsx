@@ -76,7 +76,7 @@ export default function Orders() {
                     <td className="mono">#{o.id}{STATUS[o.status] && <span className={`pill ${STATUS[o.status][1]}`}>{STATUS[o.status][0]}</span>}</td>
                     <td><b>{o.name || '—'}</b><small className="sub-t">{o.email}</small>{o.address && <small className="sub-t addr" title={addrText(o.address)}>📍 {o.address.city} {o.address.pincode}</small>}</td><td>{o.funnel}</td>
                     <td className="items">{o.fulfilment && SHIP[o.fulfilment.status] && <span className={`pill ${SHIP[o.fulfilment.status][1]}`} title={[o.fulfilment.courier, o.fulfilment.tracking].filter(Boolean).join(' · ')}>{o.fulfilment.trackingUrl ? <a href={o.fulfilment.trackingUrl} target="_blank" rel="noreferrer">{SHIP[o.fulfilment.status][0]}</a> : SHIP[o.fulfilment.status][0]}</span>}{o.items.map((i, k) => <span key={k} className={`it k-${i.kind} ${i.refunded ? 'refunded' : ''}`} title={`${i.name} · ${inr(i.price)}${i.refunded ? ' · refunded' : ''}`}>{i.productId && '📦 '}{i.kind === 'main' ? i.name : i.kind}</span>)}{o.coupon && <span className="it">🏷 {o.coupon}</span>}{o.plan && <span className={`pill ${PLAN[o.plan.status]?.[1] || ''}`} title={o.plan.cancelAtEnd ? 'Cancels at the end of this period' : o.plan.nextAt ? `Next charge ${new Date(o.plan.nextAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}>🔁 {planLabel(o.plan)}{PLAN[o.plan.status]?.[0] ? ` · ${PLAN[o.plan.status][0]}` : ''}{o.plan.cancelAtEnd ? ' · ending' : ''}</span>}
-                      {o.undelivered && <span className="it warn" title="Demo checkout — products are delivered only after a real Razorpay payment">not delivered</span>}</td>
+                      {o.undelivered && <span className="it warn" title="Demo checkout — products are delivered only after a real payment (Razorpay or Stripe)">not delivered</span>}</td>
                     <td className="r strong">{money(o.total, o)}{o.currency && o.currency !== 'INR' && <small className="sub-t" title="Counted in your revenue at this rate">≈ {inr(o.total * (o.fx || 1))}</small>}{o.refunded > 0 && <small className="sub-t">−{money(o.refunded, o)}</small>}{o.mode === 'test' && <span className="pill warn" title="Paid with Razorpay test keys — no real money">test</span>}{o.provider === 'razorpay' && o.mode === 'live' && <span className="pill ok" title="Paid through Razorpay">paid</span>}</td>
                     <td><span className="src">{o.attr?.utm_source || o.source}</span>{campaignOf(o) && <small className="sub-t" title={[o.attr?.utm_medium, o.attr?.utm_term].filter(Boolean).join(' · ')}>{campaignOf(o)}</small>}</td>
                     <td className="r muted">{new Date(o.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
@@ -126,19 +126,21 @@ function ShipModal({ o, onClose, onDone }) {
   };
   return (
     <Modal title={`Shipping · #${o.id}`} onClose={onClose}>
-      <div className="ship-to"><b>{o.name}</b> · {o.phone}<br />{addrText(o.address) || 'No address on this order'}{o.status === 'cod' && <div className="pill warn">Collect {inr(o.total)} in cash</div>}</div>
-      {ff.status !== 'delivered' && ff.status !== 'returned' && (
-        <div className="form2">
-          <label className="fld"><span>Courier</span><input list="couriers" value={v.courier} onChange={(e) => setV({ ...v, courier: e.target.value })} /><datalist id="couriers">{COURIERS.map((c) => <option key={c} value={c} />)}</datalist></label>
-          <label className="fld"><span>Tracking / AWB number</span><input value={v.tracking} onChange={(e) => setV({ ...v, tracking: e.target.value })} /></label>
-          <label className="fld full"><span>Tracking link <small className="muted">· optional — filled in for the couriers above</small></span><input value={v.trackingUrl} onChange={(e) => setV({ ...v, trackingUrl: e.target.value })} placeholder="https://…" /></label>
+      <div className="m-body">
+        <div className="ship-to"><b>{o.name}</b> · {o.phone}<br />{addrText(o.address) || 'No address on this order'}{o.status === 'cod' && <div className="pill warn">Collect {inr(o.total)} in cash</div>}</div>
+        {ff.status !== 'delivered' && ff.status !== 'returned' && (
+          <div className="form2">
+            <label className="fld"><span>Courier</span><input list="couriers" value={v.courier} onChange={(e) => setV({ ...v, courier: e.target.value })} /><datalist id="couriers">{COURIERS.map((c) => <option key={c} value={c} />)}</datalist></label>
+            <label className="fld"><span>Tracking / AWB number</span><input value={v.tracking} onChange={(e) => setV({ ...v, tracking: e.target.value })} /></label>
+            <label className="fld full"><span>Tracking link <small className="muted">· optional — filled in for the couriers above</small></span><input value={v.trackingUrl} onChange={(e) => setV({ ...v, trackingUrl: e.target.value })} placeholder="https://…" /></label>
+          </div>
+        )}
+        <p className="hint">Status: <b>{SHIP[ff.status]?.[0] || 'To ship'}</b>{ff.courier ? ` · ${ff.courier} ${ff.tracking || ''}` : ''}. Shipping emails the buyer the tracking link and runs your “order shipped” automations.</p>
+        <div className="row end">
+          {ff.status === 'shipped' && <button className="btn ghost" disabled={busy} onClick={() => go('returned')}>Returned (RTO)</button>}
+          {ff.status === 'shipped' && <button className="btn primary" disabled={busy} onClick={() => go('delivered')}>Delivered</button>}
+          {(ff.status === 'pending' || ff.status === 'shipped') && <button className={`btn ${ff.status === 'pending' ? 'primary' : 'ghost'}`} disabled={busy} onClick={() => go('shipped')}>{ff.status === 'shipped' ? 'Update tracking' : 'Mark shipped'}</button>}
         </div>
-      )}
-      <p className="hint">Status: <b>{SHIP[ff.status]?.[0] || 'To ship'}</b>{ff.courier ? ` · ${ff.courier} ${ff.tracking || ''}` : ''}. Shipping emails the buyer the tracking link and runs your “order shipped” automations.</p>
-      <div className="row end">
-        {ff.status === 'shipped' && <button className="btn ghost" disabled={busy} onClick={() => go('returned')}>Returned (RTO)</button>}
-        {ff.status === 'shipped' && <button className="btn primary" disabled={busy} onClick={() => go('delivered')}>Delivered</button>}
-        {(ff.status === 'pending' || ff.status === 'shipped') && <button className={`btn ${ff.status === 'pending' ? 'primary' : 'ghost'}`} disabled={busy} onClick={() => go('shipped')}>{ff.status === 'shipped' ? 'Update tracking' : 'Mark shipped'}</button>}
       </div>
     </Modal>
   );
@@ -151,6 +153,7 @@ function RefundModal({ o, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const amount = open.filter((it) => pick.includes(it.i)).reduce((s, it) => s + it.price, 0);
   const viaRzp = open.some((it) => pick.includes(it.i) && it.paymentId);
+  const via = o.provider === 'stripe' || open.some((it) => String(it.paymentId || '').startsWith('pi_')) ? 'Stripe' : 'Razorpay';
   const go = async () => {
     setBusy(true);
     try {
@@ -168,7 +171,7 @@ function RefundModal({ o, onClose, onDone }) {
             <span>{it.name} <small className="muted">· {it.kind}{it.productId ? ' · access will be removed' : ''}</small></span><b>{inr(it.price)}</b></label>
         ))}</div>
         <label className="fld"><span>Reason <small className="muted">· optional, for your records</small></span><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Asked within the 7-day guarantee" /></label>
-        <p className="hint">{viaRzp ? 'The money goes back through Razorpay to the buyer’s original payment method (usually 5–7 working days).' : 'This order wasn’t paid through Razorpay here, so the refund is only recorded — pay the buyer back yourself.'} A credit note is issued for invoiced items, and the refund is taken out of your reports.</p>
+        <p className="hint">{viaRzp ? `The money goes back through ${via} to the buyer’s original payment method (usually 5–10 working days).` : 'This order wasn’t paid online here, so the refund is only recorded — pay the buyer back yourself.'} A credit note is issued for invoiced items, and the refund is taken out of your reports.</p>
         <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn danger" disabled={!pick.length || busy} onClick={go}>{busy ? 'Refunding…' : `Refund ${inr(amount)}`}</button></div>
       </div>
     </Modal>
