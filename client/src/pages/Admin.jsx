@@ -123,7 +123,8 @@ function SellerModal({ id, onClose, onChange }) {
   const [u, setU] = useState(null);
   const [days, setDays] = useState(7);
   const [limit, setLimit] = useState('');
-  const load = () => api(`/admin/users/${id}`).then((x) => { setU(x); setLimit(x.creditLimit ?? ''); });
+  const [lim, setLim] = useState({ funnels: '', storageMB: '' });
+  const load = () => api(`/admin/users/${id}`).then((x) => { setU(x); setLimit(x.creditLimit ?? ''); setLim({ funnels: x.limitOverrides?.funnels ?? '', storageMB: x.limitOverrides?.storageMB ?? '' }); });
   useEffect(() => { load(); }, [id]);
   const act = async (action, extra = {}, msg) => {
     try {
@@ -145,11 +146,12 @@ function SellerModal({ id, onClose, onChange }) {
           <button className="btn primary sm" onClick={() => act('impersonate')}><Icon name="eye" size={14} /> Log in as seller</button>
         </div>
         <div className="mini-stats">
-          {[['Funnels', `${c.funnels} (${c.published} live)`], ['Contacts', num(c.contacts)], ['Leads', num(c.leads)], ['Automations', c.automations], ['Domains', c.domains], ['Views 30d', num(c.views30)], ['Orders 30d', `${c.orders30.n} · ${inr(c.orders30.gmv)}`], ['AI credits', `${num(u.credits.used)} / ${u.credits.limit == null ? '∞' : num(u.credits.limit)}`]].map(([l, v]) => <div key={l}><small>{l}</small><b>{v}</b></div>)}
+          {[['Funnels', `${c.funnels} (${c.published} live)`], ['Contacts', num(c.contacts)], ['Leads', num(c.leads)], ['Automations', c.automations], ['Domains', c.domains], ['Views 30d', num(c.views30)], ['Orders 30d', `${c.orders30.n} · ${inr(c.orders30.gmv)}`], ['AI credits', `${num(u.credits.used)} / ${u.credits.limit == null ? '∞' : num(u.credits.limit)}`], ['Funnel limit', `${u.usage.funnels} / ${num(u.limits.funnels)}`], ['Images', `${u.usage.storageMB} / ${num(u.limits.storageMB)} MB`]].map(([l, v]) => <div key={l}><small>{l}</small><b>{v}</b></div>)}
         </div>
         <div className="seller-actions">
           <div className="row"><input type="number" min="1" max="365" value={days} onChange={(e) => setDays(e.target.value)} style={{ width: 80 }} /><button className="btn ghost sm" onClick={() => act('extend_trial', { days }, `Trial extended by ${days} days`)}>Extend trial</button></div>
           <div className="row"><input type="number" min="0" placeholder="Plan default" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 120 }} /><button className="btn ghost sm" onClick={() => act('set_credits', { limit }, 'AI credit limit saved')}>Set AI credits</button></div>
+          <div className="row"><input type="number" min="0" placeholder={`Funnels (${u.limits.funnels})`} value={lim.funnels} onChange={(e) => setLim({ ...lim, funnels: e.target.value })} style={{ width: 130 }} /><input type="number" min="0" placeholder={`Images MB (${u.limits.storageMB})`} value={lim.storageMB} onChange={(e) => setLim({ ...lim, storageMB: e.target.value })} style={{ width: 150 }} /><button className="btn ghost sm" onClick={() => act('set_limits', lim, 'Limits saved')}>Set limits</button></div>
           <div className="row">
             {u.access.status === 'comped' ? <button className="btn ghost sm" onClick={() => act('uncomp')}>End free access</button> : <button className="btn ghost sm" onClick={() => { const note = prompt('Reason for free access (e.g. partner, beta tester)?', ''); if (note !== null) act('comp', { note }, 'Free access granted'); }}>Give free access</button>}
             {u.access.status === 'suspended' ? <button className="btn ghost sm" onClick={() => act('unsuspend')}>Unsuspend</button> : <button className="btn ghost sm danger" onClick={() => { const note = prompt('Reason for suspending (pages go offline and the seller is signed out)?', ''); if (note !== null) act('suspend', { note }, 'Seller suspended'); }}>Suspend</button>}
@@ -210,10 +212,15 @@ function PlatformSettings() {
           <label>AI credits / month — paid<input type="number" min="0" value={s.aiCredits.paid} onChange={(e) => set({ aiCredits: { ...s.aiCredits, paid: e.target.value } })} /></label>
           <label>Grace days after a failed renewal<input type="number" min="0" max="60" value={s.graceDays} onChange={(e) => set({ graceDays: e.target.value })} /></label>
           <label>Pages stay live after lock (days)<input type="number" min="0" max="365" value={s.pagesOfflineAfterDays} onChange={(e) => set({ pagesOfflineAfterDays: e.target.value })} /></label>
+          <label>Funnels per seller — trial<input type="number" min="0" value={s.limits.funnelsTrial} onChange={(e) => set({ limits: { ...s.limits, funnelsTrial: e.target.value } })} /></label>
+          <label>Funnels per seller — paid<input type="number" min="0" value={s.limits.funnels} onChange={(e) => set({ limits: { ...s.limits, funnels: e.target.value } })} /></label>
+          <label>Image storage (MB) — trial<input type="number" min="0" value={s.limits.storageMBTrial} onChange={(e) => set({ limits: { ...s.limits, storageMBTrial: e.target.value } })} /></label>
+          <label>Image storage (MB) — paid<input type="number" min="0" value={s.limits.storageMB} onChange={(e) => set({ limits: { ...s.limits, storageMB: e.target.value } })} /></label>
+          <label>Broadcast emails / day — trial (shared sender)<input type="number" min="0" value={s.limits.broadcastTrialDaily} onChange={(e) => set({ limits: { ...s.limits, broadcastTrialDaily: e.target.value } })} /></label>
         </div>
         <label className="tog"><input type="checkbox" checked={s.pricesIncludeGst} onChange={(e) => set({ pricesIncludeGst: e.target.checked })} /><span />Prices include GST</label>
         <p className="hint">Sellers pay {inr(s.prices.monthly.amount)}/month or {inr(s.prices.yearly.amount)}/year. Changing a price applies to new subscriptions; existing subscribers keep theirs.</p>
-        <button className="btn primary" onClick={() => save({ plans: s.plans, agency: s.agency, trialDays: s.trialDays, gstRate: s.gstRate, aiCredits: s.aiCredits, graceDays: s.graceDays, pagesOfflineAfterDays: s.pagesOfflineAfterDays, pricesIncludeGst: s.pricesIncludeGst })}>Save pricing</button>
+        <button className="btn primary" onClick={() => save({ plans: s.plans, agency: s.agency, trialDays: s.trialDays, gstRate: s.gstRate, aiCredits: s.aiCredits, graceDays: s.graceDays, pagesOfflineAfterDays: s.pagesOfflineAfterDays, pricesIncludeGst: s.pricesIncludeGst, limits: s.limits })}>Save pricing</button>
       </Panel>
 
       <Panel title="Razorpay (collects subscriptions)">

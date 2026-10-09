@@ -1739,3 +1739,7 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 .g-wrap.hidden { min-height: 0; gap: 0; margin: 0; }
 .or { width: 100%; display: flex; align-items: center; gap: 10px; color: var(--c-muted); font-size: 12px; }
 .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--c-line); }
+
+/* sign-up honeypot (bots fill it, people never see it) and the Turnstile check */
+.auth-form .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.auth-form .ts-box { margin: 4px 0 12px; min-height: 65px; }

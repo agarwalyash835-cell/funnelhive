@@ -114,6 +114,12 @@ Optional infrastructure settings (server/.env):
   `/api/health` returns 503 when the database or the background jobs stop.
 - `SENTRY_DSN` — server errors go to Sentry. `LOG_REQUESTS=1` — one JSON log line per request.
 - `BROADCAST_SHARED_DAILY` (default 300) — daily broadcast-email cap for sellers on the shared mail server.
+- Fair-use limits per seller (Admin → Plan & settings; raise them for one seller in Admin → that seller): funnels
+  (20 in the trial / 200 paid), image storage (500 MB / 5 GB), broadcast emails a day on the shared sender during the
+  trial (50).
+- Sign-up protection: a hidden honeypot field, throwaway-inbox domains refused, `SIGNUPS_PER_IP_DAY` (default 5) new
+  accounts per network a day, and Cloudflare Turnstile when `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY` are set
+  (free at dash.cloudflare.com → Turnstile).
 - `EVENTS_RAW_DAYS` (default 90) — page views are kept one row each for this long, then folded into daily totals per
   funnel / step / source / A-B variant (in each seller's time zone) and deleted, so the database stops growing with
   traffic. Reports give the same numbers; unique visitors on days older than the window become the sum of daily uniques.

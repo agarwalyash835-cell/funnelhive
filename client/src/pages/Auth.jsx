@@ -32,6 +32,19 @@ export default function Auth() {
   const [google, setGoogle] = useState(null); // credential waiting for a 2-step code
   const go = (m) => { setMode(m); setErr(''); setInfo(''); setNeedCode(false); setGoogle(null); };
   const googleBtn = useRef(null);
+  // Cloudflare Turnstile ("I'm human") on sign-up, when the server has it switched on
+  const tsBox = useRef(null), tsId = useRef(null);
+  const [tsKey, setTsKey] = useState(null);
+  useEffect(() => { fetch('/api/site').then((r) => r.json()).then((s) => setTsKey(s.turnstileSiteKey || null)).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!tsKey || mode !== 'register' || !tsBox.current) return;
+    let alive = true;
+    const render = () => { if (alive && window.turnstile && tsBox.current && tsId.current == null) tsId.current = window.turnstile.render(tsBox.current, { sitekey: tsKey, callback: (t) => setF((x) => ({ ...x, turnstile: t })), 'expired-callback': () => setF((x) => ({ ...x, turnstile: '' })) }); };
+    if (window.turnstile) render();
+    else if (!document.getElementById('cf-ts')) { const sc = document.createElement('script'); sc.id = 'cf-ts'; sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; sc.async = true; sc.onload = render; document.head.appendChild(sc); }
+    else document.getElementById('cf-ts').addEventListener('load', render);
+    return () => { alive = false; if (tsId.current != null && window.turnstile) { try { window.turnstile.remove(tsId.current); } catch {} } tsId.current = null; };
+  }, [tsKey, mode]);
   const [gReady, setGReady] = useState(false);
 
   // "Continue with Google" — shown when the server has a Google client ID
@@ -72,7 +85,7 @@ export default function Auth() {
         const r = await api('/auth/forgot', 'POST', { email: f.email });
         setInfo(r.emailConfigured ? 'If an account exists for that email, a reset link is on its way. Check your inbox.' : 'Email sending isn’t configured on this server yet — the reset link was printed in the server console.');
       } else {
-        const r = await api(`/auth/${mode}`, 'POST', f);
+        const r = await api(`/auth/${mode}`, 'POST', f).catch((x) => { if (tsId.current != null && window.turnstile) { window.turnstile.reset(tsId.current); setF((y) => ({ ...y, turnstile: '' })); } throw x; });
         if (r.twoFactorRequired) { setNeedCode(true); setBusy(false); return; }
         setToken(r.token);
         location.href = nextPath();
@@ -101,6 +114,8 @@ export default function Auth() {
               <label><span className="lbl-row">Password{mode === 'login' && <a onClick={() => go('forgot')}>Forgot password?</a>}</span>
                 <input type="password" required minLength={6} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="At least 6 characters" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
             )}
+            {mode === 'register' && <input className="hp" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.website || ''} onChange={(e) => setF({ ...f, website: e.target.value })} />}
+            {mode === 'register' && tsKey && <div ref={tsBox} className="ts-box" />}
           </>
         )}
         {err && <div className="err">{err}</div>}

@@ -13,6 +13,7 @@ import { T, q, tx, uid } from './db.js';
 import { platform, isAdmin } from './platform.js';
 import { totals, sources } from './analytics.js';
 import { copyProduct } from './products.js';
+import { funnelLimitError } from './limits.js';
 import { randomToken, hashToken } from './security.js';
 import { sendMail, appUrl } from './mail.js';
 
@@ -69,6 +70,8 @@ const newIds = (steps) => steps.map((s) => ({ ...s, id: uid(), blocks: s.blocks.
 // A snapshot into an account: a new funnel (draft), its automations (paused), products with their files
 export function importSnapshot(userId, snap, { createFunnel, withProducts = true, sourceUserId = null }) {
   if (!snap || snap.kind !== 'funnelhive.snapshot' || !snap.funnel?.steps?.length) throw new Error('That isn’t a FunnelHive funnel file');
+  const lim = funnelLimitError(T.users.get(userId));
+  if (lim) throw Object.assign(new Error(lim), { status: 403 });
   const steps = newIds(structuredClone(snap.funnel.steps)).slice(0, 30);
   // products: copied (files too when they come from this server) and re-pointed; otherwise the link is removed
   const map = {};
@@ -190,6 +193,8 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     const me = req.actor || req.user, target = String(req.body?.accountId || '');
     const m = T.members.find({ ownerId: target, userId: me.id, status: 'active' });
     if (!(m && ['agency', 'admin'].includes(m.role)) && target !== me.id) return res.status(403).json({ error: 'You can copy funnels only to accounts you manage' });
+    const lim = funnelLimitError(T.users.get(target));
+    if (lim) return res.status(403).json({ error: lim, limit: 'funnels' });
     const r = importSnapshot(target, snapshotOf(f), { createFunnel, sourceUserId: f.userId });
     res.status(201).json({ id: r.funnel.id, accountId: target, products: r.products, automations: r.automations });
   });
@@ -211,6 +216,8 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     const row = shared(req.params.token);
     if (!row) return res.status(404).json({ error: 'This share link has been turned off' });
     const f = JSON.parse(row.data);
+    const lim = funnelLimitError(req.user);
+    if (lim) return res.status(403).json({ error: lim, limit: 'funnels' });
     const r = importSnapshot(req.user.id, snapshotOf(f), { createFunnel, withProducts: f.shareProducts !== false, sourceUserId: f.userId });
     res.status(201).json({ id: r.funnel.id, name: r.funnel.name });
   });

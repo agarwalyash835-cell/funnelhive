@@ -26,6 +26,7 @@ import { platform, isAdmin, brand } from './platform.js';
 import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
 import { verifyGoogleToken, googleClientId } from './google.js';
+import { signupGuard, turnstileSiteKey, funnelLimitError, storageLimitError, addStorage } from './limits.js';
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
 import { registerProducts, deliver, resolveToken } from './products.js';
 import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId } from './tracking.js';
@@ -85,6 +86,7 @@ const aiLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 20, key: (re
 app.use('/api/public', (req, res, next) => (req.method !== 'POST' ? next() : req.path.endsWith('/event') ? eventLimiter(req, res, next) : publicLimiter(req, res, next)));
 
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
+  if (e.status >= 400 && e.status < 500) return res.status(e.status).json({ error: e.message });
   console.error(e);
   reportError(e, { route: `${req.method} ${req.route?.path || req.path}`, userId: req.user?.id });
   res.status(500).json({ error: e.message });
@@ -165,6 +167,8 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   if (!email || !EMAIL_RE.test(email) || !password || password.length < 6) return res.status(400).json({ error: 'A valid email and a 6+ character password are required' });
   if (!platform().signupsOpen) return res.status(403).json({ error: 'New sign-ups are paused right now — please check back soon.' });
   if (T.users.exists({ email: email.toLowerCase() })) return res.status(409).json({ error: 'Email already registered' });
+  const g = await signupGuard(req, email);
+  if (g) return res.status(g.status).json({ error: g.error });
   const user = { id: uid(), email: email.toLowerCase(), name: String(name || email.split('@')[0]).slice(0, 80), hash: bcrypt.hashSync(password, 10), settings: { ...DEFAULT_SETTINGS }, emailVerified: false, pv: 0, createdAt: Date.now(), billing: newBilling() };
   try { T.users.insert(user); } catch { return res.status(409).json({ error: 'Email already registered' }); }
   sendVerification(req, user);
@@ -188,6 +192,8 @@ app.post('/api/auth/google', authLimiter, wrap(async (req, res) => {
   let user = T.users.find({ email: g.email });
   if (!user) {
     if (!platform().signupsOpen) return res.status(403).json({ error: 'New sign-ups are paused right now — please check back soon.' });
+    const bad = await signupGuard(req, g.email, { google: true });
+    if (bad) return res.status(bad.status).json({ error: bad.error });
     user = { id: uid(), email: g.email, name: g.name, hash: bcrypt.hashSync(randomToken(), 10), passwordSet: false, googleId: g.sub, settings: { ...DEFAULT_SETTINGS }, emailVerified: true, pv: 0, createdAt: Date.now(), billing: newBilling() };
     try { T.users.insert(user); } catch { user = T.users.find({ email: g.email }); }
   } else if (!user.googleId || !user.emailVerified) {
@@ -483,7 +489,8 @@ app.get('/api/funnels', auth, (req, res) => {
   })));
 });
 
-app.post('/api/funnels', auth, (req, res) => {
+const funnelCap = (req, res, next) => { const e = funnelLimitError(req.user); return e ? res.status(403).json({ error: e, limit: 'funnels' }) : next(); };
+app.post('/api/funnels', auth, funnelCap, (req, res) => {
   const name = req.body.name || 'Untitled funnel';
   res.json(createFunnel(req.user.id, {
     name, theme: { style: 'aurora', primary: '#6366f1', secondary: '#ec4899' },
@@ -570,6 +577,9 @@ app.post('/api/uploads', auth, rateLimit({ windowMs: 60000, max: isTest ? 500 : 
   // optional phone-sized copy from the editor's optimiser → served through srcset
   const small = ext === 'webp' && req.body.small ? Buffer.from(String(req.body.small).replace(/^data:[^,]+,/, ''), 'base64') : null;
   const smallOk = small && small.length && small.length <= 1024 * 1024 && small.toString('latin1', 0, 4) === 'RIFF' && small.toString('latin1', 8, 12) === 'WEBP';
+  const bytes = buf.length + (smallOk ? small.length : 0);
+  const full = storageLimitError(req.user, bytes);
+  if (full) return res.status(413).json({ error: full, limit: 'storage' });
   const dir = path.join(UPLOAD_DIR, req.user.id);
   fs.mkdirSync(dir, { recursive: true });
   const base = `${Date.now().toString(36)}-${uid()}`;
@@ -579,11 +589,13 @@ app.post('/api/uploads', auth, rateLimit({ windowMs: 60000, max: isTest ? 500 : 
     try {
       await putObject(`uploads/${req.user.id}/${name}`, buf, req.body.type);
       if (smallOk) await putObject(`uploads/${req.user.id}/${base}.v-800.webp`, small, 'image/webp');
+      addStorage(req.user.id, bytes);
       return res.json({ url: publicUrlFor(`uploads/${req.user.id}/${name}`) || `/uploads/${req.user.id}/${name}`, bytes: buf.length });
     } catch (e) { console.error('storage upload failed — kept on disk', e.message); }
   }
   fs.writeFileSync(path.join(dir, name), buf);
   if (smallOk) fs.writeFileSync(path.join(dir, `${base}.v-800.webp`), small);
+  addStorage(req.user.id, bytes);
   res.json({ url: `/uploads/${req.user.id}/${name}`, bytes: buf.length });
 }));
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true, setHeaders: (res) => res.setHeader('Content-Security-Policy', "default-src 'none'") }));
@@ -594,7 +606,7 @@ app.get('/uploads/:uid/:name', (req, res, next) => {
   res.set('Cache-Control', 'public, max-age=86400').redirect(301, publicUrlFor(key) || presign(key, { expires: 86400 }));
 });
 
-app.post('/api/funnels/:id/duplicate', auth, (req, res) => {
+app.post('/api/funnels/:id/duplicate', auth, funnelCap, (req, res) => {
   const f = owned(req, res);
   if (!f) return;
   const copy = structuredClone(f);
@@ -694,20 +706,20 @@ app.get('/api/orders', auth, (req, res) => {
 app.get('/api/site', (req, res) => {
   const p = platform(), pr = pricing();
   const wl = brandForHost(req.hostname); // an agency's own app domain: their brand on the login page
-  res.json({ ...(wl ? { whiteLabel: wl } : {}), pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: { name: p.company.name, email: p.company.email, address: p.company.address, state: p.company.state, gstin: p.company.gstin } });
+  res.json({ ...(wl ? { whiteLabel: wl } : {}), pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, turnstileSiteKey: turnstileSiteKey(), trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: { name: p.company.name, email: p.company.email, address: p.company.address, state: p.company.state, gstin: p.company.gstin } });
 });
 
 // ---------- templates ----------
 app.get('/api/templates', (_, res) => res.json(templateList()));
 app.get('/api/templates/:tid', (req, res) => { const t = getTemplate(req.params.tid); t ? res.json(t) : res.status(404).json({ error: 'Not found' }); });
-app.post('/api/templates/:tid/use', auth, (req, res) => {
+app.post('/api/templates/:tid/use', auth, funnelCap, (req, res) => {
   const t = getTemplate(req.params.tid);
   if (!t) return res.status(404).json({ error: 'Not found' });
   res.json(createFunnel(req.user.id, { name: t.name, theme: t.theme, steps: t.steps }));
 });
 
 // ---------- AI ----------
-app.post('/api/ai/generate', auth, aiLimiter, credits('generate'), wrap(async (req, res) => {
+app.post('/api/ai/generate', auth, funnelCap, aiLimiter, credits('generate'), wrap(async (req, res) => {
   const { prompt } = req.body;
   if (!prompt || prompt.length < 5) return res.status(400).json({ error: 'Describe your business or offer in a sentence' });
   // Hindi pages: the copy is written in Hindi, and the page's built-in words follow (theme.lang)

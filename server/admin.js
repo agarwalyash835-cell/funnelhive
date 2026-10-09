@@ -8,6 +8,7 @@ import { call as rzpCall } from './razorpay.js';
 import { deleteAccount } from './account.js';
 import { saveIntlSettings, intlSettingsView } from './billing-intl.js';
 import { fxRate } from './fx.js';
+import { limitsFor, usageFor, saveLimits, LIMIT_DEFAULTS } from './limits.js';
 import { DAY, localDate } from './time.js';
 
 const startedAt = Date.now();
@@ -79,7 +80,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (!u) return;
     const since = Date.now() - 30 * DAY;
     res.json({
-      ...row(u), billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
+      ...row(u), billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: limitsFor(u), limitOverrides: u.limits || {}, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
       counts: {
         funnels: T.funnels.count({ userId: u.id }), published: q("SELECT COUNT(*) AS n FROM funnels WHERE userId = ? AND json_extract(data, '$.published') = 1").get(u.id).n,
         contacts: T.crm.count({ userId: u.id }), leads: T.leads.count({ userId: u.id }), automations: T.automations.count({ userId: u.id }), domains: T.domains.count({ userId: u.id }),
@@ -106,6 +107,13 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       case 'suspend': if (isAdmin(u)) return res.status(400).json({ error: 'Remove admin access first' }); set((x) => { x.billing.prevStatus = x.billing.status; x.billing.status = 'suspended'; x.billing.suspendReason = String(req.body.note || '').slice(0, 200); x.pv = (x.pv || 0) + 1; }); detail = req.body.note || ''; break;
       case 'unsuspend': set((x) => { x.billing.status = x.billing.prevStatus && x.billing.prevStatus !== 'suspended' ? x.billing.prevStatus : 'trialing'; delete x.billing.suspendReason; }); break;
       case 'set_credits': { const v = req.body.limit === '' || req.body.limit == null ? null : Math.max(0, Math.round(Number(req.body.limit))); if (v !== null && !Number.isFinite(v)) return res.status(400).json({ error: 'Enter a number' }); T.users.update(u.id, (x) => { if (v === null) delete x.creditLimit; else x.creditLimit = v; }); detail = v === null ? 'plan default' : String(v); break; }
+      case 'set_limits': {
+        // per-seller override of the plan's funnel / image-storage limits; empty = plan default
+        const o = {};
+        for (const k of ['funnels', 'storageMB']) { const v = req.body[k]; if (v === '' || v == null) continue; const n = Math.round(Number(v)); if (!(n >= 0 && n <= 10000000)) return res.status(400).json({ error: 'Enter valid numbers' }); o[k] = n; }
+        T.users.update(u.id, (x) => { if (Object.keys(o).length) x.limits = o; else delete x.limits; });
+        detail = Object.keys(o).length ? JSON.stringify(o) : 'plan default'; break;
+      }
       case 'make_admin': T.users.update(u.id, (x) => { x.role = 'admin'; }); break;
       case 'remove_admin': if (u.id === req.user.id) return res.status(400).json({ error: 'You can’t remove your own admin access' }); T.users.update(u.id, (x) => { delete x.role; }); break;
       case 'verify_email': T.users.update(u.id, (x) => { x.emailVerified = true; }); break;
@@ -132,7 +140,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   const settingsView = () => {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
-    return { ...rest, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -171,6 +179,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       patch.razorpay = next;
       changes.push('razorpay keys');
     }
+    if (b.limits) { try { patch.limits = saveLimits(b.limits); changes.push('limits'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     if (b.stripe || b.intl) { try { await saveIntlSettings(b); changes.push('international billing'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     savePlatform((s) => Object.assign(s, patch));
     audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay'), ...changes].join(', '));

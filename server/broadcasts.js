@@ -8,6 +8,8 @@ import { contactList, metaFor, logActivity, pipelinesFor } from './crm.js';
 import { fill, emailTracking } from './automations.js';
 import { sellerTz, zoned, localYmd } from './tz.js';
 import { accessFor } from './billing.js';
+import { limitsFor } from './limits.js';
+const sharedCap = (u) => Math.min(SHARED_DAILY, limitsFor(u).broadcastDaily ?? Infinity);
 
 const TICK = Number(process.env.BROADCAST_TICK_MS || 5000);
 const BATCH = Number(process.env.BROADCAST_BATCH || 40); // messages per tick, across everyone
@@ -147,7 +149,7 @@ export async function broadcastTick(now = Date.now()) {
       if (!u || !accessFor(u).ok) { T.bsends.update(id, (x) => { x.nextAt = now + 3600000; }); continue; } // paused until the subscription is active
       // shared email sender: a daily cap; the rest waits for tomorrow
       if (b.channel === 'email' && emailStatus(u).via !== 'your SMTP') {
-        if (!capLeft.has(u.id)) capLeft.set(u.id, SHARED_DAILY - sentToday(u.id, now));
+        if (!capLeft.has(u.id)) capLeft.set(u.id, sharedCap(u) - sentToday(u.id, now));
         if (capLeft.get(u.id) <= 0) { T.bsends.update(id, (x) => { x.nextAt = dayStart(now, sellerTz(u)) + DAY + 60000; }); continue; }
         capLeft.set(u.id, capLeft.get(u.id) - 1);
       }
@@ -184,7 +186,7 @@ export function registerBroadcasts(app, { auth, rateLimit, isTest }) {
 
   app.get('/api/broadcasts', auth, (req, res) => res.json({
     broadcasts: T.broadcasts.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 200 }).map(view),
-    email: emailStatus(req.user), whatsapp: whatsappStatus(req.user), sharedDaily: emailStatus(req.user).via === 'your SMTP' ? null : SHARED_DAILY,
+    email: emailStatus(req.user), whatsapp: whatsappStatus(req.user), sharedDaily: emailStatus(req.user).via === 'your SMTP' ? null : sharedCap(req.user),
     tags: [...new Set(T.crm.all({ userId: req.user.id }).flatMap((m) => m.tags || []))].sort(),
     pipelines: pipelinesFor(req.user.id).map(({ id, name, stages }) => ({ id, name, stages: stages.map(({ id: sid, name: sn }) => ({ id: sid, name: sn })) })),
   }));
