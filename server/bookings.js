@@ -11,6 +11,8 @@ import { fire as fireAutomation } from './automations.js';
 import { linkBase } from './products.js';
 import { cachedBusy, refreshBusy, addEvent, removeEvent } from './gcal.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment, call as rzpCall } from './razorpay.js';
+import { stripeCreds, startStripePayment, confirmedIntent, stripeRefund, CURRENCIES } from './stripe.js';
+const CALL_CURRENCIES = [...new Set(Object.values(CURRENCIES))];
 import { tzOf, sellerTz, zoned, localYmd, addDays, dowOfYmd, formatIn, offsetAt, validTz } from './tz.js';
 import { refundOrder } from './sales.js';
 
@@ -43,8 +45,9 @@ function cleanCalendar(b = {}, cur = {}) {
     const h = b.hours && typeof b.hours === 'object' ? b.hours : cur.hours || DEFAULT_HOURS;
     out.hours = Object.fromEntries(DAYS.map((d) => [d, (Array.isArray(h[d]) ? h[d] : []).filter((w) => Array.isArray(w) && HHMM.test(w[0]) && HHMM.test(w[1]) && toMin(w[0]) < toMin(w[1])).slice(0, 4)]));
   }
-  // paid calls: the buyer pays (Razorpay) before the slot is confirmed; refunded when cancelled early enough
+  // paid calls: the buyer pays (Razorpay in ₹, or Stripe by card in any currency) before the slot is confirmed; refunded when cancelled early enough
   if ('price' in b || !cur.id) out.price = intIn(b.price, 0, 1000000, cur.price ?? 0);
+  if ('currency' in b || !cur.id) out.currency = CALL_CURRENCIES.includes(b.currency) ? b.currency : cur.currency || 'INR';
   if ('refundHours' in b || !cur.id) out.refundHours = intIn(b.refundHours, 0, 720, cur.refundHours ?? 24);
   if ('blocked' in b || !cur.id) out.blocked = (Array.isArray(b.blocked) ? b.blocked : cur.blocked || []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 365);
   return out;
@@ -120,7 +123,7 @@ function notifyBuyer(b, kind, base) {
   // the seller hears about new bookings and cancellations
   if (kind === 'confirmed' || kind === 'cancelled') sendEmail(owner, { to: owner.email, subject: `${kind === 'confirmed' ? 'New booking' : 'Booking cancelled'}: ${b.name || b.email} · ${when(b.start, calTz(cal))}`, text: `${cal.name}\n${b.name || ''} · ${b.email}${b.phone ? ` · ${b.phone}` : ''}\n${when(b.start, calTz(cal))}${b.notes ? `\n\nNotes: ${b.notes}` : ''}` }).catch(() => {});
 }
-const outBooking = (b, cal) => ({ id: b.id, start: b.start, end: b.end, status: b.status, name: b.name, email: b.email, phone: b.phone, notes: b.notes || '', calendar: cal ? { id: cal.id, name: cal.name, duration: cal.duration, meetingLink: cal.meetingLink || b.meetLink || '', location: cal.location || '', tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), price: cal.price || 0, refundHours: cal.refundHours ?? 24 } : null, funnelId: b.funnelId, at: b.at, cancelledBy: b.cancelledBy || null, paid: b.paid ? b.amount || true : null, orderId: b.orderId || null, refunded: !!b.refunded, unpaid: !!b.unpaid, google: !!b.gEventId });
+const outBooking = (b, cal) => ({ id: b.id, start: b.start, end: b.end, status: b.status, name: b.name, email: b.email, phone: b.phone, notes: b.notes || '', calendar: cal ? { id: cal.id, name: cal.name, duration: cal.duration, meetingLink: cal.meetingLink || b.meetLink || '', location: cal.location || '', tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), price: cal.price || 0, currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24 } : null, funnelId: b.funnelId, at: b.at, cancelledBy: b.cancelledBy || null, paid: b.paid ? b.amount || true : null, orderId: b.orderId || null, refunded: !!b.refunded, unpaid: !!b.unpaid, google: !!b.gEventId });
 
 // A booking (or reschedule) for one slot; refuses a slot that isn't free — checked inside one transaction
 export function book(cal, { start, email, name, phone, notes, funnelId = null, stepId = null, base = '', leadId = null, replaces = null, attr, hold = false, carry = null, unpaid = false }) {
@@ -163,8 +166,10 @@ export async function confirmPaidBooking(pay, paymentId, base) {
   // paid after the hold ran out and someone else took the time: money back
   const clash = b0.status !== 'confirmed' && T.bookings.all({ calendarId: cal.id, status: 'confirmed', start: { gte: b0.start - DAY, lte: b0.end + DAY } }).some((x) => x.id !== b0.id && x.start < b0.end && x.end > b0.start);
   if (clash) {
-    const creds = rzpCreds(owner);
-    try { if (creds) await rzpCall(creds, 'POST', `/payments/${paymentId}/refund`, { amount: Math.round(pay.charge.total * 100), notes: { reason: 'slot no longer available' } }); } catch (e) { console.error('auto refund failed', e.message); }
+    try {
+      if (pay.provider === 'stripe') { const sc = stripeCreds(owner); if (sc) await stripeRefund(sc, paymentId, pay.charge.total, pay.currency || 'INR', 'slot no longer available'); }
+      else { const creds = rzpCreds(owner); if (creds) await rzpCall(creds, 'POST', `/payments/${paymentId}/refund`, { amount: Math.round(pay.charge.total * 100), notes: { reason: 'slot no longer available' } }); }
+    } catch (e) { console.error('auto refund failed', e.message); }
     T.bookings.update(b0.id, (x) => { x.status = 'failed'; x.refunded = true; });
     pay.status = 'paid'; pay.paymentId = paymentId; pay.result = { error: 'Sorry — that time was taken while you were paying. Your payment is being refunded; please pick another slot.', refunded: true };
     T.payments.put(pay);
@@ -260,7 +265,7 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     if (!blk) return res.status(404).json({ error: 'Calendar not found' });
     const cal = calendarFor(f.userId, blk.props.calendarId);
     await refreshBusy(f.userId, cal.daysAhead + 1);
-    res.json({ calendar: { name: cal.name, duration: cal.duration, tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), description: cal.description || '', location: cal.meetingLink || T.users.get(f.userId)?.channels?.gcal?.refreshEnc ? 'Video call' : cal.location || '', price: cal.price || 0, refundHours: cal.refundHours ?? 24 }, slots: freeSlots(cal) });
+    res.json({ calendar: { name: cal.name, duration: cal.duration, tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), description: cal.description || '', location: cal.meetingLink || T.users.get(f.userId)?.channels?.gcal?.refreshEnc ? 'Video call' : cal.location || '', price: cal.price || 0, currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24 }, slots: freeSlots(cal) });
   }));
   app.post('/api/public/:slug/book', bookLimiter, wrap(async (req, res) => {
     const f = pub(req, res);
@@ -275,13 +280,31 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     if (rules && blk.props.qualifiedOnly !== false && !T.leads.all({ funnelId: f.id, ckey }).some((l) => l.qualified === true)) return res.status(403).json({ error: 'Please complete the application first — booking opens once it’s approved' });
     await refreshBusy(f.userId, cal.daysAhead + 1);
     const base = linkBase(f.id, process.env.APP_URL || appUrl(req));
-    const owner = T.users.get(f.userId), creds = cal.price > 0 ? rzpCreds(owner) : null;
+    // Razorpay takes ₹; Stripe takes cards in any currency (and ₹ when Razorpay isn't connected)
+    const owner = T.users.get(f.userId), iso = cal.currency || 'INR';
+    const creds = cal.price > 0 && iso === 'INR' ? rzpCreds(owner) : null, sc = cal.price > 0 && !creds ? stripeCreds(owner) : null;
     const input = { start: req.body.start, email: req.body.email, name: req.body.name, phone: req.body.phone, notes: req.body.notes, funnelId: f.id, stepId: req.body.stepId, base, attr: req.body.attr };
+    const holdPay = (b, mode) => ({ id: uid(), userId: f.userId, funnelId: f.id, stepId: req.body.stepId, kind: 'booking', bookingId: b.id, buyer: { email: b.email, name: b.name, phone: b.phone, source: String(req.body.source || 'direct').slice(0, 40), ...(req.body.attr ? { attr: req.body.attr } : {}) }, charge: { items: [{ name: `${cal.name} — ${when(b.start, calTz(cal))}`, price: cal.price, kind: 'booking' }], total: cal.price, discount: 0 }, mode, status: 'created', at: Date.now(), base });
+    if (sc) {
+      // paid call by card: hold the slot for 15 minutes while the buyer pays in the Stripe form
+      const r = book(cal, { ...input, hold: true });
+      if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
+      const pay = { ...holdPay(r.booking, sc.mode), provider: 'stripe', currency: iso };
+      let st;
+      try { st = await startStripePayment(sc, { userId: f.userId, pay, iso, buyer: pay.buyer, description: pay.charge.items[0].name }); } catch (e) {
+        console.error('Stripe booking payment failed', e.message);
+        T.bookings.update(r.booking.id, (x) => { x.status = 'failed'; });
+        return res.status(502).json({ error: 'Card payments are temporarily unavailable — please try again in a minute' });
+      }
+      Object.assign(pay, { stripeIntent: st.intent, stripeCustomer: st.customer, rzpOrderId: st.intent });
+      T.payments.insert(pay);
+      return res.json({ pay: { ...st, amount: cal.price, currency: iso, name: owner.settings?.businessName || f.name, description: pay.charge.items[0].name.slice(0, 250), color: f.theme?.primary || '#6366f1' }, holdUntil: r.booking.holdUntil });
+    }
     if (creds) {
       // paid call: hold the slot for 15 minutes and open a Razorpay payment for it
       const r = book(cal, { ...input, hold: true });
       if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
-      const pay = { id: uid(), userId: f.userId, funnelId: f.id, stepId: req.body.stepId, kind: 'booking', bookingId: r.booking.id, buyer: { email: r.booking.email, name: r.booking.name, phone: r.booking.phone, source: String(req.body.source || 'direct').slice(0, 40), ...(req.body.attr ? { attr: req.body.attr } : {}) }, charge: { items: [{ name: `${cal.name} — ${when(r.booking.start, calTz(cal))}`, price: cal.price, kind: 'booking' }], total: cal.price, discount: 0 }, mode: creds.mode, status: 'created', at: Date.now(), base };
+      const pay = holdPay(r.booking, creds.mode);
       let rz;
       try { rz = await rzpCreateOrder(creds, { amount: cal.price * 100, receipt: pay.id, notes: { booking: r.booking.id, payment: pay.id } }); } catch (e) {
         T.bookings.update(r.booking.id, (x) => { x.status = 'failed'; });
@@ -305,6 +328,20 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     const { razorpay_order_id: oid, razorpay_payment_id: pid, razorpay_signature: s } = req.body;
     if (!creds || oid !== pay.rzpOrderId || !validPayment(creds.secret, oid, pid, s)) return res.status(400).json({ error: 'We couldn’t confirm this payment. If money was deducted it will be refunded automatically — please contact the seller.' });
     const r = await confirmPaidBooking(pay, pid, linkBase(f.id, process.env.APP_URL || appUrl(req)));
+    res.status(r.error ? 409 : 200).json(r);
+  }));
+
+  // a card payment confirmed in the Stripe form: read it back from Stripe before the slot counts as paid
+  app.post('/api/public/:slug/book/stripe/verify', bookLimiter, wrap(async (req, res) => {
+    const f = pub(req, res);
+    if (!f) return;
+    const pay = T.payments.get(req.body?.payment);
+    if (!pay || pay.funnelId !== f.id || pay.kind !== 'booking' || pay.provider !== 'stripe') return res.status(404).json({ error: 'Payment not found' });
+    if (pay.status === 'paid') return res.status(pay.result?.error ? 409 : 200).json(pay.result);
+    const sc = stripeCreds(T.users.get(f.userId));
+    const id = sc && await confirmedIntent(sc, pay).catch(() => null);
+    if (!id) return res.status(400).json({ error: 'We couldn’t confirm this payment yet. If money was deducted it will be refunded automatically — please contact the seller.' });
+    const r = await confirmPaidBooking(pay, id, linkBase(f.id, process.env.APP_URL || appUrl(req)));
     res.status(r.error ? 409 : 200).json(r);
   }));
 

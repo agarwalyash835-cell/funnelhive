@@ -314,17 +314,17 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
   // ---------- calls & webinars ----------
   {
     name: 'configure_calendar',
-    description: 'Set up the booking calendar used by “book a call” pages: name, duration (min), weekly hours {mon:[["10:00","18:00"]], …, sun:[]}, buffer, noticeHours, daysAhead, perDay cap, timezone (IANA, e.g. Asia/Kolkata, America/New_York), meetingLink, price (₹, 0 = free call; paid calls are paid via Razorpay before they’re confirmed), refundHours. calendarId optional (default calendar).',
-    schema: S({ calendarId: str('Calendar id (optional)'), name: str('Call name'), duration: num('Minutes'), hours: obj('Weekly hours by day'), buffer: num('Minutes between calls'), noticeHours: num('Minimum notice'), daysAhead: num('Bookable days ahead'), perDay: num('Max calls per day (0 = no cap)'), timezone: str('IANA time zone'), meetingLink: str('https:// video link'), price: num('₹ per call, 0 = free'), refundHours: num('Refund if cancelled this many hours before') }),
+    description: 'Set up the booking calendar used by “book a call” pages: name, duration (min), weekly hours {mon:[["10:00","18:00"]], …, sun:[]}, buffer, noticeHours, daysAhead, perDay cap, timezone (IANA, e.g. Asia/Kolkata, America/New_York), meetingLink, price (0 = free call) and currency (INR default; USD, EUR, GBP, AUD, CAD, SGD, AED) — paid calls are paid before they’re confirmed: ₹ via Razorpay, other currencies by card via Stripe, refundHours. calendarId optional (default calendar).',
+    schema: S({ calendarId: str('Calendar id (optional)'), name: str('Call name'), duration: num('Minutes'), hours: obj('Weekly hours by day'), buffer: num('Minutes between calls'), noticeHours: num('Minimum notice'), daysAhead: num('Bookable days ahead'), perDay: num('Max calls per day (0 = no cap)'), timezone: str('IANA time zone'), meetingLink: str('https:// video link'), price: num('Price per call, 0 = free'), currency: str('INR, USD, EUR, GBP, AUD, CAD, SGD or AED'), refundHours: num('Refund if cancelled this many hours before') }),
     run: async (ctx, a) => {
       const list = await ctx.call('GET', '/calendars');
       const cal = a.calendarId ? list.find((x) => x.id === a.calendarId) : list[0];
       if (!cal) throw new Error('Calendar not found');
       const { calendarId, ...patch } = a;
       const r = await ctx.call('PUT', `/calendars/${cal.id}`, patch);
-      return { ok: true, id: r.id, name: r.name, duration: r.duration, price: r.price || 0, timezone: r.timezone || cal.timezone };
+      return { ok: true, id: r.id, name: r.name, duration: r.duration, price: r.price || 0, currency: r.currency || 'INR', timezone: r.timezone || cal.timezone };
     },
-    summary: (r) => `Updated the “${r.name}” calendar (${r.duration} min${r.price ? `, ₹${r.price}` : ', free'})`,
+    summary: (r) => `Updated the “${r.name}” calendar (${r.duration} min${r.price ? `, ${r.currency && r.currency !== 'INR' ? `${r.currency} ` : '₹'}${r.price}` : ', free'})`,
   },
   {
     name: 'list_bookings', description: 'Booked calls (upcoming by default): when, who, status, paid.',
@@ -432,7 +432,7 @@ How to work:
 - Several independent changes → make all the tool calls, then reply once.
 - Publish only when the user asks to go live. Remove pages or sections only when asked.
 - Selling → configure_checkout: price & currency (₹ = Razorpay/UPI; $ € £ etc. = Stripe for buyers abroad), memberships (billing monthly/yearly), EMI-style payment plans (installments), order bump, shipping + Cash on Delivery for physical products, and the product delivered after payment (create_product / list_products first).
-- Calls → configure_calendar (hours, duration, time zone, meeting link, price for paid calls, refund window); list_bookings. Webinars → configure_webinar (schedule, time zone, joining link, replay, reminders).
+- Calls → configure_calendar (hours, duration, time zone, meeting link, price and currency for paid calls, refund window); list_bookings. Webinars → configure_webinar (schedule, time zone, joining link, replay, reminders).
 - Numbers → get_sales (revenue, refunds, ROAS by campaign, COD to collect, orders to ship, failing payment plans) or get_analytics (traffic and conversion).
 - Contacts → find_contacts / tag_contacts. Broadcasts → draft_broadcast ALWAYS first and tell the user who it reaches; call send_broadcast only when the user explicitly says to send or schedule that draft.
 - Agencies → list_clients, copy_funnel_to_client. Account → update_business (time zone, WhatsApp, consent banner / tick box).

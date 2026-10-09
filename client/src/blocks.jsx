@@ -3,6 +3,8 @@ import { useViewerTz, dayKey, fmtDay, fmtTime, zoneLabel, zoneCity, fmtWhenShort
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ensureFonts, FONT_CHOICES } from './fonts';
 import { GripVertical, Copy as CopyIcon, Trash2 } from 'lucide-react';
+// a paid call's price in its own currency (₹ by default)
+const callPrice = (cal) => { const iso = cal?.currency || 'INR'; try { return new Intl.NumberFormat(iso === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency: iso, minimumFractionDigits: 0 }).format(Number(cal?.price || 0)); } catch { return `${iso} ${cal?.price}`; } };
 
 export const STYLES = {
   aurora: 'Aurora — light, soft gradients',
@@ -1043,7 +1045,7 @@ function Booking({ p, ctx }) {
     <Sec type="booking" id="booking">
       <Head eyebrow={p.eyebrow} title={p.title} subtitle={p.subtitle} ctx={ctx} />
       <div className="pc bk-card">
-        <div className="bk-head"><b>{cal?.name || 'Call'}</b>{cal?.price > 0 && <span className="bk-price">₹{Number(cal.price).toLocaleString('en-IN')}</span>}<span>⏱ {cal?.duration || 30} min</span>{cal?.location && <span>📍 {cal.location}</span>}<span title={otherZone ? `The host is in ${zoneCity(cal.timezone)} (${zoneLabel(cal.timezone)})` : undefined}>🌏 {vz ? `Your time · ${tzLabel(off)}` : tzLabel(off)}</span></div>
+        <div className="bk-head"><b>{cal?.name || 'Call'}</b>{cal?.price > 0 && <span className="bk-price">{callPrice(cal)}</span>}<span>⏱ {cal?.duration || 30} min</span>{cal?.location && <span>📍 {cal.location}</span>}<span title={otherZone ? `The host is in ${zoneCity(cal.timezone)} (${zoneLabel(cal.timezone)})` : undefined}>🌏 {vz ? `Your time · ${tzLabel(off)}` : tzLabel(off)}</span></div>
         {!slots ? <div className="bk-load">{tr(ctx.lang, 'Loading available times…')}</div> : !slots.length ? <p className="bk-empty">{err || tr(ctx.lang, 'No times are free right now — please check back soon or message us on WhatsApp.')}</p> : (
           <>
             <div className="bk-days" role="tablist">{days.slice(0, 21).map((d) => { const t = slots.find((s) => dayKey(s, off) === d); return <button type="button" key={d} role="tab" aria-selected={d === day} className={d === day ? 'on' : ''} onClick={() => { setDay(d); setPick(null); }}>{fmtDay(t, off).split(' ').map((x, i) => <span key={i}>{x}</span>)}</button>; })}</div>
@@ -1055,7 +1057,7 @@ function Booking({ p, ctx }) {
                 <input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
                 <textarea rows={2} placeholder={tr(ctx.lang, 'Anything we should know before the call? (optional)')} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
                 {err && <p className="c-err" role="alert">{err}</p>}
-                {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Confirm my call'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Booking…') : cal?.price > 0 ? tr(ctx.lang, 'Pay {amount} & confirm', { amount: `₹${Number(cal.price).toLocaleString('en-IN')}` }) : p.buttonText || tr(ctx.lang, 'Confirm my call')}</Btn>}
+                {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Confirm my call'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Booking…') : cal?.price > 0 ? tr(ctx.lang, 'Pay {amount} & confirm', { amount: callPrice(cal) }) : p.buttonText || tr(ctx.lang, 'Confirm my call')}</Btn>}
                 {cal?.price > 0 && <p className="bk-policy">{cal.refundHours ? `Full refund if you cancel at least ${cal.refundHours >= 48 && cal.refundHours % 24 === 0 ? `${cal.refundHours / 24} days` : `${cal.refundHours} hours`} before the call.` : 'Full refund if you cancel any time before the call.'} Rescheduling is free.</p>}
               </form>
             )}

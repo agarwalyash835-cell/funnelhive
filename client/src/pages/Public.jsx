@@ -255,6 +255,18 @@ export default function Public() {
         const r = await fetch(`${base}/book${preview}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, stepId: step.id, blockId, attr }) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) return { error: d.error || 'Booking failed — please try again', taken: r.status === 409 };
+        // a paid call by card: the Stripe form, then the server reads the payment back and confirms the held slot
+        if (d.pay?.provider === 'stripe') {
+          track('InitiateCheckout', { value: d.pay.amount, currency: d.pay.currency });
+          const back = new URL(location.href); back.searchParams.set('ff_pay', d.pay.payment);
+          try { const r = await stripeDialog(d.pay, back.toString()); if (r.error) return { ...r, retry: true }; } catch (e) { return { error: e.message }; }
+          const v = await post(`${base}/book/stripe/verify${preview}`, { payment: d.pay.payment });
+          if (v.error) return v;
+          track('Purchase', { value: d.pay.amount, currency: d.pay.currency }, eventId('purchase'));
+          track('Schedule', { content_name: step.name }, eventId('book'));
+          await convert();
+          return v;
+        }
         // a paid call: pay in Razorpay Checkout, then the server confirms the held slot
         if (d.pay) {
           try { await loadRazorpay(); } catch (e) { return { error: e.message }; }

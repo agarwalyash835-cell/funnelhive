@@ -855,7 +855,7 @@ const pub = (req, res) => {
 const isPreview = (req) => req.query.preview === '1';
 const allBlocks = (s) => [...s.blocks, ...(s.ab?.blocks || [])];
 // a paid call is a sale like any other: an order, a GST invoice, the Purchase event
-const bookingSale = (f, pay, paymentId, base) => recordOrder(f, { ...pay.charge, couponObj: null }, pay.buyer, { payment: { id: paymentId, provider: 'razorpay', mode: pay.mode }, verified: true, base: base || pay.base });
+const bookingSale = (f, pay, paymentId, base) => recordOrder(f, { ...pay.charge, couponObj: null }, pay.buyer, { payment: { id: paymentId, provider: pay.provider || 'razorpay', mode: pay.mode, currency: pay.currency || 'INR', ...(pay.stripeCustomer ? { customer: pay.stripeCustomer } : {}) }, verified: true, base: base || pay.base });
 registerBookings(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl, pub, isPreview, allBlocks, sale: bookingSale });
 registerGcal(app, { auth, secret: SECRET, appUrl });
 registerStripeSettings(app, { auth, wrap });
@@ -1057,7 +1057,7 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
       else {
         const id = uid();
         for (const it of items) it.txn = `${id}-${items.length}`;
-        order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...(funnelIso(f) !== 'INR' ? { currency: funnelIso(f), fx: fxRate(funnelIso(f)) } : {}) });
+        order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...((payment?.currency || funnelIso(f)) !== 'INR' ? { currency: payment?.currency || funnelIso(f), fx: fxRate(payment?.currency || funnelIso(f)) } : {}) });
         if (buyer.email) for (const a of T.abandoned.all({ funnelId: f.id, ckey: contactKey(buyer.email) })) { a.recovered = true; T.abandoned.put(a); }
       }
     });
