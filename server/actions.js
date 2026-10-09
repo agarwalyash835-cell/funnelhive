@@ -109,6 +109,15 @@ export function applyActions(f, actions = [], currentStepId) {
         }
         case 'set_blocks': step.blocks = normBlocks(a.blocks); done.push(`Rebuilt the “${step.name}” page`); break;
         case 'add_block': {
+          // a page has one FAQ: new questions join the existing one (no duplicate section)
+          const faq = a.blockType === 'faq' && step.blocks.find((x) => x.type === 'faq');
+          if (faq) {
+            const have = new Set((faq.props.items || []).map((i) => String(i.q || '').trim().toLowerCase()));
+            const add = (a.props?.items || []).filter((i) => i?.q && !have.has(String(i.q).trim().toLowerCase()));
+            faq.props.items = [...(faq.props.items || []), ...add];
+            done.push(add.length ? `Added ${add.length} question${add.length === 1 ? '' : 's'} to the FAQ on “${step.name}”` : `The FAQ on “${step.name}” already covers that`);
+            break;
+          }
           const b = blk(a.blockType, a.props || DEFAULT_BLOCKS[a.blockType] || {});
           const floating = ['proof', 'exitpopup', 'stickybar', 'whatsapp'];
           let at = typeof a.index === 'number' ? a.index : step.blocks.findIndex((x) => floating.includes(x.type) || x.type === 'cta');

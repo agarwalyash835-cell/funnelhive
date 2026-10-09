@@ -212,7 +212,12 @@ app.post('/api/auth/google', authLimiter, wrap(async (req, res) => {
 
 app.post('/api/auth/verify', authLimiter, (req, res) => {
   const user = userByToken(req.body.token, 'verifyHash', 'verifyExp');
-  if (!user) return res.status(400).json({ error: 'This verification link is invalid or has expired.' });
+  if (!user) {
+    // a link opened twice (or pre-opened by an email app's link scanner) — the account is already verified
+    const id = String(req.body.token || '').split('.')[0], u = /^[0-9a-f]{16}$/.test(id) && T.users.get(id);
+    if (u && u.emailVerified !== false) return res.json({ ok: true, already: true });
+    return res.status(400).json({ error: 'This verification link is invalid or has expired.' });
+  }
   user.emailVerified = true;
   delete user.verifyHash; delete user.verifyExp;
   saveUser(user);

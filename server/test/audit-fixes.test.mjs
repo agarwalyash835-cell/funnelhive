@@ -55,3 +55,11 @@ test('live server audit: unknown funnel is a 404, test checkouts are flagged, in
   assert.equal(inv.status, 200);
   assert.match(inv.data.link, /\/team\/accept\?token=/, 'email is off in tests, so the inviter gets the link');
 });
+
+test('asking AI chat for a FAQ twice keeps one FAQ section', async () => {
+  const f = (await api('/funnels', 'GET', null, T)).data[0];
+  const step = (await api(`/funnels/${f.id}`, 'GET', null, T)).data.steps[0];
+  for (let i = 0; i < 2; i++) assert.equal((await api('/ai/chat', 'POST', { funnelId: f.id, stepId: step.id, message: 'add a FAQ' }, T)).status, 200);
+  const after = (await api(`/funnels/${f.id}`, 'GET', null, T)).data.steps[0];
+  assert.ok(after.blocks.filter((b) => b.type === 'faq').length <= 1, 'one FAQ on the page');
+});

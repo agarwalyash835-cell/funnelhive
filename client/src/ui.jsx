@@ -227,6 +227,11 @@ export function CreateFunnel({ onClose, aiEnabled }) {
   const [err, setErr] = useState('');
   const ref = useRef();
   useEffect(() => ref.current?.focus(), []);
+  // the AI build takes about a minute: show what it's doing and how long it's been
+  const [secs, setSecs] = useState(0);
+  useEffect(() => { if (!busy) return undefined; setSecs(0); const t = setInterval(() => setSecs((s) => s + 1), 1000); return () => clearInterval(t); }, [busy]);
+  const STAGES = [[0, 'Understanding your offer'], [6, 'Planning the funnel steps'], [14, 'Writing the sales page'], [26, 'Writing checkout, bump & upsell'], [38, 'Writing the thank-you page'], [48, 'Quality-checking every section'], [62, 'Almost there — polishing the copy']];
+  const stage = [...STAGES].reverse().find(([s]) => secs >= s)[1];
   const gen = async (e) => {
     e?.preventDefault();
     setBusy(true); setErr('');
@@ -247,7 +252,9 @@ export function CreateFunnel({ onClose, aiEnabled }) {
         <label className="lang-pick">Page language <select value={lang} onChange={(e) => setLang(e.target.value)}><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></label>
         <div className="sugg">{EXAMPLES.map((x) => <button type="button" key={x} onClick={() => setPrompt(x)}>{x}</button>)}</div>
         {err && <div className="err">{err}</div>}
-        <button className="btn primary lg" disabled={busy || prompt.length < 5}>{busy ? <><span className="spin" /> Building your funnel…</> : <><Icon name="wand" /> Generate my funnel</>}</button>
+        <button className="btn primary lg" disabled={busy || prompt.length < 5}>{busy ? <><span className="spin" /> {stage}… <small className="gen-secs">{secs}s</small></> : <><Icon name="wand" /> Generate my funnel</>}</button>
+        {busy && <div className="gen-progress" aria-hidden="true"><i style={{ width: `${Math.min(95, Math.round((secs / 70) * 100))}%` }} /></div>}
+        {busy && <p className="hint">Hive AI writes every page from scratch — this usually takes about a minute. Keep this window open.</p>}
         {busy && <p className="hint center">Takes about a minute: the AI writes every page, then each one is checked against our template quality bar and fixed where needed.</p>}
         {!aiEnabled && <p className="hint">Running offline: we’ll match your description to the best of our 100+ expert templates. Add a KIE_API_KEY on the server for fully custom AI copy.</p>}
       </form>

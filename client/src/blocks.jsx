@@ -815,6 +815,8 @@ function Pricing({ p, ctx }) {
 
 const sessionLabel = (t, zone = 330) => fmtWhenShort(t, zone);
 const sessionZone = (vz, w) => vz || w?.timezone || (w?.tzOffset ?? 330);
+// the registrant's seat, in their own time zone (the host's until the browser reports it)
+function SeatTime({ w }) { const vz = useViewerTz(); return sessionLabel(w.start, sessionZone(vz, w)); }
 // the consent notice (DPDP) under forms — a required tick box when the seller asks for one
 function Consent({ ctx, checked, onChange }) {
   const pv = ctx.privacy;
@@ -1518,7 +1520,7 @@ function renderBlock(block, ctx) {
             {ctx.delivery?.webinar && (
               <div className="pc ty-seat">
                 <small>Your seat</small>
-                <b>{sessionLabel(ctx.delivery.webinar.start, ctx.delivery.webinar.timezone || ctx.delivery.webinar.tzOffset)}</b>
+                <b><SeatTime w={ctx.delivery.webinar} /></b>
                 <span className="muted">{ctx.delivery.webinar.name}</span>
                 {ctx.delivery.webinar.join && <div className="row center"><a className="btn" href={ctx.delivery.webinar.join}><span>Open my joining page</span><span className="arr">→</span></a><a className="link-arrow" href={`${ctx.delivery.webinar.join.replace('/webinar/', '/api/webinar-reg/').replace('?t=', '/ics?t=')}`}>Add to calendar</a></div>}
                 <small className="muted">Your personal joining link is also in your email.</small>

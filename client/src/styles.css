@@ -1780,3 +1780,8 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 
 /* checkout without a connected payment provider: say so to the buyer */
 .co-test { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #fff7e6; color: #92400e; border: 1px solid #fcd9a6; font-size: 13.5px; line-height: 1.45; }
+
+/* AI funnel build: stage, seconds and a progress bar */
+.gen-secs { opacity: .75; font-weight: 500; margin-left: 4px; }
+.gen-progress { height: 6px; border-radius: 99px; background: var(--c-line-2); overflow: hidden; }
+.gen-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--c-accent), var(--c-accent-2)); transition: width 1s linear; }

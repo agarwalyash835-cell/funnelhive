@@ -8,13 +8,14 @@ export function Verify() {
   const [state, setState] = useState('working');
   const [err, setErr] = useState('');
   useEffect(() => {
-    api('/auth/verify', 'POST', { token: qs.get('token') }).then(() => setState('ok')).catch((e) => { setErr(e.message); setState('fail'); });
+    api('/auth/verify', 'POST', { token: qs.get('token') }).then((r) => setState(r.already ? 'already' : 'ok')).catch((e) => { setErr(e.message); setState('fail'); });
   }, []);
   return (
     <AuthShell>
       <form onSubmit={(e) => e.preventDefault()}>
-        <h2>{state === 'ok' ? 'Email verified 🎉' : state === 'fail' ? 'Link not valid' : 'Verifying…'}</h2>
+        <h2>{state === 'ok' ? 'Email verified 🎉' : state === 'already' ? 'Already verified ✓' : state === 'fail' ? 'Link not valid' : 'Verifying…'}</h2>
         {state === 'ok' && <p className="muted">Thanks for confirming your email address.</p>}
+        {state === 'already' && <p className="muted">Your email address is already confirmed — nothing more to do.</p>}
         {state === 'fail' && <div className="err">{err}</div>}
         <Link className="btn primary lg block" to={loggedIn() ? '/' : '/login'}>{loggedIn() ? 'Go to dashboard' : 'Log in'}</Link>
       </form>

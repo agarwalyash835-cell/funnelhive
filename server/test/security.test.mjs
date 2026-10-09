@@ -34,7 +34,10 @@ test('email verification link works', async () => {
   assert.ok(link, 'verification link printed to console');
   assert.equal((await api('/auth/verify', 'POST', { token: link[1] })).status, 200);
   assert.equal((await api('/me', 'GET', null, token)).data.emailVerified, true);
-  assert.equal((await api('/auth/verify', 'POST', { token: link[1] })).status, 400, 'link is single-use');
+  // opened again (a second click, or an email app's link scanner): nothing to do, and no scary "invalid link"
+  const again = await api('/auth/verify', 'POST', { token: link[1] });
+  assert.deepEqual([again.status, again.data.already], [200, true]);
+  assert.equal((await api('/auth/verify', 'POST', { token: 'nothexadecimal.abc' })).status, 400, 'a made-up link is still refused');
 });
 
 test('password reset: link resets password and signs out old sessions', async () => {
