@@ -3,7 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { Icon } from '../ui';
 
-const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+let CUR = 'INR';
+const money = (n) => (CUR === 'INR' ? `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : new Intl.NumberFormat('en-US', { style: 'currency', currency: CUR }).format(Number(n || 0)));
 // ₹1,499 → "One thousand four hundred ninety-nine rupees only" (Indian numbering)
 export function inWords(n) {
   const a = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
@@ -27,6 +28,7 @@ export default function Invoice({ admin }) {
   if (!i) return <div className="inv-page"><div className="skeleton" /></div>;
   const c = i.company || {}, t = i.billedTo || {};
   const intra = i.cgst > 0;
+  CUR = i.currency || 'INR';
   return (
     <div className="inv-page">
       <div className="inv-tools no-print">
@@ -39,8 +41,8 @@ export default function Invoice({ admin }) {
           <div className="inv-from"><b>{c.name || i.brand}</b>{c.address && <span>{c.address}</span>}{c.state && <span>{c.state}{c.stateCode ? ` (${c.stateCode})` : ''}</span>}{c.gstin && <span>GSTIN: {c.gstin}</span>}{c.email && <span>{c.email}</span>}</div>
         </header>
         <section className="inv-meta">
-          <div><small>Billed to</small><b>{t.name}</b><span>{t.email}</span>{t.address && <span>{t.address}</span>}{t.state && <span>{t.state}{t.stateCode ? ` (${t.stateCode})` : ''}</span>}{t.gstin && <span>GSTIN: {t.gstin}</span>}</div>
-          <div><small>Invoice date</small><b>{fmtDate(i.at)}</b><small>Period</small><span>{fmtDate(i.period?.from)} – {fmtDate(i.period?.to)}</span>{i.registered && <><small>Place of supply</small><span>{t.state || '—'}</span></>}{i.paymentId && <><small>Payment</small><span className="mono">{i.paymentId}</span></>}</div>
+          <div><small>Billed to</small><b>{t.name}</b><span>{t.email}</span>{t.address && <span>{t.address}</span>}{t.state && <span>{t.state}{t.stateCode ? ` (${t.stateCode})` : ''}</span>}{t.gstin && <span>GSTIN: {t.gstin}</span>}{i.export && t.country && <span>Country: {t.country}</span>}</div>
+          <div><small>Invoice date</small><b>{fmtDate(i.at)}</b><small>Period</small><span>{fmtDate(i.period?.from)} – {fmtDate(i.period?.to)}</span>{i.registered && <><small>Place of supply</small><span>{i.export ? 'Outside India' : t.state || '—'}</span></>}{i.paymentId && <><small>Payment</small><span className="mono">{i.paymentId}</span></>}</div>
         </section>
         <table className="inv-t">
           <thead><tr><th>Description</th>{i.registered && <th>SAC</th>}<th className="r">Amount</th></tr></thead>
@@ -53,8 +55,9 @@ export default function Invoice({ admin }) {
             <tr className="tot"><td colSpan={i.registered ? 2 : 1}>Total paid</td><td className="r">{money(i.total)}</td></tr>
           </tfoot>
         </table>
-        <p className="inv-words">{inWords(i.total)}</p>
-        <footer className="inv-f">{i.registered ? 'This is a computer-generated invoice and does not need a signature.' : 'GST is not charged: the supplier is not registered under GST.'} · Paid via Razorpay</footer>
+        {CUR === 'INR' && <p className="inv-words">{inWords(i.total)}</p>}
+        {i.export && i.registered && <p className="muted">{i.lut ? 'Export of services under LUT without payment of IGST.' : 'Export of services — IGST included in the price.'}</p>}
+        <footer className="inv-f">{i.registered ? 'This is a computer-generated invoice and does not need a signature.' : 'GST is not charged: the supplier is not registered under GST.'} · Paid via {i.export ? 'card (Stripe)' : 'Razorpay'}</footer>
       </article>
     </div>
   );

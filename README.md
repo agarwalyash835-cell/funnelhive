@@ -93,6 +93,12 @@ Bookings → Calendars: busy times block slots and every booking is added with a
    and add the webhook `https://<your app>/api/billing/webhook` with the `subscription.*` events and the same secret.
 3. Sellers sign up from the landing page (`/`), get the trial, and subscribe in **Plan & billing** (card or UPI Autopay).
    Every charge produces a GST invoice (CGST+SGST or IGST by the seller's state); Admin → Invoices exports a CSV for filing.
+   **Sellers outside India** pick their country in Plan & billing and pay by card in USD / EUR / GBP through your
+   Stripe account (Admin → Plan & settings → Stripe, or `PLATFORM_STRIPE_PUBLISHABLE_KEY` / `PLATFORM_STRIPE_SECRET_KEY`
+   / `PLATFORM_STRIPE_WEBHOOK_SECRET`). Add the webhook `https://<your app>/api/billing/stripe-webhook` with
+   `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`. They get
+   export invoices (zero-rated if you tick "Letter of Undertaking", otherwise IGST included); prices per currency are in
+   the same Stripe panel (defaults $29 / $290, agency $99 / $990).
 4. When a trial or subscription ends the account becomes read-only, automations pause, and live pages go offline after a
    grace period (all adjustable). Admins can extend trials, give free access, suspend, set AI credits, log in as a seller
    (audited) and delete accounts. Sellers can export their data and delete their account themselves.

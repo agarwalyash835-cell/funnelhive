@@ -65,6 +65,7 @@ app.use('/api/uploads', express.json({ limit: '8mb' }));
 app.use('/api/razorpay/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/stripe/webhook', express.raw({ type: '*/*', limit: '1mb' }));
+app.use('/api/billing/stripe-webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use(express.json({ limit: '4mb' }));
 // Requests on a seller's own domain (offer.theirbrand.in) show their funnel
 app.use(domainRouter((...a) => renderFunnel(...a)));

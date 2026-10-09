@@ -15,6 +15,8 @@ import { T, q, sql, tx, uid, JOBS } from './db.js';
 import { platform, platformRzp, savePlatform, isAdmin, STATES, GSTIN_RE } from './platform.js';
 import { call as rzpCall } from './razorpay.js';
 import { sendMail } from './mail.js';
+import { registerIntlBilling, applyStripeSub, cancelStripeSub, platformStripe, isAbroad, currencyFor, intlPrices } from './billing-intl.js';
+import { stripe as stripeCall } from './stripe.js';
 import { TZ_OFFSET, DAY } from './time.js';
 
 sql.exec('CREATE TABLE IF NOT EXISTS usage (k TEXT PRIMARY KEY, userId TEXT NOT NULL, month TEXT NOT NULL, ai INTEGER NOT NULL DEFAULT 0)');
@@ -203,8 +205,9 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
     return {
       access: a, details: u.billing?.details || {}, prices: pricing(), trialDays: p.trialDays, credits: usageSummary(u), aiCredits: p.aiCredits,
       ready: !!rzp, mode: rzp?.mode || null, brand: p.brand, states: Object.keys(STATES), companyRegistered: !!p.company.gstin,
-      subscriptionId: u.billing?.subscriptionId || null, halted: !!u.billing?.halted,
-      invoices: T.invoices.all({ userId: u.id }, { order: 'at', desc: true }).map((i) => ({ id: i.id, number: i.number, at: i.at, total: i.total, interval: i.interval, period: i.period })),
+      subscriptionId: u.billing?.subscriptionId || null, halted: !!u.billing?.halted, provider: u.billing?.provider || (u.billing?.subscriptionId ? 'razorpay' : null),
+      intl: { ready: !!platformStripe(), mode: platformStripe()?.mode || null, abroad: isAbroad(u), currency: isAbroad(u) ? currencyFor(u.billing.details.country) : null, prices: isAbroad(u) ? intlPrices()[currencyFor(u.billing.details.country)] : null, all: intlPrices() },
+      invoices: T.invoices.all({ userId: u.id }, { order: 'at', desc: true }).map((i) => ({ id: i.id, number: i.number, at: i.at, total: i.total, currency: i.currency || 'INR', interval: i.interval, period: i.period })),
     };
   };
   app.get('/api/billing', auth, (req, res) => res.json(view(req.user)));
@@ -212,11 +215,14 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
   app.put('/api/billing/details', auth, (req, res) => {
     const b = req.body || {};
     const name = String(b.name || '').trim().slice(0, 120), gstin = String(b.gstin || '').trim().toUpperCase(), state = String(b.state || ''), address = String(b.address || '').trim().slice(0, 300);
+    const country = /^[A-Z]{2}$/.test(String(b.country || '')) ? b.country : 'IN';
     if (!name) return res.status(400).json({ error: 'Enter the name to show on invoices' });
+    // outside India: billed in USD / EUR / GBP by card, an export invoice — no state or GSTIN
+    if (country !== 'IN') { const u = T.users.update(req.user.id, (x) => { x.billing ||= newBilling(); x.billing.details = { name, address, country, gstin: '', state: '' }; }); return res.json(view(u)); }
     if (!STATES[state]) return res.status(400).json({ error: 'Choose your state (needed for GST)' });
     if (gstin && !GSTIN_RE.test(gstin)) return res.status(400).json({ error: 'That GSTIN doesn’t look right — it has 15 characters, e.g. 27ABCDE1234F1Z5' });
     if (gstin && gstin.slice(0, 2) !== STATES[state]) return res.status(400).json({ error: `A ${state} GSTIN starts with ${STATES[state]}` });
-    const u = T.users.update(req.user.id, (x) => { x.billing ||= newBilling(); x.billing.details = { name, gstin, state, address }; });
+    const u = T.users.update(req.user.id, (x) => { x.billing ||= newBilling(); x.billing.details = { name, gstin, state, address, country: 'IN' }; });
     res.json(view(u));
   });
 
@@ -224,6 +230,7 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
   app.post('/api/billing/subscribe', auth, limiter, wrap(async (req, res) => {
     const interval = INTERVALS.includes(req.body.interval) ? req.body.interval : 'monthly';
     if (req.user.agencyId) return res.status(400).json({ error: 'This account is covered by your agency’s plan' });
+    if (isAbroad(req.user)) return res.status(400).json({ error: 'Your billing country is outside India — subscribe by card in your currency', intl: true });
     const rzp = platformRzp();
     if (!rzp) return res.status(503).json({ error: 'Online payments aren’t set up yet — please contact support.' });
     const u = req.user;
@@ -268,7 +275,7 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
     const b = req.user.billing || {};
     if (!b.subscriptionId || !['active', 'past_due'].includes(b.status)) return res.status(400).json({ error: 'There’s no active subscription to cancel' });
     const unpaid = (b.trialEndsAt || 0) >= (b.currentPeriodEnd || 0) && !T.invoices.exists({ userId: req.user.id });
-    try { if (rzp) await rzpCall(rzp, 'POST', `/subscriptions/${b.subscriptionId}/cancel`, { cancel_at_cycle_end: unpaid ? 0 : 1 }); } catch (e) {
+    try { if (b.provider === 'stripe') await cancelStripeSub(b, unpaid); else if (rzp) await rzpCall(rzp, 'POST', `/subscriptions/${b.subscriptionId}/cancel`, { cancel_at_cycle_end: unpaid ? 0 : 1 }); } catch (e) {
       if (e.status !== 400) return res.status(502).json({ error: 'Couldn’t reach Razorpay — please try again in a minute.' });
     }
     const u = T.users.update(req.user.id, (x) => {
@@ -302,6 +309,7 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
     res.json({ ok: true });
   });
 
+  registerIntlBilling(app, { auth, wrap, rateLimit, isTest: test, view, cancelRazorpay: (id) => { const r = platformRzp(); if (r) rzpCall(r, 'POST', `/subscriptions/${id}/cancel`, { cancel_at_cycle_end: 0 }).catch((e) => console.error('old Razorpay subscription cancel failed', e.message)); } });
   if (JOBS && !test) { setTimeout(billingJob, 30000).unref(); setInterval(billingJob, 3600000).unref(); }
 }
 
@@ -324,8 +332,9 @@ export async function billingJob(now = Date.now()) {
     if (isAdmin(u) || !b) continue;
     try {
       // a renewal is due: ask Razorpay (in case its webhook didn't reach us)
-      if (rzp && b.subscriptionId && ['active', 'past_due'].includes(b.status) && (b.currentPeriodEnd || 0) < now && now - (b.syncedAt || 0) > 3600000) {
-        applySubscription(u.id, await rzpCall(rzp, 'GET', `/subscriptions/${b.subscriptionId}`));
+      if (b.subscriptionId && ['active', 'past_due'].includes(b.status) && (b.currentPeriodEnd || 0) < now && now - (b.syncedAt || 0) > 3600000) {
+        if (b.provider === 'stripe') { const sc = platformStripe(); if (sc) applyStripeSub(u.id, await stripeCall(sc, 'GET', `/subscriptions/${b.subscriptionId}`)); }
+        else if (rzp) applySubscription(u.id, await rzpCall(rzp, 'GET', `/subscriptions/${b.subscriptionId}`));
       }
       const sent = b.notified || {};
       const mark = (k) => T.users.update(u.id, (x) => { x.billing.notified = { ...x.billing.notified, [k]: now }; });

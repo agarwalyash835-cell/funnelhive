@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, loadRazorpay, fmtDate } from '../api';
 import { Layout, Panel, Icon, inr, num, toast } from '../ui';
+import { stripeDialog, fmtMoney } from '../stripePay';
+
+// billing country: India pays in ₹ (Razorpay, GST invoice); everyone else by card in USD / EUR / GBP (export invoice)
+const EURO = ['AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PT', 'SI', 'SK'];
+const curFor = (c) => (c === 'GB' ? 'GBP' : EURO.includes(c) ? 'EUR' : 'USD');
+const COUNTRIES = [['IN', 'India'], ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['AU', 'Australia'], ['AE', 'United Arab Emirates'], ['SG', 'Singapore'], ['DE', 'Germany'], ['FR', 'France'], ['NL', 'Netherlands'], ['IE', 'Ireland'], ['ES', 'Spain'], ['IT', 'Italy'], ['NZ', 'New Zealand'], ['ZA', 'South Africa'], ['NG', 'Nigeria'], ['KE', 'Kenya'], ['MY', 'Malaysia'], ['PH', 'Philippines'], ['ID', 'Indonesia'], ['BD', 'Bangladesh'], ['NP', 'Nepal'], ['LK', 'Sri Lanka'], ['PK', 'Pakistan'], ['SA', 'Saudi Arabia'], ['QA', 'Qatar'], ['BR', 'Brazil'], ['MX', 'Mexico'], ['JP', 'Japan'], ['XX', 'Other']];
 
 const FEATURES = ['Unlimited funnels & pages', '100+ expert templates', 'Hive AI funnel builder', 'CRM, pipelines & automations', 'Email + WhatsApp automations', 'Razorpay checkout, upsells & coupons', 'Custom domains with free SSL', 'A/B tests & analytics'];
 
@@ -26,12 +32,18 @@ export default function Billing() {
   const interval = tier === 'agency' ? `agency_${period}` : period;
   const [details, setDetails] = useState(null);
   const [busy, setBusy] = useState(false);
-  const load = () => api('/billing').then((x) => { setB(x); setDetails((d) => d || { name: '', state: '', gstin: '', address: '', ...x.details }); });
+  const load = () => api('/billing').then((x) => { setB(x); setDetails((d) => d || { name: '', state: '', gstin: '', address: '', country: 'IN', ...x.details }); });
   useEffect(() => { load(); }, []);
   if (!b) return <Layout title="Plan & billing"><div className="skeleton" /></Layout>;
-  const a = b.access, price = b.prices[interval];
+  const a = b.access;
+  // abroad (the country picked below, saved or not): the same plans in the seller's currency, by card through Stripe
+  const abroad = (details?.country || b.details?.country || 'IN') !== 'IN', cur = abroad ? curFor(details?.country || b.details?.country) : 'INR';
+  const ip = b.intl?.all?.[cur] || {};
+  const price = abroad ? { amount: ip[interval], perMonth: interval.endsWith('yearly') ? Math.round(ip[interval] / 12) : ip[interval] } : b.prices[interval];
+  const money = (n) => (abroad ? fmtMoney(n, cur) : inr(n));
   if (a.agencyManaged) return <Layout title="Plan & billing"><section className="bill-status st-active"><Icon name="check" size={20} /><div><b>This account is covered by {a.agency || 'your agency'}’s plan</b><small>Billing, invoices and plan changes are handled by your agency.</small></div></section></Layout>;
-  const hasDetails = !!b.details?.state;
+  const hasDetails = !!(b.details?.state || (b.details?.country && b.details.country !== 'IN'));
+  const detailsOk = !!details?.name && (details.country !== 'IN' || !!details.state);
   const subscribed = b.subscriptionId && ['active', 'past_due'].includes(a.planStatus) && !a.cancelAtPeriodEnd && !b.halted;
   const switching = subscribed && a.interval !== interval;
   const canSubscribe = !a.admin && a.status !== 'comped' && a.status !== 'suspended' && (!subscribed || switching);
@@ -40,8 +52,19 @@ export default function Billing() {
     e?.preventDefault();
     try { setB(await api('/billing/details', 'PUT', details)); toast('Billing details saved'); return true; } catch (x) { toast(x.message); return false; }
   };
+  const subscribeIntl = async () => {
+    setBusy(true);
+    try {
+      const s = await api('/billing/subscribe-intl', 'POST', { interval });
+      const r = await stripeDialog({ ...s, button: s.mode === 'setup' ? 'Save card — first charge after your trial' : undefined }, location.href);
+      if (r.error) toast(r.error);
+      else { setB(await api('/billing/stripe/confirm', 'POST', { subscription: s.subscription })); toast(s.startsLater ? 'You’re subscribed — your first charge is after the trial' : 'Payment received — thank you!'); }
+    } catch (x) { toast(x.message); }
+    setBusy(false);
+  };
   const subscribe = async () => {
-    if (!hasDetails && !(await saveDetails())) return;
+    if ((!hasDetails || details.country !== (b.details?.country || 'IN')) && !(await saveDetails())) return;
+    if (details.country && details.country !== 'IN') return subscribeIntl();
     setBusy(true);
     try {
       const co = await api('/billing/subscribe', 'POST', { interval });
@@ -77,20 +100,22 @@ export default function Billing() {
           <div className="bill-grid">
             <Panel title="Choose your plan" actions={<div className="row"><div className="seg"><button className={tier === 'pro' ? 'on' : ''} onClick={() => setTier('pro')}>Pro</button><button className={tier === 'agency' ? 'on' : ''} onClick={() => setTier('agency')}>Agency</button></div><div className="seg"><button className={period === 'monthly' ? 'on' : ''} onClick={() => setPeriod('monthly')}>Monthly</button><button className={period === 'yearly' ? 'on' : ''} onClick={() => setPeriod('yearly')}>Yearly <span className="save-tag">2 months free</span></button></div></div>}>
               <div className="plan-card">
-                <div className="plan-price"><span className="amt">{inr(price.amount)}</span><span className="per">/{period === 'yearly' ? 'year' : 'month'}</span></div>
-                <p className="muted sm">{period === 'yearly' ? `Just ${inr(price.perMonth)}/month · you save ${inr(tier === 'agency' ? b.prices.agencyYearlySaves : b.prices.yearlySaves)} a year` : 'Billed monthly · cancel any time'}{b.companyRegistered ? ' · incl. 18% GST' : ''}</p>
+                <div className="plan-price"><span className="amt">{money(price.amount)}</span><span className="per">/{period === 'yearly' ? 'year' : 'month'}</span></div>
+                <p className="muted sm">{period === 'yearly' ? `Just ${money(price.perMonth)}/month${abroad ? '' : ` · you save ${inr(tier === 'agency' ? b.prices.agencyYearlySaves : b.prices.yearlySaves)} a year`}` : 'Billed monthly · cancel any time'}{abroad ? ' · card, Apple Pay or Google Pay' : b.companyRegistered ? ' · incl. 18% GST' : ''}</p>
                 <ul className="plan-feats">{tier === 'agency' && <><li><Icon name="layers" size={15} /><b>Up to {num(b.prices.agencyClients)} client accounts</b> — one login, one bill</li><li><Icon name="palette" size={15} />White-label: your brand, logo and app domain</li><li><Icon name="chart" size={15} />Client report links · copy funnels to clients</li></>}{FEATURES.map((f) => <li key={f}><Icon name="check" size={15} />{f}</li>)}<li><Icon name="sparkles" size={15} />{num(b.aiCredits.paid)} AI credits every month</li></ul>
-                {!b.ready ? <p className="err">Online payments aren’t set up on this server yet. Please contact support.</p> : (
-                  <button className="btn primary lg block" disabled={busy || !details?.name || !details?.state} onClick={subscribe}>{busy ? <><span className="spin" /> Opening Razorpay…</> : switching ? `Switch to this plan — from your next renewal` : a.status === 'trialing' ? `Subscribe — first charge after your trial` : `Subscribe for ${inr(price.amount)}`}</button>
+                {!(abroad ? b.intl?.ready : b.ready) ? <p className="err">Online payments aren’t set up on this server yet. Please contact support.</p> : (
+                  <button className="btn primary lg block" disabled={busy || !detailsOk} onClick={subscribe}>{busy ? <><span className="spin" /> {details?.country !== 'IN' ? 'Opening the card form…' : 'Opening Razorpay…'}</> : switching ? `Switch to this plan — from your next renewal` : a.status === 'trialing' ? `Subscribe — first charge after your trial` : `Subscribe for ${money(price.amount)}`}</button>
                 )}
-                <p className="hint center">Secure payment by Razorpay · UPI Autopay, cards, netbanking{b.mode === 'test' ? ' · TEST MODE' : ''}</p>
+                <p className="hint center">{abroad ? `Secure card payment by Stripe · billed in ${cur}${b.intl?.mode === 'test' ? ' · TEST MODE' : ''}` : `Secure payment by Razorpay · UPI Autopay, cards, netbanking${b.mode === 'test' ? ' · TEST MODE' : ''}`}</p>
               </div>
             </Panel>
-            <Panel title="Billing details (for your GST invoice)">
+            <Panel title={abroad ? 'Billing details (for your invoice)' : 'Billing details (for your GST invoice)'}>
               <form className="bill-form" onSubmit={saveDetails}>
                 <label>Name on invoice<input value={details.name} onChange={(e) => setDetails({ ...details, name: e.target.value })} placeholder="Your business or full name" /></label>
-                <label>State<select value={details.state} onChange={(e) => setDetails({ ...details, state: e.target.value })}><option value="">Choose your state…</option>{b.states.map((s) => <option key={s}>{s}</option>)}</select></label>
-                <label><span>GSTIN <small className="muted">· optional, to claim input tax credit</small></span><input value={details.gstin} onChange={(e) => setDetails({ ...details, gstin: e.target.value.toUpperCase() })} placeholder="27ABCDE1234F1Z5" maxLength={15} /></label>
+                <label>Country<select value={details.country || 'IN'} onChange={(e) => setDetails({ ...details, country: e.target.value })}>{COUNTRIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+                {details.country !== 'IN' && <p className="hint">Outside India you’re billed by card in {curFor(details.country)} with an export invoice — no GST.</p>}
+                {details.country === 'IN' && <label>State<select value={details.state} onChange={(e) => setDetails({ ...details, state: e.target.value })}><option value="">Choose your state…</option>{b.states.map((s) => <option key={s}>{s}</option>)}</select></label>}
+                {details.country === 'IN' && <label><span>GSTIN <small className="muted">· optional, to claim input tax credit</small></span><input value={details.gstin} onChange={(e) => setDetails({ ...details, gstin: e.target.value.toUpperCase() })} placeholder="27ABCDE1234F1Z5" maxLength={15} /></label>}
                 <label><span>Address <small className="muted">· optional</small></span><input value={details.address} onChange={(e) => setDetails({ ...details, address: e.target.value })} placeholder="City, PIN" /></label>
                 <button className="btn ghost">Save details</button>
               </form>
@@ -109,7 +134,7 @@ export default function Billing() {
           <Panel title="Invoices" pad={false}>
             {b.invoices.length ? (
               <table className="tbl compact"><thead><tr><th>Invoice</th><th>Date</th><th>Plan</th><th className="r">Amount</th><th /></tr></thead>
-                <tbody>{b.invoices.map((i) => <tr key={i.id}><td className="mono strong">{i.number}</td><td>{fmtDate(i.at)}</td><td>{i.interval === 'yearly' ? 'Yearly' : 'Monthly'}</td><td className="r">{inr(i.total)}</td><td className="r"><Link className="btn ghost sm" to={`/billing/invoices/${i.id}`}>View</Link></td></tr>)}</tbody></table>
+                <tbody>{b.invoices.map((i) => <tr key={i.id}><td className="mono strong">{i.number}</td><td>{fmtDate(i.at)}</td><td>{i.interval === 'yearly' ? 'Yearly' : 'Monthly'}</td><td className="r">{i.currency && i.currency !== 'INR' ? fmtMoney(i.total, i.currency) : inr(i.total)}</td><td className="r"><Link className="btn ghost sm" to={`/billing/invoices/${i.id}`}>View</Link></td></tr>)}</tbody></table>
             ) : <p className="muted sm" style={{ padding: 18 }}>Your GST invoices will appear here after each payment.</p>}
           </Panel>
         </div>

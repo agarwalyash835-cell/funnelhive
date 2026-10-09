@@ -6,6 +6,8 @@ import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
 import { call as rzpCall } from './razorpay.js';
 import { deleteAccount } from './account.js';
+import { saveIntlSettings, intlSettingsView } from './billing-intl.js';
+import { fxRate } from './fx.js';
 import { DAY, localDate } from './time.js';
 
 const startedAt = Date.now();
@@ -25,7 +27,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       const a = accessFor(u, now);
       by[a.status] = (by[a.status] || 0) + 1;
       if (a.ok && u.billing?.subscriptionId && ['active', 'past_due'].includes(u.billing.status) && !u.billing.cancelAtPeriodEnd && (u.billing.currentPeriodEnd || 0) > (u.billing.trialEndsAt || 0)) {
-        const amt = u.billing.amount || chargeFor(u.billing.interval || 'monthly');
+        const amt = (u.billing.amount || chargeFor(u.billing.interval || 'monthly')) * (u.billing.currency ? fxRate(u.billing.currency) : 1); // foreign plans in ₹
         if (String(u.billing.interval).endsWith('yearly')) { yearly++; mrr += amt / 12; } else { monthly++; mrr += amt; }
       }
     }
@@ -130,7 +132,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   const settingsView = () => {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
-    return { ...rest, prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -169,6 +171,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       patch.razorpay = next;
       changes.push('razorpay keys');
     }
+    if (b.stripe || b.intl) { try { await saveIntlSettings(b); changes.push('international billing'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     savePlatform((s) => Object.assign(s, patch));
     audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay'), ...changes].join(', '));
     res.json(settingsView());

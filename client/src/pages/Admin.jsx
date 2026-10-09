@@ -188,7 +188,8 @@ function Invoices() {
 function PlatformSettings() {
   const [s, setS] = useState(null);
   const [rz, setRz] = useState({ keyId: '', keySecret: '', webhookSecret: '' });
-  useEffect(() => { api('/admin/settings').then((x) => { setS(x); setRz({ keyId: x.razorpay.keyId.includes('(') ? '' : x.razorpay.keyId, keySecret: '', webhookSecret: '' }); }); }, []);
+  const [sk, setSk] = useState({ publishableKey: '', secretKey: '', webhookSecret: '' });
+  useEffect(() => { api('/admin/settings').then((x) => { setS(x); setRz({ keyId: x.razorpay.keyId.includes('(') ? '' : x.razorpay.keyId, keySecret: '', webhookSecret: '' }); setSk({ publishableKey: x.stripe?.publishableKey || '', secretKey: '', webhookSecret: '' }); }); }, []);
   if (!s) return <div className="skeleton" />;
   const set = (patch) => setS({ ...s, ...patch });
   const save = async (body) => { try { const x = await api('/admin/settings', 'PUT', body); setS(x); toast('Saved'); return x; } catch (e) { toast(e.message); return null; } };
@@ -223,6 +224,24 @@ function PlatformSettings() {
         <label>Webhook secret {s.razorpay.hasWebhookSecret && <small className="muted">· saved</small>}<input type="password" value={rz.webhookSecret} onChange={(e) => setRz({ ...rz, webhookSecret: e.target.value })} /></label>
         <p className="hint">In Razorpay → Webhooks add <code>{hookUrl}</code> with the events <code>subscription.authenticated</code>, <code>subscription.activated</code>, <code>subscription.charged</code>, <code>subscription.pending</code>, <code>subscription.halted</code>, <code>subscription.cancelled</code>, <code>subscription.completed</code>, and paste the same secret here. Enable Subscriptions on your Razorpay account first.</p>
         <button className="btn primary" onClick={async () => { const body = { keyId: rz.keyId, ...(rz.keySecret ? { keySecret: rz.keySecret } : {}), ...(rz.webhookSecret ? { webhookSecret: rz.webhookSecret } : {}) }; if (await save({ razorpay: body })) setRz({ ...rz, keySecret: '', webhookSecret: '' }); }}>Save Razorpay keys</button>
+      </Panel>
+
+      <Panel title="Stripe (sellers outside India)">
+        <p className="muted sm">Sellers whose billing country isn’t India subscribe by card in USD, EUR or GBP through your Stripe account and get an export invoice.</p>
+        <div className={`ai-card ${s.stripe?.ready ? 'on' : ''}`}><Icon name="wallet" size={20} /><div><b>{s.stripe?.ready ? `Connected · ${s.stripe.mode} mode` : 'Not connected'}</b><p className="muted sm">{s.stripe?.ready ? s.stripe.publishableKey : 'Stripe → Developers → API keys'}</p></div></div>
+        <label>Publishable key<input value={sk.publishableKey} onChange={(e) => setSk({ ...sk, publishableKey: e.target.value.trim() })} placeholder="pk_live_…" /></label>
+        <label>Secret key {s.stripe?.hasSecret && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={sk.secretKey} onChange={(e) => setSk({ ...sk, secretKey: e.target.value.trim() })} placeholder="sk_live_…" /></label>
+        <label>Webhook signing secret {s.stripe?.hasWebhookSecret && <small className="muted">· saved</small>}<input type="password" value={sk.webhookSecret} onChange={(e) => setSk({ ...sk, webhookSecret: e.target.value.trim() })} placeholder="whsec_…" /></label>
+        <p className="hint">In Stripe → Developers → Webhooks add <code>{location.origin}{s.stripe?.webhookPath || '/api/billing/stripe-webhook'}</code> with the events <code>customer.subscription.updated</code>, <code>customer.subscription.deleted</code>, <code>invoice.paid</code>, <code>invoice.payment_failed</code>, and paste its signing secret here.</p>
+        <button className="btn primary" onClick={async () => { const body = { publishableKey: sk.publishableKey, ...(sk.secretKey ? { secretKey: sk.secretKey } : {}), ...(sk.webhookSecret ? { webhookSecret: sk.webhookSecret } : {}) }; if (await save({ stripe: body })) setSk({ ...sk, secretKey: '', webhookSecret: '' }); }}>Save Stripe keys</button>
+        <h4>Prices outside India</h4>
+        <div className="tbl-wrap"><table className="tbl">
+          <thead><tr><th>Currency</th><th>Monthly</th><th>Yearly</th><th>Agency monthly</th><th>Agency yearly</th></tr></thead>
+          <tbody>{Object.entries(s.intl?.prices || {}).map(([cur, row]) => <tr key={cur}><td><b>{cur}</b></td>{['monthly', 'yearly', 'agency_monthly', 'agency_yearly'].map((k) => <td key={k}><input type="number" min="1" style={{ width: 90 }} value={row[k] ?? ''} onChange={(e) => set({ intl: { ...s.intl, prices: { ...s.intl.prices, [cur]: { ...row, [k]: e.target.value } } } })} /></td>)}</tr>)}</tbody>
+        </table></div>
+        <label className="tog"><input type="checkbox" checked={!!s.intl?.lut} onChange={(e) => set({ intl: { ...s.intl, lut: e.target.checked } })} /><span />I have a Letter of Undertaking (export invoices without IGST)</label>
+        <p className="hint">Without a LUT, a GST-registered company’s export invoices include IGST in the price. Without GSTIN, no GST is shown.</p>
+        <button className="btn primary" onClick={() => save({ intl: { prices: s.intl.prices, lut: !!s.intl.lut } })}>Save international prices</button>
       </Panel>
 
       <Panel title="Company details (on GST invoices)">
