@@ -16,6 +16,7 @@ import Library from './pages/Library';
 import SaleInvoice from './pages/SaleInvoice';
 import Bookings from './pages/Bookings';
 import BookingManage from './pages/BookingManage';
+import MeetPage from './pages/MeetPage';
 import Quotes from './pages/Quotes';
 import QuotePublic from './pages/QuotePublic';
 import Webinars from './pages/Webinars';
@@ -83,6 +84,7 @@ createRoot(document.getElementById('root')).render(onDomain ? (
       <Route path="/access/:token?" element={<Library />} />
       <Route path="/invoice/:id" element={<SaleInvoice />} />
       <Route path="/bookings" element={<Private><Bookings /></Private>} />
+      <Route path="/meet/:handle/:cal?" element={<MeetPage />} />
       <Route path="/booking/:id" element={<BookingManage />} />
       <Route path="/quotes" element={<Private><Quotes /></Private>} />
       <Route path="/q/:id" element={<QuotePublic />} />

@@ -252,7 +252,7 @@ export default function Public() {
       onFormNext: () => go(idx + 1),
       // booking calendar: free slots and the booking itself
       prefill: { email: store.get('ff_email', sessionStorage) || '', name: store.get('ff_name', sessionStorage) || '', phone: store.get('ff_phone', sessionStorage) || '' },
-      onSlots: (blockId) => fetch(`${base}/slots${preview ? `${preview}&` : '?'}stepId=${step.id}&blockId=${blockId}`).then((r) => r.json()),
+      onSlots: (blockId, d) => fetch(`${base}/slots${preview ? `${preview}&` : '?'}stepId=${step.id}&blockId=${blockId}${d ? `&d=${d}` : ''}`).then((r) => r.json()),
       onBook: async (blockId, data) => {
         const r = await fetch(`${base}/book${preview}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, stepId: step.id, blockId, attr }) });
         const d = await r.json().catch(() => ({}));
@@ -290,7 +290,7 @@ export default function Public() {
         }
         track('Schedule', { content_name: step.name }, eventId('book'));
         await convert();
-        return d.preview ? { start: data.start, end: data.start + 1800000, manage: null } : d;
+        return d.preview ? { start: data.start, end: data.start + (data.duration || 30) * 60000, manage: null } : d;
       },
       onCoupon: (code, email) => post(`${base}/coupon${preview}`, { code, email, stepId: step.id }),
       onClaim: (code) => code && store.set(`ff_coupon_${slug}`, code, sessionStorage),

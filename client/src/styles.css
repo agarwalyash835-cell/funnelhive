@@ -1872,3 +1872,57 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 .gl-name { font-size: 16px; font-weight: 700; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 @media (max-width: 1100px) { .glance { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .glance { grid-template-columns: 1fr 1fr; gap: 10px; } .gl-hero { grid-column: span 2; grid-row: auto; } .gl-v { font-size: 22px; } }
+
+/* ---------- Bookings: your booking page, day-grouped calls, call-type questions ---------- */
+.bp { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: 16px; padding: 18px 20px; margin-bottom: 18px; }
+.bp-link { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.bp-l { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bp-k { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--c-muted); }
+.bp-url { font-size: 17px; font-weight: 700; color: var(--c-ink); text-decoration: none; overflow-wrap: anywhere; }
+.bp-url:hover { color: var(--c-accent); }
+.bp-l small { color: var(--c-muted); font-size: 12.5px; }
+.bp-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 16px; }
+.bp-type { border: 1px solid var(--c-line); border-left: 3px solid var(--c-accent-2); border-radius: 11px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; }
+.bp-th { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.bp-th b { font-size: 14.5px; }
+.bp-meta { font-size: 12.5px; color: var(--c-muted); }
+.bp-acts { display: flex; gap: 14px; margin-top: 6px; }
+.bp-acts .link-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
+.bp-addr { display: flex; align-items: center; border: 1px solid var(--c-line); border-radius: 9px; overflow: hidden; }
+.bp-addr span { padding: 0 4px 0 11px; color: var(--c-muted); font-size: 13px; white-space: nowrap; }
+.bp-addr input { border: 0 !important; flex: 1; min-width: 80px; padding-left: 0 !important; box-shadow: none !important; }
+.bp-code { width: 100%; margin: 6px 0; }
+.m-body.stack { display: flex; flex-direction: column; gap: 16px; }
+.m-body.stack .hint { margin: 2px 0 4px; }
+
+.bk-day { margin-top: 18px; }
+.bk-dh { display: flex; align-items: baseline; gap: 10px; font-size: 14px; margin: 0 0 8px; }
+.bk-dh span { font-size: 12px; font-weight: 500; color: var(--c-muted); }
+.bk-list { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: 14px; overflow: hidden; }
+.bk-row { display: grid; grid-template-columns: 96px 3px minmax(0, 1fr) auto auto; gap: 14px; align-items: start; padding: 14px 16px; }
+.bk-row + .bk-row { border-top: 1px solid var(--c-line); }
+.bk-row.off { opacity: .7; }
+.bk-time { display: flex; flex-direction: column; }
+.bk-time b { font-size: 15px; }
+.bk-time small, .bk-who small { color: var(--c-muted); font-size: 12.5px; }
+.bk-bar { align-self: stretch; border-radius: 3px; background: var(--c-accent-2); }
+.bk-row.off .bk-bar { background: var(--c-line); }
+.bk-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bk-who .link-btn { align-self: flex-start; font-size: 12.5px; margin-top: 2px; }
+.bk-ans { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0 0; padding: 10px 12px; background: var(--c-line-2); border-radius: 9px; font-size: 13px; }
+.bk-ans dt { color: var(--c-muted); }
+.bk-ans dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.bk-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.bkr-acts { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.bk-out button.on { color: var(--c-ok); }
+.bk-out button.on.bad { color: var(--c-bad); }
+.chips.pick button:disabled { background: var(--c-ink); color: #fff; border-color: var(--c-ink); opacity: .85; }
+.bq-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.bq { display: grid; grid-template-columns: minmax(0, 1fr) 140px auto auto; gap: 8px; align-items: center; }
+.bq .bq-opts { grid-column: 1 / -1; }
+@media (max-width: 760px) {
+  .bk-row { grid-template-columns: 70px 3px minmax(0, 1fr); }
+  .bk-tags, .bkr-acts { grid-column: 3; justify-content: flex-start; }
+  .bq { grid-template-columns: 1fr 1fr; }
+  .bq input:first-child { grid-column: 1 / -1; }
+}

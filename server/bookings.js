@@ -14,7 +14,8 @@ import { rzpCreds, createOrder as rzpCreateOrder, validPayment, call as rzpCall 
 import { stripeCreds, startStripePayment, confirmedIntent, stripeRefund, CURRENCIES } from './stripe.js';
 const CALL_CURRENCIES = [...new Set(Object.values(CURRENCIES))];
 import { tzOf, sellerTz, zoned, localYmd, addDays, dowOfYmd, formatIn, offsetAt, validTz } from './tz.js';
-import { refundOrder } from './sales.js';
+import { refundOrder, issueInvoice, invoiceUrl } from './sales.js';
+import { fxRate } from './fx.js';
 
 const MIN = 60000, HOUR = 3600000, DAY = 86400000;
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -49,10 +50,47 @@ function cleanCalendar(b = {}, cur = {}) {
   if ('price' in b || !cur.id) out.price = intIn(b.price, 0, 1000000, cur.price ?? 0);
   if ('currency' in b || !cur.id) out.currency = CALL_CURRENCIES.includes(b.currency) ? b.currency : cur.currency || 'INR';
   if ('refundHours' in b || !cur.id) out.refundHours = intIn(b.refundHours, 0, 720, cur.refundHours ?? 24);
+  // the public booking page: its address, whether it's listed on your profile, the lengths people may pick,
+  // how often start times are offered (0 = automatic), and your own questions on the form
+  if ('slug' in b || !cur.id) out.slug = slugify(b.slug || cur.slug || out.name || 'call');
+  if ('listed' in b || !cur.id) out.listed = b.listed ?? cur.listed ?? true;
+  if ('durations' in b || !cur.id) out.durations = [...new Set((Array.isArray(b.durations) ? b.durations : cur.durations || []).map((m) => intIn(m, 10, 240, 0)).filter(Boolean))].sort((x, y) => x - y).slice(0, 6);
+  if (!out.durations?.length || !out.durations.includes(out.duration)) out.durations = [...new Set([out.duration, ...(out.durations || [])])].sort((x, y) => x - y);
+  if ('interval' in b || !cur.id) out.interval = [0, 10, 15, 20, 30, 60].includes(Number(b.interval)) ? Number(b.interval) : cur.interval ?? 0;
+  if ('questions' in b || !cur.id) out.questions = (Array.isArray(b.questions) ? b.questions : cur.questions || []).filter((q) => q && clip(q.label, 200)).slice(0, 10).map((q) => ({ id: clip(q.id, 20) || uid().slice(0, 8), label: clip(q.label, 200), type: ['text', 'long', 'phone', 'select'].includes(q.type) ? q.type : 'text', required: !!q.required, ...(q.type === 'select' ? { options: (Array.isArray(q.options) ? q.options : String(q.options || '').split(',')).map((o) => clip(o, 80)).filter(Boolean).slice(0, 12) } : {}) }));
   if ('blocked' in b || !cur.id) out.blocked = (Array.isArray(b.blocked) ? b.blocked : cur.blocked || []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 365);
   return out;
 }
 export const calendarsOf = (userId) => T.calendars.all({ userId }, { order: 'at' });
+const slugify = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'call';
+// start times on the clock: a 10/15/20/30/60-minute call starts every that many minutes, other lengths on
+// the quarter or half hour (never 4:40, 5:20 …) — unless the calendar sets its own interval
+const stepOf = (cal, dur) => cal.interval || ([10, 15, 20, 30, 60].includes(dur) ? dur : dur < 30 ? 15 : 30);
+const priceFor = (cal, dur) => (cal.price > 0 ? Math.round((cal.price * dur) / cal.duration) : 0);
+const lengthOf = (cal, d) => { const n = Number(d); return (cal.durations || [cal.duration]).includes(n) ? n : cal.duration; };
+// the seller's public booking address: /meet/<handle>/<calendar slug>
+export function handleOf(u) {
+  if (u.bookingHandle) return u.bookingHandle;
+  const base = slugify(u.settings?.businessName || u.name || u.email.split('@')[0]).slice(0, 30);
+  let h = base, i = 1;
+  while (q("SELECT 1 FROM users WHERE json_extract(data, '$.bookingHandle') = ?").get(h)) h = `${base}-${++i}`;
+  T.users.update(u.id, (x) => { x.bookingHandle = h; });
+  return h;
+}
+const userByHandle = (h) => { const r = q("SELECT id FROM users WHERE json_extract(data, '$.bookingHandle') = ?").get(String(h || '').toLowerCase()); return r && T.users.get(r.id); };
+// a slug unique among this seller's calendars
+const uniqueSlug = (userId, slug, selfId) => { let s = slug, i = 1; while (calendarsOf(userId).some((x) => x.slug === s && x.id !== selfId)) s = `${slug}-${++i}`; return s; };
+// answers to the calendar's own questions → { label: answer }, or an error for a missing required one
+function cleanAnswers(cal, a = {}) {
+  const out = {};
+  for (const q of cal.questions || []) {
+    const v = clip(a?.[q.id], q.type === 'long' ? 2000 : 300);
+    if (q.required && !v) return { error: `Please answer: ${q.label}` };
+    if (q.type === 'select' && v && !(q.options || []).includes(v)) return { error: `Please pick an option for: ${q.label}` };
+    if (v) out[q.label] = v;
+  }
+  return { answers: out };
+}
 // Every seller gets a sensible default the first time a booking block needs one
 export function defaultCalendar(userId) {
   return calendarsOf(userId)[0] || T.calendars.insert({ ...cleanCalendar({ name: 'Strategy call', duration: 30 }), id: uid(), userId, at: Date.now() });
@@ -62,7 +100,7 @@ const calendarFor = (userId, id) => (id && T.calendars.get(id)?.userId === userI
 // ---------- slots ----------
 // a calendar's zone: its own, else its seller's (India by default)
 export const calTz = (cal) => tzOf(cal, sellerTz(T.users.get(cal.userId)));
-export function freeSlots(cal, from = Date.now(), now = Date.now()) {
+export function freeSlots(cal, from = Date.now(), now = Date.now(), dur = cal.duration) {
   const tz = calTz(cal);
   const earliest = now + cal.noticeHours * HOUR;
   const until = now + cal.daysAhead * DAY;
@@ -72,7 +110,7 @@ export function freeSlots(cal, from = Date.now(), now = Date.now()) {
   const perDayCount = {};
   for (const b of taken) perDayCount[localYmd(tz, b.start)] = (perDayCount[localYmd(tz, b.start)] || 0) + 1;
   const out = [];
-  const step = cal.duration + cal.buffer;
+  const step = stepOf(cal, dur);
   // walk the calendar's local days; each window is turned into real instants in its zone (daylight saving included)
   const lastDay = localYmd(tz, until);
   for (let key = localYmd(tz, Math.max(from, now)), i = 0; key <= lastDay && i < 400; key = addDays(key, 1), i++) {
@@ -81,8 +119,8 @@ export function freeSlots(cal, from = Date.now(), now = Date.now()) {
     const dow = DAYS[dowOfYmd(key)];
     let today = 0;
     for (const [a, b] of cal.hours[dow] || []) {
-      for (let m = toMin(a); m + cal.duration <= toMin(b); m += step) {
-        const s = zoned(tz, key, m), e = s + cal.duration * MIN;
+      for (let m = toMin(a); m + dur <= toMin(b); m += step) {
+        const s = zoned(tz, key, m), e = s + dur * MIN;
         if (s < earliest || s > until) continue;
         if (busy.some(([bs, be]) => s < be && e > bs)) continue;
         if (cal.perDay && (perDayCount[key] || 0) + today >= cal.perDay) break;
@@ -114,26 +152,27 @@ function notifyBuyer(b, kind, base) {
   const meet = cal.meetingLink || b.meetLink;
   const join = meet ? `\n\nJoin here: ${meet}` : cal.location ? `\n\nWhere: ${cal.location}` : '';
   const text = {
-    confirmed: [`Your ${cal.name} is booked ✅`, `Hi ${first},\n\nYou’re booked for ${cal.name} with ${biz} on ${when(b.start, calTz(cal))} (${cal.duration} minutes).${join}\n\nAdd it to your calendar: ${ics}\nNeed to change it? Reschedule or cancel here: ${link}\n\n— ${biz}`],
+    confirmed: [`Your ${cal.name} is booked ✅`, `Hi ${first},\n\nYou’re booked for ${cal.name} with ${biz} on ${when(b.start, calTz(cal))} (${Math.round((b.end - b.start) / MIN)} minutes).${join}\n\nAdd it to your calendar: ${ics}\nNeed to change it? Reschedule or cancel here: ${link}\n\n— ${biz}`],
     day: [`Tomorrow: ${cal.name} with ${biz}`, `Hi ${first},\n\nA reminder that your ${cal.name} is on ${when(b.start, calTz(cal))}.${join}\n\nCan’t make it? Reschedule here: ${link}\n\n— ${biz}`],
     hour: [`Starting in 1 hour: ${cal.name}`, `Hi ${first},\n\nYour ${cal.name} with ${biz} starts at ${when(b.start, calTz(cal))}.${join}\n\n— ${biz}`],
     cancelled: [`Cancelled: ${cal.name} on ${when(b.start, calTz(cal))}`, `Hi ${first},\n\nYour ${cal.name} on ${when(b.start, calTz(cal))} has been cancelled.${b.cancelledBy === 'buyer' ? '' : ' Book a new time whenever you like.'}\n\n— ${biz}`],
   }[kind];
   if (text) sendEmail(owner, { to: b.email, subject: text[0], text: text[1] }).catch((e) => console.error('booking email failed', e.message));
   // the seller hears about new bookings and cancellations
-  if (kind === 'confirmed' || kind === 'cancelled') sendEmail(owner, { to: owner.email, subject: `${kind === 'confirmed' ? 'New booking' : 'Booking cancelled'}: ${b.name || b.email} · ${when(b.start, calTz(cal))}`, text: `${cal.name}\n${b.name || ''} · ${b.email}${b.phone ? ` · ${b.phone}` : ''}\n${when(b.start, calTz(cal))}${b.notes ? `\n\nNotes: ${b.notes}` : ''}` }).catch(() => {});
+  if (kind === 'confirmed' || kind === 'cancelled') sendEmail(owner, { to: owner.email, subject: `${kind === 'confirmed' ? 'New booking' : 'Booking cancelled'}: ${b.name || b.email} · ${when(b.start, calTz(cal))}`, text: `${cal.name}\n${b.name || ''} · ${b.email}${b.phone ? ` · ${b.phone}` : ''}\n${when(b.start, calTz(cal))}${Object.entries(b.answers || {}).map(([q, a]) => `\n\n${q}\n${a}`).join('')}${b.notes ? `\n\nNotes: ${b.notes}` : ''}` }).catch(() => {});
 }
-const outBooking = (b, cal) => ({ id: b.id, start: b.start, end: b.end, status: b.status, name: b.name, email: b.email, phone: b.phone, notes: b.notes || '', calendar: cal ? { id: cal.id, name: cal.name, duration: cal.duration, meetingLink: cal.meetingLink || b.meetLink || '', location: cal.location || '', tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), price: cal.price || 0, currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24 } : null, funnelId: b.funnelId, at: b.at, cancelledBy: b.cancelledBy || null, paid: b.paid ? b.amount || true : null, orderId: b.orderId || null, refunded: !!b.refunded, unpaid: !!b.unpaid, google: !!b.gEventId });
+const outBooking = (b, cal) => ({ id: b.id, start: b.start, end: b.end, minutes: Math.round((b.end - b.start) / MIN), status: b.status, name: b.name, email: b.email, phone: b.phone, notes: b.notes || '', answers: b.answers || null, outcome: b.outcome || null, source: b.source || null, calendar: cal ? { id: cal.id, name: cal.name, duration: cal.duration, meetingLink: cal.meetingLink || b.meetLink || '', location: cal.location || '', tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), price: cal.price || 0, currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24 } : null, funnelId: b.funnelId, at: b.at, cancelledBy: b.cancelledBy || null, paid: b.paid ? b.amount || true : null, orderId: b.orderId || null, refunded: !!b.refunded, unpaid: !!b.unpaid, google: !!b.gEventId });
 
 // A booking (or reschedule) for one slot; refuses a slot that isn't free — checked inside one transaction
-export function book(cal, { start, email, name, phone, notes, funnelId = null, stepId = null, base = '', leadId = null, replaces = null, attr, hold = false, carry = null, unpaid = false }) {
-  const s = Number(start);
+export function book(cal, { start, email, name, phone, notes, funnelId = null, stepId = null, base = '', leadId = null, replaces = null, attr, hold = false, carry = null, unpaid = false, duration, answers, source }) {
+  const s = Number(start), dur = lengthOf(cal, duration);
+  const ans = answers && typeof answers === 'object' && !Array.isArray(answers) ? answers : null;
   const cleanEmail = clip(email, 200).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return { error: 'Please enter a valid email address' };
   const b = tx(() => {
-    const ok = freeSlots(cal, s - DAY, Date.now()).includes(s);
+    const ok = freeSlots(cal, s - DAY, Date.now(), dur).includes(s);
     if (!ok) return null;
-    return T.bookings.insert({ id: uid(), userId: cal.userId, calendarId: cal.id, funnelId, stepId, leadId, email: cleanEmail, name: clip(name, 120), phone: clip(phone, 40), notes: clip(notes, 1000), start: s, end: s + cal.duration * MIN, status: hold ? 'held' : 'confirmed', ...(hold ? { holdUntil: Date.now() + HOLD } : {}), at: Date.now(), base, reminded: {}, ...(replaces ? { replaces } : {}), ...(attr ? { attr } : {}), ...(carry || {}), ...(unpaid ? { unpaid: true } : {}) });
+    return T.bookings.insert({ id: uid(), userId: cal.userId, calendarId: cal.id, funnelId, stepId, leadId, email: cleanEmail, name: clip(name, 120), phone: clip(phone, 40), notes: clip(notes, 1000), start: s, end: s + dur * MIN, ...(ans && Object.keys(ans).length ? { answers: ans } : {}), ...(source ? { source } : {}), status: hold ? 'held' : 'confirmed', ...(hold ? { holdUntil: Date.now() + HOLD } : {}), at: Date.now(), base, reminded: {}, ...(replaces ? { replaces } : {}), ...(attr ? { attr } : {}), ...(carry || {}), ...(unpaid ? { unpaid: true } : {}) });
   });
   if (!b) return { error: 'That time was just taken — please pick another slot', taken: true };
   if (hold) return { booking: b };
@@ -175,14 +214,24 @@ export async function confirmPaidBooking(pay, paymentId, base) {
     T.payments.put(pay);
     return pay.result;
   }
-  const f = T.funnels.get(pay.funnelId);
-  const sale = f && recordSale ? recordSale(f, pay, paymentId, base) : null;
+  const f = pay.funnelId && T.funnels.get(pay.funnelId);
+  const sale = f && recordSale ? recordSale(f, pay, paymentId, base) : !f ? callSale(owner, cal, pay, paymentId, base) : null;
   const b = T.bookings.update(b0.id, (x) => { x.status = 'confirmed'; delete x.holdUntil; x.paid = true; x.amount = pay.charge.total; x.paymentId = paymentId; if (sale?.orderId) x.orderId = sale.orderId; });
   pay.status = 'paid'; pay.paymentId = paymentId; pay.paidAt = Date.now();
   pay.result = { ok: true, start: b.start, end: b.end, manage: manageUrl(base || pay.base, b), meetingLink: cal.meetingLink || '', ...(sale?.invoice ? { invoice: sale.invoice } : {}), orderId: sale?.orderId };
   T.payments.put(pay);
   if (b0.status !== 'confirmed') confirmed(b, cal, base || pay.base, false);
   return pay.result;
+}
+function callSale(owner, cal, pay, paymentId, base) {
+  try {
+    const now = Date.now(), iso = pay.currency || cal.currency || 'INR', bu = pay.buyer || {};
+    const item = { name: pay.charge.items[0].name, price: pay.charge.total, kind: 'booking', at: now, paymentId, txn: '' };
+    const id = uid(); item.txn = `${id}-1`;
+    const order = T.orders.insert({ id, userId: owner.id, funnelId: null, funnelName: `Booking · ${cal.name}`, email: bu.email || '', name: bu.name || '', phone: bu.phone || '', items: [item], total: pay.charge.total, discount: 0, source: bu.source || 'booking page', status: 'paid', at: now, provider: pay.provider || 'razorpay', mode: pay.mode, ...(iso !== 'INR' ? { currency: iso, fx: fxRate(iso) } : {}), ...(pay.stripeCustomer ? { stripeCustomer: pay.stripeCustomer } : {}) });
+    const inv = issueInvoice(owner, order, [{ index: 0, name: item.name, kind: 'booking', amount: item.price }], { paymentId });
+    return { orderId: order.id, ...(inv ? { invoice: invoiceUrl(base || pay.base, inv) } : {}) };
+  } catch (e) { console.error('booking sale not recorded', e.message); return null; }
 }
 export function cancel(b, by = 'buyer', reason = '') {
   if (b.status !== 'confirmed') return b;
@@ -222,11 +271,16 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
   const bookLimiter = rateLimit({ windowMs: 60000, max: isTest ? 5000 : 30 });
 
   // --- seller ---
-  app.get('/api/calendars', auth, (req, res) => { defaultCalendar(req.user.id); res.json(calendarsOf(req.user.id).map((c) => ({ ...c, timezone: calTz(c) }))); });
+  app.get('/api/calendars', auth, (req, res) => {
+    defaultCalendar(req.user.id);
+    // calendars from before booking pages get their address
+    for (const x of calendarsOf(req.user.id)) if (!x.slug) T.calendars.update(x.id, (y) => { y.slug = uniqueSlug(req.user.id, slugify(y.name), y.id); });
+    res.json(calendarsOf(req.user.id).map((c) => ({ ...c, timezone: calTz(c) }))); });
   app.post('/api/calendars', auth, (req, res) => {
     if (T.calendars.count({ userId: req.user.id }) >= 20) return res.status(400).json({ error: 'You can have up to 20 calendars' });
     const c = cleanCalendar(req.body);
     if (c.error) return res.status(400).json(c);
+    c.slug = uniqueSlug(req.user.id, c.slug);
     res.json(T.calendars.insert({ ...c, id: uid(), userId: req.user.id, at: Date.now() }));
   });
   app.put('/api/calendars/:cid', auth, (req, res) => {
@@ -234,6 +288,7 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     if (!cur || cur.userId !== req.user.id) return res.status(404).json({ error: 'Calendar not found' });
     const c = cleanCalendar(req.body, cur);
     if (c.error) return res.status(400).json(c);
+    c.slug = uniqueSlug(req.user.id, c.slug || slugify(c.name), cur.id);
     res.json(T.calendars.put(c));
   });
   app.delete('/api/calendars/:cid', auth, (req, res) => {
@@ -250,11 +305,87 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     // slots held for a payment that never came aren't bookings
     res.json(T.bookings.all({ userId: req.user.id, start: { gte: from }, status: ['confirmed', 'cancelled', 'rescheduled'] }, { order: 'start', limit: 2000 }).map((b) => ({ ...outBooking(b, cals[b.calendarId]), funnel: funnels[b.funnelId] || null })));
   });
+  // how the call went: completed or no-show (null clears it)
+  app.put('/api/bookings/:bid', auth, (req, res) => {
+    const b = T.bookings.get(req.params.bid);
+    if (!b || b.userId !== req.user.id) return res.status(404).json({ error: 'Booking not found' });
+    const o = req.body?.outcome ?? null;
+    if (o !== null && !['completed', 'no_show'].includes(o)) return res.status(400).json({ error: 'Outcome must be completed or no_show' });
+    res.json(outBooking(T.bookings.update(b.id, (x) => { if (o) x.outcome = o; else delete x.outcome; }), T.calendars.get(b.calendarId)));
+  });
+  // your booking page address
+  app.get('/api/booking-page', auth, (req, res) => res.json({ handle: handleOf(req.user) }));
+  app.put('/api/booking-page', auth, (req, res) => {
+    const h = slugify(req.body?.handle).slice(0, 30);
+    if (h.length < 3) return res.status(400).json({ error: 'Use at least 3 letters or numbers' });
+    const other = userByHandle(h);
+    if (other && other.id !== req.user.id) return res.status(409).json({ error: 'That address is taken — try another' });
+    T.users.update(req.user.id, (x) => { x.bookingHandle = h; });
+    res.json({ handle: h });
+  });
   app.post('/api/bookings/:bid/cancel', auth, (req, res) => {
     const b = T.bookings.get(req.params.bid);
     if (!b || b.userId !== req.user.id) return res.status(404).json({ error: 'Booking not found' });
     res.json(outBooking(cancel(b, 'seller', req.body?.reason), T.calendars.get(b.calendarId)));
   });
+
+  // one booking path for funnel pages and booking pages: free call, priced call without payments
+  // (booked, marked unpaid), or a 15-minute hold while the buyer pays by UPI/card (Razorpay) or card (Stripe)
+  async function startBooking(req, res, { cal, owner, base, input, funnelId = null, stepId = null, title, color }) {
+    const dur = lengthOf(cal, input.duration), price = priceFor(cal, dur), iso = cal.currency || 'INR';
+    const creds = price > 0 && iso === 'INR' ? rzpCreds(owner) : null, sc = price > 0 && !creds ? stripeCreds(owner) : null;
+    const holdPay = (b, mode) => ({ id: uid(), userId: owner.id, funnelId, stepId, kind: 'booking', bookingId: b.id, buyer: { email: b.email, name: b.name, phone: b.phone, source: String(req.body.source || 'direct').slice(0, 40), ...(req.body.attr ? { attr: req.body.attr } : {}) }, charge: { items: [{ name: `${cal.name} (${dur} min) — ${when(b.start, calTz(cal))}`, price, kind: 'booking' }], total: price, discount: 0 }, mode, status: 'created', at: Date.now(), base });
+    const shop = owner.settings?.businessName || title;
+    if (sc) {
+      // paid call by card: hold the slot for 15 minutes while the buyer pays in the Stripe form
+      const r = book(cal, { ...input, hold: true });
+      if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
+      const pay = { ...holdPay(r.booking, sc.mode), provider: 'stripe', currency: iso };
+      let st;
+      try { st = await startStripePayment(sc, { userId: owner.id, pay, iso, buyer: pay.buyer, description: pay.charge.items[0].name }); } catch (e) {
+        console.error('Stripe booking payment failed', e.message);
+        T.bookings.update(r.booking.id, (x) => { x.status = 'failed'; });
+        return res.status(502).json({ error: 'Card payments are temporarily unavailable — please try again in a minute' });
+      }
+      Object.assign(pay, { stripeIntent: st.intent, stripeCustomer: st.customer, rzpOrderId: st.intent });
+      T.payments.insert(pay);
+      return res.json({ pay: { ...st, amount: price, currency: iso, name: shop, description: pay.charge.items[0].name.slice(0, 250), color }, holdUntil: r.booking.holdUntil });
+    }
+    if (creds) {
+      // paid call: hold the slot for 15 minutes and open a Razorpay payment for it
+      const r = book(cal, { ...input, hold: true });
+      if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
+      const pay = holdPay(r.booking, creds.mode);
+      let rz;
+      try { rz = await rzpCreateOrder(creds, { amount: Math.round(price * 100), receipt: pay.id, notes: { booking: r.booking.id, payment: pay.id } }); } catch (e) {
+        T.bookings.update(r.booking.id, (x) => { x.status = 'failed'; });
+        return res.status(502).json({ error: 'Payments are temporarily unavailable — please try again in a minute' });
+      }
+      pay.rzpOrderId = rz.id;
+      T.payments.insert(pay);
+      return res.json({ pay: { provider: 'razorpay', payment: pay.id, key: creds.keyId, order_id: rz.id, amount: rz.amount, currency: rz.currency || 'INR', name: shop, description: pay.charge.items[0].name.slice(0, 250), prefill: { name: r.booking.name, email: r.booking.email, contact: r.booking.phone }, color }, holdUntil: r.booking.holdUntil });
+    }
+    // a priced call while payments aren't connected is booked, marked unpaid for the seller to collect
+    const r = book(cal, { ...input, unpaid: price > 0 });
+    if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
+    res.json({ ok: true, start: r.booking.start, end: r.booking.end, manage: manageUrl(base, r.booking), meetingLink: cal.meetingLink || '' });
+  }
+  const verifyRzp = async (req, res, pay, owner, base) => {
+    const creds = rzpCreds(owner);
+    const { razorpay_order_id: oid, razorpay_payment_id: pid, razorpay_signature: s } = req.body;
+    if (!creds || oid !== pay.rzpOrderId || !validPayment(creds.secret, oid, pid, s)) return res.status(400).json({ error: 'We couldn’t confirm this payment. If money was deducted it will be refunded automatically — please contact the seller.' });
+    const r = await confirmPaidBooking(pay, pid, base);
+    res.status(r.error ? 409 : 200).json(r);
+  };
+  const verifyStripe = async (req, res, pay, owner, base) => {
+    if (pay.status === 'paid') return res.status(pay.result?.error ? 409 : 200).json(pay.result);
+    const sc = stripeCreds(owner);
+    const id = sc && await confirmedIntent(sc, pay).catch(() => null);
+    if (!id) return res.status(400).json({ error: 'We couldn’t confirm this payment yet. If money was deducted it will be refunded automatically — please contact the seller.' });
+    const r = await confirmPaidBooking(pay, id, base);
+    res.status(r.error ? 409 : 200).json(r);
+  };
+  const calInfo = (cal, owner) => ({ name: cal.name, duration: cal.duration, durations: cal.durations || [cal.duration], tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), description: cal.description || '', location: cal.meetingLink || owner?.channels?.gcal?.refreshEnc ? 'Video call' : cal.location || '', price: cal.price || 0, prices: Object.fromEntries((cal.durations || [cal.duration]).map((d) => [d, priceFor(cal, d)])), currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24, questions: cal.questions || [] });
 
   // --- public: slots and booking on a funnel page ---
   const blockOf = (f, stepId, blockId) => { const st = f.steps.find((s) => s.id === stepId); return st && allBlocks(st).find((b) => b.id === blockId && b.type === 'booking'); };
@@ -265,7 +396,8 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     if (!blk) return res.status(404).json({ error: 'Calendar not found' });
     const cal = calendarFor(f.userId, blk.props.calendarId);
     await refreshBusy(f.userId, cal.daysAhead + 1);
-    res.json({ calendar: { name: cal.name, duration: cal.duration, tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), description: cal.description || '', location: cal.meetingLink || T.users.get(f.userId)?.channels?.gcal?.refreshEnc ? 'Video call' : cal.location || '', price: cal.price || 0, currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24 }, slots: freeSlots(cal) });
+    const dur = lengthOf(cal, req.query.d);
+    res.json({ calendar: calInfo(cal, T.users.get(f.userId)), duration: dur, slots: freeSlots(cal, Date.now(), Date.now(), dur) });
   }));
   app.post('/api/public/:slug/book', bookLimiter, wrap(async (req, res) => {
     const f = pub(req, res);
@@ -280,55 +412,17 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     if (rules && blk.props.qualifiedOnly !== false && !T.leads.all({ funnelId: f.id, ckey }).some((l) => l.qualified === true)) return res.status(403).json({ error: 'Please complete the application first — booking opens once it’s approved' });
     await refreshBusy(f.userId, cal.daysAhead + 1);
     const base = linkBase(f.id, process.env.APP_URL || appUrl(req));
-    // Razorpay takes ₹; Stripe takes cards in any currency (and ₹ when Razorpay isn't connected)
-    const owner = T.users.get(f.userId), iso = cal.currency || 'INR';
-    const creds = cal.price > 0 && iso === 'INR' ? rzpCreds(owner) : null, sc = cal.price > 0 && !creds ? stripeCreds(owner) : null;
-    const input = { start: req.body.start, email: req.body.email, name: req.body.name, phone: req.body.phone, notes: req.body.notes, funnelId: f.id, stepId: req.body.stepId, base, attr: req.body.attr };
-    const holdPay = (b, mode) => ({ id: uid(), userId: f.userId, funnelId: f.id, stepId: req.body.stepId, kind: 'booking', bookingId: b.id, buyer: { email: b.email, name: b.name, phone: b.phone, source: String(req.body.source || 'direct').slice(0, 40), ...(req.body.attr ? { attr: req.body.attr } : {}) }, charge: { items: [{ name: `${cal.name} — ${when(b.start, calTz(cal))}`, price: cal.price, kind: 'booking' }], total: cal.price, discount: 0 }, mode, status: 'created', at: Date.now(), base });
-    if (sc) {
-      // paid call by card: hold the slot for 15 minutes while the buyer pays in the Stripe form
-      const r = book(cal, { ...input, hold: true });
-      if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
-      const pay = { ...holdPay(r.booking, sc.mode), provider: 'stripe', currency: iso };
-      let st;
-      try { st = await startStripePayment(sc, { userId: f.userId, pay, iso, buyer: pay.buyer, description: pay.charge.items[0].name }); } catch (e) {
-        console.error('Stripe booking payment failed', e.message);
-        T.bookings.update(r.booking.id, (x) => { x.status = 'failed'; });
-        return res.status(502).json({ error: 'Card payments are temporarily unavailable — please try again in a minute' });
-      }
-      Object.assign(pay, { stripeIntent: st.intent, stripeCustomer: st.customer, rzpOrderId: st.intent });
-      T.payments.insert(pay);
-      return res.json({ pay: { ...st, amount: cal.price, currency: iso, name: owner.settings?.businessName || f.name, description: pay.charge.items[0].name.slice(0, 250), color: f.theme?.primary || '#6366f1' }, holdUntil: r.booking.holdUntil });
-    }
-    if (creds) {
-      // paid call: hold the slot for 15 minutes and open a Razorpay payment for it
-      const r = book(cal, { ...input, hold: true });
-      if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
-      const pay = holdPay(r.booking, creds.mode);
-      let rz;
-      try { rz = await rzpCreateOrder(creds, { amount: cal.price * 100, receipt: pay.id, notes: { booking: r.booking.id, payment: pay.id } }); } catch (e) {
-        T.bookings.update(r.booking.id, (x) => { x.status = 'failed'; });
-        return res.status(502).json({ error: 'Payments are temporarily unavailable — please try again in a minute' });
-      }
-      pay.rzpOrderId = rz.id;
-      T.payments.insert(pay);
-      return res.json({ pay: { provider: 'razorpay', payment: pay.id, key: creds.keyId, order_id: rz.id, amount: rz.amount, currency: rz.currency || 'INR', name: owner.settings?.businessName || f.name, description: pay.charge.items[0].name.slice(0, 250), prefill: { name: r.booking.name, email: r.booking.email, contact: r.booking.phone }, color: f.theme?.primary || '#6366f1' }, holdUntil: r.booking.holdUntil });
-    }
-    // a priced call while payments aren't connected is booked, marked unpaid for the seller to collect
-    const r = book(cal, { ...input, unpaid: cal.price > 0 });
-    if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
-    res.json({ ok: true, start: r.booking.start, end: r.booking.end, manage: manageUrl(base, r.booking), meetingLink: cal.meetingLink || '' });
+    const ans = cleanAnswers(cal, req.body.answers);
+    if (ans.error) return res.status(400).json({ error: ans.error });
+    const input = { start: req.body.start, email: req.body.email, name: req.body.name, phone: req.body.phone, notes: req.body.notes, duration: req.body.duration, answers: ans.answers, funnelId: f.id, stepId: req.body.stepId, base, attr: req.body.attr, source: 'funnel' };
+    await startBooking(req, res, { cal, owner: T.users.get(f.userId), base, input, funnelId: f.id, stepId: req.body.stepId, title: f.name, color: f.theme?.primary || '#b45309' });
   }));
   app.post('/api/public/:slug/book/verify', bookLimiter, wrap(async (req, res) => {
     const f = pub(req, res);
     if (!f) return;
     const pay = T.payments.get(req.body?.payment);
     if (!pay || pay.funnelId !== f.id || pay.kind !== 'booking') return res.status(404).json({ error: 'Payment not found' });
-    const creds = rzpCreds(T.users.get(f.userId));
-    const { razorpay_order_id: oid, razorpay_payment_id: pid, razorpay_signature: s } = req.body;
-    if (!creds || oid !== pay.rzpOrderId || !validPayment(creds.secret, oid, pid, s)) return res.status(400).json({ error: 'We couldn’t confirm this payment. If money was deducted it will be refunded automatically — please contact the seller.' });
-    const r = await confirmPaidBooking(pay, pid, linkBase(f.id, process.env.APP_URL || appUrl(req)));
-    res.status(r.error ? 409 : 200).json(r);
+    await verifyRzp(req, res, pay, T.users.get(f.userId), linkBase(f.id, process.env.APP_URL || appUrl(req)));
   }));
 
   // a card payment confirmed in the Stripe form: read it back from Stripe before the slot counts as paid
@@ -337,12 +431,46 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     if (!f) return;
     const pay = T.payments.get(req.body?.payment);
     if (!pay || pay.funnelId !== f.id || pay.kind !== 'booking' || pay.provider !== 'stripe') return res.status(404).json({ error: 'Payment not found' });
-    if (pay.status === 'paid') return res.status(pay.result?.error ? 409 : 200).json(pay.result);
-    const sc = stripeCreds(T.users.get(f.userId));
-    const id = sc && await confirmedIntent(sc, pay).catch(() => null);
-    if (!id) return res.status(400).json({ error: 'We couldn’t confirm this payment yet. If money was deducted it will be refunded automatically — please contact the seller.' });
-    const r = await confirmPaidBooking(pay, id, linkBase(f.id, process.env.APP_URL || appUrl(req)));
-    res.status(r.error ? 409 : 200).json(r);
+    await verifyStripe(req, res, pay, T.users.get(f.userId), linkBase(f.id, process.env.APP_URL || appUrl(req)));
+  }));
+
+  // --- public: your own booking pages, /meet/<handle> and /meet/<handle>/<call> ---
+  const meetLimiter = rateLimit({ windowMs: 60000, max: isTest ? 5000 : 120 });
+  const sellerOf = (req, res) => { const u = userByHandle(req.params.handle); if (!u) res.status(404).json({ error: 'This booking page doesn’t exist' }); return u; };
+  const meetCal = (req, res, u) => { const cal = calendarsOf(u.id).find((x) => (x.slug || slugify(x.name)) === req.params.cal); if (!cal) res.status(404).json({ error: 'This call type doesn’t exist any more' }); return cal; };
+  const sellerInfo = (u) => ({ name: u.settings?.businessName || u.name || '', person: u.name || '', logo: u.settings?.logo || '' });
+  const meetBase = (req) => process.env.APP_URL || appUrl(req);
+  app.get('/api/meet/:handle', meetLimiter, (req, res) => {
+    const u = sellerOf(req, res); if (!u) return;
+    res.set('Cache-Control', 'no-store').json({ seller: sellerInfo(u), calendars: calendarsOf(u.id).filter((x) => x.listed !== false).map((x) => ({ slug: x.slug || slugify(x.name), name: x.name, description: x.description || '', durations: x.durations || [x.duration], price: x.price || 0, currency: x.currency || 'INR', color: x.color || '' })) });
+  });
+  app.get('/api/meet/:handle/:cal', meetLimiter, wrap(async (req, res) => {
+    const u = sellerOf(req, res); if (!u) return;
+    const cal = meetCal(req, res, u); if (!cal) return;
+    await refreshBusy(u.id, cal.daysAhead + 1);
+    const dur = lengthOf(cal, req.query.d);
+    res.set('Cache-Control', 'no-store').json({ seller: sellerInfo(u), calendar: calInfo(cal, u), duration: dur, slots: freeSlots(cal, Date.now(), Date.now(), dur) });
+  }));
+  app.post('/api/meet/:handle/:cal/book', bookLimiter, wrap(async (req, res) => {
+    const u = sellerOf(req, res); if (!u) return;
+    const cal = meetCal(req, res, u); if (!cal) return;
+    const ans = cleanAnswers(cal, req.body?.answers);
+    if (ans.error) return res.status(400).json({ error: ans.error });
+    await refreshBusy(u.id, cal.daysAhead + 1);
+    const base = meetBase(req);
+    const input = { start: req.body.start, email: req.body.email, name: req.body.name, phone: req.body.phone, notes: req.body.notes, duration: req.body.duration, answers: ans.answers, base, attr: req.body.attr, source: 'booking page' };
+    await startBooking(req, res, { cal, owner: u, base, input, title: sellerInfo(u).name || cal.name, color: '#b45309' });
+  }));
+  const meetPay = (req, res, u) => { const pay = T.payments.get(req.body?.payment); if (!pay || pay.userId !== u.id || pay.funnelId || pay.kind !== 'booking') { res.status(404).json({ error: 'Payment not found' }); return null; } return pay; };
+  app.post('/api/meet/:handle/:cal/verify', bookLimiter, wrap(async (req, res) => {
+    const u = sellerOf(req, res); if (!u) return;
+    const pay = meetPay(req, res, u); if (!pay) return;
+    await verifyRzp(req, res, pay, u, meetBase(req));
+  }));
+  app.post('/api/meet/:handle/:cal/stripe/verify', bookLimiter, wrap(async (req, res) => {
+    const u = sellerOf(req, res); if (!u) return;
+    const pay = meetPay(req, res, u); if (!pay || pay.provider !== 'stripe') { if (pay) res.status(404).json({ error: 'Payment not found' }); return; }
+    await verifyStripe(req, res, pay, u, meetBase(req));
   }));
 
   // --- public: the buyer's manage link (reschedule / cancel / add to calendar) ---
@@ -354,7 +482,7 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
   app.get('/api/booking/:bid', (req, res) => {
     const b = byToken(req, res); if (!b) return;
     const cal = T.calendars.get(b.calendarId), owner = T.users.get(b.userId);
-    res.set('Cache-Control', 'no-store').json({ ...outBooking(b, cal), seller: owner?.settings?.businessName || owner?.name || '', slots: b.status === 'confirmed' && cal ? freeSlots(cal) : [], canChange: b.status === 'confirmed' && b.start > Date.now() });
+    res.set('Cache-Control', 'no-store').json({ ...outBooking(b, cal), seller: owner?.settings?.businessName || owner?.name || '', slots: b.status === 'confirmed' && cal ? freeSlots(cal, Date.now(), Date.now(), Math.round((b.end - b.start) / MIN)) : [], canChange: b.status === 'confirmed' && b.start > Date.now() });
   });
   app.get('/api/booking/:bid/ics', (req, res) => {
     const b = byToken(req, res); if (!b) return;
@@ -370,7 +498,7 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     if (b.status !== 'confirmed' || b.start < Date.now()) return res.status(400).json({ error: 'This booking can’t be changed any more' });
     const cal = T.calendars.get(b.calendarId);
     // the old time stops counting before the new one is checked (a slot right next to it may need its buffer)
-    const r = book(cal, { start: req.body?.start, email: b.email, name: b.name, phone: b.phone, notes: b.notes, funnelId: b.funnelId, stepId: b.stepId, base: b.base, replaces: b.id, carry: b.paid ? { paid: true, amount: b.amount, paymentId: b.paymentId, orderId: b.orderId } : b.unpaid ? { unpaid: true } : null });
+    const r = book(cal, { start: req.body?.start, email: b.email, name: b.name, phone: b.phone, notes: b.notes, duration: Math.round((b.end - b.start) / MIN), answers: b.answers, source: b.source, funnelId: b.funnelId, stepId: b.stepId, base: b.base, replaces: b.id, carry: b.paid ? { paid: true, amount: b.amount, paymentId: b.paymentId, orderId: b.orderId } : b.unpaid ? { unpaid: true } : null });
     if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
     T.bookings.update(b.id, (x) => { x.status = 'rescheduled'; x.movedTo = r.booking.id; });
     removeEvent(b);

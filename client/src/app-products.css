@@ -327,3 +327,8 @@ fieldset.plain:disabled { opacity: .75; }
 .bk-manage { --accent: var(--acc); --line: #dcdce8; --surface: #fff; --ink: #14152a; --inr: 10px; --bf: Inter, system-ui, -apple-system, sans-serif; --hf: var(--bf); }
 .bk-manage .bk-sum { grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .bk-manage .bk-days { width: 100%; max-width: 100%; }
+/* booking block: the visitor picks a call length */
+.bk-lens { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
+.bk-lens button { border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 6px 13px; font: 600 13px/1.2 var(--bf); cursor: pointer; }
+.bk-lens button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+.bk-form select { font: inherit; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--inr, 10px); background: var(--surface); color: var(--ink); }

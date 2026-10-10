@@ -50,7 +50,8 @@ export function rateLimit({ windowMs, max, key = (req) => req.ip, message = 'Too
 export function securityHeaders(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  // booking pages may be embedded on the seller's own website
+  if (!req.path.startsWith('/meet/')) res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   if (req.secure || req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   next();

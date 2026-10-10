@@ -1006,6 +1006,9 @@ function Booking({ p, ctx }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState(null);
+  const [len, setLen] = useState(null);
+  const [want, setWant] = useState(null); // a length the visitor picked
+  const [answers, setAnswers] = useState({});
   // slots are shown in the visitor's own time zone (the host's zone until the page is running in their browser)
   const vz = useViewerTz();
   const hostZone = cal?.timezone || (cal?.tzOffset ?? 330);
@@ -1014,9 +1017,11 @@ function Booking({ p, ctx }) {
   useEffect(() => {
     let on = true;
     if (!ctx.onSlots || !ctx.live) { setCal({ name: 'Strategy call', duration: 30, tzOffset: 330 }); setSlots(sampleSlots()); return; }
-    ctx.onSlots().then((r) => { if (!on) return; if (r.error) { setErr(r.error); setSlots([]); } else { setCal(r.calendar); setSlots(r.slots); } }).catch(() => on && setErr('Couldn’t load the calendar — please refresh'));
+    ctx.onSlots(want).then((r) => { if (!on) return; if (r.error) { setErr(r.error); setSlots([]); } else { setCal(r.calendar); setSlots(r.slots); if (r.duration) setLen(r.duration); } }).catch(() => on && setErr('Couldn’t load the calendar — please refresh'));
     return () => { on = false; };
-  }, [ctx.live]);
+  }, [ctx.live, want]);
+  // the call's price for the chosen length
+  const priced = cal && len && cal.prices ? { ...cal, price: cal.prices[len] ?? cal.price } : cal;
   const days = useMemo(() => [...new Set((slots || []).map((s) => dayKey(s, off)))], [slots, off]);
   useEffect(() => { if (days.length && !days.includes(day)) setDay(days[0]); }, [days]);
   const daySlots = (slots || []).filter((s) => dayKey(s, off) === day);
@@ -1024,9 +1029,9 @@ function Booking({ p, ctx }) {
     e.preventDefault();
     if (!ctx.live || !pick) return;
     setBusy(true); setErr('');
-    const r = await ctx.onBook({ ...form, start: pick });
+    const r = await ctx.onBook({ ...form, start: pick, duration: len, answers });
     setBusy(false);
-    if (r?.error) { setErr(r.error); if (r.taken) { setPick(null); const again = await ctx.onSlots(); if (!again.error) setSlots(again.slots); } return; }
+    if (r?.error) { setErr(r.error); if (r.taken) { setPick(null); const again = await ctx.onSlots(len); if (!again.error) setSlots(again.slots); } return; }
     setDone(r);
   };
   if (done) {
@@ -1051,7 +1056,8 @@ function Booking({ p, ctx }) {
     <Sec type="booking" id="booking">
       <Head eyebrow={p.eyebrow} title={p.title} subtitle={p.subtitle} ctx={ctx} />
       <div className="pc bk-card">
-        <div className="bk-head"><b>{cal?.name || 'Call'}</b>{cal?.price > 0 && <span className="bk-price">{callPrice(cal)}</span>}<span>⏱ {cal?.duration || 30} min</span>{cal?.location && <span>📍 {cal.location}</span>}<span title={otherZone ? `The host is in ${zoneCity(cal.timezone)} (${zoneLabel(cal.timezone)})` : undefined}>🌏 {vz ? `Your time · ${tzLabel(off)}` : tzLabel(off)}</span></div>
+        <div className="bk-head"><b>{cal?.name || 'Call'}</b>{priced?.price > 0 && <span className="bk-price">{callPrice(priced)}</span>}<span>⏱ {len || cal?.duration || 30} min</span>{cal?.location && <span>📍 {cal.location}</span>}<span title={otherZone ? `The host is in ${zoneCity(cal.timezone)} (${zoneLabel(cal.timezone)})` : undefined}>🌏 {vz ? `Your time · ${tzLabel(off)}` : tzLabel(off)}</span></div>
+        {cal?.durations?.length > 1 && <div className="bk-lens" role="radiogroup" aria-label="Call length">{cal.durations.map((m) => <button type="button" key={m} role="radio" aria-checked={m === len} className={m === len ? 'on' : ''} onClick={() => { if (m !== len) { setPick(null); setSlots(null); setLen(m); setWant(m); } }}>{m} min</button>)}</div>}
         {!slots ? <div className="bk-load">{tr(ctx.lang, 'Loading available times…')}</div> : !slots.length ? <p className="bk-empty">{err || tr(ctx.lang, 'No times are free right now — please check back soon or message us on WhatsApp.')}</p> : (
           <>
             <div className="bk-days" role="tablist">{days.slice(0, 21).map((d) => { const t = slots.find((s) => dayKey(s, off) === d); return <button type="button" key={d} role="tab" aria-selected={d === day} className={d === day ? 'on' : ''} onClick={() => { setDay(d); setPick(null); }}>{fmtDay(t, off).split(' ').map((x, i) => <span key={i}>{x}</span>)}</button>; })}</div>
@@ -1061,9 +1067,13 @@ function Booking({ p, ctx }) {
                 <p className="bk-picked">📅 <b>{fmtDay(pick, off)}</b> at <b>{fmtTime(pick, off)}</b> {tzLabel(off)}</p>
                 <div className="two"><input required placeholder={tr(ctx.lang, 'Full name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><input required type="email" placeholder={tr(ctx.lang, 'Email')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
                 <input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                {(cal?.questions || []).map((q) => q.type === 'select'
+                  ? <select key={q.id} required={q.required} value={answers[q.id] || ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}><option value="">{q.label}{q.required ? ' *' : ''}</option>{(q.options || []).map((o) => <option key={o}>{o}</option>)}</select>
+                  : q.type === 'long' ? <textarea key={q.id} rows={2} required={q.required} placeholder={`${q.label}${q.required ? ' *' : ''}`} value={answers[q.id] || ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
+                  : <input key={q.id} type={q.type === 'phone' ? 'tel' : 'text'} required={q.required} placeholder={`${q.label}${q.required ? ' *' : ''}`} value={answers[q.id] || ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />)}
                 <textarea rows={2} placeholder={tr(ctx.lang, 'Anything we should know before the call? (optional)')} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
                 {err && <p className="c-err" role="alert">{err}</p>}
-                {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Confirm my call'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Booking…') : cal?.price > 0 ? tr(ctx.lang, 'Pay {amount} & confirm', { amount: callPrice(cal) }) : p.buttonText || tr(ctx.lang, 'Confirm my call')}</Btn>}
+                {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Confirm my call'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Booking…') : priced?.price > 0 ? tr(ctx.lang, 'Pay {amount} & confirm', { amount: callPrice(priced) }) : p.buttonText || tr(ctx.lang, 'Confirm my call')}</Btn>}
                 {cal?.price > 0 && <p className="bk-policy">{cal.refundHours ? `Full refund if you cancel at least ${cal.refundHours >= 48 && cal.refundHours % 24 === 0 ? `${cal.refundHours / 24} days` : `${cal.refundHours} hours`} before the call.` : 'Full refund if you cancel any time before the call.'} Rescheduling is free.</p>}
               </form>
             )}
@@ -1491,7 +1501,7 @@ function renderBlock(block, ctx) {
     case 'checkout': return <Checkout p={p} ctx={ctx} />;
     case 'offer': return <Offer p={p} ctx={ctx} />;
     case 'crosssell': return <CrossSell p={p} ctx={{ ...ctx, blockId: block.id }} />;
-    case 'booking': return <Booking p={p} ctx={{ ...ctx, onSlots: ctx.onSlots && (() => ctx.onSlots(block.id)), onBook: ctx.onBook && ((d) => ctx.onBook(block.id, d)) }} />;
+    case 'booking': return <Booking p={p} ctx={{ ...ctx, onSlots: ctx.onSlots && ((d) => ctx.onSlots(block.id, d)), onBook: ctx.onBook && ((d) => ctx.onBook(block.id, d)) }} />;
     case 'faq':
       return (
         <Sec type="faq" className="alt" v={vOf('faq', p)}>
