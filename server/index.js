@@ -35,7 +35,7 @@ import { linkBase } from './products.js';
 import { registerBookings, confirmPaidBooking } from './bookings.js';
 import { registerQuotes, confirmQuotePayment } from './quotes.js';
 import { registerGcal } from './gcal.js';
-import { stripeCreds, isoOf, startStripePayment, startStripeSubscription, chargeSaved, confirmedIntent, validStripeWebhook, registerStripeSettings } from './stripe.js';
+import { stripeCreds, isoOf, SYMBOL, startStripePayment, startStripeSubscription, chargeSaved, confirmedIntent, validStripeWebhook, registerStripeSettings } from './stripe.js';
 import { fxRate } from './fx.js';
 import { registerLegal, publicPrivacy, privacyOf, consentLine } from './legal.js';
 import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
@@ -48,7 +48,7 @@ import { registerTeam, enterWorkspace, allows } from './team.js';
 import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan } from './plans.js';
 import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
 import { registerObserve, requestMetrics, reportError } from './observe.js';
-import { sellerTz, offsetAt, validTz, COMMON_TZ } from './tz.js';
+import { sellerTz, offsetAt, validTz, COMMON_TZ, zoned } from './tz.js';
 import { dropRollups, trimRollups } from './rollup.js';
 import { registerWebinars, registrationFor, previewSession } from './webinars.js';
 
@@ -316,6 +316,12 @@ app.get('/api/me', auth, (req, res) => {
     impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
     workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role } : null,
     teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
+    // the sidebar: which optional tools this account has started using (they join the menu), and what needs attention
+    nav: {
+      used: { products: T.products.exists({ userId: req.user.id }), quotes: T.quotes.exists({ userId: req.user.id }), bookings: T.bookings.exists({ userId: req.user.id }), webinars: T.webinars.exists({ userId: req.user.id }), automations: T.automations.exists({ userId: req.user.id }), broadcasts: T.broadcasts.exists({ userId: req.user.id }) },
+      ship: q("SELECT COUNT(*) AS n FROM orders WHERE userId = ? AND json_extract(data, '$.fulfilment.status') = 'pending' AND json_extract(data, '$.status') NOT IN ('cancelled', 'refunded')").get(req.user.id).n,
+      calls: T.bookings.count({ userId: req.user.id, status: 'confirmed', start: { gte: Date.now(), lte: Date.now() + 86400000 } }),
+    },
     onboarding: {
       funnel: funnels.n > 0,
       published: funnels.pub > 0,
@@ -412,6 +418,14 @@ function couponRules(body, cur = {}, userId) {
   const out = {};
   const type = 'type' in body ? (body.type === 'flat' ? 'flat' : 'percent') : cur.type || 'percent';
   out.type = type;
+  // "10" means 10% or ₹10 — switching between them without a new amount would silently change the discount
+  if (cur.id && type !== (cur.type || 'percent') && !('value' in body)) return { error: 'Enter the discount again when switching between % off and a flat amount' };
+  // a flat amount is in one currency (₹500 off is not $500 off); % off works in any
+  if (type === 'flat') {
+    const c = 'currency' in body ? String(body.currency || 'INR').toUpperCase() : cur.currency || 'INR';
+    if (!SYMBOL[c]) return { error: 'Choose a currency for the discount' };
+    out.currency = c;
+  }
   if ('value' in body || !cur.id) {
     const v = Number(body.value);
     if (!Number.isFinite(v) || v <= 0) return { error: 'Enter a discount greater than 0' };
@@ -422,7 +436,13 @@ function couponRules(body, cur = {}, userId) {
   if ('active' in body) out.active = !!body.active;
   if ('expiresAt' in body) {
     if (!body.expiresAt) out.expiresAt = null;
-    else { const t = new Date(body.expiresAt).getTime(); if (!Number.isFinite(t)) return { error: 'Invalid expiry date' }; out.expiresAt = t; }
+    else {
+      // a date ("expires 31 Oct") lasts to the end of that day in the seller's time zone, not UTC midnight
+      const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expiresAt)) ? String(body.expiresAt) : null;
+      const t = ymd ? zoned(sellerTz(T.users.get(userId)), ymd, 24 * 60) - 1 : new Date(body.expiresAt).getTime();
+      if (!Number.isFinite(t)) return { error: 'Invalid expiry date' };
+      out.expiresAt = t;
+    }
   }
   for (const k of ['maxUses', 'minOrder']) if (k in body) {
     if (body[k] === '' || body[k] == null || Number(body[k]) === 0) out[k] = null;
@@ -612,7 +632,9 @@ app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true,
 app.get('/uploads/:uid/:name', (req, res, next) => {
   if (!s3Enabled() || !/^[\w-]+$/.test(req.params.uid) || !/^[\w.-]+$/.test(req.params.name)) return next();
   const key = `uploads/${req.params.uid}/${req.params.name}`;
-  res.set('Cache-Control', 'public, max-age=86400').redirect(301, publicUrlFor(key) || presign(key, { expires: 86400 }));
+  // a public bucket URL never changes; a signed link (private bucket) expires, so its redirect is cached far less than its life
+  const pub = publicUrlFor(key);
+  res.set('Cache-Control', pub ? 'public, max-age=86400' : 'public, max-age=3600').redirect(pub ? 301 : 302, pub || presign(key, { expires: 86400 }));
 });
 
 app.post('/api/funnels/:id/duplicate', auth, funnelCap, (req, res) => {
@@ -1007,9 +1029,13 @@ function couponFor(f, code, { email, subtotal } = {}) {
   if (c.expiresAt && Date.now() > c.expiresAt) return { reason: 'This code has expired' };
   if (c.maxUses && c.uses >= c.maxUses) return { reason: 'This code has reached its usage limit' };
   if (c.funnelIds?.length && !c.funnelIds.includes(f.id)) return { reason: 'This code can’t be used for this product' };
-  if (c.minOrder && subtotal != null && subtotal < c.minOrder) return { reason: `This code needs a minimum order of ₹${c.minOrder.toLocaleString('en-IN')}` };
+  // a flat amount only means something in its own currency (₹500 off must never become $500 off)
+  const iso = funnelIso(f);
+  if (c.type === 'flat' && (c.currency || 'INR') !== iso) return { reason: `This code is for prices in ${c.currency || 'INR'} and can’t be used for this product` };
+  if (c.minOrder && subtotal != null && subtotal < c.minOrder) return { reason: `This code needs a minimum order of ${SYMBOL[iso] || '₹'}${c.minOrder.toLocaleString('en-IN')}` };
   if (c.oncePerCustomer && !email) return { reason: 'Enter your email first — this code is one per customer' };
-  if (c.oncePerCustomer && T.orders.all({ userId: f.userId, ckey: contactKey(email) }).some((o) => o.coupon === c.code)) return { reason: 'You’ve already used this code' };
+  // refunded or cancelled orders don't use up the customer's one go
+  if (c.oncePerCustomer && T.orders.all({ userId: f.userId, ckey: contactKey(email) }).some((o) => o.coupon === c.code && o.status !== 'refunded' && o.status !== 'cancelled')) return { reason: 'You’ve already used this code' };
   return { coupon: c };
 }
 // Never more than the price, never negative
@@ -1054,6 +1080,8 @@ function buildCharge(f, body) {
       plan = planFor(p, body);
       if (plan?.error) return { status: 400, error: plan.error };
       if (plan?.type === 'installments' && coupon) return { status: 400, error: 'Coupons apply when you pay in full — remove it to pay in instalments', coupon: false };
+      // a coupon would lower every renewal (and a 100% one would mean free access for good)
+      if (plan?.type === 'recurring' && coupon) return { status: 400, error: 'Coupons can’t be used on a membership — remove it to continue', coupon: false };
       if (coupon) {
         const r = couponFor(f, coupon, { email, subtotal: price });
         // never charge a different amount than the shopper saw: a code that stopped working is reported, not ignored
@@ -1087,7 +1115,9 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
     while (previewOrders.length > 500) previewOrders.shift();
   } else {
     tx(() => {
-      if (charge.couponObj) T.coupons.update(charge.couponObj.id, (c) => { c.uses = (c.uses || 0) + 1; });
+      // re-checked here, inside the transaction: two buyers can start with the last use at once. The paid order is
+      // honoured either way (they paid the discounted price); the count just never passes the limit, so no one else starts
+      if (charge.couponObj) T.coupons.update(charge.couponObj.id, (c) => { if (!c.maxUses || (c.uses || 0) < c.maxUses) c.uses = (c.uses || 0) + 1; });
       const ex = orderId && T.orders.get(orderId);
       if (ex && ex.funnelId === f.id) { order = ex; order.items.push(...items); for (const it of items) it.txn = `${order.id}-${order.items.length}`; order.total += charge.total; T.orders.put(order); }
       else {
@@ -1303,7 +1333,7 @@ app.post('/api/stripe/webhook/:uid', wrap(async (req, res) => {
   res.json({ received: true });
 }));
 // 3. Webhook backup: Razorpay → /api/razorpay/webhook/<seller id>, signed with the webhook secret
-app.post('/api/razorpay/webhook/:uid', (req, res) => {
+app.post('/api/razorpay/webhook/:uid', wrap(async (req, res) => {
   const owner = T.users.get(req.params.uid);
   const creds = owner && rzpCreds(owner);
   const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
@@ -1316,11 +1346,14 @@ app.post('/api/razorpay/webhook/:uid', (req, res) => {
     const pay = oid && T.payments.find({ rzpOrderId: oid, userId: owner.id });
     if (pay && entity.id) finalizePayment(pay, entity.id, appUrl(req));
   }
+  // subscriptions: answered only once synced — a 500 makes Razorpay retry, so no renewal or failure is missed
+  if (String(ev.event).startsWith('subscription.')) {
+    try { await onSubscriptionEvent(ev, { finalize: finalizePayment, base: appUrl(req) }); } catch { return res.status(500).json({ error: 'Couldn’t sync this subscription — please retry' }); }
+  }
   // refunds made in the Razorpay dashboard are recorded here too (access removed, credit note, reports)
-  if (String(ev.event).startsWith('subscription.')) onSubscriptionEvent(ev, { finalize: finalizePayment, base: appUrl(req) });
   if (['refund.processed', 'refund.created'].includes(ev.event) && ev.payload?.refund?.entity) refundFromWebhook(owner, ev.payload.refund.entity);
   res.json({ ok: true }); // always 200 for events we don't use, so Razorpay doesn't retry them
-});
+}));
 
 // ---------- housekeeping ----------
 // unpaid payment attempts are kept for 30 days; raw page-view events for 400 days (reports go back 365)

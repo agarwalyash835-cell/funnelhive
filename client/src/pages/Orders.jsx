@@ -121,7 +121,7 @@ export default function Orders() {
                     <td><b>{o.name || '—'}</b><small className="sub-t">{o.email}</small>{o.address && <small className="sub-t addr" title={addrText(o.address)}>📍 {o.address.city} {o.address.pincode}</small>}</td><td>{o.funnel}</td>
                     <td className="items">{o.fulfilment && SHIP[o.fulfilment.status] && <span className={`pill ${SHIP[o.fulfilment.status][1]}`} title={[o.fulfilment.courier, o.fulfilment.tracking].filter(Boolean).join(' · ')}>{SHIP[o.fulfilment.status][0]}</span>}{o.items.map((i, k) => <span key={k} className={`it k-${i.kind} ${i.refunded ? 'refunded' : ''}`} title={`${i.name} · ${money(i.price, o)}${i.refunded ? ' · refunded' : ''}`}>{i.productId && '📦 '}{i.kind === 'main' ? i.name : i.kind}</span>)}{o.coupon && <span className="it">🏷 {o.coupon}</span>}{o.plan && <span className={`pill ${PLAN[o.plan.status]?.[1] || ''}`}>🔁 {planLabel(o.plan, o)}{PLAN[o.plan.status]?.[0] ? ` · ${PLAN[o.plan.status][0]}` : ''}{o.plan.cancelAtEnd ? ' · ending' : ''}</span>}
                       {o.undelivered && <span className="it warn" title="Products are delivered only after a real payment (Razorpay or Stripe)">not delivered</span>}{o.note && <span className="it" title={o.note}>📝 note</span>}</td>
-                    <td className="r strong">{money(o.total, o)}{o.currency && o.currency !== 'INR' && <small className="sub-t" title="Counted in your revenue at this rate">≈ {inr(o.total * (o.fx || 1))}</small>}{o.refunded > 0 && <small className="sub-t">−{money(o.refunded, o)}</small>}{payPill(o)}</td>
+                    <td className="r strong">{money(o.total, o)}{o.currency && o.currency !== 'INR' && <small className="sub-t" title="Counted in your revenue at this rate">≈ {inr(o.total * (o.fx || 1))}</small>}{o.refunded > 0 && <small className="sub-t">{money(o.refunded, o)} refunded</small>}{payPill(o)}</td>
                     <td><span className="src">{o.attr?.utm_source || o.source}</span>{campaignOf(o) && <small className="sub-t" title={[o.attr?.utm_medium, o.attr?.utm_term].filter(Boolean).join(' · ')}>{campaignOf(o)}</small>}</td>
                     <td className="r muted" title={fullDate(o.at)}>{shortDate(o.at)}</td>
                     <td className="r">{actions(o)}</td>
@@ -197,9 +197,10 @@ function OrderDetail({ o, actions, onClose, onSaved }) {
           <table className="od-items"><tbody>
             {o.items.map((i, k) => <tr key={k} className={i.refunded ? 'refunded' : ''}><td>{i.name}<small className="muted"> · {i.kind}{i.refunded ? ` · refunded ${new Date(i.refunded.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}</small></td><td className="r">{money(i.price, o)}</td></tr>)}
             {o.discount > 0 && <tr><td>Discount{o.coupon ? ` (${o.coupon})` : ''}</td><td className="r">−{money(o.discount, o)}</td></tr>}
-            <tr className="od-sum"><td>Total</td><td className="r">{money(o.total, o)}</td></tr>
+            {/* a refund already lowers the order total */}
+            <tr className="od-sum"><td>{o.refunded > 0 ? 'Paid' : 'Total'}</td><td className="r">{money((o.total || 0) + (o.refunded || 0), o)}</td></tr>
             {o.refunded > 0 && <tr><td>Refunded</td><td className="r">−{money(o.refunded, o)}</td></tr>}
-            {o.refunded > 0 && <tr className="od-sum"><td>Kept</td><td className="r">{money(o.total - o.refunded, o)}</td></tr>}
+            {o.refunded > 0 && <tr className="od-sum"><td>Kept</td><td className="r">{money(o.total, o)}</td></tr>}
           </tbody></table>
         </section>
         {(o.fulfilment || attr.length > 0 || o.source) && (

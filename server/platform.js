@@ -2,6 +2,7 @@
 // company details for GST invoices and the Razorpay account that collects subscriptions.
 import { T } from './db.js';
 import { encrypt, decrypt } from './messaging.js';
+import { useStorageSettings } from './storage.js';
 
 export const DEFAULTS = {
   brand: 'FunnelHive',
@@ -15,6 +16,7 @@ export const DEFAULTS = {
   pagesOfflineAfterDays: 7, // after an account locks, its live pages stay up this long
   company: { name: '', gstin: '', address: '', state: '', email: '', invoicePrefix: 'FH' },
   razorpay: { keyId: '', secretEnc: '', webhookSecretEnc: '', planIds: {} },
+  storage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // S3-compatible (Wasabi…): backups, uploads, product files
   signupsOpen: true,
   announcement: '',
   googleClientId: '', // "Continue with Google" (OAuth client ID from Google Cloud)
@@ -33,6 +35,7 @@ export function platform() {
     aiCredits: { ...DEFAULTS.aiCredits, ...s.aiCredits },
     company: { ...DEFAULTS.company, ...s.company },
     razorpay: { ...DEFAULTS.razorpay, ...s.razorpay, planIds: { ...s.razorpay?.planIds } },
+    storage: { ...DEFAULTS.storage, ...s.storage },
   };
   cacheAt = Date.now();
   return cache;
@@ -53,6 +56,9 @@ export function platformRzp() {
   return { keyId, secret, webhookSecret: process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET || decrypt(r.webhookSecretEnc), mode: keyId.startsWith('rzp_live_') ? 'live' : 'test' };
 }
 export { encrypt };
+
+// file storage entered in the admin panel (server env vars win — see storage.js)
+useStorageSettings(() => { const s = platform().storage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
 
 // Owners are the accounts listed in ADMIN_EMAILS (once their email is verified) or given the admin role
 export function isAdmin(u) {

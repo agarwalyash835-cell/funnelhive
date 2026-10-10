@@ -113,10 +113,11 @@ export function DomainsPanel() {
           {x.status !== 'active' && <>
             <p className="hint">Add these records where you bought the domain (GoDaddy, Hostinger, BigRock, Namecheap, Cloudflare…). DNS changes can take a few minutes to a few hours; we re-check automatically.</p>
             <table className="tbl compact dns-t"><thead><tr><th>Type</th><th>Name / Host</th><th>Value / Points to</th><th /></tr></thead>
-              <tbody>{x.records.map((r) => <tr key={r.type}><td className="mono strong">{r.type}</td><td className="mono">{r.name}</td><td className="mono">{r.value}</td><td className="r"><button className="icon-btn xs" title="Copy" onClick={() => copy(r.value)}><Copy size={13} /></button></td></tr>)}</tbody></table>
+              <tbody>{x.records.map((r) => <tr key={r.type + r.name}><td className="mono strong">{r.type}</td><td className="mono">{r.name}{r.optional && <small className="muted"> · {r.why}</small>}</td><td className="mono">{r.value}</td><td className="r"><button className="icon-btn xs" title="Copy" onClick={() => copy(r.value)}><Copy size={13} /></button></td></tr>)}</tbody></table>
             <div className="row"><button className="btn ghost" disabled={busy === x.id} onClick={() => verify(x)}><RefreshCw size={14} /> {busy === x.id ? 'Checking…' : 'Check now'}</button>{x.error && <span className="muted sm">{x.error}{x.checkedAt ? ` · checked ${new Date(x.checkedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}` : ''}</span>}</div>
           </>}
           {x.status === 'active' && <p className="hint">Live at <a href={`https://${x.domain}`} target="_blank" rel="noreferrer">https://{x.domain}</a> — showing “{fname(x.funnelId)}”. HTTPS certificates are issued automatically by the server’s Caddy proxy.</p>}
+          {x.status === 'active' && x.failures > 0 && x.error && <p className="hint warn">{x.error}</p>}
         </div>
       ))}
       {!d.target && !d.serverIp && <p className="hint warn">Server setup needed: the administrator must set APP_URL (or CNAME_TARGET / SERVER_IP) and run the Caddy proxy from the deploy guide so domains get HTTPS.</p>}

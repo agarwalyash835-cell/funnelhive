@@ -32,6 +32,7 @@ before(async () => {
     m = /^\/subscriptions\/(\w+)$/.exec(url.pathname);
     if (m) return res.end(JSON.stringify(subs[m[1]]));
     if (req.method === 'GET' && url.pathname === '/orders') return res.end('{"items":[]}');
+    if (req.method === 'POST' && /^\/payments\/\w+\/refund$/.test(url.pathname)) return res.end(JSON.stringify({ id: `rfnd_${crypto.randomBytes(4).toString('hex')}`, amount: b.amount }));
     if (url.pathname === '/invoices') return res.end(JSON.stringify({ items: invoices[url.searchParams.get('subscription_id')] || [] }));
     res.writeHead(404); res.end('{}');
   }).listen(0);
@@ -109,6 +110,9 @@ test('membership: ₹999/month; a failed payment pauses access, a successful ret
   Object.assign(chk.props, { billing: 'monthly', price: 999, planEnabled: false, bumpEnabled: false });
   f = (await api(`/funnels/${f.id}`, 'PUT', { steps: f.steps }, T)).data;
   co = f.steps.find((s) => s.type === 'checkout');
+  const withCoupon = await api(`/public/${f.slug}/pay/start`, 'POST', { ...buyer('m@x.in'), coupon: 'FULL10' });
+  assert.equal(withCoupon.status, 400, 'a coupon would lower every renewal');
+  assert.match(withCoupon.data.error, /membership/);
   mem = (await api(`/public/${f.slug}/pay/start`, 'POST', buyer('m@x.in'))).data;
   assert.equal(subs[mem.subscription_id].total_count, 120);
   assert.equal(plans.at(-1).period, 'monthly');
@@ -140,4 +144,18 @@ test('cancelling: the buyer cancels a membership from their library (at the end 
   const other = (await register(api)).token;
   assert.equal((await api(`/orders/${memOrder}/plan/cancel`, 'POST', {}, other)).status, 404);
   assert.equal((await api(`/public/${f.slug}/cod`, 'POST', { ...buyer('c@x.in') })).status, 400, 'no COD for memberships');
+});
+
+test('refunding a membership cancels its subscription straight away', async () => {
+  const st = (await api(`/public/${f.slug}/pay/start`, 'POST', buyer('r@x.in'))).data;
+  const pid = charge(st.subscription_id, 99900);
+  const ok = (await api(`/public/${f.slug}/pay/verify`, 'POST', { payment: st.payment, razorpay_subscription_id: st.subscription_id, razorpay_payment_id: pid, razorpay_signature: sign(SECRET, `${pid}|${st.subscription_id}`) })).data;
+  const r = await api(`/orders/${ok.orderId}/refund`, 'POST', { reason: 'Changed mind' }, T);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual(r.data.errors, []);
+  assert.equal(subs[st.subscription_id].status, 'cancelled', 'no more charges');
+  assert.equal(subs[st.subscription_id].cancelAtEnd, false, 'cancelled now, not at the end of the period');
+  const o = await order(ok.orderId);
+  assert.equal(o.plan.status, 'cancelled');
+  assert.ok(o.plan.cancelledOnRefund);
 });

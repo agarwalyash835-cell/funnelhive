@@ -30,6 +30,7 @@ export default function Funnels() {
   return (
     <Layout title="Funnels" subtitle="Build, publish and optimise your sales funnels." actions={<>
       <div className="search"><Icon name="search" size={16} /><input placeholder="Search funnels…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <Link className="btn ghost" to="/templates"><Icon name="layout" size={16} /> Templates</Link>
       <button className="btn ghost" onClick={importF} title="Import a .funnelhive.json file"><Icon name="download" size={16} /> Import</button>
       <button className="btn primary" onClick={() => setCreate(true)}><Icon name="plus" /> New funnel</button>
     </>}>

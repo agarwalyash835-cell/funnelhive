@@ -4,7 +4,13 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { startServer, register } from './helpers.mjs';
+
+// domains listed in this file "stop answering" DNS (DOMAINS_FAKE_DOWN)
+const downFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ff-dns-')), 'down.txt');
 
 const mails = [];
 // unfold headers and decode quoted-printable / encoded subjects so tests read what a person sees
@@ -45,7 +51,7 @@ before(async () => {
     });
   }).listen(0);
   await new Promise((r) => setTimeout(r, 50));
-  srv = await startServer({ WHATSAPP_GRAPH_URL: `http://127.0.0.1:${graph.address().port}`, AUTOMATION_TICK_MS: '50', AUTOMATION_TIME_SCALE: '0.001', DOMAINS_FAKE_DNS: '1', APP_URL: 'http://app.example.test' });
+  srv = await startServer({ WHATSAPP_GRAPH_URL: `http://127.0.0.1:${graph.address().port}`, AUTOMATION_TICK_MS: '50', AUTOMATION_TIME_SCALE: '0.001', DOMAINS_FAKE_DNS: '1', DOMAINS_FAKE_DOWN: downFile, APP_URL: 'http://app.example.test' });
   api = srv.api;
   me = await register(api);
   T = me.token;
@@ -224,6 +230,36 @@ test('custom domains: verify, then the domain serves the funnel', async () => {
   await api(`/funnels/${f.id}`, 'PUT', { published: true }, T);
   await api(`/domains/${d.id}`, 'DELETE', null, T);
   assert.equal((await fetch(`${srv.base}/api/domains/tls-check?domain=offer.yogabrand.in`)).status, 404);
+});
+
+test('custom domains: apex domains (co.in too) get an A record + www; www redirects; deep links keep their query; one failed check keeps a live domain', async () => {
+  const d = (await api('/domains', 'POST', { domain: 'brand.co.in', funnelId: f.id }, T)).data;
+  assert.deepEqual(d.records.map((r) => r.type), ['TXT', 'A', 'CNAME'], 'brand.co.in is a whole domain: A record, plus www');
+  assert.match(d.records[1].value, /SERVER_IP/, 'says the server IP isn’t configured');
+  assert.equal(d.records[2].name, 'www.brand.co.in');
+  assert.deepEqual((await api('/domains', 'POST', { domain: 'go.brand.co.in', funnelId: f.id }, T)).data.records.map((r) => r.type), ['TXT', 'CNAME'], 'a subdomain still uses a CNAME');
+  assert.equal((await api(`/domains/${d.id}/verify`, 'POST', null, T)).data.status, 'active');
+
+  const deep = await get('brand.co.in', '/no/such/page?utm_source=fb&fbclid=abc');
+  assert.equal(deep.status, 302);
+  assert.equal(deep.headers.location, '/?utm_source=fb&fbclid=abc', 'UTM / fbclid kept');
+  const www = await get('www.brand.co.in', '/checkout?utm_source=ig');
+  assert.equal(www.status, 301);
+  assert.equal(www.headers.location, 'https://brand.co.in/checkout?utm_source=ig');
+  assert.equal((await fetch(`${srv.base}/api/domains/tls-check?domain=www.brand.co.in`)).status, 200, 'www gets a certificate too');
+  assert.notEqual((await get('brand.co.in', '/meet/someone')).status, 302, 'booking pages are not bounced to the funnel');
+
+  // DNS stops answering once: the site stays up
+  fs.writeFileSync(downFile, 'brand.co.in');
+  const v = (await api(`/domains/${d.id}/verify`, 'POST', null, T)).data;
+  assert.equal(v.status, 'active', 'one failed lookup never takes a live site down');
+  assert.equal(v.failures, 1);
+  assert.match(v.error, /stopped pointing/);
+  assert.equal((await get('brand.co.in', '/')).status, 200);
+  fs.writeFileSync(downFile, '');
+  const ok = (await api(`/domains/${d.id}/verify`, 'POST', null, T)).data;
+  assert.deepEqual([ok.status, ok.failures, ok.error], ['active', 0, null], 'recovers on the next good check');
+  await api(`/domains/${d.id}`, 'DELETE', null, T);
 });
 
 test('if / else: branches on tag + purchase, merges back, End step stops; per-step stats', async () => {

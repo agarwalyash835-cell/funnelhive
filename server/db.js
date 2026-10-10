@@ -348,9 +348,14 @@ export async function backupNow() {
       await snapshotTo(tmp);
       fs.renameSync(tmp, f);
       // a copy off this server (S3 / R2 / B2…): survives losing the machine
-      const { s3Enabled, putFile } = await import('./storage.js');
+      const { s3Enabled, putFile, listKeys, deleteObject } = await import('./storage.js');
       if (s3Enabled()) {
         try { await putFile(`backups/${path.basename(f)}`, f, 'application/vnd.sqlite3'); lastOffsite = { at: Date.now(), ok: true, file: path.basename(f) }; } catch (e) { lastOffsite = { at: Date.now(), ok: false, error: e.message }; console.error('Off-site backup failed', e.message); }
+        // off-site, one file per day is kept for 90 days (Wasabi bills every file for 90 days anyway)
+        if (lastOffsite.ok) {
+          const cutoff = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+          try { for (const k of await listKeys('backups/')) { const d = (/funnelhive-(\d{4}-\d{2}-\d{2})\.db$/.exec(k) || [])[1]; if (d && d < cutoff) await deleteObject(k); } } catch (e) { console.error('Off-site backup cleanup failed', e.message); }
+        }
       }
     }
     fs.readdirSync(backupDir).filter((n) => n.endsWith('.db')).sort().slice(0, -7).forEach((n) => fs.rmSync(path.join(backupDir, n)));

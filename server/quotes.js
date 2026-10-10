@@ -10,7 +10,7 @@ import { enqueue as fireWebhook } from './webhooks.js';
 import { fire as fireAutomation } from './automations.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment } from './razorpay.js';
 import { stripeCreds, startStripePayment, confirmedIntent, CURRENCIES } from './stripe.js';
-import { issueInvoice, invoiceUrl } from './sales.js';
+import { issueInvoice, invoiceUrl, cleanBuyerGst } from './sales.js';
 import { linkBase } from './products.js';
 import { fxRate } from './fx.js';
 
@@ -33,7 +33,13 @@ const statusOf = (q, now = Date.now()) => {
 
 export function cleanQuote(b = {}, cur = {}) {
   const out = {};
-  if ('client' in b || !cur.id) { const c = b.client || {}; out.client = { name: clip(c.name, 120), email: clip(c.email, 200).toLowerCase(), phone: clip(c.phone, 40), company: clip(c.company, 160), gstin: clip(c.gstin, 15).toUpperCase(), state: clip(c.state, 60) }; }
+  if ('client' in b || !cur.id) {
+    const c = b.client || {};
+    // GST details checked like a checkout's: a real GSTIN, and the state it was registered in
+    const g = cleanBuyerGst({ gstin: c.gstin, company: c.company, state: c.state });
+    if (g?.error) return { error: g.error };
+    out.client = { name: clip(c.name, 120), email: clip(c.email, 200).toLowerCase(), phone: clip(c.phone, 40), company: clip(c.company, 160), gstin: g?.gstin || '', state: g?.state || '' };
+  }
   if ('title' in b || !cur.id) out.title = clip(b.title, 160) || 'Proposal';
   if ('intro' in b || !cur.id) out.intro = clip(b.intro, 5000);
   if ('terms' in b || !cur.id) out.terms = clip(b.terms, 5000);
@@ -82,7 +88,8 @@ export function confirmQuotePayment(pay, paymentId, base) {
     pay.status = 'paid'; pay.paymentId = paymentId; pay.paidAt = now;
     T.payments.put(pay);
   });
-  const gst = c.gstin ? { gstin: c.gstin, company: c.company || c.name, state: c.state } : null;
+  const g = c.gstin ? cleanBuyerGst({ gstin: c.gstin, company: c.company || c.name, state: c.state }) : null;
+  const gst = g && !g.error ? g : null;
   const inv = issueInvoice(owner, order, [{ index: order.items.length - 1, name: item.name, kind: 'quote', amount: item.price }], { paymentId, gst });
   const link = inv ? invoiceUrl(linkBase(null, base || pay.base), inv) : null;
   const q2 = T.quotes.update(quote.id, (x) => { x.orderId = order.id; (x.payments ||= []).push({ amount: item.price, at: now, paymentId, provider: pay.provider || 'razorpay', ...(link ? { invoice: link } : {}) }); x.status = statusOf(x); x.updatedAt = now; });
@@ -108,14 +115,18 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
   app.get('/api/quotes/:qid', auth, (req, res) => { const q = own(req, res); if (q) res.json(sellerView(q, base(req))); });
   app.post('/api/quotes', auth, (req, res) => {
     if (T.quotes.count({ userId: req.user.id }) >= 2000) return res.status(400).json({ error: 'You have 2,000 quotes — delete old drafts first' });
+    const clean = cleanQuote(req.body);
+    if (clean.error) return res.status(400).json(clean);
     const seq = T.users.update(req.user.id, (u) => { u.quoteSeq = (u.quoteSeq || 0) + 1; }).quoteSeq;
-    const q = T.quotes.insert({ id: uid(), userId: req.user.id, number: `Q-${String(seq).padStart(4, '0')}`, token: crypto.randomBytes(12).toString('hex'), status: 'draft', payments: [], at: Date.now(), updatedAt: Date.now(), ...cleanQuote(req.body) });
+    const q = T.quotes.insert({ id: uid(), userId: req.user.id, number: `Q-${String(seq).padStart(4, '0')}`, token: crypto.randomBytes(12).toString('hex'), status: 'draft', payments: [], at: Date.now(), updatedAt: Date.now(), ...clean });
     res.json(sellerView(q, base(req)));
   });
   app.put('/api/quotes/:qid', auth, (req, res) => {
     const q = own(req, res); if (!q) return;
     if (paidOf(q) > 0) return res.status(400).json({ error: 'This quote has been paid — duplicate it to make changes' });
-    res.json(sellerView(T.quotes.update(q.id, (x) => { Object.assign(x, cleanQuote(req.body, x)); if (x.status === 'declined' || x.status === 'expired') x.status = 'draft'; x.updatedAt = Date.now(); }), base(req)));
+    const clean = cleanQuote(req.body, q);
+    if (clean.error) return res.status(400).json(clean);
+    res.json(sellerView(T.quotes.update(q.id, (x) => { Object.assign(x, clean); if (x.status === 'declined' || x.status === 'expired') x.status = 'draft'; x.updatedAt = Date.now(); }), base(req)));
   });
   app.post('/api/quotes/:qid/duplicate', auth, (req, res) => {
     const q = own(req, res); if (!q) return;

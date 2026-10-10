@@ -1,17 +1,23 @@
-// Object storage (S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, MinIO…) — optional. When configured:
+// Object storage (S3, Wasabi, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, MinIO…) — optional. When configured:
 //   - database backups are copied off the server after every snapshot
 //   - uploaded images go to the bucket (served from S3_PUBLIC_URL / CDN, so any server can serve them)
 //   - product files go to the bucket (private; buyers get a short-lived signed link)
 // Without it everything stays on the local disk, as before.
 //   S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com  S3_BUCKET=funnelhive  S3_REGION=auto
 //   S3_ACCESS_KEY=…  S3_SECRET_KEY=…  S3_PUBLIC_URL=https://files.yourdomain.in (public read for uploads/)
+// Wasabi: S3_ENDPOINT=https://s3.<region>.wasabisys.com  S3_REGION=<region> (e.g. ap-southeast-1)
+// Or enter the same details in Admin → File storage (kept encrypted); server env vars win.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
-const env = () => ({
-  endpoint: String(process.env.S3_ENDPOINT || '').replace(/\/+$/, ''), bucket: process.env.S3_BUCKET || '', region: process.env.S3_REGION || 'auto',
-  key: process.env.S3_ACCESS_KEY || '', secret: process.env.S3_SECRET_KEY || '', publicUrl: String(process.env.S3_PUBLIC_URL || '').replace(/\/+$/, ''),
-});
+// the admin panel's storage account (set by platform.js); used when the server env doesn't name one
+let fromSettings = () => null;
+export const useStorageSettings = (fn) => { fromSettings = fn; };
+const clean = (c) => ({ endpoint: String(c.endpoint || '').replace(/\/+$/, ''), bucket: c.bucket || '', region: c.region || 'auto', key: c.key || '', secret: c.secret || '', publicUrl: String(c.publicUrl || '').replace(/\/+$/, '') });
+const env = () => (process.env.S3_ENDPOINT
+  ? clean({ endpoint: process.env.S3_ENDPOINT, bucket: process.env.S3_BUCKET, region: process.env.S3_REGION, key: process.env.S3_ACCESS_KEY, secret: process.env.S3_SECRET_KEY, publicUrl: process.env.S3_PUBLIC_URL })
+  : clean(fromSettings() || {}));
+export const storageFromEnv = () => !!process.env.S3_ENDPOINT;
 export const s3Enabled = () => { const e = env(); return !!(e.endpoint && e.bucket && e.key && e.secret); };
 export const publicUrlFor = (key) => (env().publicUrl ? `${env().publicUrl}/${key.split('/').map(encodeURIComponent).join('/')}` : null);
 
@@ -45,8 +51,7 @@ export function presignQuery({ host, path, amz, expires, region, accessKey, secr
 const stamp = () => new Date().toISOString().replace(/[-:]|\.\d{3}/g, '');
 
 // a signed request (path-style URLs work with every S3-compatible service)
-async function request(method, key, { body, type, query = {}, headers = {} } = {}) {
-  const e = env();
+async function request(method, key, { body, type, query = {}, headers = {} } = {}, e = env()) {
   const stream = body instanceof fs.ReadStream;
   const { headers: signed, qs } = signHeaders({ method, host: new URL(e.endpoint).host, path: pathOf(e, key), query, headers: { ...(type ? { 'content-type': type } : {}), ...headers }, payloadHash: body && !stream ? sha(body) : 'UNSIGNED-PAYLOAD', amz: stamp(), region: e.region, accessKey: e.key, secret: e.secret });
   delete signed.host; // fetch sets it
@@ -82,3 +87,12 @@ export async function listKeys(prefix) {
   return keys;
 }
 export async function deletePrefix(prefix) { for (const k of await listKeys(prefix)) await deleteObject(k).catch(() => {}); }
+
+// prove a storage account works before it's saved: write, read back and delete a small file
+export async function testStorage(c) {
+  const e = clean(c), key = `funnelhive-check-${Date.now()}.txt`;
+  await request('PUT', key, { body: 'ok', type: 'text/plain' }, e);
+  const back = await (await request('GET', key, {}, e)).text();
+  await request('DELETE', key, {}, e);
+  if (back !== 'ok') throw new Error('the file read back didn’t match');
+}

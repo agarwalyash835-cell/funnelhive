@@ -45,8 +45,9 @@ export function cleanBuyerGst(g) {
   if (!g || typeof g !== 'object') return null;
   const gstin = String(g.gstin || '').trim().toUpperCase();
   const company = String(g.company || '').trim().slice(0, 160);
-  const state = STATES[String(g.state || '').trim()] ? String(g.state).trim() : gstin && STATE_BY_CODE[gstin.slice(0, 2)] ? STATE_BY_CODE[gstin.slice(0, 2)] : '';
   if (gstin && !GSTIN_RE.test(gstin)) return { error: 'That GSTIN doesn’t look right — it has 15 characters, like 27ABCDE1234F1Z5' };
+  // the GSTIN's first two digits are the registered state: that is the place of supply, whatever was typed
+  const state = gstin && STATE_BY_CODE[gstin.slice(0, 2)] ? STATE_BY_CODE[gstin.slice(0, 2)] : STATES[String(g.state || '').trim()] ? String(g.state).trim() : '';
   if (!gstin && !company && !state) return null;
   return { gstin, company, state };
 }
@@ -120,7 +121,16 @@ export async function refundOrder(owner, order, { itemIndexes, reason = '', by =
     done.push({ pid, list, amount, refundId });
   }
   if (!done.length) return { error: errors.join(' · ') };
-  const updated = applyRefund(owner, order.id, done.map((d) => ({ items: d.list, amount: d.amount, refundId: d.refundId, paymentId: d.pid || null })), { reason, by });
+  let updated = applyRefund(owner, order.id, done.map((d) => ({ items: d.list, amount: d.amount, refundId: d.refundId, paymentId: d.pid || null })), { reason, by });
+  // a refunded plan stops billing: its subscription is cancelled straight away (plans.js imports this file, hence the late import)
+  const planRefunded = done.some((d) => d.list.some((i) => ['main', 'renewal'].includes(order.items[i].kind)));
+  if (planRefunded && order.plan?.subId && ['active', 'authenticated', 'pending', 'halted', 'paused'].includes(updated?.plan?.status)) {
+    try {
+      const { cancelPlan } = await import('./plans.js');
+      await cancelPlan(updated, { atCycleEnd: false });
+      updated = T.orders.update(order.id, (o) => { o.plan.cancelledOnRefund = Date.now(); });
+    } catch (e) { errors.push(`Refunded, but the subscription couldn’t be cancelled: ${e.message} — cancel it in your payment dashboard`); }
+  }
   return { order: updated, errors };
 }
 
@@ -146,7 +156,10 @@ export function applyRefund(owner, orderId, parts, { reason = '', by = 'seller',
       order.total = Math.max(0, order.total - amount);
       fresh.push(r);
     }
+    const was = order.status;
     order.status = order.items.every((i) => i.refunded) || order.total <= 0 ? 'refunded' : order.refunded ? 'partially_refunded' : order.status;
+    // a fully refunded order gives its coupon use back
+    if (order.status === 'refunded' && was !== 'refunded' && order.coupon) T.coupons.update(T.coupons.find({ userId: order.userId, code: order.coupon })?.id, (c) => { c.uses = Math.max(0, (c.uses || 0) - 1); });
     T.orders.put(order);
   });
   if (!order || !fresh.length) return order;

@@ -11,6 +11,9 @@ import { allZones, zoneOption } from '../tzfmt';
 import { EmailPanel, WhatsAppPanel, DomainsPanel, RazorpayPanel, StripePanel, HiveMcpPanel } from './SettingsChannels';
 
 
+// flat coupons are in one currency (₹500 off never applies to a $ price)
+const CUR_SYMBOL = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ' };
+const sym = (c) => CUR_SYMBOL[c.currency || 'INR'] || '₹';
 const couponRulesText = (c, funnels) => {
   const r = [];
   if (c.expiresAt) r.push(`${Date.now() > c.expiresAt ? 'expired' : 'until'} ${new Date(c.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`);
@@ -24,7 +27,7 @@ export default function Settings() {
   const [s, setS] = useState(null);
   const [me, setMe] = useState(null);
   const [coupons, setCoupons] = useState([]);
-  const NC = { code: '', type: 'percent', value: 10, expiresAt: '', maxUses: '', minOrder: '', oncePerCustomer: false, funnelIds: [] };
+  const NC = { code: '', type: 'percent', value: 10, currency: 'INR', expiresAt: '', maxUses: '', minOrder: '', oncePerCustomer: false, funnelIds: [] };
   const [nc, setNc] = useState(NC);
   const [more, setMore] = useState(false);
   const [funnels, setFunnels] = useState([]);
@@ -106,7 +109,8 @@ export default function Settings() {
         <Panel title="Discount coupons">
           <form className="coupon-form" onSubmit={addCoupon}>
             <input placeholder="CODE e.g. INDIA10" value={nc.code} onChange={(e) => setNc({ ...nc, code: e.target.value.toUpperCase() })} />
-            <select value={nc.type} onChange={(e) => setNc({ ...nc, type: e.target.value })}><option value="percent">% off</option><option value="flat">₹ off</option></select>
+            <select value={nc.type} onChange={(e) => setNc({ ...nc, type: e.target.value })}><option value="percent">% off</option><option value="flat">Amount off</option></select>
+            {nc.type === 'flat' && <select value={nc.currency} onChange={(e) => setNc({ ...nc, currency: e.target.value })} title="Currency of the discount — it only applies to funnels priced in this currency">{Object.entries(CUR_SYMBOL).map(([k, v]) => <option key={k} value={k}>{v.trim()} {k}</option>)}</select>}
             <input type="number" min="1" max={nc.type === 'percent' ? 100 : undefined} value={nc.value} onChange={(e) => setNc({ ...nc, value: e.target.value })} />
             <button className="btn primary" disabled={!nc.code}><Icon name="plus" size={15} /> Add</button>
             <button type="button" className="link-btn" onClick={() => setMore(!more)}>{more ? 'Fewer options' : 'Expiry & limits'}</button>
@@ -123,7 +127,7 @@ export default function Settings() {
           </form>
           {coupons.length ? (
             <table className="tbl compact"><thead><tr><th>Code</th><th>Discount</th><th>Rules</th><th className="r">Uses</th><th>Status</th><th /></tr></thead>
-              <tbody>{coupons.map((c) => <tr key={c.id}><td className="mono strong">{c.code}</td><td>{c.type === 'percent' ? `${c.value}% off` : `₹${c.value} off`}</td><td className="muted sm">{couponRulesText(c, funnels)}</td><td className="r">{c.uses}{c.maxUses ? ` / ${c.maxUses}` : ''}</td><td><button className={`pill btnpill ${c.active ? 'ok' : ''}`} onClick={() => toggle(c)}>{c.active ? 'Active' : 'Paused'}</button></td><td className="r"><button className="icon-btn danger" onClick={() => delCoupon(c)}><Icon name="trash" size={15} /></button></td></tr>)}</tbody></table>
+              <tbody>{coupons.map((c) => <tr key={c.id}><td className="mono strong">{c.code}</td><td>{c.type === 'percent' ? `${c.value}% off` : `${sym(c)}${c.value} off`}</td><td className="muted sm">{couponRulesText(c, funnels)}</td><td className="r">{c.uses}{c.maxUses ? ` / ${c.maxUses}` : ''}</td><td><button className={`pill btnpill ${c.active ? 'ok' : ''}`} onClick={() => toggle(c)}>{c.active ? 'Active' : 'Paused'}</button></td><td className="r"><button className="icon-btn danger" onClick={() => delCoupon(c)}><Icon name="trash" size={15} /></button></td></tr>)}</tbody></table>
           ) : <p className="hint">Tip: your templates’ exit popups advertise <b>INDIA10</b> — create it here so it works at checkout.</p>}
         </Panel>
 

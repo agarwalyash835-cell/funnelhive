@@ -62,6 +62,35 @@ test('coupon rules: expiry, usage limit, minimum order, once per customer, funne
   assert.equal(c.reason, 'This code can’t be used for this product');
 });
 
+test('flat coupons keep their currency: ₹ off is refused on a $ funnel; % off works anywhere', async () => {
+  const g = (await api('/templates/yoga/use', 'POST', {}, T)).data;
+  const gco = g.steps.find((s) => s.type === 'checkout');
+  gco.blocks.find((b) => b.type === 'checkout').props.currency = '$';
+  await api(`/funnels/${g.id}`, 'PUT', { steps: g.steps, published: true }, T);
+  const inr = (await api('/coupons', 'POST', { code: 'RS500', type: 'flat', value: 500 }, T)).data;
+  assert.equal(inr.currency, 'INR', 'flat coupons default to INR');
+  await api('/coupons', 'POST', { code: 'USD5', type: 'flat', value: 5, currency: 'USD' }, T);
+  await api('/coupons', 'POST', { code: 'PCT10', type: 'percent', value: 10 }, T);
+  const buy = (coupon) => api(`/public/${g.slug}/order`, 'POST', { stepId: gco.id, email: `${coupon}@x.dev`, coupon });
+  const r = await buy('RS500');
+  assert.equal(r.status, 400, 'never take 500 dollars off');
+  assert.match(r.data.error, /INR/);
+  assert.match((await api(`/public/${g.slug}/coupon`, 'POST', { code: 'RS500', stepId: gco.id })).data.reason, /prices in INR/);
+  assert.equal((await buy('USD5')).status, 200);
+  assert.equal((await buy('PCT10')).status, 200);
+  assert.equal((await order({ email: 'rs@x.dev', coupon: 'RS500' })).status, 200, 'the ₹ coupon still works on ₹ funnels');
+  assert.equal((await api(`/coupons/${inr.id}`, 'PUT', { type: 'percent' }, T)).status, 400, 'switching type needs a new amount');
+  assert.equal((await api(`/coupons/${inr.id}`, 'PUT', { type: 'percent', value: 20 }, T)).status, 200);
+});
+
+test('coupon expiry lasts through the chosen day in the seller’s time zone (IST)', async () => {
+  const c = (await api('/coupons', 'POST', { code: 'OCT31', type: 'percent', value: 10, expiresAt: '2026-10-31' }, T)).data;
+  assert.equal(c.expiresAt, Date.parse('2026-10-31T23:59:59.999+05:30'), 'end of 31 Oct in India, not 05:30');
+  const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  await api('/coupons', 'POST', { code: 'TODAY', type: 'percent', value: 10, expiresAt: today }, T);
+  assert.equal((await api(`/public/${f.slug}/coupon`, 'POST', { code: 'TODAY', stepId: co.id })).data.valid, true, 'a code expiring today works all day');
+});
+
 test('pixels get the amount of each sale, with a unique id per sale', async () => {
   const a = (await order({ email: 'pix@x.dev' })).data;
   assert.equal(a.added, a.total);

@@ -9,8 +9,8 @@ import crypto from 'node:crypto';
 import { T, q, uid, tx, JOBS, contactKey } from './db.js';
 import { call, rzpCreds } from './razorpay.js';
 import { stripe, stripeCreds } from './stripe.js';
-import { revoke } from './products.js';
-import { issueInvoice } from './sales.js';
+import { revoke, linkBase } from './products.js';
+import { issueInvoice, invoiceUrl } from './sales.js';
 import { fire as fireAutomation } from './automations.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { sendEmail } from './messaging.js';
@@ -30,9 +30,9 @@ export function planFor(p, body) {
 }
 export const planText = (pl) => (pl.type === 'installments' ? `${pl.count} × ₹${pl.amount.toLocaleString('en-IN')}/month` : `₹${pl.amount.toLocaleString('en-IN')}/${INTERVAL_LABEL[pl.interval]}`);
 
-// One Razorpay plan per seller + price + period + name, created once and reused
+// One Razorpay plan per seller + Razorpay account + price + period + name, created once and reused
 async function rzpPlan(creds, userId, { interval, amount, name }) {
-  const key = crypto.createHash('sha1').update(`${creds.mode}|${interval}|${amount}|${name}`).digest('hex').slice(0, 20);
+  const key = crypto.createHash('sha1').update(`${creds.mode}|${creds.keyId}|${interval}|${amount}|${name}`).digest('hex').slice(0, 20);
   const have = T.rzplans.find({ userId, key });
   if (have) return have.planId;
   const r = await call(creds, 'POST', '/plans', { period: interval, interval: 1, item: { name: String(name).slice(0, 120), amount: Math.round(amount * 100), currency: 'INR' }, notes: { by: 'funnelhive' } });
@@ -54,24 +54,33 @@ export const validSubscription = (secret, subId, paymentId, signature) => {
 };
 
 // ---------- keeping orders in step with Razorpay ----------
-const locks = new Set();
+const locks = new Map(); // subId → the sync running for it
 const orderOfSub = (subId) => { const pay = T.payments.find({ rzpOrderId: subId }); return pay ? { pay, order: pay.result?.orderId ? T.orders.get(pay.result.orderId) : null } : { pay: null, order: null }; };
 
 // finalize: (pay, paymentId) → creates the order for a first charge the browser never reported back
 // Razorpay: read the subscription and its paid invoices
-export async function syncPlan(subId, { finalize, base } = {}) {
+// strict: a failure is thrown (the webhook answers 500 so Razorpay retries) instead of only logged
+export async function syncPlan(subId, { finalize, base, strict } = {}) {
   return withLock(subId, async () => {
-    const { pay } = orderOfSub(subId);
+    const { pay, order } = orderOfSub(subId);
     if (!pay) return null;
     const owner = T.users.get(pay.userId);
     const creds = owner && rzpCreds(owner);
     if (!creds) return null;
+    // a test subscription after the seller switched to live keys (or back) can't be read any more: it ends
+    const mode = order?.mode || pay.mode;
+    if (mode && mode !== creds.mode) return applyPlan(subId, owner, { status: 'expired', nextAt: null, paid: [] }, { base });
     const sub = await call(creds, 'GET', `/subscriptions/${subId}`);
-    const inv = await call(creds, 'GET', `/invoices?subscription_id=${encodeURIComponent(subId)}&count=100`);
-    const paid = (inv.items || []).filter((i) => i.status === 'paid' && i.payment_id).sort((a, b) => (a.paid_at || 0) - (b.paid_at || 0))
+    const items = [];
+    for (let skip = 0; ; skip += 100) { // a long membership can pass 100 charges
+      const inv = await call(creds, 'GET', `/invoices?subscription_id=${encodeURIComponent(subId)}&count=100&skip=${skip}`);
+      items.push(...(inv.items || []));
+      if ((inv.items || []).length < 100) break;
+    }
+    const paid = items.filter((i) => i.status === 'paid' && i.payment_id).sort((a, b) => (a.paid_at || 0) - (b.paid_at || 0))
       .map((i) => ({ paymentId: i.payment_id, amount: (i.amount_paid ?? i.amount ?? 0) / 100, at: (i.paid_at || Date.now() / 1000) * 1000 }));
     return applyPlan(subId, owner, { status: sub.status, paidCount: sub.paid_count, nextAt: sub.charge_at ? sub.charge_at * 1000 : null, paid }, { finalize, base });
-  });
+  }, strict);
 }
 // Stripe: the same, from the subscription and its paid invoices (statuses mapped to Razorpay's words)
 const STRIPE_STATUS = { active: 'active', trialing: 'active', past_due: 'pending', unpaid: 'halted', canceled: 'cancelled', incomplete: 'created', incomplete_expired: 'expired', paused: 'halted' };
@@ -93,10 +102,23 @@ export async function syncStripePlan(subId, { finalize, base } = {}) {
     return applyPlan(subId, owner, { status, paidCount: paid.length, nextAt: status === 'active' && sub.current_period_end ? sub.current_period_end * 1000 : null, paid, cancelAtEnd: !!sub.cancel_at_period_end }, { finalize, base });
   });
 }
-async function withLock(subId, fn) {
-  if (!subId || locks.has(subId)) return null;
-  locks.add(subId);
-  try { return await fn(); } catch (e) { console.error('plan sync failed', subId, e.message); return null; } finally { locks.delete(subId); }
+// One sync per subscription at a time. A call while one runs isn't dropped: the running sync reads Razorpay
+// once more when it ends (the new event may have changed something) and both callers get that result.
+function withLock(subId, fn, strict) {
+  if (!subId) return Promise.resolve(null);
+  let run = locks.get(subId);
+  if (run) run.again = true;
+  else {
+    run = { again: false };
+    run.done = (async () => {
+      let r, err;
+      try { do { run.again = false; try { r = await fn(); err = null; } catch (e) { err = e; } } while (run.again); } finally { locks.delete(subId); }
+      if (err) throw err;
+      return r;
+    })();
+    locks.set(subId, run);
+  }
+  return run.done.catch((e) => { console.error('plan sync failed', subId, e.message); if (strict) throw e; return null; });
 }
 // paid: [{ paymentId, amount, at }] oldest first — the first is the checkout payment, the rest renewals (added once each)
 function applyPlan(subId, owner, { status, paidCount, nextAt, paid, cancelAtEnd }, { finalize, base }) {
@@ -120,9 +142,12 @@ function applyPlan(subId, owner, { status, paidCount, nextAt, paid, cancelAtEnd 
     o.plan = { ...o.plan, status, paid: paidCount ?? o.plan.paid, nextAt, syncedAt: Date.now(), ...(cancelAtEnd ? { cancelAtEnd: true } : {}) };
   }));
   const who = { email: order.email, phone: order.phone, name: order.name, funnelId: order.funnelId, product: mainName };
+  const biz = owner.settings?.businessName || owner.name;
   for (const idx of added) {
     const it = order.items[idx];
-    issueInvoice(owner, order, [{ index: idx, name: it.name, kind: it.kind, amount: it.price }], { paymentId: it.paymentId, gst: order.gst || null });
+    // same place of supply as the first invoice, and emailed to the buyer like it
+    const inv = issueInvoice(owner, order, [{ index: idx, name: it.name, kind: it.kind, amount: it.price }], { paymentId: it.paymentId, gst: order.gst || (order.address?.state ? { state: order.address.state } : null) });
+    if (inv && order.email) sendEmail(owner, { to: order.email, subject: `Your invoice from ${biz}`, text: `Hi ${String(order.name || '').split(/\s+/)[0] || 'there'},\n\nThank you — we received your payment for ${it.name}. Your invoice: ${invoiceUrl(linkBase(order.funnelId, base), inv)}\n\n— ${biz}` }).catch((e) => console.error('invoice email failed', e.message));
     fireAutomation(order.userId, 'renewal', { ...who, amount: it.price });
     fireWebhook(order.userId, 'order.renewed', { order: order.id, amount: it.price, payment: it.paymentId, plan: order.plan });
   }
@@ -138,27 +163,27 @@ function onStatusChange(owner, order, prev, now) {
     fireAutomation(order.userId, 'payment_failed', who);
     fireWebhook(order.userId, 'order.payment_failed', { order: order.id, plan: pl, email: order.email });
   }
-  // access ends when payments stop: retries exhausted, a cancelled membership, or an expired one
-  const ends = now === 'halted' || now === 'expired' || (now === 'cancelled' && pl.type === 'recurring');
+  // access ends when payments stop: retries exhausted, paused, a cancelled membership, or an expired one
+  const ends = now === 'halted' || now === 'paused' || now === 'expired' || (now === 'cancelled' && pl.type === 'recurring');
   if (ends && !pl.accessEnded) {
-    revoke(order.userId, { orderId: order.id }, now === 'cancelled' ? 'cancelled' : 'payment failed');
+    revoke(order.userId, { orderId: order.id }, now === 'cancelled' ? 'cancelled' : now === 'paused' ? 'paused' : 'payment failed');
     T.orders.update(order.id, (o) => { o.plan.accessEnded = Date.now(); });
     fireWebhook(order.userId, 'order.plan_ended', { order: order.id, status: now, email: order.email });
     const biz = owner.settings?.businessName || owner.name;
     if (order.email && now === 'halted') sendEmail(owner, { to: order.email, subject: `Your payment for ${product} didn’t go through`, text: `Hi ${String(order.name || '').split(/\s+/)[0] || 'there'},\n\nWe couldn’t collect your payment for ${product} (${planText(pl)}), so your access is paused. Reply to this email or contact ${biz} to continue.\n\n— ${biz}` }).catch(() => {});
   }
-  // payments are back on track: access returns
-  if (now === 'active' && pl.accessEnded && ['pending', 'halted'].includes(prev)) {
-    for (const a of T.access.all({ userId: order.userId, orderId: order.id })) if (a.revoked && a.revokeReason === 'payment failed') T.access.update(a.id, (x) => { x.revoked = false; delete x.revokeReason; delete x.revokedAt; });
+  // payments are back on track (or the plan was resumed): access returns
+  if (now === 'active' && pl.accessEnded && ['pending', 'halted', 'paused'].includes(prev)) {
+    for (const a of T.access.all({ userId: order.userId, orderId: order.id })) if (a.revoked && ['payment failed', 'paused'].includes(a.revokeReason)) T.access.update(a.id, (x) => { x.revoked = false; delete x.revokeReason; delete x.revokedAt; });
     T.orders.update(order.id, (o) => { delete o.plan.accessEnded; });
   }
   if (now === 'completed') fireWebhook(order.userId, 'order.plan_completed', { order: order.id });
 }
 
-// webhook: any subscription.* event re-reads that subscription
-export function onSubscriptionEvent(ev, { finalize, base }) {
+// webhook: any subscription.* event re-reads that subscription (throws if that fails, so Razorpay retries)
+export async function onSubscriptionEvent(ev, { finalize, base }) {
   const subId = ev.payload?.subscription?.entity?.id;
-  if (subId) syncPlan(subId, { finalize, base });
+  if (subId) await syncPlan(subId, { finalize, base, strict: true });
 }
 
 // daily: sellers without a webhook still see renewals and failures within a day
@@ -166,16 +191,16 @@ let lastJob = 0;
 export async function planJob(now = Date.now(), opts = {}) {
   if (now - lastJob < 3600000 && !opts.force) return;
   lastJob = now;
-  const due = q("SELECT data FROM orders WHERE json_extract(data, '$.plan.subId') IS NOT NULL AND json_extract(data, '$.plan.status') IN ('created','authenticated','active','pending','halted')").all().map((r) => JSON.parse(r.data))
+  const due = q("SELECT data FROM orders WHERE json_extract(data, '$.plan.subId') IS NOT NULL AND json_extract(data, '$.plan.status') IN ('created','authenticated','active','pending','halted','paused')").all().map((r) => JSON.parse(r.data))
     .filter((o) => opts.force || now - (o.plan.syncedAt || 0) > 20 * 3600000);
   for (const o of due.slice(0, 500)) await (o.plan.provider === 'stripe' ? syncStripePlan : syncPlan)(o.plan.subId, opts);
 }
 
 // ---------- cancelling ----------
-async function cancel(order, { atCycleEnd }) {
+export async function cancelPlan(order, { atCycleEnd }) {
   const owner = T.users.get(order.userId);
   if (!order.plan?.subId) throw new Error('This plan isn’t billed automatically');
-  if (!['active', 'authenticated', 'pending', 'halted', 'created'].includes(order.plan.status)) throw new Error('This plan has already ended');
+  if (!['active', 'authenticated', 'pending', 'halted', 'paused', 'created'].includes(order.plan.status)) throw new Error('This plan has already ended');
   if (order.plan.provider === 'stripe') {
     const sc = stripeCreds(owner);
     if (!sc) throw new Error('Stripe isn’t connected');
@@ -195,7 +220,7 @@ export function registerPlans(app, { auth, resolveToken }) {
   app.post('/api/orders/:oid/plan/cancel', auth, async (req, res) => {
     const o = T.orders.get(req.params.oid);
     if (!o || o.userId !== req.user.id || !o.plan) return res.status(404).json({ error: 'Order not found' });
-    try { res.json(await cancel(o, { atCycleEnd: o.plan.type === 'recurring' && req.body?.now !== true })); } catch (e) { res.status(400).json({ error: e.message }); }
+    try { res.json(await cancelPlan(o, { atCycleEnd: o.plan.type === 'recurring' && req.body?.now !== true })); } catch (e) { res.status(400).json({ error: e.message }); }
   });
   app.post('/api/orders/:oid/plan/sync', auth, async (req, res) => {
     const o = T.orders.get(req.params.oid);
@@ -208,7 +233,7 @@ export function registerPlans(app, { auth, resolveToken }) {
     const o = ctx && T.orders.get(req.params.oid);
     if (!o || o.userId !== ctx.userId || !o.plan || String(o.email).toLowerCase() !== String(ctx.rows[0]?.email || '').toLowerCase()) return res.status(404).json({ error: 'Not found' });
     if (o.plan.type !== 'recurring') return res.status(400).json({ error: 'Instalment plans can’t be cancelled here — please contact the seller' });
-    try { const r = await cancel(o, { atCycleEnd: true }); res.json({ ok: true, cancelAtEnd: !!r.plan?.cancelAtEnd }); } catch (e) { res.status(400).json({ error: e.message }); }
+    try { const r = await cancelPlan(o, { atCycleEnd: true }); res.json({ ok: true, cancelAtEnd: !!r.plan?.cancelAtEnd }); } catch (e) { res.status(400).json({ error: e.message }); }
   });
   if (JOBS) setInterval(() => planJob().catch(() => {}), 3600000).unref();
 }

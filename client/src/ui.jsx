@@ -82,24 +82,6 @@ export function downloadCSV(name, rows) {
   a.click();
 }
 
-// ---------- app shell ----------
-const NAV = [
-  ['/', 'home', 'Dashboard'],
-  ['/funnels', 'funnel', 'Funnels'],
-  ['/templates', 'layout', 'Templates'],
-  ['/hive', 'sparkles', 'Hive AI'],
-  ['/contacts', 'users', 'Contacts'],
-  ['/automations', 'flow', 'Automations'],
-  ['/broadcasts', 'mail', 'Broadcasts'],
-  ['/products', 'box', 'Products'],
-  ['/bookings', 'clock', 'Bookings'],
-  ['/webinars', 'play', 'Webinars'],
-  ['/orders', 'cart', 'Orders'],
-  ['/quotes', 'receipt', 'Quotes'],
-  ['/agency', 'layers', 'Agency'],
-  ['/settings', 'settings', 'Settings'],
-  ['/billing', 'card', 'Plan & billing'],
-];
 export const BRAND = 'FunnelHive';
 const LOOK_KEY = 'ff_ui';
 // the app's look: Studio (default) or Liquid Glass — remembered on this device
@@ -108,6 +90,154 @@ export const applyLook = (look = currentLook()) => { if (typeof document !== 'un
 const toggleLook = () => { const next = currentLook() === 'glass' ? 'studio' : 'glass'; try { localStorage.setItem(LOOK_KEY, next); } catch {} applyLook(next); };
 // where live funnel pages are served (PAGES_URL on the server, else this app)
 export const pagesOrigin = () => (typeof window !== 'undefined' && window.__PAGES_URL__) || location.origin;
+
+// ---------- app shell ----------
+// The menu stays short: a few everyday pages, then small groups. Optional tools join the menu once you use them
+// (or pin them) — the rest wait under "More tools". Account pages live in the profile menu; Ctrl+K jumps anywhere.
+const PAGES = {
+  '/': ['home', 'Dashboard', 'Your numbers at a glance'],
+  '/funnels': ['funnel', 'Funnels', 'Build, publish and test your sales funnels'],
+  '/hive': ['sparkles', 'Hive AI', 'Ask AI to build, write and analyse for you'],
+  '/orders': ['cart', 'Orders', 'Sales, refunds, shipping and abandoned checkouts'],
+  '/products': ['box', 'Products', 'Courses, downloads and memberships buyers get access to'],
+  '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
+  '/contacts': ['users', 'Contacts', 'Everyone who signed up or bought, with your pipeline'],
+  '/automations': ['flow', 'Automations', 'Follow-up emails and WhatsApp that run by themselves'],
+  '/broadcasts': ['mail', 'Broadcasts', 'One-off emails to your list'],
+  '/bookings': ['clock', 'Bookings', 'Your booking page, call types and calls'],
+  '/webinars': ['play', 'Webinars', 'Live or scheduled sessions with sign-ups and reminders'],
+  '/templates': ['layout', 'Templates', '100+ ready-made funnels to start from'],
+  '/settings': ['settings', 'Settings', 'Business profile, payments, domains and team'],
+  '/billing': ['card', 'Plan & billing', 'Your FunnelHive plan and invoices'],
+  '/agency': ['layers', 'Agency', 'Client accounts you manage'],
+  '/admin': ['shield', 'Admin', 'Platform settings and every account'],
+};
+const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/products', '/quotes']], ['Audience', ['/contacts', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
+const CORE = ['/', '/funnels', '/hive', '/orders', '/contacts'];
+const OPTIONAL = GROUPS.flatMap(([, l]) => l).filter((to) => !CORE.includes(to));
+const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
+const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
+const NAV_KEY = 'ff_nav';
+const navPrefs = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
+// account pages a person may open here (a team member doesn't see the owner's billing, and so on)
+const allowed = (to, me) => {
+  if (to === '/admin') return !!me?.admin;
+  if (!me?.workspace) return !(to === '/billing' && me?.billing?.agencyManaged);
+  if (to === '/billing' || to === '/agency') return false;
+  return to !== '/settings' || ['admin', 'agency'].includes(me.workspace.role);
+};
+// a tool is in the menu when it's an everyday page, you use it, you pinned it, or you're on it — unless you hid it
+const inMenu = (to, me, p, here) => !p.hidden.includes(to) && (CORE.includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || here === to);
+const badgeOf = (to, me) => (to === '/orders' && me?.nav?.ship ? [me.nav.ship, `${me.nav.ship} to ship`] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, `${me.nav.calls} call${me.nav.calls > 1 ? 's' : ''} in the next 24 hours`] : null);
+
+function SideNav({ me, onGo }) {
+  const [p, setP] = useState(navPrefs);
+  const [more, setMore] = useState(false);
+  const here = '/' + (location.pathname.split('/')[1] || '');
+  const save = (n) => { setP(n); try { localStorage.setItem(NAV_KEY, JSON.stringify(n)); } catch {} };
+  const toggleGroup = (g) => save({ ...p, closed: p.closed.includes(g) ? p.closed.filter((x) => x !== g) : [...p.closed, g] });
+  const setShown = (to, on) => save({ ...p, pinned: on ? [...new Set([...p.pinned, to])] : p.pinned.filter((x) => x !== to), hidden: on ? p.hidden.filter((x) => x !== to) : [...new Set([...p.hidden, to])] });
+  const waiting = OPTIONAL.filter((to) => !inMenu(to, me, p, here));
+  const link = (to) => {
+    const [ic, label] = PAGES[to], b = badgeOf(to, me);
+    return <NavLink key={to} to={to} end={to === '/'} onClick={onGo}><Icon name={ic} />{label}{b && <span className="nav-badge" title={b[1]}>{b[0]}</span>}</NavLink>;
+  };
+  return (
+    <nav>
+      {GROUPS.map(([g, list]) => {
+        const items = list.filter((to) => inMenu(to, me, p, here));
+        if (!items.length) return null;
+        if (!g) return <div key="main" className="nav-g">{items.map(link)}</div>;
+        const shut = p.closed.includes(g) && !items.includes(here);
+        return (
+          <div key={g} className="nav-g">
+            <button type="button" className="nav-gh" aria-expanded={!shut} onClick={() => toggleGroup(g)}>{g}<Icon name="chevron" size={12} className={shut ? 'nav-chev' : 'nav-chev open'} /></button>
+            {!shut && items.map(link)}
+          </div>
+        );
+      })}
+      <div className="nav-more">
+        <button type="button" className={`nav-more-b ${more ? 'on' : ''}`} onClick={() => setMore(!more)} aria-expanded={more}><Icon name="plus" />More tools{waiting.length > 0 && <span className="nav-n">{waiting.length}</span>}</button>
+        {more && (
+          <div className="nav-pop" role="dialog" aria-label="More tools">
+            <p className="nav-pop-h">Tools join your menu once you start using them. Tick one to keep it there.</p>
+            {OPTIONAL.map((to) => {
+              const [ic, label, desc] = PAGES[to], on = inMenu(to, me, p, null);
+              return (
+                <div key={to} className="nav-tool">
+                  <Link to={to} onClick={() => { setMore(false); onGo?.(); }}><Icon name={ic} size={16} /><span><b>{label}</b><small>{desc}</small></span></Link>
+                  <label className="nav-pin" title={on ? 'Remove from the menu' : 'Keep in the menu'}><input type="checkbox" checked={on} onChange={(e) => setShown(to, e.target.checked)} />In menu</label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+function ProfileMenu({ me, onGo }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => { if (!open) return undefined; const h = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [open]);
+  const go = () => { setOpen(false); onGo?.(); };
+  return (
+    <div className="me-wrap" ref={ref}>
+      {open && (
+        <div className="me-menu" role="menu">
+          {ACCOUNT.filter((to) => allowed(to, me)).map((to) => <Link key={to} role="menuitem" to={to} onClick={go}><Icon name={PAGES[to][0]} size={15} />{PAGES[to][1]}</Link>)}
+          <hr />
+          <button type="button" role="menuitem" onClick={() => { toggleLook(); setOpen(false); }}><Icon name="palette" size={15} />{currentLook() === 'glass' ? 'Switch to the standard look' : 'Switch to Liquid Glass'}</button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('ff:jump')); }}><Icon name="search" size={15} />Jump to…<kbd>Ctrl K</kbd></button>
+          <button type="button" role="menuitem" onClick={logout}><Icon name="logout" size={15} />Log out</button>
+        </div>
+      )}
+      <button type="button" className="me" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} title="Settings, billing and your account">
+        <span className="me-av">{(me?.name || '?')[0]?.toUpperCase()}</span>
+        <div><b>{me?.name}</b><small>{me?.email}</small></div>
+        <Icon name="settings" size={16} />
+      </button>
+    </div>
+  );
+}
+
+// Ctrl+K: type a page or funnel name and jump there
+function Jump({ me }) {
+  const nav = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState(0);
+  const [funnels, setFunnels] = useState(null);
+  useEffect(() => {
+    const k = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setOpen((o) => !o); } };
+    const j = () => setOpen(true);
+    window.addEventListener('keydown', k); window.addEventListener('ff:jump', j);
+    return () => { window.removeEventListener('keydown', k); window.removeEventListener('ff:jump', j); };
+  }, []);
+  useEffect(() => { if (open) { setQ(''); setSel(0); if (!funnels) api('/funnels').then(setFunnels).catch(() => setFunnels([])); } }, [open]);
+  if (!open) return null;
+  const s = q.trim().toLowerCase();
+  const pages = Object.entries(PAGES).filter(([to]) => !ACCOUNT.includes(to) || allowed(to, me)).map(([to, [ic, label, desc]]) => ({ to, ic, label, desc }));
+  const fl = (funnels || []).map((f) => ({ to: `/funnels/${f.id}`, ic: 'funnel', label: f.name, desc: f.published ? 'Funnel · live' : 'Funnel · draft' }));
+  const hits = [...pages, ...fl].filter((x) => !s || `${x.label} ${x.desc}`.toLowerCase().includes(s)).slice(0, 9);
+  const go = (x) => { if (!x) return; setOpen(false); nav(x.to); };
+  const key = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSel((i) => Math.min(hits.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((i) => Math.max(0, i - 1)); }
+    else if (e.key === 'Enter') go(hits[sel]);
+    else if (e.key === 'Escape') setOpen(false);
+  };
+  return (
+    <div className="m-scrim jump-scrim" onMouseDown={() => setOpen(false)}>
+      <div className="jump" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="Jump to">
+        <div className="jump-in"><Icon name="search" size={17} /><input autoFocus value={q} placeholder="Jump to a page or funnel…" onChange={(e) => { setQ(e.target.value); setSel(0); }} onKeyDown={key} /><kbd>Esc</kbd></div>
+        <div className="jump-list">{hits.length ? hits.map((x, i) => <button type="button" key={x.to} className={i === sel ? 'on' : ''} onMouseEnter={() => setSel(i)} onClick={() => go(x)}><Icon name={x.ic} size={16} /><span><b>{x.label}</b><small>{x.desc}</small></span></button>) : <p className="muted sm">Nothing matches “{q}”.</p>}</div>
+      </div>
+    </div>
+  );
+}
+
 
 export function Layout({ title, subtitle, actions, children, wide }) {
   const [me, setMe] = useState(null);
@@ -119,22 +249,13 @@ export function Layout({ title, subtitle, actions, children, wide }) {
     <div className="app">
       <aside className={`side ${open ? 'open' : ''}`}>
         <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}{me?.brand || BRAND}</div>
-        <nav>
-          {NAV.filter(([to]) => !(me?.workspace && (to === '/billing' || to === '/agency' || (to === '/settings' && !['admin', 'agency'].includes(me.workspace.role)))) && !(to === '/billing' && me?.billing?.agencyManaged)).map(([to, ic, label]) => (
-            <NavLink key={to} to={to} end={to === '/'} onClick={() => setOpen(false)}><Icon name={ic} />{label}</NavLink>
-          ))}
-          {me?.admin && <NavLink to="/admin" onClick={() => setOpen(false)}><Icon name="shield" />Admin</NavLink>}
-        </nav>
+        <button type="button" className="side-jump" onClick={() => window.dispatchEvent(new Event('ff:jump'))}><Icon name="search" size={15} />Jump to…<kbd>Ctrl K</kbd></button>
+        <SideNav me={me} onGo={() => setOpen(false)} />
         <div className="side-foot">
           <WorkspaceSwitch me={me} />
           {me?.billing?.status === 'trialing' && !me.workspace && !me.billing.agencyManaged && <Link to="/billing" className="trial-chip"><Icon name="clock" size={14} />{me.billing.daysLeft} day{me.billing.daysLeft === 1 ? '' : 's'} left in trial<b>Upgrade</b></Link>}
           <div className={`ai-status ${me?.aiEnabled ? 'on' : ''}`}><Icon name="sparkles" size={14} />{me?.aiEnabled ? `AI · ${me.credits?.limit == null ? 'unlimited' : `${Math.max(0, me.credits.limit - me.credits.used)} credits left`}` : 'Offline AI assistant'}</div>
-          <div className="me">
-            <span className="me-av">{(me?.name || '?')[0]?.toUpperCase()}</span>
-            <div><b>{me?.name}</b><small>{me?.email}</small></div>
-            <button className="icon-btn" title="Switch between the standard and Liquid Glass look" onClick={toggleLook}><Icon name="palette" size={16} /></button>
-            <button className="icon-btn" title="Log out" onClick={logout}><Icon name="logout" size={16} /></button>
-          </div>
+          <ProfileMenu me={me} onGo={() => setOpen(false)} />
         </div>
       </aside>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
@@ -152,6 +273,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
         <div className={`content ${wide ? 'wide' : ''}`}>{typeof children === 'function' ? children(me) : children}</div>
       </main>
       {paywall && <Paywall info={paywall} onClose={() => setPaywall(null)} />}
+      <Jump me={me} />
     </div>
   );
 }

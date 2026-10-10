@@ -36,6 +36,31 @@ before(async () => {
 });
 after(async () => { await srv.stop(); s3.close(); });
 
+test('storage entered in the admin panel: checked with a real write, kept encrypted, used for off-site backups', async () => {
+  const s2 = await startServer({ ADMIN_EMAILS: 'boss@store.test' });
+  try {
+    const A = (await register(s2.api, 'boss@store.test')).token;
+    // admins must verify their email first
+    const link = s2.log().match(/To: boss@store\.test[\s\S]*?\/verify\?token=([a-f0-9.]+)/);
+    await s2.api('/auth/verify', 'POST', { token: link[1] });
+    const put = (storage) => s2.api('/admin/settings', 'PUT', { storage }, A);
+    const ep = `http://127.0.0.1:${s3.address().port}`;
+    assert.equal((await put({ endpoint: 'ftp://nope', bucket: 'bucket', key: 'AK', secret: 'SK' })).status, 400);
+    const bad = await put({ endpoint: ep, region: 'auto', bucket: 'bucket', key: 'WRONG', secret: 'SK' });
+    assert.equal(bad.status, 400, 'a key the bucket refuses is caught before saving');
+    assert.match(bad.data.error, /Couldn’t write to the bucket/);
+    const ok = await put({ endpoint: ep, region: 'auto', bucket: 'bucket', key: 'AK', secret: 'SK' });
+    assert.equal(ok.status, 200, JSON.stringify(ok.data));
+    assert.equal(ok.data.storage.ready, true);
+    assert.equal(ok.data.storage.hasSecret, true);
+    assert.ok(!JSON.stringify(ok.data).includes('"SK"'), 'the secret never comes back');
+    assert.ok(![...objects.keys()].some((k) => k.startsWith('funnelhive-check-')), 'the test file is cleaned up');
+    // the first off-site copy follows straight away
+    for (let i = 0; i < 50 && ![...objects.keys()].some((k) => k.startsWith('backups/')); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.ok([...objects.keys()].some((k) => /^backups\/funnelhive-\d{4}-\d{2}-\d{2}\.db$/.test(k)), 'backup copied off the server');
+  } finally { await s2.stop(); }
+});
+
 test('images go to the bucket and are served from its public URL', async () => {
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), crypto.randomBytes(100)]);
   const r = (await api('/uploads', 'POST', { type: 'image/png', data: png.toString('base64') }, T)).data;

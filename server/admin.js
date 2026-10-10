@@ -1,8 +1,10 @@
 // Admin panel API (platform owners only): business metrics, sellers, plan & price settings,
 // invoices, audit log, backups. Every change an admin makes is written to the audit log.
 import os from 'node:os';
-import { T, q, uid, dbBytes, backupFiles, backupNow } from './db.js';
-import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE } from './platform.js';
+import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus } from './db.js';
+import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE, DEFAULTS } from './platform.js';
+import { decrypt } from './messaging.js';
+import { s3Enabled, storageFromEnv, testStorage } from './storage.js';
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
 import { call as rzpCall } from './razorpay.js';
 import { deleteAccount } from './account.js';
@@ -146,7 +148,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   const settingsView = () => {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
-    return { ...rest, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    const st = p.storage;
+    return { ...rest, storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -185,10 +188,32 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       patch.razorpay = next;
       changes.push('razorpay keys');
     }
+    // file storage (Wasabi, S3, R2…): checked with a real write before it's saved
+    if (b.storage) {
+      const s = b.storage, cur = platform().storage;
+      if (s.clear) patch.storage = { ...DEFAULTS.storage };
+      else {
+        const next = { ...cur };
+        for (const k of ['endpoint', 'region', 'bucket', 'key', 'publicUrl']) if (s[k] != null) next[k] = String(s[k]).trim().slice(0, 300);
+        next.endpoint = next.endpoint.replace(/\/+$/, ''); next.publicUrl = next.publicUrl.replace(/\/+$/, '');
+        if (!/^https:\/\/[\w.-]+(:\d+)?$|^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(next.endpoint)) return res.status(400).json({ error: 'The endpoint looks like https://s3.ap-southeast-1.wasabisys.com' });
+        if (next.publicUrl && !/^https:\/\/\S+$/.test(next.publicUrl)) return res.status(400).json({ error: 'The public URL starts with https://' });
+        if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(next.bucket)) return res.status(400).json({ error: 'Enter the bucket name (lowercase letters, numbers, dots and dashes)' });
+        if (!next.key) return res.status(400).json({ error: 'Enter the access key' });
+        if (!next.region) next.region = (/s3\.([a-z0-9-]+)\.wasabisys\.com/.exec(next.endpoint) || [])[1] || 'auto';
+        const secret = s.secret ? String(s.secret).trim() : decrypt(cur.secretEnc);
+        if (!secret) return res.status(400).json({ error: 'Enter the secret key' });
+        try { await testStorage({ ...next, secret }); } catch (e) { return res.status(400).json({ error: `Couldn’t write to the bucket: ${e.message}` }); }
+        if (s.secret) next.secretEnc = encrypt(secret);
+        patch.storage = next;
+      }
+      changes.push('file storage');
+    }
     if (b.limits) { try { patch.limits = saveLimits(b.limits); changes.push('limits'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     if (b.stripe || b.intl) { try { await saveIntlSettings(b); changes.push('international billing'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     savePlatform((s) => Object.assign(s, patch));
-    audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay'), ...changes].join(', '));
+    audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay' && k !== 'storage'), ...changes].join(', '));
+    if (patch.storage?.endpoint) backupNow(); // the first off-site copy right away
     res.json(settingsView());
   }));
 

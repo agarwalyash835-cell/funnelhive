@@ -187,6 +187,34 @@ function Invoices() {
   );
 }
 
+// S3-compatible storage (Wasabi, S3, R2…): daily off-site backups, uploaded images and product files
+function StoragePanel({ s, save }) {
+  const [v, setV] = useState({ endpoint: s.endpoint || 'https://s3.ap-southeast-1.wasabisys.com', region: s.region || '', bucket: s.bucket || '', key: s.key || '', secret: '', publicUrl: s.publicUrl || '' });
+  const [busy, setBusy] = useState(false);
+  const go = async () => { setBusy(true); if (await save({ storage: v })) setV({ ...v, secret: '' }); setBusy(false); };
+  const off = s.offsite;
+  return (
+    <Panel title="File storage & off-site backups">
+      <p className="muted sm">An S3-compatible bucket (Wasabi, AWS S3, Cloudflare R2…). Once connected, a copy of the database goes there after every backup (every 6 hours, 90 days kept), and new uploaded images and product files are stored there instead of on this server.</p>
+      <div className={`ai-card ${s.ready ? 'on' : ''}`}><Icon name="box" size={20} /><div><b>{s.ready ? `Connected · ${s.fromEnv ? 'from the server’s settings file' : s.bucket}` : 'Not connected — everything stays on this server only'}</b><p className="muted sm">{off ? (off.ok ? `Last off-site backup: ${off.file} · ${new Date(off.at).toLocaleString('en-IN')}` : `Last off-site backup failed: ${off.error}`) : s.ready ? 'The first off-site backup runs within a few minutes.' : 'Wasabi → Buckets → Create bucket, then Access Keys → Create new access key.'}</p></div></div>
+      {s.fromEnv ? <p className="hint">Set by S3_* variables on the server, which take priority over this form.</p> : (
+        <>
+          <div className="form2">
+            <label>Endpoint<input value={v.endpoint} onChange={(e) => setV({ ...v, endpoint: e.target.value.trim() })} placeholder="https://s3.ap-southeast-1.wasabisys.com" /></label>
+            <label>Region <small className="muted">· filled in for Wasabi</small><input value={v.region} onChange={(e) => setV({ ...v, region: e.target.value.trim() })} placeholder="ap-southeast-1" /></label>
+            <label>Bucket<input value={v.bucket} onChange={(e) => setV({ ...v, bucket: e.target.value.trim().toLowerCase() })} placeholder="funnelhive-files" /></label>
+            <label>Access key<input value={v.key} onChange={(e) => setV({ ...v, key: e.target.value.trim() })} autoComplete="off" /></label>
+            <label>Secret key {s.hasSecret && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.secret} onChange={(e) => setV({ ...v, secret: e.target.value })} autoComplete="new-password" /></label>
+            <label>Public URL <small className="muted">· optional CDN for images</small><input value={v.publicUrl} onChange={(e) => setV({ ...v, publicUrl: e.target.value.trim() })} placeholder="leave empty — images are served through signed links" /></label>
+          </div>
+          <p className="hint">Saving writes a small test file to the bucket and deletes it, so wrong keys are caught here. The bucket can stay private. Files already on this server stay where they are.</p>
+          <div className="row"><button className="btn primary" disabled={busy || !v.bucket || !v.key} onClick={go}>{busy ? 'Checking the bucket…' : 'Save & test storage'}</button>{s.ready && <button className="btn ghost danger" onClick={() => confirm('Disconnect storage? New backups and uploads stay on this server only.') && save({ storage: { clear: true } })}>Disconnect</button>}</div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 function PlatformSettings() {
   const [s, setS] = useState(null);
   const [rz, setRz] = useState({ keyId: '', keySecret: '', webhookSecret: '' });
@@ -222,6 +250,8 @@ function PlatformSettings() {
         <p className="hint">Sellers pay {inr(s.prices.monthly.amount)}/month or {inr(s.prices.yearly.amount)}/year. Changing a price applies to new subscriptions; existing subscribers keep theirs.</p>
         <button className="btn primary" onClick={() => save({ plans: s.plans, agency: s.agency, trialDays: s.trialDays, gstRate: s.gstRate, aiCredits: s.aiCredits, graceDays: s.graceDays, pagesOfflineAfterDays: s.pagesOfflineAfterDays, pricesIncludeGst: s.pricesIncludeGst, limits: s.limits })}>Save pricing</button>
       </Panel>
+
+      <StoragePanel s={s.storage} save={save} />
 
       <Panel title="Razorpay (collects subscriptions)">
         <p className="muted sm">Your own Razorpay account. Sellers connect theirs separately for their customers’ payments.</p>

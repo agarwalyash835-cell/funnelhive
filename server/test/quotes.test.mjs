@@ -88,3 +88,11 @@ test('a USD proposal is paid by card through Stripe; an expired or declined one 
   assert.equal(list.length, 4);
   assert.ok((await api(`/quotes/${d.id}/duplicate`, 'POST', {}, T)).data.number.startsWith('Q-0005'));
 });
+
+test('the client’s GST details are checked like a checkout’s: a bad GSTIN is refused, its state wins over a typed one', async () => {
+  const items = [{ name: 'Audit', qty: 1, price: 5000 }];
+  assert.equal((await api('/quotes', 'POST', { title: 'GST', items, client: { name: 'Ravi', email: 'r@x.in', gstin: 'NOTAGSTIN' } }, T)).status, 400);
+  const g = (await api('/quotes', 'POST', { title: 'GST', items, client: { name: 'Ravi', email: 'r@x.in', gstin: '29abcde1234f1z5', state: 'Maharashtra' } }, T)).data;
+  assert.deepEqual([g.client.gstin, g.client.state], ['29ABCDE1234F1Z5', 'Karnataka']);
+  assert.equal((await api(`/quotes/${g.id}`, 'PUT', { client: { name: 'Ravi', gstin: '27ABCDE' } }, T)).status, 400);
+});

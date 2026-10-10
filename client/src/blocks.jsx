@@ -894,7 +894,7 @@ function Checkout({ p, ctx }) {
   const canPlan = !per && p.planEnabled && Number(p.planCount) >= 2 && Number(p.planPrice) > 0;
   const [payPlan, setPayPlan] = useState(false);
   const instal = canPlan && payPlan;
-  const today = instal ? Number(p.planPrice) : price - discount;
+  const today = instal ? Number(p.planPrice) : per ? price : price - discount; // no coupons on memberships (as on the server)
   const total = today + (bump && p.bumpEnabled ? bp : 0) + shipFee + (instal ? 0 : codFee);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   // A code claimed from the exit popup is applied automatically
@@ -915,7 +915,7 @@ function Checkout({ p, ctx }) {
   return (
     <Sec type="checkout">
       <div className="co-grid">
-        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await ctx.onCheckout({ ...f, total, withBump: bump, coupon: coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}) }); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
+        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await ctx.onCheckout({ ...f, total, withBump: bump, coupon: per ? undefined : coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}) }); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
           <div className="co-step"><span className="co-n">1</span> <E ctx={ctx} k="step1" v={p.step1} keep /></div>
           {ctx.testCheckout && !ctx.editable && <p className="co-test">{tr(ctx.lang, 'Test checkout — no payment will be taken. The seller hasn’t connected online payments yet.')}</p>}
           <input placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
@@ -974,7 +974,7 @@ function Checkout({ p, ctx }) {
           {instal && <p className="co-plan-note">Then {money(p.currency, Number(p.planPrice))} on the same date each month for {Number(p.planCount) - 1} more month{Number(p.planCount) > 2 ? 's' : ''} — {money(p.currency, Number(p.planPrice) * Number(p.planCount))} in all. Charged automatically to your card or UPI AutoPay.</p>}
           {per && <p className="co-plan-note">{tr(ctx.lang, 'Renews every {per} until you cancel — cancel any time from your library link.', { per: tr(ctx.lang, per) })}</p>}
           {mrp > price && <div className="save">🎉 You save {money(p.currency, mrp - price + discount)} today</div>}
-          {instal ? null : showCoupon ? (
+          {instal || per ? null : showCoupon ? (
             <div className="coupon">
               <input placeholder={tr(ctx.lang, 'Coupon code')} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
               <button type="button" onClick={apply}>{tr(ctx.lang, 'Apply')}</button>
