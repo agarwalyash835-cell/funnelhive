@@ -146,7 +146,7 @@ test('unpublished funnel is not public', async () => {
 test('analytics: overview & funnel analytics shapes', async () => {
   const o = (await api('/analytics/overview?days=30', 'GET', null, T)).data;
   assert.equal(o.series.length, 30);
-  assert.ok(o.totals.orders >= 2);
+  assert.ok(Number.isInteger(o.totals.orders) && typeof o.totals.revenue === 'number');
   const fa = (await api(`/funnels/${funnel.id}/analytics?days=7`, 'GET', null, T)).data;
   assert.equal(fa.series.length, 7);
   assert.equal(fa.steps.length, funnel.steps.length);
@@ -174,7 +174,8 @@ test('demo data can be removed without touching real data', async () => {
   const del = (await api('/demo', 'DELETE', null, token)).data;
   assert.ok(del.removed.orders > 10 && del.removed.events > 100);
   const o = (await api('/analytics/overview?days=30', 'GET', null, token)).data;
-  assert.equal(o.totals.orders, 1, 'the real order survives');
+  assert.equal(o.totals.orders, 0, 'placed with no payment provider: a test order, not revenue');
+  assert.deepEqual((await api('/orders', 'GET', null, token)).data.orders.map((x) => x.email), ['real.buyer@shop.in'], 'the real order survives');
   assert.equal(o.totals.views, 1, 'the real visit survives');
   assert.equal((await api('/me', 'GET', null, token)).data.hasDemo, false);
   assert.equal((await api('/funnels', 'GET', null, token)).data.length, 1, 'user funnel kept');

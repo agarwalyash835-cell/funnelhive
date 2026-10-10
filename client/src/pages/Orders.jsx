@@ -13,8 +13,8 @@ const planLabel = (pl, o) => (pl.type === 'installments' ? `${Math.min(pl.paid |
 const campaignOf = (o) => [o.attr?.utm_campaign, o.attr?.utm_content].filter(Boolean).join(' · ');
 // no real money moved: Razorpay/Stripe test keys, or a checkout placed while no payment provider was connected
 const isTest = (o) => o.mode === 'test' || (!o.provider && !o.demo && o.paymentMethod !== 'cod' && o.total > 0 && !['cod', 'cancelled'].includes(o.status));
-// money that actually came in, in ₹: paid orders minus refunds (COD counts once collected)
-const netOf = (o) => (isTest(o) || ['cod', 'cancelled'].includes(o.status) ? 0 : ((o.total || 0) - (o.refunded || 0)) * (o.fx || 1));
+// money that actually came in, in ₹: paid orders after refunds — a refund already comes off total (server/sales.js) — COD counts once collected
+const netOf = (o) => (isTest(o) || ['cod', 'cancelled'].includes(o.status) ? 0 : (o.total || 0) * (o.fx || 1));
 const realPaid = (o) => !isTest(o) && !['cod', 'cancelled'].includes(o.status);
 const thisYear = new Date().getFullYear();
 const shortDate = (t) => new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', ...(new Date(t).getFullYear() !== thisYear ? { year: 'numeric' } : {}) });

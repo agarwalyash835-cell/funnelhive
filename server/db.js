@@ -51,13 +51,19 @@ export function tx(fn) {
 // cols: lookup columns, filled from the record's field of the same name unless a function is given.
 const bool = (v) => (v ? 1 : 0);
 const lower = (v) => (v ? String(v).trim().toLowerCase() : null);
+// The same rules as the Orders page: a test order was paid with test keys, or placed while no payment
+// provider was connected (sample-data orders and COD aside). Unpaid COD and cancelled orders brought in nothing.
+export const testOrder = (o) => o.mode === 'test' || (!o.provider && !o.demo && o.paymentMethod !== 'cod' && o.total > 0 && !['cod', 'cancelled'].includes(o.status));
+export const paidOrder = (o) => !testOrder(o) && !['cod', 'cancelled'].includes(o.status);
+const orderInr = (o) => Math.round((Number(o.total) || 0) * (Number(o.fx) || 1) * 100) / 100;
 const SCHEMA = {
   users: { cols: { email: (u) => lower(u.email), plan: (u) => u.billing?.status || null, createdAt: 0 }, unique: [['email']], index: [['createdAt']] },
   funnels: { cols: { userId: 0, slug: 0, updatedAt: 0 }, unique: [['slug']], index: [['userId', 'updatedAt']] },
   revisions: { cols: { funnelId: 0, userId: 0, at: 0 }, index: [['funnelId', 'at']] },
   leads: { cols: { userId: 0, funnelId: 0, ckey: (l) => contactKey(l.email, l.phone), visitor: 0, source: 0, at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor']] },
-  // inr: the order's value in rupees for reports (foreign-currency orders × their exchange rate)
-  orders: { cols: { userId: 0, funnelId: 0, ckey: (o) => contactKey(o.email), visitor: 0, source: 0, total: 0, inr: (o) => Math.round((Number(o.total) || 0) * (Number(o.fx) || 1) * 100) / 100, at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor'], ['funnelId', 'ckey']] },
+  // inr: the order's value in rupees (foreign-currency orders × their exchange rate; refunds already
+  // come off total). paid / net: what reports count — real money only (see paidOrder)
+  orders: { cols: { userId: 0, funnelId: 0, ckey: (o) => contactKey(o.email), visitor: 0, source: 0, total: 0, inr: (o) => orderInr(o), paid: (o) => bool(paidOrder(o)), net: (o) => (paidOrder(o) ? orderInr(o) : 0), at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor'], ['funnelId', 'ckey']] },
   abandoned: { cols: { userId: 0, funnelId: 0, ckey: (a) => contactKey(a.email), visitor: 0, at: 0, recovered: (a) => bool(a.recovered), demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'ckey'], ['userId', 'ckey'], ['visitor']] },
   coupons: { cols: { userId: 0, code: 0 }, unique: [['userId', 'code']] },
   webhooks: { cols: { userId: 0, status: 0, nextAt: 0, at: 0 }, index: [['userId', 'at'], ['status', 'nextAt']] },

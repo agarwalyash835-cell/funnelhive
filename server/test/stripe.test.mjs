@@ -90,7 +90,7 @@ test('USD checkout: a PaymentIntent in cents, saved for upsells; counts only onc
   const o = await order(paid.orderId);
   assert.deepEqual([o.currency, o.total, o.fx, o.stripeCustomer], ['USD', 199, 80, 'cus_1']);
   const ov = (await api('/analytics/overview?days=7', 'GET', null, T)).data;
-  assert.equal(ov.totals.revenue, 199 * 80, 'reported in rupees');
+  assert.equal(ov.totals.revenue, 0, 'paid with Stripe test keys: not real money (rupee conversion: revenue.test.mjs)');
 });
 
 test('one-click upsell charges the saved card off-session; refunds go back through Stripe', async () => {

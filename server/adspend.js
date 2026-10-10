@@ -87,7 +87,7 @@ export function withSpend(userId, rows, from, to) {
     const s = r.campaign && sp[norm(r.campaign)];
     if (!s) return r;
     used.add(norm(r.campaign));
-    const net = r.revenue - (r.refunded || 0);
+    const net = r.revenue; // already after refunds (an order's total drops when it's refunded)
     return { ...r, spend: Math.round(s.spend), roas: s.spend ? Math.round((net / s.spend) * 100) / 100 : null, cpl: r.leads ? Math.round(s.spend / r.leads) : null, cpa: r.orders ? Math.round(s.spend / r.orders) : null, platforms: s.platforms };
   });
   for (const [k, s] of Object.entries(sp)) if (!used.has(k)) out.push({ source: s.platforms.join(' + '), medium: 'paid', campaign: s.campaign, content: '', leads: 0, orders: 0, revenue: 0, refunded: 0, spend: Math.round(s.spend), roas: 0, unmatched: true });

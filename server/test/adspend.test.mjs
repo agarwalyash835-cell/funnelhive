@@ -20,10 +20,17 @@ before(async () => {
   T = (await register(api)).token;
   f = (await api('/templates/coding/use', 'POST', {}, T)).data;
   await api(`/funnels/${f.id}`, 'PUT', { published: true }, T);
-  const co = f.steps.find((s) => s.type === 'checkout');
+  let co = f.steps.find((s) => s.type === 'checkout');
   const attr = { utm_source: 'facebook', utm_medium: 'paid', utm_campaign: 'diwali-sale' };
   await api(`/public/${f.slug}/lead`, 'POST', { stepId: f.steps[0].id, email: 'a@x.in', attr });
-  await api(`/public/${f.slug}/order`, 'POST', { stepId: co.id, email: 'a@x.in', attr });
+  // a real sale (reports leave out test orders): Cash on Delivery, marked paid once collected
+  const steps = f.steps.map((s) => (s.id !== co.id ? s : { ...s, blocks: s.blocks.map((b) => (b.type === 'checkout' ? { ...b, props: { ...b.props, cod: true } } : b)) }));
+  f = (await api(`/funnels/${f.id}`, 'PUT', { steps }, T)).data;
+  co = f.steps.find((s) => s.type === 'checkout');
+  const sale = (await api(`/public/${f.slug}/cod`, 'POST', { stepId: co.id, email: 'a@x.in', name: 'A', phone: '9876543210', attr })).data;
+  assert.equal(sale.provider, 'cod', JSON.stringify(sale));
+  const id = sale.id || sale.orderId || sale.order?.id;
+  assert.equal((await api(`/orders/${id}/cod`, 'POST', { action: 'paid' }, T)).status, 200);
 });
 after(async () => { await srv.stop(); meta.close(); });
 

@@ -262,7 +262,8 @@ test('refunds: through Razorpay, access removed, credit note, revenue netted out
   assert.ok(lib.products.every((p) => p.status === 'refunded'));
   assert.equal(lib.products[0].files, undefined, 'no files once access has ended');
   const ov = (await api('/analytics/overview?days=30', 'GET', null, T)).data;
-  assert.equal(ov.refunded, before.total);
+  assert.equal(ov.refunded, 0, 'a refund of a Razorpay test-mode sale isn’t real money');
+  assert.equal(ov.totals.revenue, 0);
   assert.equal(ov.byKind.upsell || 0, 0);
 });
 
@@ -289,7 +290,7 @@ test('lead magnet: a free product on an opt-in is delivered on sign-up; applican
   // campaigns report
   const ov = (await api('/analytics/overview?days=30', 'GET', null, T)).data;
   assert.ok(ov.campaigns.some((c) => c.campaign === 'reels-oct' && c.leads === 1));
-  assert.ok(ov.campaigns.some((c) => c.campaign === 'diwali-launch' && c.orders === 1));
+  assert.ok(ov.campaigns.some((c) => c.campaign === 'diwali-launch' && c.orders === 0), 'paid with Razorpay test keys: not counted as a sale');
 });
 
 test('manual access, revoke and restore; deleting a product warns about its buyers', async () => {
