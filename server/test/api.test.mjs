@@ -124,6 +124,13 @@ test('public runtime: leads, events, abandoned carts recovered by purchase', asy
   await api(`/public/${funnel.slug}/abandon`, 'POST', { stepId: co.id, email: 'ab@x.dev', name: 'Ab' });
   let d = (await api('/orders', 'GET', null, T)).data;
   assert.ok(d.abandoned.some((a) => a.email === 'ab@x.dev'));
+  // the recovery link goes back to the checkout they left
+  assert.match(d.abandoned.find((a) => a.email === 'ab@x.dev').link, new RegExp(`/f/${funnel.slug}/${co.slug}$`));
+  // the seller's own note and tags on an order
+  const oid = d.orders[0].id;
+  assert.deepEqual((await api(`/orders/${oid}`, 'PUT', { note: 'Called them', tags: ['VIP', ' VIP ', '', 'wholesale'] }, T)).data, { note: 'Called them', tags: ['VIP', 'wholesale'] });
+  assert.equal((await api('/orders', 'GET', null, T)).data.orders.find((o) => o.id === oid).note, 'Called them');
+  assert.equal((await api(`/orders/${oid}`, 'PUT', { note: 'x' }, (await register(api)).token)).status, 404, 'not someone else’s order');
   await api(`/public/${funnel.slug}/order`, 'POST', { stepId: co.id, email: 'ab@x.dev', address: ADDR });
   d = (await api('/orders', 'GET', null, T)).data;
   assert.ok(!d.abandoned.some((a) => a.email === 'ab@x.dev'));

@@ -699,16 +699,30 @@ registerSales(app, { auth, wrap, secret: SECRET, appUrl });
 
 const ORDERS_MAX = 5000; // newest first; CSV export covers the same list
 app.get('/api/orders', auth, (req, res) => {
-  const name = Object.fromEntries(T.funnels.all({ userId: req.user.id }).map((f) => [f.id, f.name]));
+  const fs_ = T.funnels.all({ userId: req.user.id });
+  const name = Object.fromEntries(fs_.map((f) => [f.id, f.name]));
+  const byId = Object.fromEntries(fs_.map((f) => [f.id, f]));
   const invoices = {};
   const bases = {}; // one domain lookup per funnel, not per invoice
   const baseOf = (fid) => (bases[fid] ??= linkBase(fid, process.env.APP_URL || appUrl(req)));
   for (const i of T.sinvoices.all({ userId: req.user.id }, { order: 'at' })) (invoices[i.orderId] ||= []).push({ id: i.id, number: i.number, type: i.type, total: i.total, url: invoiceUrl(baseOf(i.funnelId), i) });
   res.json({
     payments: !!rzpCreds(req.user),
-    orders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: ORDERS_MAX }).map((o) => ({ ...o, funnel: name[o.funnelId] || (o.quoteId ? o.funnelName : `${o.funnelName || 'Deleted funnel'} (deleted)`), invoices: invoices[o.id] || [] })),
-    abandoned: T.abandoned.all({ userId: req.user.id, recovered: 0 }, { order: 'at', desc: true, limit: ORDERS_MAX }).filter((a) => name[a.funnelId]).map((a) => ({ ...a, funnel: name[a.funnelId] })),
+    orders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: ORDERS_MAX }).map((o) => ({ ...o, funnel: name[o.funnelId] || (!o.funnelId ? o.funnelName || 'Direct' : `${o.funnelName || 'Deleted funnel'} (deleted)`), invoices: invoices[o.id] || [] })),
+    abandoned: T.abandoned.all({ userId: req.user.id, recovered: 0 }, { order: 'at', desc: true, limit: ORDERS_MAX }).filter((a) => name[a.funnelId]).map((a) => { const f = byId[a.funnelId], st = f.steps?.find((s) => s.id === a.stepId); return { ...a, funnel: name[a.funnelId], link: f.published ? funnelUrl(f, process.env.APP_URL || appUrl(req), st?.slug) : null }; }),
   });
+});
+
+// the seller's own note and tags on an order
+app.put('/api/orders/:id', auth, (req, res) => {
+  const o = T.orders.get(req.params.id);
+  if (!o || o.userId !== req.user.id) return res.status(404).json({ error: 'Order not found' });
+  const b = req.body || {};
+  const out = T.orders.update(o.id, (x) => {
+    if ('note' in b) x.note = String(b.note ?? '').slice(0, 2000);
+    if ('tags' in b) x.tags = [...new Set((Array.isArray(b.tags) ? b.tags : []).map((t) => String(t).trim().slice(0, 30)).filter(Boolean))].slice(0, 10);
+  });
+  res.json({ note: out.note || '', tags: out.tags || [] });
 });
 
 // ---------- public site: prices and company details for the landing, pricing and policy pages ----------
