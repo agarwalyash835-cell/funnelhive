@@ -80,7 +80,7 @@ export function Sparkline({ data, yKey, width = 96, height = 28 }) {
   if (!data?.length) return null;
   const max = Math.max(...data.map((d) => d[yKey]), 1);
   const pts = data.map((d, i) => `${(i / Math.max(1, data.length - 1)) * width},${height - 2 - (d[yKey] / max) * (height - 4)}`).join(' ');
-  return <svg width={width} height={height} className="spark" aria-hidden="true"><polyline points={pts} fill="none" stroke="var(--c-accent-2)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>;
+  return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="spark" aria-hidden="true"><polyline points={pts} fill="none" stroke="var(--c-accent-2)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>;
 }
 
 // Horizontal bars — one hue, values labelled in text ink

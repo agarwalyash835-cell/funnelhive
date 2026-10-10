@@ -82,7 +82,7 @@ export const Sources = ({ rows }) => (
 );
 
 const CHIPS = ['Webinar funnel for a yoga teacher training', 'Paid 1:1 strategy call with booking', 'Online course launch with an upsell', 'Free guide that grows my email list'];
-function PromptHero({ name, aiEnabled, onSample, seeding, showSample }) {
+function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample }) {
   const [prompt, setPrompt] = useState('');
   const [lang, setLang] = useState('en');
   const [hint, setHint] = useState(0);
@@ -95,6 +95,7 @@ function PromptHero({ name, aiEnabled, onSample, seeding, showSample }) {
     <section className="lv-hero">
       <div className="lv-glow" aria-hidden="true" />
       <p className="lv-hi">{hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}{name ? `, ${name}` : ''}</p>
+      {managedBy && <p className="lv-managed">You’re managing this account as {managedBy}</p>}
       <h1>What are you selling today?</h1>
       <p className="lv-sub">Describe it in a sentence. Hive AI drafts the whole funnel — sales page, checkout, upsell and thank-you.</p>
       <form className={`lv-box ${busy ? 'busy' : ''}`} onSubmit={go}>
@@ -116,6 +117,63 @@ function PromptHero({ name, aiEnabled, onSample, seeding, showSample }) {
     </section>
   );
 }
+// the business at a glance — a glance of the key numbers for the chosen period
+function Ring({ pct }) {
+  const r = 26, len = 2 * Math.PI * r, v = Math.max(0, Math.min(100, pct || 0));
+  return (
+    <svg viewBox="0 0 64 64" className="gl-ring" aria-hidden="true">
+      <circle cx="32" cy="32" r={r} className="gl-ring-bg" />
+      <circle cx="32" cy="32" r={r} className="gl-ring-fg" strokeDasharray={`${(len * v) / 100} ${len}`} />
+    </svg>
+  );
+}
+function Bento({ data, funnels, days, setDays }) {
+  const t = data.totals, p = data.prev;
+  const live = (funnels || []).filter((f) => f.published).length;
+  const best = [...(data.funnels || [])].sort((a, b) => b.revenue - a.revenue)[0];
+  const tile = (cls, label, value, now, prev, key) => (
+    <div className={`gl ${cls}`}>
+      <span className="gl-l">{label}</span>
+      <b className="gl-v">{value}</b>
+      <div className="gl-f"><Delta now={now} prev={prev} />{key && <Sparkline data={data.series} yKey={key} />}</div>
+    </div>
+  );
+  return (
+    <section className="lv-section">
+      <div className="lv-head"><h2>Your business at a glance</h2><RangePicker value={days} onChange={setDays} /></div>
+      <div className="glance">
+        <div className="gl gl-hero">
+          <span className="gl-l">Revenue · last {days} days</span>
+          <b className="gl-big">{inr(t.revenue)}</b>
+          <div className="gl-f"><Delta now={t.revenue} prev={p.revenue} /><span className="gl-sub">{num(t.orders)} orders · {inr(t.aov)} average</span></div>
+          <div className="gl-chart"><Sparkline data={data.series} yKey="revenue" width={520} height={70} /></div>
+        </div>
+        {tile('', 'Orders', num(t.orders), t.orders, p.orders, 'orders')}
+        {tile('', 'Leads', num(t.leads), t.leads, p.leads, 'leads')}
+        {tile('', 'Visitors', num(t.visitors), t.visitors, p.visitors, 'views')}
+        <div className="gl gl-conv">
+          <span className="gl-l">Conversion</span>
+          <div className="gl-row"><Ring pct={t.conversion} /><b className="gl-v">{t.conversion}%</b></div>
+          <div className="gl-f"><Delta now={t.conversion} prev={p.conversion} /><span className="gl-sub">visitors who buy</span></div>
+        </div>
+        {tile('', 'Avg. order value', inr(t.aov), t.aov, p.aov, null)}
+        <div className="gl gl-honey">
+          <span className="gl-l">Live funnels</span>
+          <b className="gl-v">{live}<small> / {(funnels || []).length}</small></b>
+          <Link className="gl-link" to="/funnels">Manage funnels →</Link>
+        </div>
+        {best && best.revenue > 0 && (
+          <Link className="gl gl-best" to={`/funnels/${best.id}/analytics`}>
+            <span className="gl-l">Best funnel</span>
+            <b className="gl-name">{best.name}</b>
+            <span className="gl-sub">{inr(best.revenue)} · {best.conversion}% conversion</span>
+          </Link>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // your funnels as preview cards (newest first)
 function FunnelCards({ list }) {
   if (!list?.length) return null;
@@ -163,7 +221,8 @@ export default function Dashboard() {
   return (
     <Layout>
       {create && <CreateFunnel onClose={() => setCreate(false)} aiEnabled={me?.aiEnabled} />}
-      <PromptHero name={me?.name?.split(' ')[0]} aiEnabled={me?.aiEnabled} onSample={seed} seeding={seeding} showSample={!!data && noData} />
+      <PromptHero name={me?.workspace ? me.workspace.name : me?.name?.split(' ')[0]} managedBy={me?.workspace ? me?.name?.split(' ')[0] : null} aiEnabled={me?.aiEnabled} onSample={seed} seeding={seeding} showSample={!!data && noData} />
+      {data && !noData && <Bento data={data} funnels={funnels} days={days} setDays={setDays} />}
       <FunnelCards list={funnels} />
       {!data ? <div className="skeleton" /> : noData ? (
         <div className="lv-how">
@@ -190,8 +249,7 @@ export default function Dashboard() {
           {me?.hasDemo && (
             <div className="demo-banner"><Icon name="sparkles" size={16} /><span><b>You’re viewing demo data.</b> It’s here so you can explore the dashboards — remove it before you go live.</span><button className="btn ghost sm" onClick={removeDemo}><Icon name="trash" size={14} /> Remove demo data</button></div>
           )}
-          <div className="lv-head lv-perf"><h2>Performance</h2><RangePicker value={days} onChange={setDays} /></div>
-          <Kpis data={data} />
+          <div className="lv-head lv-perf"><h2>Performance</h2></div>
           <div className="grid-2-1">
             <TrendPanel data={data} />
             <Panel title="Revenue by offer type"><OfferMix byKind={data.byKind} /><p className="hint">Bumps, upsells & cross-sells lift your average order value.</p></Panel>
