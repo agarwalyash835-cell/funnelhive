@@ -24,7 +24,7 @@ export async function startServer(env = {}, opts = {}) {
   child.stdout.on('data', (d) => { log += d; });
   child.stderr.on('data', (d) => { log += d; });
   const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 400; i++) { // up to 40 s: a busy machine (a build running) starts servers slowly
     try { await fetch(`${base}/api/templates`); break; } catch { await new Promise((r) => setTimeout(r, 100)); }
   }
   const api = async (p, method = 'GET', body, token, headers = {}) => {
