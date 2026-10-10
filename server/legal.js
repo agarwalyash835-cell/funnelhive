@@ -12,28 +12,38 @@ const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const PRIVACY_DEFAULTS = { banner: false, checkbox: false, consentText: '', policyUrl: '', grievanceName: '', grievanceEmail: '', refundDays: 7, address: '' };
 export const privacyOf = (u) => ({ ...PRIVACY_DEFAULTS, ...(u?.settings?.privacy || {}) });
-export const legalBase = (base, userId) => `${base}/legal/${userId}`;
+export const legalBase = (base, userId, f) => `${base}/legal/${userId}${legalOf(f) ? `/${f.id}` : ''}`;
+// a funnel's own business details (several brands in one workspace); blank fields use the workspace's
+export const LEGAL_FIELDS = { businessName: 120, email: 200, phone: 40, address: 400 };
+export const legalOf = (f) => { const l = f?.legal; return l && (Object.keys(LEGAL_FIELDS).some((k) => l[k]) || l.refundDays != null) ? l : null; };
+export function cleanLegal(b = {}) {
+  const out = {};
+  for (const [k, n] of Object.entries(LEGAL_FIELDS)) { const v = clip(b[k], n); if (v) out[k] = v; }
+  if (out.email && !EMAIL_RE.test(out.email)) return { error: 'Enter a valid email for this funnel’s legal pages' };
+  if (b.refundDays !== '' && b.refundDays != null) out.refundDays = Math.min(365, Math.max(0, Math.round(Number(b.refundDays) || 0)));
+  return out;
+}
 export const consentLine = (u) => privacyOf(u).consentText || `I agree to the Privacy Policy and to receive updates from ${u?.settings?.businessName || u?.name || 'the seller'} by email and WhatsApp. I can unsubscribe any time.`;
 
 // what a funnel page needs to show the banner and the consent line
-export function publicPrivacy(u, base) {
+export function publicPrivacy(u, base, f) {
   const p = privacyOf(u);
-  return { banner: !!p.banner, checkbox: !!p.checkbox, line: consentLine(u), policy: p.policyUrl || `${legalBase(base, u.id)}/privacy`, terms: `${legalBase(base, u.id)}/terms` };
+  return { banner: !!p.banner, checkbox: !!p.checkbox, line: consentLine(u), policy: p.policyUrl || `${legalBase(base, u.id, f)}/privacy`, terms: `${legalBase(base, u.id, f)}/terms` };
 }
 
 // ---------- the generated pages ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-function details(u) {
-  const inv = invoicingOf(u), p = privacyOf(u);
+function details(u, f) {
+  const inv = invoicingOf(u), p = privacyOf(u), l = legalOf(f) || {};
   return {
-    name: inv.legalName || u.settings?.businessName || u.name,
-    brand: u.settings?.businessName || inv.legalName || u.name,
-    email: p.grievanceEmail || u.channels?.email?.replyTo || inv.email || u.email,
-    phone: u.settings?.supportWhatsapp || '',
-    address: p.address || inv.address || '',
+    name: l.businessName || inv.legalName || u.settings?.businessName || u.name,
+    brand: l.businessName || u.settings?.businessName || inv.legalName || u.name,
+    email: l.email || p.grievanceEmail || u.channels?.email?.replyTo || inv.email || u.email,
+    phone: l.phone || u.settings?.supportWhatsapp || '',
+    address: l.address || p.address || inv.address || '',
     gstin: inv.gstin || '',
-    officer: p.grievanceName || inv.legalName || u.name,
-    refundDays: Number(p.refundDays) || 0,
+    officer: p.grievanceName || l.businessName || inv.legalName || u.name,
+    refundDays: l.refundDays != null ? Number(l.refundDays) || 0 : Number(p.refundDays) || 0,
   };
 }
 const PAGES = {
@@ -61,10 +71,10 @@ const PAGES = {
   contact: (d) => ['Contact Us', `
 <p><b>${esc(d.name)}</b></p>${d.address ? `<p>${esc(d.address)}</p>` : ''}<p>Email: ${esc(d.email)}</p>${d.phone ? `<p>WhatsApp / phone: ${esc(d.phone)}</p>` : ''}${d.gstin ? `<p>GSTIN: ${esc(d.gstin)}</p>` : ''}<p>We reply within 1–2 working days.</p>`],
 };
-export function legalPage(u, kind) {
+export function legalPage(u, kind, f) {
   const make = PAGES[kind];
   if (!make || !u) return null;
-  const d = details(u);
+  const d = details(u, f);
   const [title, body] = make(d);
   const nav = Object.keys(PAGES).map((k) => `<a href="${k}"${k === kind ? ' aria-current="page"' : ''}>${PAGES[k](d)[0].replace(' & Conditions', '').replace(' & Cancellation Policy', '').replace(' Policy', '')}</a>`).join(' · ');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · ${esc(d.brand)}</title><meta name="robots" content="index,follow">
@@ -128,5 +138,22 @@ export function registerLegal(app, { auth, appUrl }) {
     const html = legalPage(T.users.get(req.params.uid), req.params.kind);
     if (!html) return next();
     res.set('Cache-Control', 'public, max-age=300').type('html').send(html);
+  });
+  // one funnel's pages, with its own business details where it has them
+  app.get('/legal/:uid/:fid/:kind', (req, res, next) => {
+    const f = T.funnels.get(req.params.fid);
+    if (!f || f.userId !== req.params.uid) return next();
+    const html = legalPage(T.users.get(req.params.uid), req.params.kind, f);
+    if (!html) return next();
+    res.set('Cache-Control', 'public, max-age=300').type('html').send(html);
+  });
+  // the seller sets a funnel's legal details (kept out of the editor's autosave, so no version bump)
+  app.put('/api/funnels/:id/legal', auth, (req, res) => {
+    const f = T.funnels.get(req.params.id);
+    if (!f || f.userId !== req.user.id) return res.status(404).json({ error: 'Funnel not found' });
+    const l = cleanLegal(req.body || {});
+    if (l.error) return res.status(400).json(l);
+    const nf = T.funnels.update(f.id, (x) => { if (Object.keys(l).length) x.legal = l; else delete x.legal; });
+    res.json({ legal: nf.legal || null, pages: legalBase(process.env.APP_URL || appUrl(req), f.userId, nf) });
   });
 }

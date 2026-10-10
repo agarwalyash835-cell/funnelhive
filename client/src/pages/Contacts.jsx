@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Mail, Phone, MessageCircle, StickyNote, PhoneCall, ShoppingBag, Eye, LogIn, UserPlus, TrendingUp, TrendingDown, PackagePlus, ShoppingCart,
-  ArrowRightLeft, X, Plus, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays,
+  ArrowRightLeft, X, Plus, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, Upload, Download,
 } from 'lucide-react';
 import { api } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, inr, num, ago, downloadCSV } from '../ui';
@@ -32,7 +32,7 @@ export default function Contacts() {
   const [type, setType] = useState('all');
   const [view, setView] = useState(() => LS.get('ff_contacts_view', 'list'));
   const [pid, setPid] = useState(() => LS.get('ff_pipeline', ''));
-  const [modal, setModal] = useState(null); // 'add' | 'fields' | 'pipes'
+  const [modal, setModal] = useState(null); // 'add' | 'import' | 'fields' | 'pipes'
   const [picked, setPicked] = useState(() => new Set());
   const [autos, setAutos] = useState([]);
   useEffect(() => { api('/automations').then((d) => setAutos(d.automations.filter((a) => a.active))).catch(() => {}); }, []);
@@ -77,6 +77,7 @@ export default function Contacts() {
     <Layout title="Contacts" subtitle="Every lead and customer — with their full journey." wide={view === 'board'} actions={<>
       <button className="btn ghost" onClick={() => setModal('fields')}><SlidersHorizontal size={16} /> Custom fields</button>
       <button className="btn ghost" onClick={exportCsv} disabled={!rows.length}><Icon name="download" size={16} /> Export</button>
+      <button className="btn ghost" onClick={() => setModal('import')}><Upload size={16} /> Import CSV</button>
       <button className="btn primary" onClick={() => setModal('add')}><UserPlus size={16} /> Add contact</button>
     </>}>
       {!list ? <div className="skeleton" /> : (
@@ -141,6 +142,7 @@ export default function Contacts() {
       )}
       {key && list && <ContactPanel key={key} ckey={key} pipes={pipes} fields={fields} onClose={() => nav('/contacts')} onChanged={load} onEditFields={() => setModal('fields')} />}
       {modal === 'add' && <AddContact onClose={() => setModal(null)} onDone={(k) => { setModal(null); load().then(() => open(k)); }} />}
+      {modal === 'import' && <ImportContacts fields={fields} onClose={() => setModal(null)} onDone={load} />}
       {modal === 'fields' && <FieldsEditor fields={fields} onClose={() => setModal(null)} onSaved={(f) => { setFields(f); setModal(null); toast('Custom fields saved'); }} />}
       {modal === 'pipes' && <PipelinesEditor pipes={pipes} current={pipe?.id} onClose={() => setModal(null)} onSaved={(id) => { setModal(null); if (id) setPid(id); load(); }} />}
     </Layout>
@@ -236,6 +238,11 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
                 if (prompt(`Erase everything about ${label(c)}? Sign-ups, messages, bookings and product access are deleted; orders and invoices are kept for tax records without their name and contact details. This can’t be undone. Type ERASE to confirm.`) !== 'ERASE') return;
                 try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'DELETE'); toast('Contact erased'); onChanged?.(); onClose(); } catch (x) { toast(x.message); }
               }}><Trash2 size={17} /></button>
+              <button className="icon-btn" title="Download their data (a privacy access request)" onClick={async () => {
+                const r = await fetch(`/api/contacts/${encodeURIComponent(ckey)}/export`, { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token')}` } });
+                if (!r.ok) return toast((await r.json().catch(() => ({}))).error || 'Download failed');
+                const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `contact-${ckey.replace(/[^a-z0-9@._+-]/gi, '_').slice(0, 80)}.json`; a.click();
+              }}><Download size={17} /></button>
               <button className="icon-btn" onClick={onClose} title="Close"><X size={18} /></button>
             </header>
             <div className="cp-contact">
@@ -374,7 +381,7 @@ function Timeline({ items, ckey, onChanged }) {
 }
 
 function Details({ c, ckey, fields, onSaved, onEditFields }) {
-  const emailLocked = !!c.email && !ckey.startsWith('phone:') && c.source !== 'added by you';
+  const emailLocked = !!c.email && !ckey.startsWith('phone:') && c.source !== 'added by you' && !String(c.source).startsWith('import');
   const [v, setV] = useState({ name: c.name, email: c.email, phone: c.phone, tags: (c.tags || []).join(', '), custom: { ...c.custom } });
   const [busy, setBusy] = useState(false);
   const set = (k, val) => setV((x) => ({ ...x, [k]: val }));
@@ -421,6 +428,127 @@ function Details({ c, ckey, fields, onSaved, onEditFields }) {
 }
 
 // ---------------- modals ----------------
+// A small CSV reader: quoted fields (commas, quotes and line breaks inside), CRLF, a BOM, and ; or tab
+// separated files (Excel in some locales). Returns the rows as arrays of strings.
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  const head = text.slice(0, text.search(/\r?\n/) >>> 0);
+  const sep = [',', ';', '\t'].map((d) => [d, head.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const rows = [];
+  let row = [], f = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) { if (ch !== '"') f += ch; else if (text[i + 1] === '"') { f += '"'; i++; } else quoted = false; }
+    else if (ch === '"' && f === '') quoted = true;
+    else if (ch === sep) { row.push(f); f = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += ch;
+  }
+  if (f !== '' || row.length) { row.push(f); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ''));
+}
+const IMPORT_MAX = 10000;
+const IMPORT_TARGETS = [['email', 'Email', ['email', 'e-mail', 'email address', 'e-mail address', 'mail']], ['phone', 'Phone / WhatsApp', ['phone', 'mobile', 'whatsapp', 'number', 'phone number', 'mobile number', 'whatsapp number', 'contact number']],
+  ['name', 'Name', ['name', 'full name', 'fullname', 'contact name']], ['first', 'First name', ['first name', 'firstname', 'first']], ['last', 'Last name', ['last name', 'lastname', 'surname', 'last']],
+  ['tags', 'Tags', ['tags', 'tag', 'labels']], ['stage', 'Pipeline stage', ['stage', 'pipeline stage']], ['source', 'Source', ['source', 'lead source']], ['notes', 'Notes', ['notes', 'note', 'comments', 'remarks']]];
+const normH = (h) => String(h).trim().toLowerCase().replace(/[_\s]+/g, ' ');
+const autoTarget = (h, fields) => IMPORT_TARGETS.find(([, , al]) => al.includes(normH(h)))?.[0] || ((f) => f && `custom:${f.id}`)(fields.find((f) => normH(f.label) === normH(h))) || 'extra';
+const SAMPLE = [
+  { name: 'Priya Sharma', email: 'priya@example.com', phone: '+91 98765 43210', tags: 'vip; webinar', stage: 'New lead', source: 'Instagram', notes: 'Met at the Pune workshop' },
+  { name: 'Rahul Verma', email: '', phone: '+91 91234 56789', tags: 'follow-up', stage: 'Contacted', source: 'Referral', notes: '' },
+];
+
+function ImportContacts({ fields, onClose, onDone }) {
+  const [file, setFile] = useState(null); // { name, headers, rows }
+  const [map, setMap] = useState({});
+  const [tags, setTags] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  const read = (f) => {
+    if (!f) return;
+    if (f.size > 10 * 1024 * 1024) return toast('That file is over 10 MB — please split it');
+    const r = new FileReader();
+    r.onload = () => {
+      const all = parseCSV(String(r.result || ''));
+      if (all.length < 2) return toast('No rows found — the first line should be the column names');
+      const seen = {};
+      const headers = all[0].map((h, i) => { const b = h.trim() || `Column ${i + 1}`; seen[b] = (seen[b] || 0) + 1; return seen[b] > 1 ? `${b} (${seen[b]})` : b; });
+      const rows = all.slice(1).map((x) => Object.fromEntries(headers.map((h, i) => [h, (x[i] ?? '').trim()])));
+      setFile({ name: f.name, headers, rows });
+      setMap(Object.fromEntries(headers.map((h) => [h, autoTarget(h, fields)])));
+      setRes(null);
+    };
+    r.onerror = () => toast('Couldn’t read that file');
+    r.readAsText(f);
+  };
+  const hasId = Object.values(map).some((t) => t === 'email' || t === 'phone');
+  const tooMany = file && file.rows.length > IMPORT_MAX;
+  const run = async () => {
+    setBusy(true);
+    const used = file.headers.filter((h) => map[h]);
+    const mapping = Object.fromEntries(used.map((h) => [h, map[h]]));
+    const extra = tags.split(',').map((t) => t.trim()).filter(Boolean);
+    const out = { created: 0, updated: 0, skipped: 0, errors: [] };
+    try {
+      // in parts, so a big file stays under the request size limit
+      for (let i = 0; i < file.rows.length; i += 2000) {
+        const part = file.rows.slice(i, i + 2000).map((x) => Object.fromEntries(used.map((h) => [h, x[h]])));
+        const r = await api('/contacts/import', 'POST', { rows: part, mapping, tags: extra });
+        out.created += r.created; out.updated += r.updated; out.skipped += r.skipped;
+        out.errors.push(...r.errors.map((e) => ({ ...e, row: e.row + i })));
+      }
+      setRes(out); onDone();
+    } catch (e) { toast(e.message); if (out.created + out.updated) { setRes(out); onDone(); } }
+    setBusy(false);
+  };
+  const options = [['', 'Don’t import'], ...IMPORT_TARGETS.map(([k, l]) => [k, l]), ...fields.map((f) => [`custom:${f.id}`, `Custom field: ${f.label}`]), ['extra', 'Keep in a note']];
+  return (
+    <Modal title="Import contacts from a CSV file" onClose={onClose} width={760}>
+      <div className="m-body">
+        {res ? (
+          <div className="imp-res">
+            <div className="kpis imp-kpis">
+              <div className="kpi"><span className="kpi-l">Added</span><b className="kpi-v">{num(res.created)}</b></div>
+              <div className="kpi"><span className="kpi-l">Updated</span><b className="kpi-v">{num(res.updated)}</b></div>
+              <div className="kpi"><span className="kpi-l">Skipped</span><b className="kpi-v">{num(res.skipped)}</b></div>
+            </div>
+            {res.errors.length > 0 && <><h5 className="cp-h5">Rows to check</h5><ul className="imp-errs">{res.errors.slice(0, 50).map((e, i) => <li key={i}><b>Row {e.row}</b> {e.reason}</li>)}</ul></>}
+            <p className="hint">Imported contacts don’t start automations and aren’t counted as funnel sign-ups. Add them to an automation from the list if you want to.</p>
+            <div className="m-foot"><button className="btn primary" onClick={onClose}>Done</button></div>
+          </div>
+        ) : (
+          <>
+            <p className="hint top">The first line must be the column names. People already in your contacts (same email, or same phone number) are updated — nothing they gave you is overwritten. <a href="#" onClick={(e) => { e.preventDefault(); downloadCSV('contacts-sample.csv', SAMPLE); }}>Download a sample CSV</a></p>
+            <label className="imp-drop">
+              <input type="file" accept=".csv,text/csv,text/plain" onChange={(e) => read(e.target.files?.[0])} />
+              <Upload size={18} /> {file ? <span><b>{file.name}</b> · {num(file.rows.length)} rows — choose another file</span> : <span>Choose a CSV file</span>}
+            </label>
+            {file && <>
+              {tooMany && <p className="imp-warn">Up to {num(IMPORT_MAX)} rows at a time — this file has {num(file.rows.length)}. Please split it.</p>}
+              <h5 className="cp-h5">Match the columns</h5>
+              <div className="tbl-wrap imp-map">
+                <table className="tbl">
+                  <thead><tr><th>Column in your file</th><th>Goes into</th>{file.rows.slice(0, 5).map((_, i) => <th key={i} className="muted">Row {i + 1}</th>)}</tr></thead>
+                  <tbody>{file.headers.map((h) => (
+                    <tr key={h}>
+                      <td><b>{h}</b></td>
+                      <td><select value={map[h] ?? ''} onChange={(e) => setMap((m) => ({ ...m, [h]: e.target.value }))} aria-label={`What ${h} is`}>{options.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
+                      {file.rows.slice(0, 5).map((x, i) => <td key={i} className="imp-cell" title={x[h]}>{x[h]}</td>)}
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <div className="fld"><label>Add these tags to everyone (optional)</label><input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="imported, expo-2026" /><span className="hint">Separate with commas. A Tags column in the file is added too (tags separated by ; or ,).</span></div>
+              {!hasId && <p className="imp-warn">Pick the column that holds the email or the phone number — rows without either are skipped.</p>}
+            </>}
+            <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!file || !hasId || tooMany || busy} onClick={run}><Upload size={15} /> {busy ? 'Importing…' : file ? `Import ${num(file.rows.length)} rows` : 'Import'}</button></div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function AddContact({ onClose, onDone }) {
   const [v, setV] = useState({ name: '', email: '', phone: '' });
   const [busy, setBusy] = useState(false);

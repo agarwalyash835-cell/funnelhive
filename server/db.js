@@ -21,11 +21,34 @@ export const uid = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 export const JOBS = process.env.FF_JOBS !== '0';
 // One contact per email (or per phone number when there is no email)
 export const contactKey = (email, phone) => (email ? String(email).trim().toLowerCase() : phone ? `phone:${String(phone).trim()}` : '');
+// a phone typed at checkout: 10-digit Indian or +international, spaces and dashes dropped; '' when it isn't one
+export const checkoutPhone = (v) => { const p = String(v || '').replace(/[\s().-]/g, ''); return /^[6-9]\d{9}$/.test(p) || /^\+[1-9]\d{7,14}$/.test(p) ? p : ''; };
+// the same number written with or without +91 / spaces: compare the last 10 digits
+export const phoneTail = (v) => String(v || '').replace(/\D/g, '').slice(-10);
+// orders with this phone number (orders are keyed by email, so the number is looked up in the order itself)
+export const ordersByPhone = (where, phone, after = 0) => {
+  const t = phoneTail(phone);
+  if (t.length < 8) return [];
+  const [col, val] = where.funnelId ? ['funnelId', where.funnelId] : ['userId', where.userId];
+  return q(`SELECT data FROM orders WHERE ${col} = ? AND at > ? AND json_extract(data, '$.phone') LIKE ?`).all(val, after, `%${t.slice(-4)}`).map((r) => JSON.parse(r.data)).filter((o) => phoneTail(o.phone) === t);
+};
 
 const dbFile = path.join(dir, 'funnelhive.db');
 // databases created before the product was renamed (funnelforge.db) are picked up as they are
 const oldFile = path.join(dir, 'funnelforge.db');
 if (!fs.existsSync(dbFile) && fs.existsSync(oldFile)) for (const ext of ['', '-wal', '-shm']) if (fs.existsSync(oldFile + ext)) fs.renameSync(oldFile + ext, dbFile + ext);
+// a restore chosen in the admin panel (already checked) is swapped in before the database opens; the
+// database it replaces is kept in restore-safety/ so the restore itself can be undone
+export const restorePending = path.join(dir, 'restore-pending.db');
+export const safetyDir = path.join(dir, 'restore-safety');
+if (fs.existsSync(restorePending)) {
+  fs.mkdirSync(safetyDir, { recursive: true });
+  const keep = path.join(safetyDir, `before-restore-${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
+  if (fs.existsSync(dbFile)) fs.renameSync(dbFile, keep);
+  for (const ext of ['-wal', '-shm']) if (fs.existsSync(dbFile + ext)) fs.renameSync(dbFile + ext, keep + ext);
+  fs.renameSync(restorePending, dbFile);
+  console.log(`Restored the database from a backup; the previous one is kept as ${path.basename(keep)}`);
+}
 export const sql = new DatabaseSync(dbFile);
 // busy_timeout first: several app processes may open the database at the same moment
 sql.exec('PRAGMA busy_timeout = 10000');
@@ -64,7 +87,7 @@ const SCHEMA = {
   // inr: the order's value in rupees (foreign-currency orders × their exchange rate; refunds already
   // come off total). paid / net: what reports count — real money only (see paidOrder)
   orders: { cols: { userId: 0, funnelId: 0, ckey: (o) => contactKey(o.email), visitor: 0, source: 0, total: 0, inr: (o) => orderInr(o), paid: (o) => bool(paidOrder(o)), net: (o) => (paidOrder(o) ? orderInr(o) : 0), at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor'], ['funnelId', 'ckey']] },
-  abandoned: { cols: { userId: 0, funnelId: 0, ckey: (a) => contactKey(a.email), visitor: 0, at: 0, recovered: (a) => bool(a.recovered), demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'ckey'], ['userId', 'ckey'], ['visitor']] },
+  abandoned: { cols: { userId: 0, funnelId: 0, ckey: (a) => contactKey(a.email, a.phone),visitor: 0, at: 0, recovered: (a) => bool(a.recovered), demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'ckey'], ['userId', 'ckey'], ['visitor']] },
   coupons: { cols: { userId: 0, code: 0 }, unique: [['userId', 'code']] },
   webhooks: { cols: { userId: 0, status: 0, nextAt: 0, at: 0 }, index: [['userId', 'at'], ['status', 'nextAt']] },
   saved: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] },
@@ -102,6 +125,7 @@ const SCHEMA = {
   // webinars (schedule + joining link) and the people registered for each session
   webinars: { cols: { userId: 0, funnelId: 0, at: 0 }, index: [['userId', 'at'], ['funnelId']] },
   quotes: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // proposals with a pay link
+  notifications: { cols: { userId: 0, read: (n) => bool(n.read), at: 0 }, index: [['userId', 'at']] }, // the seller's bell: new orders, leads, bookings…
   registrations: { cols: { userId: 0, webinarId: 0, ckey: (r) => contactKey(r.email, r.phone), session: 0, at: 0 }, index: [['webinarId', 'session'], ['session'], ['userId', 'at'], ['webinarId', 'ckey']] },
   // GST invoices and credit notes a seller issues to their buyers
   sinvoices: { cols: { userId: 0, orderId: 0, number: 0, at: 0 }, unique: [['userId', 'number']], index: [['userId', 'at'], ['orderId']] },

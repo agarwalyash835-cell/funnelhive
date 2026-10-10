@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { T, Events, q, tx, uid, contactKey, dir as DATA_DIR, JOBS } from './db.js';
+import { T, Events, q, tx, uid, contactKey, testOrder, dir as DATA_DIR, JOBS } from './db.js';
 import { generateFunnel, editBlocks, aiEnabled, aiProvider, chatAI, AGENTS, runAgent } from './ai.js';
 import { templateList, getTemplate, matchTemplate } from './templates.js';
 import { applyActions, offlineChat } from './actions.js';
@@ -18,7 +18,7 @@ import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm } from './crm.js';
 import { initMessaging, registerChannels, sendEmail } from './messaging.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, registerRazorpaySettings } from './razorpay.js';
-import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit } from './domains.js';
+import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit, pagesBase, sitemapUrls, sitemapXml, robotsTxt } from './domains.js';
 import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerHive } from './hive.js';
 import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, creditsShort, usageSummary, AI_COST, pricing } from './billing.js';
@@ -51,6 +51,8 @@ import { registerObserve, requestMetrics, reportError } from './observe.js';
 import { sellerTz, offsetAt, validTz, COMMON_TZ, zoned } from './tz.js';
 import { dropRollups, trimRollups } from './rollup.js';
 import { registerWebinars, registrationFor, previewSession } from './webinars.js';
+import { notify, money, registerNotifications, unreadCount } from './notify.js';
+import { checkoutPhone, phoneTail, ordersByPhone } from './db.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
@@ -321,12 +323,13 @@ app.get('/api/me', auth, (req, res) => {
       used: { products: T.products.exists({ userId: req.user.id }), quotes: T.quotes.exists({ userId: req.user.id }), bookings: T.bookings.exists({ userId: req.user.id }), webinars: T.webinars.exists({ userId: req.user.id }), automations: T.automations.exists({ userId: req.user.id }), broadcasts: T.broadcasts.exists({ userId: req.user.id }) },
       ship: q("SELECT COUNT(*) AS n FROM orders WHERE userId = ? AND json_extract(data, '$.fulfilment.status') = 'pending' AND json_extract(data, '$.status') NOT IN ('cancelled', 'refunded')").get(req.user.id).n,
       calls: T.bookings.count({ userId: req.user.id, status: 'confirmed', start: { gte: Date.now(), lte: Date.now() + 86400000 } }),
+      unread: unreadCount(req.user.id), // notifications (the bell)
     },
     onboarding: {
       funnel: funnels.n > 0,
       published: funnels.pub > 0,
       payments: !!(s.payments.razorpayKey || s.payments.stripeKey || s.payments.cashfreeKey || s.payments.phonepeKey),
-      tracking: !!(s.tracking.fbPixel || s.tracking.ga4),
+      tracking: !!(s.tracking.fbPixel || s.tracking.ga4 || s.tracking.googleAds?.conversionId),
       lead: T.leads.exists({ userId: req.user.id }),
     },
   });
@@ -358,6 +361,17 @@ app.put('/api/settings', auth, wrap(async (req, res) => {
       const v = String(body.tracking.ga4 ?? '').trim().toUpperCase();
       if (v && !/^G-[A-Z0-9]{4,20}$/.test(v)) return res.status(400).json({ error: 'The Google Analytics 4 ID looks like G-XXXXXXX (from Admin → Data streams)' });
       next.tracking.ga4 = v;
+    }
+    // Google Ads: the AW- tag id plus one conversion label per action (any can be blank)
+    if (body.tracking.googleAds && typeof body.tracking.googleAds === 'object') {
+      const g = body.tracking.googleAds, ads = {};
+      ads.conversionId = String(g.conversionId ?? '').trim().toUpperCase();
+      if (ads.conversionId && !/^AW-\d{6,12}$/.test(ads.conversionId)) return res.status(400).json({ error: 'The Google Ads conversion ID looks like AW-123456789 (Tools → Conversions → Tag setup)' });
+      for (const k of ['purchaseLabel', 'leadLabel', 'bookingLabel']) {
+        ads[k] = String(g[k] ?? '').trim();
+        if (ads[k] && !/^[\w-]{4,40}$/.test(ads[k])) return res.status(400).json({ error: 'A Google Ads conversion label is the part after the slash, e.g. AbC-D_efG12' });
+      }
+      next.tracking.googleAds = ads;
     }
   }
   if (body.invoicing && typeof body.invoicing === 'object') {
@@ -923,6 +937,7 @@ registerAdSpend(app, { auth, wrap });
 registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signFor: sign });
 registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
 registerFulfilment(app, { auth, appUrl });
+registerNotifications(app, { auth });
 
 // Templates ship with a placeholder WhatsApp number. On live pages it becomes the seller's
 // "Support WhatsApp" from Settings; with none set, the button is hidden instead of linking nowhere.
@@ -944,7 +959,7 @@ const funnelIso = (f) => isoOf(f.steps.flatMap((s) => allBlocks(s)).find((b) => 
 function publicData(f, owner = T.users.get(f.userId)) {
   const t = owner?.settings?.tracking || {};
   const inv = invoicingOf(owner);
-  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '') } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: { fbPixel: t.fbPixel || '', ga4: t.ga4 || '' }, ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}) };
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f) } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: { fbPixel: t.fbPixel || '', ga4: t.ga4 || '', ...(t.googleAds?.conversionId ? { googleAds: t.googleAds } : {}) }, ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}) };
 }
 app.get('/api/public/:slug', (req, res) => {
   const f = pub(req, res);
@@ -1004,23 +1019,36 @@ app.post('/api/public/:slug/lead', (req, res) => {
     fireWebhook(f.userId, 'lead.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}) });
     fireAutomation(f.userId, 'lead', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { accessLink: access.library } : {}) });
     trackServer(f.userId, { name: 'Lead', id: eventId, buyer: lead, tk: cleanTk(req.body.tk, req) });
+    notify(f.userId, { kind: 'lead', title: `${qualified === undefined ? 'New lead' : qualified ? 'New application (qualified)' : 'New application (not a fit)'} · ${lead.name || cleanEmail || cleanPhone} · ${f.name}`, body: [cleanEmail, cleanPhone].filter(Boolean).join(' · '), link: `/contacts/${encodeURIComponent(contactKey(cleanEmail, cleanPhone))}` });
   }
   res.json({ ok: true, eventId, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
 });
 
+// An abandoned checkout: an email, or only a valid phone number (WhatsApp follow-up), and no order yet
 app.post('/api/public/:slug/abandon', (req, res) => {
   const f = pub(req, res);
   if (!f) return;
-  const email = String(req.body.email || '').trim().slice(0, 200), name = String(req.body.name || '').slice(0, 120), phone = String(req.body.phone || '').slice(0, 40);
+  let email = String(req.body.email || '').trim().slice(0, 200);
+  const name = String(req.body.name || '').slice(0, 120), raw = String(req.body.phone || '').slice(0, 40);
+  if (!EMAIL_RE.test(email)) email = '';
+  const ph = checkoutPhone(raw), phone = ph || raw;
   const stepId = f.steps.some((s) => s.id === req.body.stepId) ? req.body.stepId : null;
-  const ckey = contactKey(email);
-  if (!isPreview(req) && email && EMAIL_RE.test(email) && !T.orders.exists({ funnelId: f.id, ckey })) {
-    const ex = T.abandoned.find({ funnelId: f.id, ckey });
-    if (ex) T.abandoned.put(Object.assign(ex, { name: name || ex.name, phone: phone || ex.phone, visitor: ex.visitor || visitorOf(req), at: Date.now() }));
-    else { const attr = cleanAttr(req.body.attr); T.abandoned.insert({ id: uid(), userId: f.userId, funnelId: f.id, stepId, email: String(email).slice(0, 200), name: String(name || '').slice(0, 120), phone: String(phone || '').slice(0, 40), visitor: visitorOf(req), at: Date.now(), recovered: false, ...(attr ? { attr } : {}) }); }
+  const ckey = contactKey(email, ph);
+  if (!isPreview(req) && (email || ph) && !T.orders.exists({ funnelId: f.id, ckey }) && !(ph && ordersByPhone({ funnelId: f.id }, ph).length)) {
+    // a phone-only cart becomes this one once the email is typed too
+    const ex = T.abandoned.find({ funnelId: f.id, ckey }) || (email && ph && T.abandoned.find({ funnelId: f.id, ckey: contactKey(null, ph) }));
+    if (ex) T.abandoned.put(Object.assign(ex, { email: email || ex.email, name: name || ex.name, phone: phone || ex.phone, visitor: ex.visitor || visitorOf(req), at: Date.now() }));
+    else { const attr = cleanAttr(req.body.attr); T.abandoned.insert({ id: uid(), userId: f.userId, funnelId: f.id, stepId, email, name, phone, visitor: visitorOf(req), at: Date.now(), recovered: false, ...(attr ? { attr } : {}) }); }
   }
   res.json({ ok: true });
 });
+// a purchase recovers the funnel's abandoned checkouts with the buyer's email or phone number
+function recoverAbandoned(f, buyer) {
+  const rows = buyer.email ? T.abandoned.all({ funnelId: f.id, ckey: contactKey(buyer.email) }) : [];
+  const t = phoneTail(buyer.phone);
+  if (t.length >= 8) rows.push(...T.abandoned.all({ funnelId: f.id, recovered: 0 }).filter((a) => !rows.some((r) => r.id === a.id) && phoneTail(a.phone) === t));
+  for (const a of rows) { a.recovered = true; T.abandoned.put(a); }
+}
 
 // Finds a usable coupon for this funnel; { coupon } or { reason } explaining why not
 function couponFor(f, code, { email, subtotal } = {}) {
@@ -1124,7 +1152,7 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
         const id = uid();
         for (const it of items) it.txn = `${id}-${items.length}`;
         order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...((payment?.currency || funnelIso(f)) !== 'INR' ? { currency: payment?.currency || funnelIso(f), fx: fxRate(payment?.currency || funnelIso(f)) } : {}) });
-        if (buyer.email) for (const a of T.abandoned.all({ funnelId: f.id, ckey: contactKey(buyer.email) })) { a.recovered = true; T.abandoned.put(a); }
+        recoverAbandoned(f, buyer);
       }
     });
     const updated = order.items.length > items.length;
@@ -1146,6 +1174,8 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
       // a Cash on Delivery order is a real sale: reported now; invoiced and delivered when the cash is collected
       trackServer(f.userId, { name: 'Purchase', id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
     } else if (items.some((it) => it.productId)) order = T.orders.update(order.id, (o) => { o.undelivered = true; }) || order; // demo checkout: nothing is handed out without a payment
+    // the seller's bell (sample-data orders aside); test-mode sales are marked so they aren't mistaken for money
+    if (!order.demo) notify(f.userId, { kind: 'order', title: `${updated ? 'Upsell' : cod ? 'New COD order' : 'New order'} · ${money(charge.total, order.currency || 'INR')} · ${order.name || order.email || order.phone || 'a buyer'}${testOrder(order) ? ' (test)' : ''}`, body: `${items.map((it) => it.name).join(', ')} — ${f.name}`, link: '/orders' });
     const { userId, ...out } = order;
     fireWebhook(f.userId, updated ? 'order.updated' : 'order.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}), ...(invoice ? { invoice } : {}) });
     fireAutomation(f.userId, updated ? 'offer' : 'purchase', { email: order.email, phone: order.phone, name: order.name, funnelId: f.id, product: items[0]?.name, amount: charge.total, source: order.source, ...(access ? { accessLink: access.library } : {}), ...(invoice ? { invoiceLink: invoice } : {}) });
@@ -1396,6 +1426,19 @@ app.get(['/f/:slug', '/f/:slug/:step'], (req, res, next) => {
   // an unknown or unpublished funnel is a real 404 (not a 200 page search engines would index)
   if (!f || !draftOk(f, req)) return res.status(404).set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace('<!--ff-head-->', '<meta name="robots" content="noindex">'));
   renderFunnel(req, res, f, req.params.step, { preview });
+});
+// robots.txt + sitemap of every live funnel on the pages address (funnels on a seller's own domain are listed there instead)
+const liveBase = (req) => pagesBase() || appUrl(req);
+app.get('/robots.txt', (req, res) => res.set('Cache-Control', 'public, max-age=3600').type('text').send(robotsTxt(liveBase(req))));
+app.get('/sitemap.xml', (req, res) => {
+  const live = new Map(), urls = [];
+  for (const f of T.funnels.iter({}, { order: 'updatedAt', desc: true })) {
+    if (!f.published || domainOfFunnel(f.id)) continue;
+    if (!live.has(f.userId)) live.set(f.userId, !!accessFor(ownerOf(f)).pagesLive);
+    if (live.get(f.userId)) urls.push(...sitemapUrls(f, liveBase(req), false));
+    if (urls.length >= 50000) break; // the sitemap format's limit
+  }
+  res.set('Cache-Control', 'public, max-age=3600').type('application/xml').send(sitemapXml(urls.slice(0, 50000)));
 });
 function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } = {}) {
   if (!indexHtml) return res.status(503).type('text').send('The app is not built yet');

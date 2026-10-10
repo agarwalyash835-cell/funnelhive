@@ -82,7 +82,51 @@ function Overview() {
           <div><span>Latest backup</span><b>{s.backups[0] ? `${s.backups[0].name.replace(/^funnelhive-|\.db$/g, '')} · ${mb(s.backups[0].bytes)}` : 'None yet'}</b></div>
         </div>
       </Panel>
+      <Restore />
     </div>
+  );
+}
+
+// Restore the whole database from a backup (on this server or off-site). Checked before it's used; the
+// database it replaces is kept, so a restore can itself be undone.
+function Restore() {
+  const [b, setB] = useState(null);
+  const [pick, setPick] = useState(null);
+  const [word, setWord] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = () => api('/admin/backups').then(setB).catch((e) => setB({ error: e.message }));
+  const go = async () => {
+    setBusy(true);
+    try {
+      const r = await api('/admin/restore', 'POST', { ...pick, confirm: word });
+      toast(r.restarting ? 'Restoring — the app restarts in a few seconds' : 'Staged — restart the server to finish the restore');
+      setPick(null);
+      if (r.restarting) setTimeout(() => location.reload(), 15000);
+    } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const day = (n) => n.replace(/^(funnelhive|before-restore)-|\.db$/g, '');
+  const row = (from, name, label, size) => <div key={`${from}${name}`} className="rs-row"><span><b>{label}</b>{size && <small className="muted"> · {size}</small>}</span><button className="btn ghost sm" onClick={() => { setPick({ from, name }); setWord(''); }}>Restore…</button></div>;
+  return (
+    <Panel title="Backups & restore" actions={!b && <button className="btn ghost sm" onClick={load}>Show backups</button>}>
+      {!b ? <p className="muted sm">A backup is taken every 6 hours (one file per day). The last 7 days stay on this server; with file storage connected, 90 days are kept off-site.</p> : b.error ? <p className="err">{b.error}</p> : (
+        <div className="rs">
+          <div><h4>Off-site ({Array.isArray(b.bucket) ? b.bucket.length : 0})</h4>{Array.isArray(b.bucket) ? (b.bucket.length ? b.bucket.slice(0, 30).map((n) => row('bucket', n, day(n))) : <p className="muted sm">None yet — connect File storage in Plan & settings.</p>) : <p className="err">{b.bucket.error}</p>}</div>
+          <div><h4>On this server ({b.local.length})</h4>{b.local.map((f) => row('local', f.name, day(f.name), mb(f.bytes)))}</div>
+          {b.safety.length > 0 && <div><h4>Before earlier restores</h4>{b.safety.map((n) => row('safety', n, day(n)))}</div>}
+        </div>
+      )}
+      {pick && (
+        <Modal title={`Restore the backup from ${day(pick.name)}?`} onClose={() => setPick(null)} width={500}>
+          <div className="m-body">
+            <p>Everything — every account, funnel, order and contact — goes back to how it was in this backup. Anything that happened after it is replaced.</p>
+            <p className="muted sm">Today’s data is backed up first, and the current database is kept under “Before earlier restores”, so you can undo this. The app restarts and is offline for a few seconds.</p>
+            <label className="fld"><span>Type RESTORE to confirm</span><input value={word} onChange={(e) => setWord(e.target.value)} autoFocus /></label>
+            <div className="m-foot"><button className="btn ghost" onClick={() => setPick(null)}>Cancel</button><button className="btn danger" disabled={word !== 'RESTORE' || busy} onClick={go}>{busy ? 'Checking the backup…' : 'Restore'}</button></div>
+          </div>
+        </Modal>
+      )}
+    </Panel>
   );
 }
 

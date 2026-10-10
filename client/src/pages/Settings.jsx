@@ -70,6 +70,12 @@ export default function Settings() {
             <label>Meta (Facebook) Pixel ID<input value={s.tracking.fbPixel} onChange={(e) => set({ tracking: { ...s.tracking, fbPixel: e.target.value } })} placeholder="123456789012345" /></label>
             <label>Google Analytics 4 ID<input value={s.tracking.ga4} onChange={(e) => set({ tracking: { ...s.tracking, ga4: e.target.value } })} placeholder="G-XXXXXXX" /></label>
           </div>
+          <p className="muted sm">Google Ads conversions: the AW- id and the label of each conversion action (Google Ads → Goals → Conversions → Tag setup). Leave a label blank to skip that action.</p>
+          <div className="form2">
+            {[['conversionId', 'Google Ads conversion ID', 'AW-123456789'], ['purchaseLabel', 'Purchase label', 'AbC-D_efG12'], ['leadLabel', 'Lead label', ''], ['bookingLabel', 'Booking label', '']].map(([k, l, ph]) => (
+              <label key={k}>{l}<input value={s.tracking.googleAds?.[k] || ''} onChange={(e) => set({ tracking: { ...s.tracking, googleAds: { ...s.tracking.googleAds, [k]: e.target.value } } })} placeholder={ph} /></label>
+            ))}
+          </div>
           <button className="btn primary" onClick={() => save()}>Save tracking</button>
           <ServerTracking pixel={s.tracking.fbPixel} ga4={s.tracking.ga4} />
         </Panel>

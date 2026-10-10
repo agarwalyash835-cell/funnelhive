@@ -905,7 +905,7 @@ function Checkout({ p, ctx }) {
     ctx.onCoupon?.(pending).then((r) => { if (r?.valid) setCoupon(r); });
   }, [ctx.live]);
   // Capture the email as soon as it's typed so abandoned checkouts can be followed up
-  const onEmailBlur = () => { if (ctx.live && /\S+@\S+\.\S+/.test(f.email)) ctx.onAbandon?.(f); };
+  const onEmailBlur = () => { if (ctx.live && (/\S+@\S+\.\S+/.test(f.email) || String(f.phone || '').replace(/\D/g, '').length >= 10)) ctx.onAbandon?.(f); };
   const apply = async () => {
     if (!ctx.live || !code) return;
     setCErr('');

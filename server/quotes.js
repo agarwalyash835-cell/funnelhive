@@ -13,6 +13,7 @@ import { stripeCreds, startStripePayment, confirmedIntent, CURRENCIES } from './
 import { issueInvoice, invoiceUrl, cleanBuyerGst } from './sales.js';
 import { linkBase } from './products.js';
 import { fxRate } from './fx.js';
+import { notify } from './notify.js';
 
 const DAY = 86400000;
 const ISO = [...new Set(Object.values(CURRENCIES))];
@@ -99,6 +100,7 @@ export function confirmQuotePayment(pay, paymentId, base) {
   const money = fmt(item.price, iso);
   if (c.email) sendEmail(owner, { to: c.email, subject: `Payment received — ${quote.title}`, text: `Hi ${c.name.split(/\s+/)[0] || 'there'},\n\nThank you — we received ${money} for “${quote.title}” (${quote.number}).${q2.status === 'deposit_paid' ? ` The balance of ${fmt(dueNow(q2), iso)} can be paid any time from the same link.` : ''}${link ? `\n\nYour invoice: ${link}` : ''}\n\n— ${biz}` }).catch((e) => console.error('quote receipt failed', e.message));
   sendEmail(owner, { to: owner.email, subject: `${c.name || c.email} paid ${money} — ${quote.number}`, text: `${c.name || c.email} paid ${money} for “${quote.title}” (${quote.number}).${q2.status === 'deposit_paid' ? `\nBalance still due: ${fmt(dueNow(q2), iso)}.` : '\nThe quote is now fully paid.'}` }).catch(() => {});
+  notify(quote.userId, { kind: 'quote_paid', title: `${q2.status === 'deposit_paid' ? 'Deposit paid' : 'Quote paid'} · ${money} · ${c.name || c.email}${pay.mode === 'test' ? ' (test)' : ''}`, body: `${quote.title} (${quote.number})`, link: '/quotes' });
   const { userId, ...out } = order;
   fireWebhook(quote.userId, 'order.created', { funnel: `Quote ${quote.number}`, ...out, ...(link ? { invoice: link } : {}) });
   fireAutomation(quote.userId, 'purchase', { email: c.email, phone: c.phone, name: c.name, funnelId: null, product: quote.title, amount: item.price, source: 'quote' });
@@ -168,6 +170,7 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     if (paidOf(q) > 0) return res.status(400).json({ error: 'This quote has already been paid' });
     const x = T.quotes.update(q.id, (y) => { y.status = 'declined'; y.declineReason = clip(req.body?.reason, 500); y.updatedAt = Date.now(); });
     const owner = T.users.get(q.userId);
+    notify(q.userId, { kind: 'quote_declined', title: `Quote declined · ${q.client.name || q.client.email} · ${q.number}`, body: x.declineReason || q.title, link: '/quotes' });
     sendEmail(owner, { to: owner.email, subject: `${q.client.name || 'Your client'} declined ${q.number}`, text: `${q.client.name || q.client.email} declined “${q.title}” (${q.number}).${x.declineReason ? `\n\nReason: ${x.declineReason}` : ''}` }).catch(() => {});
     res.json(publicView(x));
   });

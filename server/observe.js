@@ -4,8 +4,10 @@
 //   SENTRY_DSN=https://<key>@<host>/<project> — server errors are reported (stack, route, user id — no request bodies)
 //   LOG_REQUESTS=1           — one JSON line per request (method, path, status, ms)
 import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
-import { T, q, JOBS, dbBytes, backupFiles, offsiteStatus } from './db.js';
+import { T, q, JOBS, dbBytes, backupFiles, offsiteStatus, dir } from './db.js';
 
 const startedAt = Date.now();
 const worker = process.env.WORKER_INDEX || '0';
@@ -50,6 +52,17 @@ function queues() {
 }
 
 export function registerObserve(app) {
+  // for an uptime monitor: 503 when no backup (or, with file storage, no off-site copy) succeeded in 30 hours
+  app.get('/api/health/backups', async (req, res) => {
+    const { s3Enabled } = await import('./storage.js');
+    const fresh = (t) => t && Date.now() - t < 30 * 3600000;
+    const f = backupFiles()[0], off = offsiteStatus(), booting = Date.now() - startedAt < 15 * 60000;
+    let local = false;
+    try { local = !!f && fresh(fs.statSync(path.join(dir, 'backups', f.name)).mtimeMs); } catch {}
+    const offsite = !s3Enabled() ? null : off ? off.ok && fresh(off.at) : booting;
+    const ok = (local || booting) && offsite !== false;
+    res.set('Cache-Control', 'no-store').status(ok ? 200 : 503).json({ ok, local, offsite });
+  });
   app.get('/api/health', (req, res) => {
     let db = true;
     try { q('SELECT 1').get(); } catch { db = false; }

@@ -35,6 +35,14 @@ export function funnelUrl(f, origin, stepSlug) {
   if (d) return `https://${d}${stepSlug ? `/${stepSlug}` : ''}`;
   return `${pagesBase() || origin}/f/${f.slug}${stepSlug ? `/${stepSlug}` : ''}`;
 }
+// Sitemaps list the pages worth finding in search: not checkout, upsell or thank-you steps (they only make sense
+// mid-purchase), nor a step its owner marked noindex
+const MID_FUNNEL = new Set(['checkout', 'upsell', 'downsell', 'thankyou']);
+export const sitemapUrls = (f, base, onDomain) => (f.steps || []).filter((s) => !MID_FUNNEL.has(s.type) && !s.seo?.noindex)
+  .map((s) => ({ loc: `${base}${onDomain ? '' : `/f/${f.slug}`}${s === f.steps[0] ? (onDomain ? '/' : '') : `/${s.slug}`}`, lastmod: f.updatedAt }));
+const xmlEsc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]);
+export const sitemapXml = (urls) => `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `<url><loc>${xmlEsc(u.loc)}</loc>${u.lastmod ? `<lastmod>${new Date(u.lastmod).toISOString().slice(0, 10)}</lastmod>` : ''}</url>\n`).join('')}</urlset>\n`;
+export const robotsTxt = (base) => `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`;
 // what buyers open from a live page (libraries, invoices, bookings, webinars, shared reports) — served on the
 // pages domain and on sellers' own domains alike, so the two lists can't drift apart
 const BUYER = 'access|invoice|booking|meet|webinar|legal|share|report', BUYER_API = 'public|access|access-recover|booking|meet|webinar-reg|report|share';
@@ -169,7 +177,8 @@ export function domainRouter(renderFunnel) {
     if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
     const f = T.funnels.get(d.funnelId);
     if (!f || !f.published) return res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><title>Not available</title><p style="font:16px system-ui;padding:40px;text-align:center">This page isn’t available right now.</p>');
-    if (req.path === '/robots.txt') return res.type('text').send('User-agent: *\nAllow: /\n');
+    if (req.path === '/robots.txt') return res.set('Cache-Control', 'public, max-age=3600').type('text').send(robotsTxt(`https://${d.domain}`));
+    if (req.path === '/sitemap.xml') return res.set('Cache-Control', 'public, max-age=3600').type('application/xml').send(sitemapXml(sitemapUrls(f, `https://${d.domain}`, true)));
     const m = /^\/([a-z0-9-]*)\/?$/i.exec(req.path);
     if (!m) { const qs = req.originalUrl.indexOf('?'); return res.redirect(302, qs < 0 ? '/' : `/${req.originalUrl.slice(qs)}`); } // keep UTM / fbclid
     return renderFunnel(req, res, f, m[1] || null, { domain: d.domain });

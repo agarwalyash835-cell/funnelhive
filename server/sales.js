@@ -15,6 +15,7 @@ import { fire as fireAutomation } from './automations.js';
 import { linkBase } from './products.js';
 import { stripeCreds, stripeRefund } from './stripe.js';
 import { trackServer } from './tracking.js';
+import { notify, money } from './notify.js';
 
 let SECRET = '';
 const r2 = (x) => Math.round(x * 100) / 100;
@@ -201,6 +202,7 @@ export function refundFromWebhook(owner, entity) {
     const pick = open.slice(0, n).filter((_, k) => mask & (1 << k));
     if (Math.abs(pick.reduce((s, [it]) => s + Number(it.price || 0), 0) - amount) < 0.01) { items = pick.map(([, i]) => i); break; }
   }
+  notify(owner.id, { kind: 'refund', title: `Refund · ${money(amount, order.currency || 'INR')} · ${order.name || order.email || order.phone}`, body: 'Refunded in Razorpay', link: '/orders' });
   return applyRefund(owner, order.id, [{ items, amount, refundId: rid, paymentId: pid }], { reason: 'Refunded in Razorpay', by: 'razorpay' });
 }
 

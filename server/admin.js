@@ -1,10 +1,13 @@
 // Admin panel API (platform owners only): business metrics, sellers, plan & price settings,
 // invoices, audit log, backups. Every change an admin makes is written to the audit log.
 import os from 'node:os';
-import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus } from './db.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus, restorePending, safetyDir, dir as dataDir } from './db.js';
 import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE, DEFAULTS } from './platform.js';
 import { decrypt } from './messaging.js';
-import { s3Enabled, storageFromEnv, testStorage } from './storage.js';
+import { s3Enabled, storageFromEnv, testStorage, listKeys, getObject } from './storage.js';
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
 import { call as rzpCall } from './razorpay.js';
 import { deleteAccount } from './account.js';
@@ -222,4 +225,41 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   app.get('/api/admin/invoices/:iid', ...A, (req, res) => { const i = T.invoices.get(req.params.iid); i ? res.json(i) : res.status(404).json({ error: 'Not found' }); });
   app.get('/api/admin/audit', ...A, (req, res) => res.json(T.audit.all({}, { order: 'at', desc: true, limit: 300 })));
   app.post('/api/admin/backup', ...A, wrap(async (req, res) => { const f = await backupNow(); audit(req, null, 'backup'); res.json({ ok: !!f, backups: backupFiles() }); }));
+
+  // ---------- restore ----------
+  // every backup we can restore from: on this server, and off-site in the storage bucket
+  app.get('/api/admin/backups', ...A, wrap(async (req, res) => {
+    let bucket = [];
+    if (s3Enabled()) { try { bucket = (await listKeys('backups/')).filter((k) => /^backups\/funnelhive-\d{4}-\d{2}-\d{2}\.db$/.test(k)).map((k) => k.slice(8)).sort().reverse(); } catch (e) { bucket = { error: e.message }; } }
+    res.json({ local: backupFiles(), bucket, safety: fs.existsSync(safetyDir) ? fs.readdirSync(safetyDir).filter((n) => n.endsWith('.db')).sort().reverse() : [] });
+  }));
+  // a restore is checked (opens, passes SQLite's integrity check, has accounts), staged, then swapped in when the
+  // app restarts — the database it replaces is kept, so a wrong restore can itself be restored back
+  app.post('/api/admin/restore', ...A, wrap(async (req, res) => {
+    const { name, from } = req.body || {};
+    if (req.body?.confirm !== 'RESTORE') return res.status(400).json({ error: 'Type RESTORE to confirm' });
+    if (!/^[\w.-]+\.db$/.test(String(name || ''))) return res.status(400).json({ error: 'Choose a backup' });
+    const tmp = `${restorePending}.partial`;
+    try {
+      if (from === 'bucket') { if (!s3Enabled()) return res.status(400).json({ error: 'File storage isn’t connected' }); fs.writeFileSync(tmp, await getObject(`backups/${name}`)); }
+      else {
+        const src = path.join(from === 'safety' ? safetyDir : path.join(dataDir, 'backups'), name);
+        if (!fs.existsSync(src)) return res.status(404).json({ error: 'That backup isn’t there any more' });
+        fs.copyFileSync(src, tmp);
+      }
+      const db = new DatabaseSync(tmp, { readOnly: true });
+      try {
+        const ok = db.prepare('PRAGMA integrity_check').get();
+        if (Object.values(ok)[0] !== 'ok') throw new Error('the file failed SQLite’s integrity check');
+        if (!db.prepare('SELECT COUNT(*) AS n FROM users').get().n) throw new Error('it has no accounts in it');
+      } finally { db.close(); }
+    } catch (e) { fs.rmSync(tmp, { force: true }); return res.status(400).json({ error: `That backup can’t be used: ${e.message}` }); }
+    await backupNow(); // today's state is saved (and copied off-site) before it's replaced
+    fs.renameSync(tmp, restorePending);
+    audit(req, null, 'restore', `${from || 'local'}:${name}`);
+    const restart = process.env.NODE_ENV === 'production';
+    res.json({ ok: true, restarting: restart });
+    // in Docker the container comes straight back up and swaps the backup in
+    if (restart) setTimeout(() => process.exit(0), 800);
+  }));
 }

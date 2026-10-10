@@ -77,14 +77,28 @@ function loadTracking(t) {
     !function (f, b, e, v, n, t2, s) { if (f.fbq) return; n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); }; if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = '2.0'; n.queue = []; t2 = b.createElement(e); t2.async = !0; t2.src = v; s = b.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t2, s); }(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
     window.fbq('init', t.fbPixel);
   }
-  if (t.ga4) {
+  // GA4 and Google Ads share one gtag.js, each id configured on it
+  const aw = t.googleAds?.conversionId;
+  if (t.ga4 || aw) {
     const s = document.createElement('script');
-    s.async = true; s.src = `https://www.googletagmanager.com/gtag/js?id=${t.ga4}`;
+    s.async = true; s.src = `https://www.googletagmanager.com/gtag/js?id=${t.ga4 || aw}`;
     document.head.appendChild(s);
     window.dataLayer = window.dataLayer || [];
     window.gtag = function () { window.dataLayer.push(arguments); };
-    window.gtag('js', new Date()); window.gtag('config', t.ga4, { send_page_view: false }); // page views are sent per step below
+    window.gtag('js', new Date());
+    if (t.ga4) { window.gtag('config', t.ga4, { send_page_view: false }); window.__ffGa4 = true; } // page views are sent per step below
+    if (aw) { window.gtag('config', aw, { allow_enhanced_conversions: true }); ADS = t.googleAds; }
   }
+}
+let ADS = null; // the seller's Google Ads conversion id + labels, once gtag is loaded (after consent)
+const AW_LABEL = { Purchase: 'purchaseLabel', Lead: 'leadLabel', Schedule: 'bookingLabel' };
+// Google Ads conversion, with the buyer's email/phone for enhanced conversions (gtag hashes them)
+function adsConversion(event, data, id) {
+  const label = ADS?.[AW_LABEL[event]];
+  if (!label) return;
+  const email = store.get('ff_email', sessionStorage), phone = store.get('ff_phone', sessionStorage);
+  if (email || phone) window.gtag('set', 'user_data', { ...(email ? { email } : {}), ...(phone ? { phone_number: phone } : {}) });
+  window.gtag('event', 'conversion', { send_to: `${ADS.conversionId}/${label}`, ...(data.value != null ? { value: data.value, currency: data.currency || CURRENCY } : {}), ...(id ? { transaction_id: id } : {}) });
 }
 // One event to Meta + GA4. Each carries a unique id (Meta eventID / GA4 transaction_id) that the server
 // also uses for its Conversions API / Measurement Protocol copy, so the platforms count it once.
@@ -93,7 +107,8 @@ const GA = { Lead: 'generate_lead', InitiateCheckout: 'begin_checkout', AddPayme
 const track = (event, data = {}, id) => {
   try {
     if (window.fbq) window.fbq('track', event, data, id ? { eventID: id } : undefined);
-    if (window.gtag) {
+    if (window.gtag && ADS) adsConversion(event, data, id);
+    if (window.gtag && window.__ffGa4) {
       if (event === 'Purchase') window.gtag('event', 'purchase', { value: data.value, currency: data.currency, transaction_id: id });
       else if (GA[event]) window.gtag('event', GA[event], { ...(data.value != null ? { value: data.value, currency: data.currency || 'INR' } : {}), ...(data.content_name ? { item_name: data.content_name } : {}) });
       else window.gtag('event', 'page_view', { page_location: location.href, page_title: document.title });

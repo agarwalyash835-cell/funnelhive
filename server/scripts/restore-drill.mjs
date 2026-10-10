@@ -29,6 +29,19 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'fh-restore-'));
 const target = path.join(work, 'funnelhive.db');
 let source;
 if (args.includes('--bucket')) {
+  // storage entered in the admin panel (no S3_* env): read it from the live database, read-only
+  if (!process.env.S3_ENDPOINT && fs.existsSync(path.join(dataDir, 'funnelhive.db'))) {
+    const live = new DatabaseSync(path.join(dataDir, 'funnelhive.db'), { readOnly: true });
+    const s = JSON.parse(live.prepare("SELECT data FROM platform WHERE id = 'settings'").get()?.data || '{}').storage;
+    live.close();
+    if (s?.secretEnc) {
+      const crypto = await import('node:crypto');
+      const key = crypto.createHash('sha256').update(`channels:${process.env.ENCRYPTION_KEY || process.env.JWT_SECRET}`).digest();
+      const [, iv, tag, data] = String(s.secretEnc).split(':');
+      const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64')); d.setAuthTag(Buffer.from(tag, 'base64'));
+      Object.assign(process.env, { S3_ENDPOINT: s.endpoint, S3_BUCKET: s.bucket, S3_REGION: s.region || 'auto', S3_ACCESS_KEY: s.key, S3_SECRET_KEY: Buffer.concat([d.update(Buffer.from(data, 'base64')), d.final()]).toString() });
+    }
+  }
   const { s3Enabled, listKeys, getObject } = await import('../storage.js');
   if (!s3Enabled()) fail('no storage bucket configured (S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY)');
   const keys = (await listKeys('backups/')).map((k) => (typeof k === 'string' ? k : k.key)).filter((k) => k.endsWith('.db')).sort();

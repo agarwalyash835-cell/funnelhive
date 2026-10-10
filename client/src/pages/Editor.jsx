@@ -292,6 +292,31 @@ function StylePanel({ value, onChange }) {
   );
 }
 
+// a funnel's own business details on its Terms / Refund / Privacy pages (several brands in one workspace);
+// blank fields use the workspace's (Settings → Privacy). Saved on its own, outside the autosave.
+function LegalPanel({ f, onSaved }) {
+  const [l, setL] = useState({ businessName: '', email: '', phone: '', address: '', refundDays: '', ...(f.legal || {}) });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setL({ ...l, [k]: v });
+  const save = async () => {
+    setBusy(true);
+    try { const r = await api(`/funnels/${f.id}/legal`, 'PUT', l); onSaved(r.legal); toast(r.legal ? 'Legal details saved for this funnel' : 'This funnel uses your workspace details'); } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  return (
+    <details className="stylep" open={!!f.legal}>
+      <summary><Icon name="settings" size={14} /> Legal details for this funnel (optional) {f.legal && <span className="pill ok">own details</span>}</summary>
+      <p className="hint">Shown on this funnel’s Terms, Refund and Privacy pages and its checkout links. Leave blank to use your workspace details.</p>
+      <div className="fld"><label>Business name</label><input value={l.businessName} maxLength={120} onChange={(e) => set('businessName', e.target.value)} /></div>
+      <div className="fld"><label>Support email</label><input type="email" value={l.email} maxLength={200} onChange={(e) => set('email', e.target.value)} /></div>
+      <div className="fld"><label>Phone / WhatsApp</label><input value={l.phone} maxLength={40} onChange={(e) => set('phone', e.target.value)} /></div>
+      <div className="fld"><label>Address</label><textarea rows={2} value={l.address} maxLength={400} onChange={(e) => set('address', e.target.value)} /></div>
+      <div className="fld"><label>Refund window (days, 0 = no refunds)</label><input type="number" min="0" max="365" value={l.refundDays ?? ''} placeholder="Workspace default" onChange={(e) => set('refundDays', e.target.value)} /></div>
+      <button className="btn sm" disabled={busy} onClick={save}>Save legal details</button>
+    </details>
+  );
+}
+
 // ---------- pointer-based drag & drop (mouse + touch) ----------
 // Mouse drags start after a 5px move; touch drags start after a 260ms long-press (so swiping still scrolls).
 function useDnd(onDrop, onBegin) {
@@ -1039,6 +1064,8 @@ export default function Editor() {
                   </div>
                 </div>
               )}
+              <h5>Funnel</h5>
+              <LegalPanel key={f.id} f={f} onSaved={(legal) => setF((x) => { const n = { ...x }; if (legal) n.legal = legal; else delete n.legal; return n; })} />
               <h5>Danger zone</h5>
               <div className="row"><button className="btn ghost sm" onClick={dupStep}><Icon name="copy" size={14} /> Duplicate step</button><button className="btn ghost sm danger" onClick={delStep} disabled={f.steps.length < 2}><Icon name="trash" size={14} /> Delete step</button></div>
             </div>

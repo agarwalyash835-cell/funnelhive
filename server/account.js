@@ -8,7 +8,7 @@ import { s3Enabled, deletePrefix } from './storage.js';
 import { dropRollups } from './rollup.js';
 import { T, q, tx, dir as DATA_DIR } from './db.js';
 
-const OWNED = ['funnels', 'revisions', 'leads', 'orders', 'abandoned', 'coupons', 'webhooks', 'saved', 'crm', 'pipelines', 'automations', 'runs', 'domains', 'msgs', 'payments', 'hive', 'mcptokens', 'products', 'access', 'portals', 'downloads', 'conversions', 'calendars', 'bookings', 'webinars', 'registrations', 'broadcasts', 'bsends', 'apikeys', 'hooksubs', 'stripecust', 'rzplans', 'activity', 'adspend', 'quotes'];
+const OWNED = ['funnels', 'revisions', 'leads', 'orders', 'abandoned', 'coupons', 'webhooks', 'saved', 'crm', 'pipelines', 'automations', 'runs', 'domains', 'msgs', 'payments', 'hive', 'mcptokens', 'products', 'access', 'portals', 'downloads', 'conversions', 'calendars', 'bookings', 'webinars', 'registrations', 'broadcasts', 'bsends', 'apikeys', 'hooksubs', 'stripecust', 'rzplans', 'activity', 'adspend', 'quotes', 'notifications'];
 const strip = ({ hash, totpSecret, totpPending, verifyHash, resetHash, ...u }) => u;
 
 export function exportAccount(userId) {

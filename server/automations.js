@@ -2,7 +2,7 @@
 // Each contact that enters an automation gets a persisted run; a background worker advances runs
 // whose wait is over. Every message sent (or skipped, and why) is written to the contact's timeline.
 import crypto from 'node:crypto';
-import { T, q, tx, uid, JOBS } from './db.js';
+import { T, q, tx, uid, JOBS, ordersByPhone } from './db.js';
 import { sendEmail, sendWhatsApp, emailStatus, whatsappStatus } from './messaging.js';
 import { logActivity, contactKey, ensureMeta, metaFor, stageFor } from './crm.js';
 import { funnelUrl } from './domains.js';
@@ -237,7 +237,8 @@ function stopForBuyer(userId, email) {
 
 // ---------- running ----------
 const inFlight = new Set();
-const boughtSince = (r) => !!r.ctx.email && T.orders.exists({ userId: r.userId, ckey: contactKey(r.ctx.email), at: { gt: r.at } });
+// (a contact with only a phone number, e.g. a phone-only abandoned checkout, is matched by that number)
+const boughtSince = (r) => (r.ctx.email ? T.orders.exists({ userId: r.userId, ckey: contactKey(r.ctx.email), at: { gt: r.at } }) : !!r.ctx.phone && ordersByPhone({ userId: r.userId }, r.ctx.phone, r.at).length > 0);
 const note = (r, entry) => { r.log.push({ at: Date.now(), ...entry }); if (r.log.length > LOG_MAX) r.log.splice(0, r.log.length - LOG_MAX); };
 const meta = (r) => metaFor(r.userId, r.key);
 

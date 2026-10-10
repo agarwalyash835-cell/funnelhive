@@ -125,7 +125,7 @@ function ProductView({ token, p, onBack, onChange }) {
 }
 
 // memberships and payment plans: status, next charge, cancel (memberships end at the close of the paid period)
-const PLAN_STATUS = { active: 'Active', authenticated: 'Starting', created: 'Starting', pending: 'Payment due — retrying', halted: 'Paused — payment failed', cancelled: 'Cancelled', completed: 'Paid in full', expired: 'Ended', demo: 'Test' };
+const PLAN_STATUS = { active: 'Active', authenticated: 'Starting', created: 'Starting', pending: 'Payment due — retrying', halted: 'Paused — payment failed', paused: 'Paused', cancelled: 'Cancelled', completed: 'Paid in full', expired: 'Ended', demo: 'Test' };
 function Plans({ token, plans, onChange }) {
   const [busy, setBusy] = useState(null);
   const cancel = async (p) => {
@@ -135,6 +135,21 @@ function Plans({ token, plans, onChange }) {
     setBusy(null);
     if (r.error) alert(r.error); else onChange();
   };
+  // a failed payment: off to Razorpay / Stripe to pay it or change the card; we come back with ?fixed=
+  const fix = async (p) => {
+    setBusy(p.orderId);
+    const r = await fetch(`/api/access/${encodeURIComponent(token)}/plan/${p.orderId}/fix`, { method: 'POST' }).then((x) => x.json()).catch(() => ({ error: 'Couldn’t reach the server' }));
+    if (r.url) { sessionStorage.setItem('fh-plan-fix', p.orderId); window.location.href = r.url; return; }
+    setBusy(null);
+    alert(r.error || 'Couldn’t open the payment page');
+  };
+  // back from paying (Stripe returns with ?fixed=, Razorpay's page leaves us to the back button): read the plan again
+  useEffect(() => {
+    let id = null;
+    try { id = new URLSearchParams(window.location.search).get('fixed') || sessionStorage.getItem('fh-plan-fix'); sessionStorage.removeItem('fh-plan-fix'); } catch {}
+    if (!id || !plans.some((p) => p.orderId === id)) return;
+    fetch(`/api/access/${encodeURIComponent(token)}/plan/${id}/sync`, { method: 'POST' }).then((x) => x.json()).then((r) => { if (r.status && r.status !== plans.find((p) => p.orderId === id)?.status) onChange(); }).catch(() => {});
+  }, []);
   return (
     <section className="lib-plans">
       <h2>Memberships & payment plans</h2>
@@ -144,6 +159,7 @@ function Plans({ token, plans, onChange }) {
           <div className="lib-plan-r">
             <span className={`lib-pill s-${p.status}`}>{p.cancelAtEnd && p.status === 'active' ? 'Ends after this period' : PLAN_STATUS[p.status] || p.status}</span>
             {p.nextAt && ['active', 'pending'].includes(p.status) && !p.cancelAtEnd && <small>Next charge {day(p.nextAt)}</small>}
+            {['pending', 'halted', 'paused'].includes(p.status) && <button className="lib-btn" disabled={busy === p.orderId} onClick={() => fix(p)}>{p.status === 'pending' ? 'Update payment' : 'Pay now'}</button>}
             {p.type === 'recurring' && ['active', 'pending', 'authenticated'].includes(p.status) && !p.cancelAtEnd && <button className="lib-link" disabled={busy === p.orderId} onClick={() => cancel(p)}>Cancel membership</button>}
           </div>
         </div>

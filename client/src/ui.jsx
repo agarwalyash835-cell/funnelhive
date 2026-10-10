@@ -52,6 +52,7 @@ const P = {
   refund: 'M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8M12 8v4l3 2',
   mail: 'M3 5h18v14H3zM3 6l9 7 9-7',
   receipt: 'M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2zM9 7h6M9 11h6M9 15h4',
+  bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
 };
 export const Icon = ({ name, size = 18, stroke = 2, className = '' }) => (
   <svg className={`ic-svg ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={name === 'grip' ? 3.2 : stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -238,6 +239,54 @@ function Jump({ me }) {
   );
 }
 
+// The bell: new orders, leads, bookings, quotes, failed payments. Checked every minute while the tab is open.
+const NOTE_ICON = { order: 'cart', lead: 'users', booking: 'clock', booking_cancelled: 'x', quote_paid: 'wallet', quote_declined: 'x', payment_failed: 'card', refund: 'refund' };
+function Bell({ me }) {
+  const nav = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState(null);
+  const [unread, setUnread] = useState(0);
+  const ref = useRef();
+  const load = () => api('/notifications').then((r) => { setItems(r.items); setUnread(r.unread); }).catch(() => {});
+  useEffect(() => { if (me?.nav) setUnread(me.nav.unread || 0); }, [me]);
+  useEffect(() => {
+    const t = setInterval(() => { if (!document.hidden) load(); }, 60000);
+    const v = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', v);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', v); };
+  }, []);
+  useEffect(() => { if (open) load(); }, [open]);
+  useEffect(() => { if (!open) return undefined; const h = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [open]);
+  // "(3) FunnelHive" in the browser tab
+  useEffect(() => { const base = document.title.replace(/^\(\d+\+?\) /, ''); document.title = unread > 0 ? `(${unread > 99 ? '99+' : unread}) ${base}` : base; }, [unread, me]);
+  const read = (body) => api('/notifications/read', 'POST', body).then((r) => setUnread(r.unread)).catch(() => {});
+  const go = (n) => {
+    setOpen(false);
+    if (!n.read) { setItems((l) => l?.map((x) => (x.id === n.id ? { ...x, read: true } : x))); read({ ids: [n.id] }); }
+    if (n.link) nav(n.link);
+  };
+  const all = () => { setItems((l) => l?.map((x) => ({ ...x, read: true }))); read({ all: true }); };
+  return (
+    <div className="bell-wrap" ref={ref}>
+      <button type="button" className="icon-btn bell" onClick={() => setOpen(!open)} aria-haspopup="dialog" aria-expanded={open} title={unread ? `${unread} new notification${unread > 1 ? 's' : ''}` : 'Notifications'}>
+        <Icon name="bell" />{unread > 0 && <span className="bell-n">{unread > 99 ? '99+' : unread}</span>}
+      </button>
+      {open && (
+        <div className="bell-pop" role="dialog" aria-label="Notifications">
+          <div className="bell-h"><b>Notifications</b>{unread > 0 && <button type="button" onClick={all}>Mark all read</button>}</div>
+          <div className="bell-list">
+            {!items ? <p className="muted sm">Loading…</p> : !items.length ? <p className="muted sm">Nothing yet. New orders, leads and bookings show up here.</p> : items.map((n) => (
+              <button type="button" key={n.id} className={`bell-item ${n.read ? '' : 'new'} k-${n.kind}`} onClick={() => go(n)}>
+                <span className="bell-ic"><Icon name={NOTE_ICON[n.kind] || 'bolt'} size={15} /></span>
+                <span className="bell-t"><b>{n.title}</b>{n.body && <small>{n.body}</small>}<em>{ago(n.at)}</em></span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Layout({ title, subtitle, actions, children, wide }) {
   const [me, setMe] = useState(null);
@@ -264,6 +313,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
           <button className="icon-btn burger" onClick={() => setOpen(true)}><Icon name="menu" /></button>
           <div className="tb-title">{title && <h1>{title}</h1>}{subtitle && <p>{subtitle}</p>}</div>
           <div className="tb-actions">{actions}</div>
+          {me && <Bell me={me} />}
         </header>
         {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} />You’re working in the <b>{me.workspace.name}</b> workspace as {({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role]}.</div>}
         {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} />You’re signed in as <b>{me.email}</b> (support view).<button onClick={stopImpersonating}>Back to admin</button></div>}

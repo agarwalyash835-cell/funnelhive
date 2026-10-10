@@ -332,3 +332,19 @@ fieldset.plain:disabled { opacity: .75; }
 .bk-lens button { border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 6px 13px; font: 600 13px/1.2 var(--bf); cursor: pointer; }
 .bk-lens button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
 .bk-form select { font: inherit; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--inr, 10px); background: var(--surface); color: var(--ink); }
+/* ---------- admin: backups & restore ---------- */
+.rs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+.rs h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--c-muted); }
+.rs-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--c-line-2); font-size: 13.5px; }
+.rs > div { max-height: 320px; overflow-y: auto; }
+/* ---------- contacts import ---------- */
+.imp-drop { display: flex; align-items: center; gap: 10px; padding: 16px; border: 1.5px dashed var(--c-line); border-radius: 12px; cursor: pointer; font-size: 14px; margin: 10px 0 14px; }
+.imp-drop:hover { border-color: var(--c-honey); }
+.imp-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.imp-map { max-height: 340px; overflow: auto; border: 1px solid var(--c-line-2); border-radius: 10px; margin-bottom: 14px; }
+.imp-map select { min-width: 170px; padding: 6px 8px; border-radius: 8px; }
+.imp-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-muted); font-size: 13px; }
+.imp-warn { background: var(--c-accent-soft); color: var(--c-accent); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; }
+.kpis.imp-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 12px; }
+.imp-errs { max-height: 220px; overflow-y: auto; padding-left: 18px; font-size: 13.5px; } .imp-errs b { margin-right: 6px; }
+@media (max-width: 640px) { .kpis.imp-kpis { grid-template-columns: 1fr; } }

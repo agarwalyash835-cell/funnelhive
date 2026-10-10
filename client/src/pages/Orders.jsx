@@ -68,7 +68,7 @@ export default function Orders() {
   };
   const recoverMsg = (a) => `Hi ${a.name?.split(' ')[0] || 'there'} 👋 You were one step away from getting ${a.funnel}.${a.link ? ` You can finish your order here: ${a.link}` : ' Reply here and we’ll help you finish your order.'}`;
   const exportCsv = () => tab === 'orders'
-    ? downloadCSV('orders.csv', orders.map((o) => ({ id: o.id, date: new Date(o.at).toISOString(), name: o.name, email: o.email, phone: o.phone, funnel: o.funnel, items: o.items.map((i) => `${i.name} (${i.kind})${i.refunded ? ' [refunded]' : ''}`).join(' | '), coupon: o.coupon || '', discount: o.discount || 0, currency: o.currency || 'INR', total: o.total, refunded: o.refunded || 0, status: o.status, test: isTest(o) ? 'yes' : '', tags: (o.tags || []).join(' | '), note: o.note || '', source: o.source, utm_source: o.attr?.utm_source || '', utm_medium: o.attr?.utm_medium || '', utm_campaign: o.attr?.utm_campaign || '', utm_content: o.attr?.utm_content || '', utm_term: o.attr?.utm_term || '', click_id: o.attr?.fbclid ? 'fbclid' : o.attr?.gclid ? 'gclid' : '', invoices: (o.invoices || []).map((i) => i.number).join(' | '), payment: o.provider ? `${o.provider} (${o.mode})` : 'none' })))
+    ? downloadCSV('orders.csv', orders.map((o) => ({ id: o.id, date: new Date(o.at).toISOString(), name: o.name, email: o.email, phone: o.phone, funnel: o.funnel, items: o.items.map((i) => `${i.name} (${i.kind})${i.refunded ? ' [refunded]' : ''}`).join(' | '), coupon: o.coupon || '', discount: o.discount || 0, currency: o.currency || 'INR', total: o.total, refunded: o.refunded || 0, status: o.status, test: isTest(o) ? 'yes' : '', tags: (o.tags || []).join(' | '), note: o.note || '', source: o.source, utm_source: o.attr?.utm_source || '', utm_medium: o.attr?.utm_medium || '', utm_campaign: o.attr?.utm_campaign || '', utm_content: o.attr?.utm_content || '', utm_term: o.attr?.utm_term || '', click_id: o.attr?.fbclid ? 'fbclid' : o.attr?.gclid ? 'gclid' : '', gclid: o.attr?.gclid || '', invoices: (o.invoices || []).map((i) => i.number).join(' | '), payment: o.provider ? `${o.provider} (${o.mode})` : 'none' })))
     : downloadCSV('abandoned-carts.csv', abandoned.map((a) => ({ date: new Date(a.at).toISOString(), name: a.name, email: a.email, phone: a.phone, funnel: a.funnel, link: a.link || '', utm_campaign: a.attr?.utm_campaign || '' })));
   // GST register for filing (GSTR-1): every invoice and credit note
   const exportInvoices = async () => {
@@ -130,11 +130,11 @@ export default function Orders() {
               </table>
               {orders.length > limit && <div className="or-more"><button className="btn ghost sm" onClick={() => setLimit(limit + PAGE * 2)}>Show more ({num(orders.length - limit)} older)</button></div>}
               </div>
-            )) : (!abandoned.length ? <Empty icon="check" title="No abandoned checkouts" text="When someone enters their email at checkout but doesn’t pay, they show up here so you can follow up." /> : (
+            )) : (!abandoned.length ? <Empty icon="check" title="No abandoned checkouts" text="When someone enters their email or WhatsApp number at checkout but doesn’t pay, they show up here so you can follow up." /> : (
               <div className="tbl-wrap"><table className="tbl">
                 <thead><tr><th>Contact</th><th>Funnel</th><th className="r">When</th><th className="r">Recover</th></tr></thead>
                 <tbody>{abandoned.slice(0, limit).map((a) => (
-                  <tr key={a.id}><td><b>{a.name || '—'}</b><small className="sub-t">{a.email}{a.phone && ` · ${a.phone}`}</small></td><td>{a.funnel}</td><td className="r muted" title={fullDate(a.at)}>{ago(a.at)}</td>
+                  <tr key={a.id}><td><b>{a.name || '—'}</b><small className="sub-t">{[a.email, a.phone].filter(Boolean).join(' · ')}</small></td><td>{a.funnel}</td><td className="r muted" title={fullDate(a.at)}>{ago(a.at)}</td>
                     <td className="r"><div className="row end">
                       {a.phone && <a className="btn soft sm" href={`https://wa.me/${a.phone.replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}?text=${encodeURIComponent(recoverMsg(a))}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>}
                       {a.email && <a className="icon-btn" title="Email" href={`mailto:${a.email}?subject=${encodeURIComponent(`Your order — ${a.funnel}`)}&body=${encodeURIComponent(recoverMsg(a))}`}><Icon name="mail" size={15} /></a>}

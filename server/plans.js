@@ -14,6 +14,8 @@ import { issueInvoice, invoiceUrl } from './sales.js';
 import { fire as fireAutomation } from './automations.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { sendEmail } from './messaging.js';
+import { notify } from './notify.js';
+import { appUrl } from './mail.js';
 
 const DAY = 86400000;
 const intIn = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
@@ -162,6 +164,7 @@ function onStatusChange(owner, order, prev, now) {
   if (now === 'pending' || (now === 'halted' && prev !== 'pending')) {
     fireAutomation(order.userId, 'payment_failed', who);
     fireWebhook(order.userId, 'order.payment_failed', { order: order.id, plan: pl, email: order.email });
+    notify(order.userId, { kind: 'payment_failed', title: `Payment didn’t go through · ${order.name || order.email || order.phone}`, body: `${product}${now === 'halted' ? ' — retries ran out, access is paused' : ' — it will be retried'}`, link: '/orders' });
   }
   // access ends when payments stop: retries exhausted, paused, a cancelled membership, or an expired one
   const ends = now === 'halted' || now === 'paused' || now === 'expired' || (now === 'cancelled' && pl.type === 'recurring');
@@ -227,13 +230,48 @@ export function registerPlans(app, { auth, resolveToken }) {
     if (!o || o.userId !== req.user.id || !o.plan?.subId) return res.status(404).json({ error: 'Order not found' });
     res.json((await (o.plan.provider === 'stripe' ? syncStripePlan : syncPlan)(o.plan.subId)) || o);
   });
-  // buyer, from their library link: cancel a membership (access lasts until the end of the paid period)
-  app.post('/api/access/:token/plan/:oid/cancel', async (req, res) => {
+  // buyer, from their library link: only their own orders
+  const buyerOrder = (req) => {
     const ctx = resolveToken(req.params.token);
     const o = ctx && T.orders.get(req.params.oid);
-    if (!o || o.userId !== ctx.userId || !o.plan || String(o.email).toLowerCase() !== String(ctx.rows[0]?.email || '').toLowerCase()) return res.status(404).json({ error: 'Not found' });
+    return !o || o.userId !== ctx.userId || !o.plan || String(o.email).toLowerCase() !== String(ctx.rows[0]?.email || '').toLowerCase() ? null : o;
+  };
+  // cancel a membership (access lasts until the end of the paid period)
+  app.post('/api/access/:token/plan/:oid/cancel', async (req, res) => {
+    const o = buyerOrder(req);
+    if (!o) return res.status(404).json({ error: 'Not found' });
     if (o.plan.type !== 'recurring') return res.status(400).json({ error: 'Instalment plans can’t be cancelled here — please contact the seller' });
     try { const r = await cancelPlan(o, { atCycleEnd: true }); res.json({ ok: true, cancelAtEnd: !!r.plan?.cancelAtEnd }); } catch (e) { res.status(400).json({ error: e.message }); }
+  });
+  // a failed payment: where the buyer pays it (or updates their card) — Razorpay's link for the unpaid
+  // invoice, else the subscription's own link; Stripe's billing portal
+  app.post('/api/access/:token/plan/:oid/fix', async (req, res) => {
+    const o = buyerOrder(req);
+    if (!o?.plan.subId) return res.status(404).json({ error: 'Not found' });
+    if (!['pending', 'halted', 'paused', 'created', 'authenticated'].includes(o.plan.status)) return res.status(400).json({ error: 'There’s nothing to pay on this plan' });
+    const owner = T.users.get(o.userId);
+    try {
+      if (o.plan.provider === 'stripe') {
+        const sc = stripeCreds(owner);
+        if (!sc || !o.stripeCustomer) throw new Error('Please contact the seller to update your payment');
+        const back = `${linkBase(o.funnelId, appUrl(req))}/access/${req.params.token}?fixed=${o.id}`;
+        return res.json({ url: (await stripe(sc, 'POST', '/billing_portal/sessions', { customer: o.stripeCustomer, return_url: back })).url });
+      }
+      const creds = rzpCreds(owner);
+      if (!creds) throw new Error('Please contact the seller to update your payment');
+      const inv = await call(creds, 'GET', `/invoices?subscription_id=${encodeURIComponent(o.plan.subId)}&count=100`);
+      const due = (inv.items || []).find((i) => i.status === 'issued' && i.short_url);
+      const url = due?.short_url || (await call(creds, 'GET', `/subscriptions/${o.plan.subId}`)).short_url;
+      if (!url) throw new Error('Please contact the seller to update your payment');
+      res.json({ url });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
+  // back from paying: read the plan again so access returns straight away (the webhook catches up too)
+  app.post('/api/access/:token/plan/:oid/sync', async (req, res) => {
+    const o = buyerOrder(req);
+    if (!o?.plan.subId) return res.status(404).json({ error: 'Not found' });
+    const r = (await (o.plan.provider === 'stripe' ? syncStripePlan : syncPlan)(o.plan.subId)) || o;
+    res.json({ status: r.plan?.status });
   });
   if (JOBS) setInterval(() => planJob().catch(() => {}), 3600000).unref();
 }

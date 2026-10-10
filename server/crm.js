@@ -69,7 +69,7 @@ function buildContacts(userId, onlyKey) {
     if (!m[meta.key] && !meta.manual) continue;
     meta.activities ||= [];
     const c = m[meta.key] || get(meta.key);
-    if (meta.manual && c.firstSeen === Infinity) { c.firstSeen = meta.at; c.lastSeen = meta.at; c.source = 'added by you'; }
+    if (meta.manual && c.firstSeen === Infinity) { c.firstSeen = meta.at; c.lastSeen = meta.at; c.source = meta.source || 'added by you'; }
     for (const k of ['name', 'phone', 'email']) if (meta[k]) c[k] = meta[k];
     c.meta = meta;
     const lastAct = meta.activities.at(-1)?.at;
@@ -105,7 +105,7 @@ function timeline(userId, c, funnelName) {
   }
   sessions.forEach((s, i) => out.push({ type: 'visit', at: s.at, title: i === 0 ? 'First visit' : 'Came back', text: `${funnelName[s.funnelId]} · ${s.pages.size} page${s.pages.size > 1 ? 's' : ''} viewed${s.source && s.source !== 'direct' ? ` · from ${s.source}` : ''}` }));
   if (!sessions.length && c.firstSeen !== Infinity && !c.meta?.manual) out.push({ type: 'visit', at: c.firstSeen, title: 'First came in', text: `${[...c.funnels].filter(Boolean)[0] || ''}${c.source && c.source !== 'direct' ? ` · from ${c.source}` : ''}` });
-  if (c.meta?.manual) out.push({ type: 'created', at: c.meta.at, title: 'Added by you' });
+  if (c.meta?.manual) out.push({ type: 'created', at: c.meta.at, title: c.meta.source?.startsWith('import') ? 'Imported from a CSV file' : 'Added by you' });
   for (const l of c.refs.leads) out.push({ type: 'lead', at: l.at, title: l.qualified === undefined ? `Signed up on ${funnelName[l.funnelId]}` : `Applied on ${funnelName[l.funnelId]} — ${l.qualified ? 'qualified ✓' : 'not a fit'}`, text: [stepName(l.funnelId, l.stepId), l.source && l.source !== 'direct' ? `from ${l.source}` : ''].filter(Boolean).join(' · '), fields: l.fields });
   for (const a of c.refs.abandoned) out.push({ type: 'abandon', at: a.at, title: 'Started checkout but didn’t pay', text: `${funnelName[a.funnelId]}${a.recovered ? ' · bought later' : ''}` });
   for (const o of c.refs.orders) {
@@ -133,6 +133,70 @@ const cleanCustom = (defs, input = {}) => {
   }
   return out;
 };
+
+// ---------- CSV import ----------
+// The browser parses the file; rows arrive as objects keyed by column name. Imported people are CRM
+// records like "Add contact" — never funnel leads — so they don't count as sign-ups and start no automations.
+export const IMPORT_MAX = 10000;
+const ALIASES = {
+  email: ['email', 'e-mail', 'email address', 'e-mail address', 'mail'], phone: ['phone', 'mobile', 'whatsapp', 'number', 'phone number', 'mobile number', 'whatsapp number', 'contact number'],
+  name: ['name', 'full name', 'fullname', 'contact name'], first: ['first name', 'firstname', 'first'], last: ['last name', 'lastname', 'surname', 'last'],
+  tags: ['tags', 'tag', 'labels'], stage: ['stage', 'pipeline stage'], source: ['source', 'lead source'], notes: ['notes', 'note', 'comments', 'remarks'],
+};
+const TARGETS = Object.keys(ALIASES);
+const norm = (h) => String(h).trim().toLowerCase().replace(/[_\s]+/g, ' ');
+// a column → what it fills: a target above, custom:<field id>, extra (kept in a note) or '' (ignored)
+function importMapping(given, headers, defs) {
+  const ok = (t) => t === '' || t === 'extra' || TARGETS.includes(t) || (t.startsWith('custom:') && defs.some((d) => `custom:${d.id}` === t));
+  const auto = (h) => TARGETS.find((t) => ALIASES[t].includes(norm(h))) || ((d) => d && `custom:${d.id}`)(defs.find((d) => norm(d.label) === norm(h))) || 'extra';
+  const out = {};
+  for (const h of headers) {
+    const t = given && typeof given === 'object' && typeof given[h] === 'string' ? given[h] : auto(h);
+    out[h] = ok(t) ? t : 'extra';
+  }
+  return out;
+}
+// phone numbers compare by their last 10 digits (+91 98765 43210 = 9876543210)
+const phoneId = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.length < 6 ? '' : d.slice(-10); };
+const splitTags = (v) => String(v || '').split(/[;,|]/).map((t) => str(t, 30)).filter(Boolean);
+const addTags = (have = [], more) => { const seen = new Set(have.map((t) => t.toLowerCase())); return [...have, ...more.filter((t) => !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))].slice(0, 20); };
+
+// Everything stored about one contact for this seller — a DPDP / GDPR access request
+const SECRETISH = /token|hash|secret|signature/i;
+const scrub = (x) => (Array.isArray(x) ? x.map(scrub) : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).filter(([k]) => k !== 'userId' && !SECRETISH.test(k)).map(([k, v]) => [k, scrub(v)])) : x);
+function contactExport(u, key) {
+  const userId = u.id;
+  const { contacts, funnelName } = buildContacts(userId, key);
+  const c = contacts[key], meta = metaFor(userId, key);
+  const byEmail = !key.startsWith('phone:');
+  const leads = T.leads.all({ userId, ckey: key }, { order: 'at' });
+  const orders = byEmail ? T.orders.all({ userId, ckey: key }, { order: 'at' }) : [];
+  const data = {
+    leads: leads.map((l) => ({ ...l, funnel: funnelName[l.funnelId] || null })),
+    orders: orders.map((o) => ({ ...o, funnel: funnelName[o.funnelId] || null, invoices: T.sinvoices.all({ orderId: o.id }).filter((i) => i.userId === userId).map((i) => ({ number: i.number, type: i.type || 'invoice', at: i.at, total: i.total })) })),
+    abandonedCarts: byEmail ? T.abandoned.all({ userId, ckey: key }, { order: 'at' }) : [],
+    bookings: T.bookings.all({ userId, ckey: key }, { order: 'at' }),
+    webinarRegistrations: T.registrations.all({ userId, ckey: key }, { order: 'at' }).map((r) => ({ ...r, webinar: T.webinars.get(r.webinarId)?.name || null })),
+    productAccess: byEmail ? T.access.all({ userId, ckey: key }, { order: 'at' }).map((a) => ({ ...a, product: T.products.get(a.productId)?.name || null })) : [],
+    messages: q("SELECT data FROM msgs WHERE userId = ? AND json_extract(data, '$.key') = ? ORDER BY at").all(userId, key).map((r) => JSON.parse(r.data)),
+    broadcastMessages: q("SELECT data FROM bsends WHERE userId = ? AND json_extract(data, '$.key') = ? ORDER BY at").all(userId, key).map((r) => JSON.parse(r.data)),
+  };
+  if (!c && !meta && !Object.values(data).some((v) => v.length)) return null;
+  const pipelines = pipelinesFor(userId), labels = Object.fromEntries((u.crmFields || []).map((f) => [f.id, f.label]));
+  return scrub({
+    exportedAt: new Date().toISOString(),
+    seller: { business: u.settings?.businessName || u.name || '', email: u.email },
+    contact: { key, email: c?.email || meta?.email || (byEmail ? key : ''), name: c?.name || meta?.name || '', phone: c?.phone || meta?.phone || '', type: c?.type || 'lead', source: c?.source || null, firstSeen: c && c.firstSeen !== Infinity ? new Date(c.firstSeen).toISOString() : null, lastSeen: c?.lastSeen ? new Date(c.lastSeen).toISOString() : null, orders: c?.orders || 0, lifetimeValue: c?.ltv || 0 },
+    crm: meta ? {
+      tags: meta.tags || [], unsubscribed: !!meta.unsubscribed, addedBy: meta.manual ? meta.source || 'added by you' : null,
+      customFields: Object.fromEntries(Object.entries(meta.custom || {}).map(([id, v]) => [labels[id] || id, v])),
+      stages: Object.fromEntries(pipelines.map((p) => [p.name, p.stages.find((s) => s.id === stageFor(p, meta, c?.type === 'customer'))?.name || null])),
+      activities: meta.activities || [],
+    } : null,
+    consents: leads.filter((l) => l.consent).map((l) => ({ at: l.consent.at, given: l.consent.given, text: l.consent.text, funnel: funnelName[l.funnelId] || null })),
+    ...data,
+  });
+}
 
 export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }) {
   const mailLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 20, key: (req) => req.user.id, message: 'You are sending emails too quickly — please wait a minute.' });
@@ -239,6 +303,86 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     } });
     for (const [type, data] of events) onEvent(req.user.id, type, data);
     res.json({ updated: n });
+  });
+
+  // Import contacts from a CSV the browser has parsed: new people are added, known ones (same email, else
+  // same phone) get blanks filled in, tags added and a stage set. Nothing here fires an automation.
+  const importLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 10, key: (req) => req.user.id, message: 'Too many imports — please wait a minute.' });
+  app.post('/api/contacts/import', auth, importLimiter, (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'The file has no rows to import' });
+    if (rows.length > IMPORT_MAX) return res.status(400).json({ error: `Up to ${IMPORT_MAX.toLocaleString('en-IN')} rows at a time — please split the file` });
+    const userId = req.user.id, defs = userOf(req).crmFields || [];
+    const headers = new Set();
+    for (const r of rows) if (r && typeof r === 'object' && !Array.isArray(r)) for (const h of Object.keys(r)) if (headers.size < 100) headers.add(h);
+    const mapping = importMapping(req.body.mapping, [...headers], defs);
+    const everyone = splitTags((Array.isArray(req.body.tags) ? req.body.tags : []).join(','));
+    const { contacts } = buildContacts(userId);
+    const byPhone = new Map();
+    for (const c of Object.values(contacts)) { const p = phoneId(c.phone || (c.key.startsWith('phone:') ? c.key.slice(6) : '')); if (p && !byPhone.has(p)) byPhone.set(p, c.key); }
+    const pipelines = pipelinesFor(userId);
+    const stageNamed = (n) => { for (const p of pipelines) { const s = p.stages.find((x) => x.name.toLowerCase() === n.toLowerCase()); if (s) return [p, s]; } return null; };
+    const out = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const note = (row, reason) => { if (out.errors.length < 50) out.errors.push({ row, reason }); };
+    const skip = (row, reason) => { out.skipped++; note(row, reason); };
+    const now = Date.now();
+    tx(() => rows.forEach((r, i) => {
+      const row = i + 1;
+      if (!r || typeof r !== 'object' || Array.isArray(r)) return skip(row, 'Not a row');
+      const v = { custom: {}, extra: [], tags: [] };
+      for (const [h, t] of Object.entries(mapping)) {
+        const val = str(r[h], 2000);
+        if (!t || !val) continue;
+        if (t === 'tags') v.tags.push(...splitTags(val));
+        else if (t === 'extra') v.extra.push(`${str(h, 60)}: ${val}`);
+        else if (t.startsWith('custom:')) v.custom[t.slice(7)] = val;
+        else v[t] ||= val;
+      }
+      const email = str(v.email, 200).toLowerCase(), phone = str(v.phone, 40);
+      const name = str(v.name || [v.first, v.last].filter(Boolean).join(' '), 120);
+      if (!email && !phone) return skip(row, 'No email or phone number');
+      if (email && !EMAIL_RE.test(email)) return skip(row, `Not a valid email: ${email.slice(0, 80)}`);
+      // the same person: same email — or, when that email is new to us, a phone-only contact with this number
+      const pk = byPhone.get(phoneId(phone));
+      let key = email && contacts[email] ? email : pk && (!email || pk.startsWith('phone:')) ? pk : null;
+      const isNew = !key;
+      key ||= contactKey(email, phone);
+      const c = contacts[key];
+      const m = ensureMeta(userId, key);
+      if (isNew) Object.assign(m, { manual: true, name, email, phone, source: v.source ? `import · ${str(v.source, 40)}` : 'import', at: now });
+      else {
+        // fill in what's missing; never overwrite what the seller (or the contact) already gave
+        if (name && !m.name && !c?.name) m.name = name;
+        if (phone && !m.phone && !c?.phone) m.phone = phone;
+        if (email && key.startsWith('phone:') && !m.email) m.email = email;
+      }
+      const tags = [...v.tags, ...everyone];
+      if (tags.length) m.tags = addTags(m.tags || [], tags);
+      if (v.stage) {
+        const hit = stageNamed(str(v.stage, 40));
+        if (!hit) note(row, `No stage called “${str(v.stage, 40)}” — imported without a stage`);
+        else if (m.stages?.[hit[0].id] !== hit[1].id) { m.stages = { ...m.stages, [hit[0].id]: hit[1].id }; if (!isNew) m.activities.push({ id: uid(), at: now, type: 'stage', title: `Moved to ${hit[1].name}`, text: `${hit[0].name} · CSV import` }); }
+      }
+      if (Object.keys(v.custom).length) m.custom = { ...m.custom, ...cleanCustom(defs, v.custom) };
+      const text = str([v.notes, ...v.extra].filter(Boolean).join('\n'), 4000);
+      if (text && !m.activities.some((a) => a.type === 'note' && a.text === text)) m.activities = [...m.activities, { id: uid(), at: now, type: 'note', title: 'Note (imported)', text, by: 'import' }].slice(-500);
+      T.crm.put(m);
+      // later rows of the same file find this person too
+      contacts[key] ||= { key, email: m.email || '', phone: m.phone || '', name: m.name || '' };
+      if (phoneId(phone) && !byPhone.has(phoneId(phone))) byPhone.set(phoneId(phone), key);
+      out[isNew ? 'created' : 'updated']++;
+    }));
+    res.json(out);
+  });
+
+  // Everything about one contact as a JSON file (their DPDP / GDPR access request): owners and admins only
+  app.get('/api/contacts/:key/export', auth, (req, res) => {
+    if (req.role && !['admin', 'agency'].includes(req.role)) return res.status(403).json({ error: 'Only the account owner or an admin can download a contact’s data' });
+    const key = String(req.params.key || '').toLowerCase().startsWith('phone:') ? String(req.params.key) : String(req.params.key || '').toLowerCase();
+    const data = key && contactExport(userOf(req), key);
+    if (!data) return res.status(404).json({ error: 'Contact not found' });
+    const safe = key.replace(/[^a-z0-9@._+-]/gi, '_').slice(0, 80);
+    res.set('Content-Disposition', `attachment; filename="contact-${safe}.json"`).set('Cache-Control', 'no-store').json(data);
   });
 
   // notes, calls and WhatsApp messages the seller sends from the contact screen

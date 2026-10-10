@@ -1994,3 +1994,27 @@ button.me > svg { flex: none; color: var(--c-muted); }
 .jump-list small { display: block; font-size: 12px; color: var(--c-muted); }
 .jump-list > p { padding: 12px; margin: 0; }
 @media (max-width: 900px) { .nav-pop { left: 12px; right: 12px; width: auto; bottom: 80px; } }
+
+/* ---------- notifications ---------- */
+.bell-wrap { position: relative; }
+.icon-btn.bell { position: relative; width: 36px; height: 36px; border: 1px solid var(--c-line); background: var(--c-surface); color: var(--c-ink); border-radius: 10px; }
+.icon-btn.bell:hover { background: var(--c-accent-soft); color: var(--c-accent); }
+.bell-n { position: absolute; top: -5px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--c-honey); color: var(--c-ink); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--c-surface); }
+.bell-pop { position: absolute; right: 0; top: calc(100% + 8px); width: 360px; max-width: calc(100vw - 32px); background: var(--c-surface); border: 1px solid var(--c-line); border-radius: 12px; box-shadow: var(--sh-3); z-index: 70; overflow: hidden; }
+.bell-h { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--c-line); }
+.bell-h b { font-size: 14px; color: var(--c-ink); }
+.bell-h button { border: 0; background: none; color: var(--c-accent); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0; }
+.bell-list { max-height: 420px; overflow-y: auto; }
+.bell-list > p { padding: 16px 14px; margin: 0; }
+.bell-item { display: flex; gap: 10px; width: 100%; text-align: left; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--c-line); background: none; color: var(--c-ink); cursor: pointer; }
+.bell-item:last-child { border-bottom: 0; }
+.bell-item:hover { background: var(--c-accent-soft); }
+.bell-item.new { background: color-mix(in srgb, var(--c-accent-soft) 55%, var(--c-surface)); }
+.bell-item.new .bell-t b::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--c-honey); vertical-align: middle; }
+.bell-ic { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--c-accent-soft); color: var(--c-accent); }
+.bell-item.k-booking_cancelled .bell-ic, .bell-item.k-quote_declined .bell-ic, .bell-item.k-payment_failed .bell-ic, .bell-item.k-refund .bell-ic { background: var(--c-line); color: var(--c-muted); }
+.bell-t { min-width: 0; }
+.bell-t b { display: block; font-size: 13.5px; font-weight: 600; }
+.bell-t small { display: block; font-size: 12px; color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bell-t em { display: block; font-style: normal; font-size: 11.5px; color: var(--c-muted); margin-top: 2px; }
+@media (max-width: 900px) { .bell-pop { position: fixed; left: 16px; right: 16px; top: 64px; width: auto; max-width: none; } }

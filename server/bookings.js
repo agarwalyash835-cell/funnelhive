@@ -16,6 +16,7 @@ const CALL_CURRENCIES = [...new Set(Object.values(CURRENCIES))];
 import { tzOf, sellerTz, zoned, localYmd, addDays, dowOfYmd, formatIn, offsetAt, validTz } from './tz.js';
 import { refundOrder, issueInvoice, invoiceUrl } from './sales.js';
 import { fxRate } from './fx.js';
+import { notify } from './notify.js';
 
 const MIN = 60000, HOUR = 3600000, DAY = 86400000;
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -185,6 +186,7 @@ const HOLD = 15 * MIN;
 function confirmed(b, cal, base, rescheduled) {
   const data = { email: b.email, phone: b.phone, name: b.name, funnelId: b.funnelId, bookingTime: when(b.start, calTz(cal)), bookingLink: manageUrl(base, b), meetingLink: cal.meetingLink || '' };
   fireWebhook(cal.userId, rescheduled ? 'booking.rescheduled' : 'booking.created', { booking: outBooking(b, cal), manage: manageUrl(base, b) });
+  notify(cal.userId, { kind: 'booking', title: `${rescheduled ? 'Booking moved' : 'New booking'} · ${b.name || b.email || b.phone} · ${cal.name}`, body: data.bookingTime, link: '/bookings' });
   // the Google event (and its Meet link) first, so the confirmation email can include the link
   addEvent(b, cal).then((ev) => {
     const fresh = T.bookings.get(b.id) || b;
@@ -244,6 +246,7 @@ export function cancel(b, by = 'buyer', reason = '') {
     if (owner && order) refundOrder(owner, order, { reason: `Booking cancelled by the ${by === 'buyer' ? 'buyer' : 'seller'}`, by }).then((r) => { if (!r?.error) T.bookings.update(b.id, (x) => { x.refunded = true; }); }).catch((e) => console.error('booking refund failed', e.message));
   }
   fireWebhook(b.userId, 'booking.cancelled', { booking: outBooking(out, cal) });
+  if (by === 'buyer') notify(b.userId, { kind: 'booking_cancelled', title: `Booking cancelled · ${b.name || b.email || b.phone}${cal ? ` · ${cal.name}` : ''}`, body: [when(b.start, cal ? calTz(cal) : undefined), out.cancelReason].filter(Boolean).join(' — '), link: '/bookings' });
   fireAutomation(b.userId, 'booking_cancelled', { email: b.email, phone: b.phone, name: b.name, funnelId: b.funnelId, bookingTime: when(b.start, cal ? calTz(cal) : undefined), meetingLink: cal?.meetingLink || '' });
   notifyBuyer(out, 'cancelled');
   return out;

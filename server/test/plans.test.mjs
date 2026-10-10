@@ -23,7 +23,7 @@ before(async () => {
     if (req.method === 'POST' && url.pathname === '/plans') { const p = { id: `plan_${plans.length + 1}`, ...b }; plans.push(p); return res.end(JSON.stringify(p)); }
     if (req.method === 'POST' && url.pathname === '/subscriptions') {
       const id = `sub_${crypto.randomBytes(4).toString('hex')}`;
-      subs[id] = { id, plan_id: b.plan_id, total_count: b.total_count, addons: b.addons || [], status: 'created', paid_count: 0, charge_at: null };
+      subs[id] = { id, plan_id: b.plan_id, total_count: b.total_count, addons: b.addons || [], status: 'created', paid_count: 0, charge_at: null, short_url: `https://rzp.io/i/${id}` };
       invoices[id] = [];
       return res.end(JSON.stringify(subs[id]));
     }
@@ -126,9 +126,21 @@ test('membership: ₹999/month; a failed payment pauses access, a successful ret
   await webhook('subscription.halted', mem.subscription_id);
   await until(async () => (await libView()).products[0].status !== 'active');
   assert.equal((await order(memOrder)).plan.status, 'halted');
+  // the buyer pays the failed charge from their library: Razorpay's link for the unpaid invoice
+  const token = lib.split('/access/')[1];
+  invoices[mem.subscription_id].push({ id: 'inv_due', status: 'issued', amount: 99900, short_url: 'https://rzp.io/i/due123' });
+  assert.equal((await api(`/access/${token}/plan/${memOrder}/fix`, 'POST')).data.url, 'https://rzp.io/i/due123');
+  invoices[mem.subscription_id].pop();
+  assert.equal((await api(`/access/${token}/plan/${memOrder}/fix`, 'POST')).data.url, `https://rzp.io/i/${mem.subscription_id}`, 'no unpaid invoice: the subscription link');
+  const someone = (await api(`/public/${f.slug}/pay/start`, 'POST', buyer('z@x.in'))).data;
+  const zp = charge(someone.subscription_id, 99900);
+  const zlib = (await api(`/public/${f.slug}/pay/verify`, 'POST', { payment: someone.payment, razorpay_subscription_id: someone.subscription_id, razorpay_payment_id: zp, razorpay_signature: sign(SECRET, `${zp}|${someone.subscription_id}`) })).data.access;
+  assert.equal((await api(`/access/${zlib.split('/access/')[1]}/plan/${memOrder}/fix`, 'POST')).status, 404, 'another buyer can’t use it');
   charge(mem.subscription_id, 99900); // the buyer updated their card, Razorpay charged again
   await webhook('subscription.charged', mem.subscription_id);
   assert.ok(await until(async () => (await libView()).products[0].status === 'active'), 'access is back');
+  assert.equal((await api(`/access/${token}/plan/${memOrder}/sync`, 'POST')).data.status, 'active');
+  assert.equal((await api(`/access/${token}/plan/${memOrder}/fix`, 'POST')).status, 400, 'nothing to pay once active');
 });
 
 test('cancelling: the buyer cancels a membership from their library (at the end of the period); the seller cancels plans', async () => {
