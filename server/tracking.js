@@ -43,16 +43,66 @@ export function cleanTk(tk, req) {
 }
 export const safeEventId = (v) => (/^[\w.:-]{6,80}$/.test(String(v || '')) ? String(v) : null);
 
+// ---------- tracking ids (the workspace's in Settings, and a funnel's own) ----------
+// Checks and normalises the ids in b (only the keys it has), on top of prev. Returns the ids, or { error }.
+export const ADS_LABELS = ['purchaseLabel', 'leadLabel', 'bookingLabel'];
+export const META_TOKEN_RE = /^[A-Za-z0-9_-]{30,600}$/;
+export function cleanTrackingIds(b, prev = {}) {
+  const out = { ...prev };
+  if ('fbPixel' in b) {
+    const v = String(b.fbPixel ?? '').trim();
+    if (v && !/^\d{6,20}$/.test(v)) return { error: 'The Meta Pixel ID is the number in Events Manager, e.g. 123456789012345' };
+    out.fbPixel = v;
+  }
+  if ('ga4' in b) {
+    const v = String(b.ga4 ?? '').trim().toUpperCase();
+    if (v && !/^G-[A-Z0-9]{4,20}$/.test(v)) return { error: 'The Google Analytics 4 ID looks like G-XXXXXXX (from Admin → Data streams)' };
+    out.ga4 = v;
+  }
+  // Google Ads: the AW- tag id plus one conversion label per action (any can be blank)
+  if (b.googleAds && typeof b.googleAds === 'object') {
+    const g = b.googleAds, ads = {};
+    ads.conversionId = String(g.conversionId ?? '').trim().toUpperCase();
+    if (ads.conversionId && !/^AW-\d{6,12}$/.test(ads.conversionId)) return { error: 'The Google Ads conversion ID looks like AW-123456789 (Tools → Conversions → Tag setup)' };
+    for (const k of ADS_LABELS) {
+      ads[k] = String(g[k] ?? '').trim();
+      if (ads[k] && !/^[\w-]{4,40}$/.test(ads[k])) return { error: 'A Google Ads conversion label is the part after the slash, e.g. AbC-D_efG12' };
+    }
+    out.googleAds = ads;
+  }
+  return out;
+}
+// What a funnel's pages fire: its own ids where it has them, else the workspace's (field by field).
+// Google Ads labels belong to one conversion id, so a funnel with its own id never borrows the workspace's labels.
+export function trackingFor(u, f) {
+  const w = u?.settings?.tracking || {}, o = f?.tracking || {};
+  const wa = w.googleAds || {}, oa = o.googleAds || {};
+  const ownAds = oa.conversionId && oa.conversionId !== wa.conversionId;
+  const ads = { conversionId: oa.conversionId || wa.conversionId || '' };
+  for (const k of ADS_LABELS) ads[k] = oa[k] || (ownAds ? '' : wa[k]) || '';
+  return { fbPixel: o.fbPixel || w.fbPixel || '', ga4: o.ga4 || w.ga4 || '', ...(ads.conversionId ? { googleAds: ads } : {}) };
+}
+// a funnel's own ids as the editor sees them (its token is never sent back, only whether one is saved)
+export const funnelTrackingView = (f) => {
+  const { metaTokenEnc, ...t } = f?.tracking || {};
+  return f?.tracking ? { ...t, metaToken: !!metaTokenEnc } : null;
+};
+
 // ---------- seller settings (tokens are stored encrypted, never sent to browsers) ----------
 export function capiStatus(u) {
   const c = u?.channels?.capi || {};
   return { metaToken: !!c.metaTokenEnc, metaTestCode: c.metaTestCode || '', ga4Secret: !!c.ga4SecretEnc, pixel: u?.settings?.tracking?.fbPixel || '', ga4: u?.settings?.tracking?.ga4 || '' };
 }
-const creds = (u) => {
-  const c = u?.channels?.capi || {}, t = u?.settings?.tracking || {};
+// Server-side events go to the same pixel / stream the funnel's pages fire in the browser — never another one.
+// A funnel with its own pixel uses its own token (or the workspace's when it is the workspace's pixel);
+// the GA4 secret belongs to the workspace's stream, so it is used only when the funnel fires that stream.
+const creds = (u, f) => {
+  const c = u?.channels?.capi || {}, w = u?.settings?.tracking || {}, t = trackingFor(u, f);
+  const own = f?.tracking?.metaTokenEnc;
+  const metaToken = own && f.tracking.fbPixel ? own : t.fbPixel === w.fbPixel ? c.metaTokenEnc : '';
   return {
-    meta: t.fbPixel && c.metaTokenEnc ? { pixel: t.fbPixel, token: decrypt(c.metaTokenEnc), test: c.metaTestCode || '' } : null,
-    ga4: t.ga4 && c.ga4SecretEnc ? { id: t.ga4, secret: decrypt(c.ga4SecretEnc) } : null,
+    meta: t.fbPixel && metaToken ? { pixel: t.fbPixel, token: decrypt(metaToken), test: t.fbPixel === w.fbPixel ? c.metaTestCode || '' : '' } : null,
+    ga4: t.ga4 && t.ga4 === w.ga4 && c.ga4SecretEnc ? { id: t.ga4, secret: decrypt(c.ga4SecretEnc) } : null,
   };
 };
 
@@ -79,11 +129,12 @@ function metaUser(b, tk) {
 const gaClient = (tk, b) => tk?.ga || `${parseInt(sha(contactKey(b.email, b.phone) || 'anon').slice(0, 8), 16)}.${Math.floor(Date.now() / 1000)}`;
 
 const META_EVENTS = new Set(['Purchase', 'Lead', 'InitiateCheckout', 'CompleteRegistration']);
-// event: { name, id, value, items: [{ id, name, price }], buyer: { email, phone, name }, tk, orderId }
+// event: { name, id, value, items: [{ id, name, price }], buyer: { email, phone, name }, tk, orderId, funnelId }
 export function trackServer(userId, event) {
   if (event.tk?.consent === false) return []; // the visitor declined tracking on the consent banner
   const u = T.users.get(userId);
-  const c = creds(u);
+  const f = event.funnelId ? T.funnels.get(event.funnelId) : null;
+  const c = creds(u, f);
   if (!c.meta && !c.ga4) return [];
   const at = Date.now();
   const rows = [];
@@ -98,7 +149,7 @@ export function trackServer(userId, event) {
     rows.push({ provider: 'ga4', event: event.name, body: { client_id: gaClient(event.tk, event.buyer || {}), timestamp_micros: at * 1000, non_personalized_ads: false, events: [{ name: event.name === 'Refund' ? 'refund' : 'purchase', params: { transaction_id: event.id, value: Number(event.value) || 0, currency: event.currency || 'INR', items, engagement_time_msec: 1 } }] } });
   }
   return rows.map((r) => {
-    const d = T.conversions.insert({ id: uid(), userId, ...r, eventId: event.id, status: 'pending', attempts: 0, nextAt: at, at });
+    const d = T.conversions.insert({ id: uid(), userId, ...(f ? { funnelId: f.id } : {}), ...r, eventId: event.id, status: 'pending', attempts: 0, nextAt: at, at });
     attempt(d.id);
     return d;
   }).concat(prune(userId));
@@ -113,10 +164,12 @@ export async function attempt(id) {
   if (!d || inFlight.has(id) || d.status !== 'pending' || !claim(id)) return d;
   inFlight.add(id);
   try {
-    const c = creds(T.users.get(d.userId));
+    const f = d.funnelId ? T.funnels.get(d.funnelId) : null;
+    const c = creds(T.users.get(d.userId), f);
     const r0 = { attempts: d.attempts + 1 };
     try {
       let url;
+      if (d.funnelId && !f) throw Object.assign(new Error('The funnel was deleted'), { final: true }); // its pixel is unknown now
       if (d.provider === 'meta') { if (!c.meta) throw Object.assign(new Error('Meta Conversions API is no longer connected'), { final: true }); url = `${META()}/${c.meta.pixel}/events?access_token=${encodeURIComponent(c.meta.token)}`; }
       else { if (!c.ga4) throw Object.assign(new Error('GA4 Measurement Protocol is no longer connected'), { final: true }); url = `${GA4()}?measurement_id=${encodeURIComponent(c.ga4.id)}&api_secret=${encodeURIComponent(c.ga4.secret)}`; }
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d.body), signal: AbortSignal.timeout(10000) });
@@ -149,7 +202,7 @@ export function registerTracking(app, { auth, wrap }) {
     const next = { ...prev };
     if ('metaToken' in b) {
       const t = String(b.metaToken || '').trim();
-      if (t && !/^[A-Za-z0-9_-]{30,600}$/.test(t)) return res.status(400).json({ error: 'That doesn’t look like a Conversions API access token (Events Manager → your pixel → Settings → Generate access token)' });
+      if (t && !META_TOKEN_RE.test(t)) return res.status(400).json({ error: 'That doesn’t look like a Conversions API access token (Events Manager → your pixel → Settings → Generate access token)' });
       next.metaTokenEnc = t ? encrypt(t) : '';
     }
     if ('metaTestCode' in b) { const t = String(b.metaTestCode || '').trim(); if (t && !/^TEST[A-Z0-9]{2,20}$/i.test(t)) return res.status(400).json({ error: 'Test event codes look like TEST12345 (Events Manager → Test events)' }); next.metaTestCode = t.toUpperCase(); }
@@ -161,6 +214,37 @@ export function registerTracking(app, { auth, wrap }) {
     next.at = Date.now();
     res.json(capiStatus(setChannel(req.user.id, 'capi', next)));
   }));
+  // a funnel's own tracking ids (several brands in one workspace); blank fields use the workspace's.
+  // Saved on its own, outside the editor's autosave, so no version bump.
+  const canSetToken = (req) => !req.role || ['admin', 'agency'].includes(req.role);
+  app.get('/api/funnels/:id/tracking', auth, (req, res) => {
+    const f = T.funnels.get(req.params.id);
+    if (!f || f.userId !== req.user.id) return res.status(404).json({ error: 'Funnel not found' });
+    res.json({ tracking: funnelTrackingView(f), workspace: trackingFor(req.user, null), capi: !!req.user.channels?.capi?.metaTokenEnc, canSetToken: canSetToken(req) });
+  });
+  app.put('/api/funnels/:id/tracking', auth, (req, res) => {
+    const f = T.funnels.get(req.params.id);
+    if (!f || f.userId !== req.user.id) return res.status(404).json({ error: 'Funnel not found' });
+    const b = req.body || {};
+    const t = cleanTrackingIds({ fbPixel: b.fbPixel, ga4: b.ga4, googleAds: b.googleAds && typeof b.googleAds === 'object' ? b.googleAds : {} });
+    if (t.error) return res.status(400).json(t);
+    const out = {};
+    if (t.fbPixel) out.fbPixel = t.fbPixel;
+    if (t.ga4) out.ga4 = t.ga4;
+    if (Object.values(t.googleAds).some(Boolean)) out.googleAds = t.googleAds;
+    if (out.googleAds && !out.googleAds.conversionId) return res.status(400).json({ error: 'Add the Google Ads conversion ID (AW-…) for these labels' });
+    // its own Conversions API token: kept unless changed; setting one is for the owner and admins (like Settings)
+    let tok = f.tracking?.metaTokenEnc || '';
+    if ('metaToken' in b) {
+      const v = String(b.metaToken || '').trim();
+      if (v && !canSetToken(req)) return res.status(403).json({ error: 'Only the owner or an admin can add a Conversions API token' });
+      if (v && !META_TOKEN_RE.test(v)) return res.status(400).json({ error: 'That doesn’t look like a Conversions API access token (Events Manager → your pixel → Settings → Generate access token)' });
+      tok = v ? encrypt(v) : '';
+    }
+    if (tok && out.fbPixel) out.metaTokenEnc = tok; // a token only means something with this funnel's own pixel
+    const nf = T.funnels.update(f.id, (x) => { if (Object.keys(out).length) x.tracking = out; else delete x.tracking; });
+    res.json({ tracking: funnelTrackingView(nf), resolved: trackingFor(req.user, nf) });
+  });
   app.get('/api/conversions', auth, (req, res) => {
     res.json(T.conversions.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 30 }).map(({ body, userId, ...d }) => d));
   });

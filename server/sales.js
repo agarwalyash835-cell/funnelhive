@@ -181,7 +181,7 @@ export function applyRefund(owner, orderId, parts, { reason = '', by = 'seller',
   // GA4: one refund per original payment (its transaction id), so the platform nets it out
   const byTxn = new Map();
   for (const r of fresh) for (const i of r.items) { const it = order.items[i]; if (it?.txn) byTxn.set(it.txn, [...(byTxn.get(it.txn) || []), it]); }
-  for (const [txn, its] of byTxn) trackServer(order.userId, { name: 'Refund', id: txn, value: its.reduce((s, it) => s + Number(it.price || 0), 0), items: its.map((it) => ({ id: it.productId || it.kind, name: it.name, price: it.price })), buyer: order });
+  for (const [txn, its] of byTxn) trackServer(order.userId, { name: 'Refund', funnelId: order.funnelId, id: txn, value: its.reduce((s, it) => s + Number(it.price || 0), 0), items: its.map((it) => ({ id: it.productId || it.kind, name: it.name, price: it.price })), buyer: order });
   return order;
 }
 

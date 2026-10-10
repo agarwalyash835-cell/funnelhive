@@ -18,7 +18,7 @@ import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm } from './crm.js';
 import { initMessaging, registerChannels, sendEmail } from './messaging.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, registerRazorpaySettings } from './razorpay.js';
-import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit, pagesBase, sitemapUrls, sitemapXml, robotsTxt } from './domains.js';
+import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit, pagesBase, sitemapUrls, sitemapXml, robotsTxt, noindexStep } from './domains.js';
 import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerHive } from './hive.js';
 import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, creditsShort, usageSummary, AI_COST, pricing } from './billing.js';
@@ -29,7 +29,7 @@ import { verifyGoogleToken, googleClientId } from './google.js';
 import { signupGuard, turnstileSiteKey, funnelLimitError, storageLimitError, addStorage } from './limits.js';
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
 import { registerProducts, deliver, resolveToken } from './products.js';
-import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId } from './tracking.js';
+import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId, cleanTrackingIds, trackingFor, funnelTrackingView } from './tracking.js';
 import { registerSales, issueInvoice, invoiceUrl, invoicingOf, cleanInvoicing, cleanBuyerGst, refundFromWebhook, INVOICING_DEFAULTS } from './sales.js';
 import { linkBase } from './products.js';
 import { registerBookings, confirmPaidBooking } from './bookings.js';
@@ -299,7 +299,7 @@ const ownFunnel = (req, id) => { const f = T.funnels.get(id); return f && f.user
 // the editor's preview links carry this key, so unpublished funnels can't be read by guessing a slug
 const previewKey = (f) => crypto.createHmac('sha256', SECRET).update(`pv.${f.id}`).digest('base64url').slice(0, 22);
 const validPreviewKey = (f, k) => typeof k === 'string' && k.length === 22 && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(previewKey(f)));
-const withKey = (f) => ({ ...f, previewKey: previewKey(f) });
+const withKey = (f) => ({ ...f, previewKey: previewKey(f), ...(f.tracking ? { tracking: funnelTrackingView(f) } : {}) }); // a funnel's own CAPI token never leaves the server
 
 // health, metrics and error reporting: observe.js
 registerObserve(app);
@@ -350,29 +350,11 @@ app.put('/api/settings', auth, wrap(async (req, res) => {
     next.payments = { ...s.payments };
     for (const k of ['provider', 'razorpayKey', 'stripeKey', 'cashfreeKey', 'phonepeKey', 'mode']) if (k in body.payments) next.payments[k] = String(body.payments[k] ?? '').trim().slice(0, 200);
   }
+  // Meta pixel, GA4 and Google Ads ids (the same checks as a funnel's own: tracking.js)
   if (body.tracking && typeof body.tracking === 'object') {
-    next.tracking = { ...s.tracking };
-    if ('fbPixel' in body.tracking) {
-      const v = String(body.tracking.fbPixel ?? '').trim();
-      if (v && !/^\d{6,20}$/.test(v)) return res.status(400).json({ error: 'The Meta Pixel ID is the number in Events Manager, e.g. 123456789012345' });
-      next.tracking.fbPixel = v;
-    }
-    if ('ga4' in body.tracking) {
-      const v = String(body.tracking.ga4 ?? '').trim().toUpperCase();
-      if (v && !/^G-[A-Z0-9]{4,20}$/.test(v)) return res.status(400).json({ error: 'The Google Analytics 4 ID looks like G-XXXXXXX (from Admin → Data streams)' });
-      next.tracking.ga4 = v;
-    }
-    // Google Ads: the AW- tag id plus one conversion label per action (any can be blank)
-    if (body.tracking.googleAds && typeof body.tracking.googleAds === 'object') {
-      const g = body.tracking.googleAds, ads = {};
-      ads.conversionId = String(g.conversionId ?? '').trim().toUpperCase();
-      if (ads.conversionId && !/^AW-\d{6,12}$/.test(ads.conversionId)) return res.status(400).json({ error: 'The Google Ads conversion ID looks like AW-123456789 (Tools → Conversions → Tag setup)' });
-      for (const k of ['purchaseLabel', 'leadLabel', 'bookingLabel']) {
-        ads[k] = String(g[k] ?? '').trim();
-        if (ads[k] && !/^[\w-]{4,40}$/.test(ads[k])) return res.status(400).json({ error: 'A Google Ads conversion label is the part after the slash, e.g. AbC-D_efG12' });
-      }
-      next.tracking.googleAds = ads;
-    }
+    const t = cleanTrackingIds(body.tracking, s.tracking);
+    if (t.error) return res.status(400).json(t);
+    next.tracking = t;
   }
   if (body.invoicing && typeof body.invoicing === 'object') {
     const inv = cleanInvoicing(body.invoicing, s.invoicing);
@@ -564,8 +546,10 @@ app.put('/api/funnels/:id', auth, (req, res) => {
   if ('name' in b) b.name = b.name.trim().slice(0, 120);
   if ('published' in b && typeof b.published !== 'boolean') return res.status(400).json({ error: 'published must be true or false' });
   if ('theme' in b && (!b.theme || typeof b.theme !== 'object' || Array.isArray(b.theme))) return res.status(400).json({ error: 'Invalid theme' });
+  // a step's "hide from search engines" is stored as a plain true, or not at all
+  if ('steps' in b) for (const s of b.steps) if (s.seo && typeof s.seo === 'object') { if (s.seo.noindex) s.seo.noindex = true; else delete s.seo.noindex; }
   if (req.body.baseVersion != null && Number(req.body.baseVersion) !== f.version) {
-    return res.status(409).json({ error: 'This funnel was changed somewhere else (another tab, device or teammate).', funnel: f });
+    return res.status(409).json({ error: 'This funnel was changed somewhere else (another tab, device or teammate).', funnel: withKey(f) });
   }
   tx(() => {
     const contentChange = ['name', 'steps', 'theme'].some((k) => k in req.body && JSON.stringify(req.body[k]) !== JSON.stringify(f[k]));
@@ -577,6 +561,13 @@ app.put('/api/funnels/:id', auth, (req, res) => {
     T.funnels.put(f);
   });
   res.json(withKey(f));
+});
+// hide the whole funnel from search engines (every step noindex, none in the sitemap); outside the autosave like legal/tracking
+app.put('/api/funnels/:id/seo', auth, (req, res) => {
+  const f = owned(req, res);
+  if (!f) return;
+  const nf = T.funnels.update(f.id, (x) => { if (req.body?.noindex) x.seo = { ...x.seo, noindex: true }; else if (x.seo) { delete x.seo.noindex; if (!Object.keys(x.seo).length) delete x.seo; } });
+  res.json({ seo: nf.seo || null });
 });
 
 app.get('/api/funnels/:id/revisions', auth, (req, res) => {
@@ -957,9 +948,9 @@ function resolveWhatsApp(steps, supportNumber) {
 // a funnel sells in one currency: its checkout's (₹ by default)
 const funnelIso = (f) => isoOf(f.steps.flatMap((s) => allBlocks(s)).find((b) => b.type === 'checkout')?.props?.currency);
 function publicData(f, owner = T.users.get(f.userId)) {
-  const t = owner?.settings?.tracking || {};
   const inv = invoicingOf(owner);
-  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f) } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: { fbPixel: t.fbPixel || '', ga4: t.ga4 || '', ...(t.googleAds?.conversionId ? { googleAds: t.googleAds } : {}) }, ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}) };
+  // tracking: the funnel's own ids where it has them, else the workspace's
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f) } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}) };
 }
 app.get('/api/public/:slug', (req, res) => {
   const f = pub(req, res);
@@ -1018,7 +1009,7 @@ app.post('/api/public/:slug/lead', (req, res) => {
     if (gift && cleanEmail && qualified !== false) access = deliver({ f, owner: ownerOf(f), email: cleanEmail, name: lead.name, phone: cleanPhone, grants: [{ productId: gift }], leadId: lead.id, base: appUrl(req) });
     fireWebhook(f.userId, 'lead.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}) });
     fireAutomation(f.userId, 'lead', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { accessLink: access.library } : {}) });
-    trackServer(f.userId, { name: 'Lead', id: eventId, buyer: lead, tk: cleanTk(req.body.tk, req) });
+    trackServer(f.userId, { name: 'Lead', funnelId: f.id, id: eventId, buyer: lead, tk: cleanTk(req.body.tk, req) });
     notify(f.userId, { kind: 'lead', title: `${qualified === undefined ? 'New lead' : qualified ? 'New application (qualified)' : 'New application (not a fit)'} · ${lead.name || cleanEmail || cleanPhone} · ${f.name}`, body: [cleanEmail, cleanPhone].filter(Boolean).join(' · '), link: `/contacts/${encodeURIComponent(contactKey(cleanEmail, cleanPhone))}` });
   }
   res.json({ ok: true, eventId, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
@@ -1169,10 +1160,10 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
         const biz = owner.settings?.businessName || f.name;
         sendEmail(owner, { to: order.email, subject: `Your invoice from ${biz}`, text: `Hi ${String(order.name || '').split(/\s+/)[0] || 'there'},\n\nThank you for your purchase. Your invoice: ${invoice}\n\n— ${biz}` }).catch((e) => console.error('invoice email failed', e.message));
       }
-      trackServer(f.userId, { name: 'Purchase', id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
+      trackServer(f.userId, { name: 'Purchase', funnelId: f.id, id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
     } else if (cod) {
       // a Cash on Delivery order is a real sale: reported now; invoiced and delivered when the cash is collected
-      trackServer(f.userId, { name: 'Purchase', id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
+      trackServer(f.userId, { name: 'Purchase', funnelId: f.id, id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
     } else if (items.some((it) => it.productId)) order = T.orders.update(order.id, (o) => { o.undelivered = true; }) || order; // demo checkout: nothing is handed out without a payment
     // the seller's bell (sample-data orders aside); test-mode sales are marked so they aren't mistaken for money
     if (!order.demo) notify(f.userId, { kind: 'order', title: `${updated ? 'Upsell' : cod ? 'New COD order' : 'New order'} · ${money(charge.total, order.currency || 'INR')} · ${order.name || order.email || order.phone || 'a buyer'}${testOrder(order) ? ' (test)' : ''}`, body: `${items.map((it) => it.name).join(', ')} — ${f.name}`, link: '/orders' });
@@ -1265,7 +1256,7 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
   if (charge.total <= 0) return res.json({ provider: 'free', ...recordOrder(f, charge, buyer, { orderId, verified: true, base: appUrl(req), testMode: (useStripe ? sc : creds).mode === 'test' }) });
   const pay = { id: uid(), userId: f.userId, funnelId: f.id, stepId: charge.step.id, orderId, buyer, charge: { items: charge.items, total: charge.total, discount: charge.discount, usedCoupon: charge.usedCoupon }, mode: (useStripe ? sc : creds).mode, status: 'created', at: Date.now(), base: appUrl(req), ...(useStripe ? { provider: 'stripe', currency: iso } : {}) };
   // the buyer pressed Pay on the checkout: InitiateCheckout, with the browser's event id so Meta counts it once
-  if (!orderId && charge.items[0]?.kind === 'main') trackServer(f.userId, { name: 'InitiateCheckout', id: safeEventId(req.body.eventId) || `ic-${pay.id}`, value: charge.total, currency: funnelIso(f), items: charge.items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer, tk: buyer.tk });
+  if (!orderId && charge.items[0]?.kind === 'main') trackServer(f.userId, { name: 'InitiateCheckout', funnelId: f.id, id: safeEventId(req.body.eventId) || `ic-${pay.id}`, value: charge.total, currency: funnelIso(f), items: charge.items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer, tk: buyer.tk });
   if (useStripe) {
     const description = charge.items.map((i) => i.name).join(' + ');
     try {
@@ -1283,7 +1274,7 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
         const pi = await chargeSaved(sc, { pay, iso, customer: prevStripe, description });
         if (pi?.status === 'succeeded') { Object.assign(pay, { stripeIntent: pi.id, rzpOrderId: pi.id }); T.payments.insert(pay); return res.json({ provider: 'stripe', ...finalizePayment(pay, pi.id, appUrl(req)) }); }
       }
-      if (!orderId && charge.items[0]?.kind === 'main') trackServer(f.userId, { name: 'InitiateCheckout', id: safeEventId(req.body.eventId) || `ic-${pay.id}`, value: charge.total, currency: funnelIso(f), items: charge.items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer, tk: buyer.tk });
+      if (!orderId && charge.items[0]?.kind === 'main') trackServer(f.userId, { name: 'InitiateCheckout', funnelId: f.id, id: safeEventId(req.body.eventId) || `ic-${pay.id}`, value: charge.total, currency: funnelIso(f), items: charge.items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer, tk: buyer.tk });
       const r = await startStripePayment(sc, { userId: f.userId, pay, iso, buyer, description });
       Object.assign(pay, { stripeIntent: r.intent, stripeCustomer: r.customer, rzpOrderId: r.intent });
       T.payments.insert(pay);
@@ -1445,12 +1436,14 @@ function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } 
   const owner = ownerOf(f);
   if (!accessFor(owner).pagesLive) return res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not available</title><p style="font:16px system-ui;padding:40px;text-align:center">This page isn’t available right now.</p>');
   const base = domain ? `https://${domain}` : appUrl(req);
-  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin), !!rzpCreds(owner), !!stripeCreds(owner)]);
+  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, f.tracking || null, f.seo || null, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin), !!rzpCreds(owner), !!stripeCreds(owner)]);
   let html = cacheGet(key);
   if (!html) {
     html = renderHtml(f, owner, stepSlug, { domain, preview, base });
     cacheSet(key, html);
   }
+  // a step hidden from search engines (or a checkout / upsell / thank-you step) says so in a header too
+  if (noindexStep(f, f.steps.find((s) => s.slug === stepSlug) || f.steps[0])) res.set('X-Robots-Tag', 'noindex');
   res.set('Cache-Control', 'no-cache').type('html').send(html);
 }
 function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
@@ -1480,7 +1473,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
     `<meta name="twitter:description" content="${esc(desc)}">`,
     img && `<meta name="twitter:image" content="${esc(img)}">`,
     `<meta name="theme-color" content="${esc(f.theme?.primary || '#6366f1')}">`,
-    preview && '<meta name="robots" content="noindex">',
+    preview ? '<meta name="robots" content="noindex">' : noindexStep(f, step) && '<meta name="robots" content="noindex, nofollow">',
     CDN_URL && `<link rel="preconnect" href="${esc(CDN_URL)}"><script>window.__FF_CDN__=${JSON.stringify(CDN_URL)}</script>`,
     domain && `<script>window.__FF_DOMAIN__=${JSON.stringify(domain)}</script>`,
     ssr && `<link rel="stylesheet" href="${esc(ssr.fontHrefFor ? ssr.fontHrefFor(f.theme || {}) : ssr.fontHref(f.theme?.style || 'aurora'))}">`,

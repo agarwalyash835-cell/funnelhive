@@ -36,9 +36,11 @@ export function funnelUrl(f, origin, stepSlug) {
   return `${pagesBase() || origin}/f/${f.slug}${stepSlug ? `/${stepSlug}` : ''}`;
 }
 // Sitemaps list the pages worth finding in search: not checkout, upsell or thank-you steps (they only make sense
-// mid-purchase), nor a step its owner marked noindex
-const MID_FUNNEL = new Set(['checkout', 'upsell', 'downsell', 'thankyou']);
-export const sitemapUrls = (f, base, onDomain) => (f.steps || []).filter((s) => !MID_FUNNEL.has(s.type) && !s.seo?.noindex)
+// mid-purchase), nor a step (or a whole funnel) its owner hid from search engines. The live page says the same
+// in its robots meta tag and X-Robots-Tag header.
+export const MID_FUNNEL = new Set(['checkout', 'upsell', 'downsell', 'thankyou']);
+export const noindexStep = (f, s) => !!(f.seo?.noindex || s?.seo?.noindex || MID_FUNNEL.has(s?.type));
+export const sitemapUrls = (f, base, onDomain) => (f.steps || []).filter((s) => !noindexStep(f, s))
   .map((s) => ({ loc: `${base}${onDomain ? '' : `/f/${f.slug}`}${s === f.steps[0] ? (onDomain ? '/' : '') : `/${s.slug}`}`, lastmod: f.updatedAt }));
 const xmlEsc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]);
 export const sitemapXml = (urls) => `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `<url><loc>${xmlEsc(u.loc)}</loc>${u.lastmod ? `<lastmod>${new Date(u.lastmod).toISOString().slice(0, 10)}</lastmod>` : ''}</url>\n`).join('')}</urlset>\n`;

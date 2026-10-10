@@ -45,6 +45,7 @@ const STEP_TYPES = {
   downsell: { icon: '⬇️', label: 'Downsell', blocks: () => [mk('offer', { progress: 'Step 2 of 3 · One last chance', headline: 'No problem — how about the *Lite version*?', productName: 'Lite Version', emoji: '🎁', price: 399, mrp: 999, acceptText: 'Yes, add the Lite version', declineText: 'No thanks, take me to my order' })] },
   thankyou: { icon: '🎉', label: 'Thank you', blocks: () => [mk('thankyou', { headline: 'Order confirmed! 🎉', body: 'Details are on your email & WhatsApp.', steps: [{ text: 'Check your inbox for access details' }, { text: 'Save our WhatsApp number' }] }), mk('crosssell')] },
 };
+const MID_FUNNEL = ['checkout', 'upsell', 'downsell', 'thankyou']; // never in search results (server: domains.js)
 const PALETTES = [['#6366f1', '#ec4899'], ['#ff9933', '#e11d48'], ['#16a34a', '#0ea5e9'], ['#9f1239', '#a16207'], ['#7c3aed', '#06b6d4'], ['#0f766e', '#22c55e'], ['#111827', '#f59e0b'], ['#2563eb', '#7c3aed']];
 // each page style's background and panel colours (blocks.jsx STYLES) — a style missing here falls back to neutral
 const STYLE_SWATCH = { aurora: ['#ffffff', '#eef0ff'], midnight: ['#060913', '#1e2a4a'], luxe: ['#fbf8f3', '#e3d8c6'], fresh: ['#ffffff', '#ecfdf5'], bold: ['#fffaf0', '#111111'], clean: ['#ffffff', '#f1f5f9'], editorial: ['#fafaf7', '#121212'], organic: ['#fbf6ee', '#f3e9d8'], tech: ['#07090d', '#21262d'], playful: ['#fffdf5', '#ffe9a8'], royal: ['#14101f', '#d4af5f'], noir: ['#0a0a0a', '#262626'], glass: ['#0b0b1a', '#3b3b8f'], swiss: ['#f2f1ec', '#0d0d0d'], pastel: ['#fdf8fb', '#efe3ee'], studio: ['#f6f4ef', '#e2ddd1'] };
@@ -313,6 +314,54 @@ function LegalPanel({ f, onSaved }) {
       <div className="fld"><label>Address</label><textarea rows={2} value={l.address} maxLength={400} onChange={(e) => set('address', e.target.value)} /></div>
       <div className="fld"><label>Refund window (days, 0 = no refunds)</label><input type="number" min="0" max="365" value={l.refundDays ?? ''} placeholder="Workspace default" onChange={(e) => set('refundDays', e.target.value)} /></div>
       <button className="btn sm" disabled={busy} onClick={save}>Save legal details</button>
+    </details>
+  );
+}
+
+// a funnel's own pixel / analytics / Google Ads ids (another brand's ad account); blank fields use the
+// account's (Settings → Tracking). Saved on its own, outside the autosave.
+const ADS_FIELDS = [['conversionId', 'Google Ads conversion ID', 'AW-123456789'], ['purchaseLabel', 'Purchase label', 'AbC-D_efG12'], ['leadLabel', 'Lead label', ''], ['bookingLabel', 'Booking label', '']];
+function TrackingPanel({ f }) {
+  const blank = { fbPixel: '', ga4: '', googleAds: {}, metaToken: '' };
+  const [t, setT] = useState(blank);
+  const [info, setInfo] = useState(null); // { tracking, workspace, capi, canSetToken }
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api(`/funnels/${f.id}/tracking`).then((r) => { setInfo(r); setT({ ...blank, ...(r.tracking || {}), googleAds: r.tracking?.googleAds || {}, metaToken: '' }); }).catch(() => {}); }, [f.id]);
+  const ws = info?.workspace || {};
+  const using = (v) => (v ? `Using your account’s: ${v}` : 'Not set in your account');
+  const send = async (body, msg) => {
+    setBusy(true);
+    try {
+      const r = await api(`/funnels/${f.id}/tracking`, 'PUT', body);
+      setInfo({ ...info, tracking: r.tracking });
+      setT({ ...blank, ...(r.tracking || {}), googleAds: r.tracking?.googleAds || {}, metaToken: '' });
+      toast(r.tracking ? msg : 'This funnel uses your account’s tracking');
+    } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const { metaToken, ...ids } = t;
+  const save = () => send({ ...ids, ...(metaToken ? { metaToken } : {}) }, 'Tracking saved for this funnel');
+  const own = info?.tracking;
+  return (
+    <details className="stylep" open={!!own}>
+      <summary><Icon name="settings" size={14} /> Tracking for this funnel (optional) {own && <span className="pill ok">own tracking</span>}</summary>
+      <p className="hint">For a funnel that runs on a different ad account. Each blank field uses your account’s setting (Settings → Tracking).</p>
+      <div className="fld"><label>Meta (Facebook) Pixel ID</label><input value={t.fbPixel} maxLength={20} placeholder={using(ws.fbPixel)} onChange={(e) => setT({ ...t, fbPixel: e.target.value })} /></div>
+      {t.fbPixel && t.fbPixel !== ws.fbPixel && (
+        <div className="fld"><label>Conversions API token for this pixel {own?.metaToken && <small className="ok-t">· saved</small>}</label>
+          <input type="password" value={t.metaToken} disabled={!info?.canSetToken} placeholder={own?.metaToken ? '•••••••• (saved)' : 'Events Manager → this pixel → Settings → Generate access token'} onChange={(e) => setT({ ...t, metaToken: e.target.value })} />
+          <span className="hint">{info?.canSetToken ? 'Optional. Without it, this pixel gets browser events only (server-side events never go to another pixel).' : 'Only the owner or an admin can add a token.'}</span>
+          {own?.metaToken && info?.canSetToken && <button className="btn ghost sm" disabled={busy} onClick={() => send({ ...ids, metaToken: '' }, 'Token removed')}>Remove token</button>}
+        </div>
+      )}
+      <div className="fld"><label>Google Analytics 4 ID</label><input value={t.ga4} maxLength={24} placeholder={using(ws.ga4)} onChange={(e) => setT({ ...t, ga4: e.target.value })} /></div>
+      {ADS_FIELDS.map(([k, l, ph]) => (
+        <div className="fld" key={k}><label>{l}</label><input value={t.googleAds[k] || ''} maxLength={40} placeholder={ws.googleAds?.[k] ? using(ws.googleAds[k]) : ph || 'Optional'} onChange={(e) => setT({ ...t, googleAds: { ...t.googleAds, [k]: e.target.value } })} /></div>
+      ))}
+      <div className="row">
+        <button className="btn sm" disabled={busy || !info} onClick={save}>Save tracking</button>
+        {own && <button className="btn ghost sm" disabled={busy} onClick={() => confirm('Clear this funnel’s tracking and use your account settings?') && send({ fbPixel: '', ga4: '', googleAds: {}, metaToken: '' })}>Clear (use account settings)</button>}
+      </div>
     </details>
   );
 }
@@ -1052,6 +1101,10 @@ export default function Editor() {
               <h5>SEO</h5>
               <div className="fld"><label>Page title</label><input value={step.seo?.title || ''} placeholder={`${step.name} · ${f.name}`} onChange={(e) => patchStep({ seo: { ...step.seo, title: e.target.value } }, true)} /></div>
               <div className="fld"><label>Meta description</label><textarea rows={3} value={step.seo?.description || ''} onChange={(e) => patchStep({ seo: { ...step.seo, description: e.target.value } }, true)} /></div>
+              {/* checkout, upsell, downsell and thank-you pages are always hidden (they only make sense mid-purchase) */}
+              {MID_FUNNEL.includes(step.type) || f.seo?.noindex
+                ? <label className="tog"><input type="checkbox" checked disabled /><span />Hidden from search engines<small className="hint"> · {f.seo?.noindex ? 'the whole funnel is hidden' : 'always, for this kind of page'}</small></label>
+                : <label className="tog"><input type="checkbox" checked={!!step.seo?.noindex} onChange={(e) => patchStep({ seo: { ...step.seo, noindex: e.target.checked } })} /><span />Hide this page from search engines</label>}
               <h5>A/B split test</h5>
               <label className="tog"><input type="checkbox" checked={abOn} onChange={(e) => { patchStep({ ab: e.target.checked ? { enabled: true, split: 50, blocks: step.ab?.blocks || step.blocks.map(freshIds) } : { ...step.ab, enabled: false } }); setVariant(e.target.checked ? 'B' : 'A'); }} /><span />Test two versions of this page</label>
               {abOn && (
@@ -1066,6 +1119,8 @@ export default function Editor() {
               )}
               <h5>Funnel</h5>
               <LegalPanel key={f.id} f={f} onSaved={(legal) => setF((x) => { const n = { ...x }; if (legal) n.legal = legal; else delete n.legal; return n; })} />
+              <TrackingPanel key={`t-${f.id}`} f={f} />
+              <label className="tog"><input type="checkbox" checked={!!f.seo?.noindex} onChange={async (e) => { try { const r = await api(`/funnels/${f.id}/seo`, 'PUT', { noindex: e.target.checked }); setF((x) => { const n = { ...x }; if (r.seo) n.seo = r.seo; else delete n.seo; return n; }); } catch (err) { toast(err.message); } }} /><span />Hide the whole funnel from search engines</label>
               <h5>Danger zone</h5>
               <div className="row"><button className="btn ghost sm" onClick={dupStep}><Icon name="copy" size={14} /> Duplicate step</button><button className="btn ghost sm danger" onClick={delStep} disabled={f.steps.length < 2}><Icon name="trash" size={14} /> Delete step</button></div>
             </div>
