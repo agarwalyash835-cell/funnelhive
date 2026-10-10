@@ -20,6 +20,8 @@ test('every seller gets a booking page address; it can be changed but not taken 
   const T2 = (await register(api)).token;
   assert.equal((await api('/booking-page', 'PUT', { handle: 'asha-coaching' }, T2)).status, 409);
   assert.equal((await api('/booking-page', 'PUT', { handle: 'ab' }, T)).status, 400);
+  assert.equal((await api('/booking-page', 'PUT', {}, T)).status, 400, 'no address');
+  assert.equal((await api('/booking-page', 'PUT', { handle: '!!!' }, T)).status, 400, 'symbols only');
 });
 
 test('call types: clean start times, several lengths, hidden ones only by link', async () => {

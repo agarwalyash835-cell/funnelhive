@@ -316,7 +316,8 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
   // your booking page address
   app.get('/api/booking-page', auth, (req, res) => res.json({ handle: handleOf(req.user) }));
   app.put('/api/booking-page', auth, (req, res) => {
-    const h = slugify(req.body?.handle).slice(0, 30);
+    // not slugify(): its 'call' fallback would turn an empty or symbols-only address into a real one
+    const h = String(req.body?.handle ?? '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
     if (h.length < 3) return res.status(400).json({ error: 'Use at least 3 letters or numbers' });
     const other = userByHandle(h);
     if (other && other.id !== req.user.id) return res.status(409).json({ error: 'That address is taken — try another' });
