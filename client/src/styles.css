@@ -1788,3 +1788,55 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 .gen-secs { opacity: .75; font-weight: 500; margin-left: 4px; }
 .gen-progress { height: 6px; border-radius: 99px; background: var(--c-line-2); overflow: hidden; }
 .gen-progress i { display: block; height: 100%; border-radius: inherit; background: var(--c-honey); transition: width 1s linear; }
+
+/* =====================================================================
+   DASHBOARD — a prompt-first home (Lovable-style): say what you sell, Hive AI drafts the funnel
+   ===================================================================== */
+.lv-hero { position: relative; isolation: isolate; overflow: hidden; text-align: center; display: grid; justify-items: center; gap: 10px; padding: 64px 24px 40px; margin-top: -6px; border-radius: 20px; border: 1px solid var(--c-line); background: #fffdf9; }
+.lv-glow { position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(65% 75% at 50% 118%, rgba(245, 165, 36, .72), transparent 70%),
+    radial-gradient(45% 60% at 14% 108%, rgba(251, 113, 133, .5), transparent 70%),
+    radial-gradient(45% 60% at 88% 110%, rgba(125, 167, 255, .45), transparent 70%),
+    radial-gradient(50% 40% at 50% -10%, rgba(253, 230, 190, .5), transparent 70%); }
+.lv-hi { margin: 0; color: var(--c-muted); font-weight: 500; }
+.lv-hero h1 { font-size: clamp(28px, 4vw, 44px); font-weight: 650; letter-spacing: -.035em; line-height: 1.08; margin: 0; color: var(--c-ink); }
+.lv-sub { margin: 0 0 14px; color: var(--c-ink-2); max-width: 560px; font-size: 15px; line-height: 1.5; }
+.lv-box { width: min(720px, 100%); text-align: left; background: #fff; border: 1px solid var(--c-line); border-radius: 18px; padding: 14px 14px 10px; box-shadow: 0 1px 2px rgba(28, 25, 23, .06), 0 18px 40px -22px rgba(28, 25, 23, .35); transition: box-shadow .2s, border-color .2s; }
+.lv-box:focus-within { border-color: #d6d3d1; box-shadow: 0 0 0 4px rgba(245, 165, 36, .18), 0 18px 40px -22px rgba(28, 25, 23, .35); }
+.lv-box textarea { border: 0; box-shadow: none !important; padding: 4px 6px; font-size: 16px; line-height: 1.5; resize: none; min-height: 56px; background: transparent; }
+.lv-bar { display: flex; align-items: center; gap: 8px; padding-top: 6px; }
+.lv-bar select { width: auto; height: 32px; padding: 0 28px 0 10px; border-radius: 99px; font-size: 13px; background-color: var(--c-surface-2); }
+.lv-chip-link { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--c-line); font-size: 13px; color: var(--c-ink-2); background: var(--c-surface-2); }
+.lv-chip-link:hover { color: var(--c-ink); border-color: #d6d3d1; }
+.lv-send { margin-left: auto; width: 38px; height: 38px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--c-act); color: #fff; transition: transform .1s, opacity .15s; }
+.lv-send:hover:not(:disabled) { background: var(--c-act-hover); }
+.lv-send:disabled { opacity: .25; cursor: default; }
+.lv-send .up { transform: rotate(-90deg); }
+.lv-busy { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 8px 6px 6px; font-size: 14px; }
+.lv-busy small { color: var(--c-muted); }
+.lv-busy .gen-progress { grid-column: 1 / -1; }
+.lv-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 760px; margin-top: 10px; }
+.lv-chips button { border: 1px solid var(--c-line); background: rgba(255, 255, 255, .8); backdrop-filter: blur(6px); border-radius: 99px; padding: 7px 14px; font-size: 13px; color: var(--c-ink-2); transition: border-color .15s, color .15s; }
+.lv-chips button:hover { border-color: #a8a29e; color: var(--c-ink); }
+.lv-note { margin: 6px 0 0; font-size: 12.5px; color: var(--c-muted); }
+.lv-sample { margin-top: 6px; }
+.lv-err { width: min(720px, 100%); text-align: left; }
+.lv-section { display: grid; gap: 12px; }
+.lv-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.lv-head h2 { font-size: 17px; font-weight: 650; letter-spacing: -.015em; margin: 0; }
+.lv-perf { margin-top: 6px; }
+.lv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 16px; }
+.lv-card { display: grid; gap: 10px; color: inherit; }
+.lv-thumb { position: relative; aspect-ratio: 16 / 10; border-radius: 12px; overflow: hidden; border: 1px solid var(--c-line); background: var(--c-surface-2); transition: box-shadow .2s, transform .2s; }
+.lv-card:hover .lv-thumb { box-shadow: var(--sh-2); transform: translateY(-2px); }
+.lv-thumb .thumb-in { position: absolute; top: 0; left: 0; width: 400%; transform: scale(.25); transform-origin: 0 0; pointer-events: none; }
+.lv-thumb .fthumb-ph { height: 100%; display: grid; place-items: center; color: var(--c-muted); }
+.lv-meta { display: grid; gap: 2px; padding: 0 2px; }
+.lv-meta b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lv-meta span { font-size: 12.5px; color: var(--c-muted); display: inline-flex; align-items: center; gap: 6px; }
+.lv-meta .dot { width: 7px; height: 7px; border-radius: 50%; background: #d6d3d1; }
+.lv-meta .dot.on { background: #22c55e; }
+.lv-how { padding: 4px 4px 0; }
+.lv-how .how { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .lv-hero { padding: 44px 16px 28px; } .lv-how .how { grid-template-columns: 1fr; } }

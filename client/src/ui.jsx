@@ -141,7 +141,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
       <main className="main">
         <header className="topbar">
           <button className="icon-btn burger" onClick={() => setOpen(true)}><Icon name="menu" /></button>
-          <div className="tb-title"><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
+          <div className="tb-title">{title && <h1>{title}</h1>}{subtitle && <p>{subtitle}</p>}</div>
           <div className="tb-actions">{actions}</div>
         </header>
         {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} />You’re working in the <b>{me.workspace.name}</b> workspace as {({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role]}.</div>}
@@ -219,21 +219,17 @@ export const RangePicker = ({ value, onChange }) => (
 
 // ---------- Create funnel (AI / template / blank) ----------
 const EXAMPLES = ['Online yoga classes for working women, ₹499', 'Homemade mango pickles delivered across India', 'UPSC coaching with personal mentorship', 'Rooftop solar installation in Pune', 'Bridal makeup artist in Jaipur', 'Stock market course for beginners'];
-export function CreateFunnel({ onClose, aiEnabled }) {
+// Drafting a funnel with AI (about a minute): stage, seconds and progress — used by the "New funnel" dialog and the dashboard prompt
+const DRAFT_STAGES = [[0, 'Understanding your offer'], [6, 'Planning the funnel steps'], [14, 'Writing the sales page'], [26, 'Writing checkout, bump & upsell'], [38, 'Writing the thank-you page'], [48, 'Quality-checking every section'], [62, 'Almost there — polishing the copy']];
+export function useFunnelDraft() {
   const nav = useNavigate();
-  const [prompt, setPrompt] = useState('');
-  const [lang, setLang] = useState('en');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const ref = useRef();
-  useEffect(() => ref.current?.focus(), []);
-  // the AI build takes about a minute: show what it's doing and how long it's been
   const [secs, setSecs] = useState(0);
   useEffect(() => { if (!busy) return undefined; setSecs(0); const t = setInterval(() => setSecs((s) => s + 1), 1000); return () => clearInterval(t); }, [busy]);
-  const STAGES = [[0, 'Understanding your offer'], [6, 'Planning the funnel steps'], [14, 'Writing the sales page'], [26, 'Writing checkout, bump & upsell'], [38, 'Writing the thank-you page'], [48, 'Quality-checking every section'], [62, 'Almost there — polishing the copy']];
-  const stage = [...STAGES].reverse().find(([s]) => secs >= s)[1];
-  const gen = async (e) => {
-    e?.preventDefault();
+  const stage = [...DRAFT_STAGES].reverse().find(([s]) => secs >= s)[1];
+  const progress = Math.min(95, Math.round((secs / 70) * 100));
+  const start = async (prompt, lang = 'en') => {
     setBusy(true); setErr('');
     try {
       const r = await api('/ai/generate', 'POST', { prompt, lang });
@@ -241,6 +237,18 @@ export function CreateFunnel({ onClose, aiEnabled }) {
       nav(`/funnels/${r.id}`);
     } catch (x) { setErr(x.message); setBusy(false); }
   };
+  return { busy, err, secs, stage, progress, start };
+}
+export const DRAFT_EXAMPLES = EXAMPLES;
+
+export function CreateFunnel({ onClose, aiEnabled }) {
+  const nav = useNavigate();
+  const [prompt, setPrompt] = useState('');
+  const [lang, setLang] = useState('en');
+  const ref = useRef();
+  useEffect(() => ref.current?.focus(), []);
+  const { busy, err, secs, stage, progress, start } = useFunnelDraft();
+  const gen = (e) => { e?.preventDefault(); start(prompt, lang); };
   const blank = async () => nav(`/funnels/${(await api('/funnels', 'POST', { name: 'Untitled funnel' })).id}`);
   return (
     <Modal title="Create a new funnel" onClose={onClose} width={720}>
@@ -253,9 +261,8 @@ export function CreateFunnel({ onClose, aiEnabled }) {
         <div className="sugg">{EXAMPLES.map((x) => <button type="button" key={x} onClick={() => setPrompt(x)}>{x}</button>)}</div>
         {err && <div className="err">{err}</div>}
         <button className="btn primary lg" disabled={busy || prompt.length < 5}>{busy ? <><span className="spin" /> {stage}… <small className="gen-secs">{secs}s</small></> : <><Icon name="wand" /> Generate my funnel</>}</button>
-        {busy && <div className="gen-progress" aria-hidden="true"><i style={{ width: `${Math.min(95, Math.round((secs / 70) * 100))}%` }} /></div>}
-        {busy && <p className="hint">Hive AI writes every page from scratch — this usually takes about a minute. Keep this window open.</p>}
-        {busy && <p className="hint center">Takes about a minute: the AI writes every page, then each one is checked against our template quality bar and fixed where needed.</p>}
+        {busy && <div className="gen-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>}
+        {busy && <p className="hint">Hive AI writes every page, then checks each one against our template quality bar — about a minute. Keep this window open.</p>}
         {!aiEnabled && <p className="hint">Running offline: we’ll match your description to the best of our 100+ expert templates. Add a KIE_API_KEY on the server for fully custom AI copy.</p>}
       </form>
       <div className="create-alt">

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast } from '../ui';
+import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, DRAFT_EXAMPLES } from '../ui';
+import { Page } from '../blocks';
 import { AreaChart, Sparkline, HBars } from '../charts';
 
 const METRICS = [
@@ -80,13 +81,67 @@ export const Sources = ({ rows }) => (
   </table>
 );
 
+const CHIPS = ['Webinar funnel for a yoga teacher training', 'Paid 1:1 strategy call with booking', 'Online course launch with an upsell', 'Free guide that grows my email list'];
+function PromptHero({ name, aiEnabled, onSample, seeding, showSample }) {
+  const [prompt, setPrompt] = useState('');
+  const [lang, setLang] = useState('en');
+  const [hint, setHint] = useState(0);
+  const { busy, err, secs, stage, progress, start } = useFunnelDraft();
+  // the placeholder cycles through real examples
+  useEffect(() => { const t = setInterval(() => setHint((h) => (h + 1) % DRAFT_EXAMPLES.length), 3500); return () => clearInterval(t); }, []);
+  const go = (e) => { e?.preventDefault(); if (prompt.trim().length >= 5 && !busy) start(prompt.trim(), lang); };
+  const hour = new Date().getHours();
+  return (
+    <section className="lv-hero">
+      <div className="lv-glow" aria-hidden="true" />
+      <p className="lv-hi">{hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}{name ? `, ${name}` : ''}</p>
+      <h1>What are you selling today?</h1>
+      <p className="lv-sub">Describe it in a sentence. Hive AI drafts the whole funnel — sales page, checkout, upsell and thank-you.</p>
+      <form className={`lv-box ${busy ? 'busy' : ''}`} onSubmit={go}>
+        <textarea rows={2} value={prompt} disabled={busy} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) go(e); }} placeholder={`e.g. ${DRAFT_EXAMPLES[hint]}`} aria-label="Describe what you sell" />
+        {busy ? (
+          <div className="lv-busy"><span className="spin dark" /><b>{stage}…</b><small>{secs}s</small><div className="gen-progress"><i style={{ width: `${progress}%` }} /></div></div>
+        ) : (
+          <div className="lv-bar">
+            <select value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Page language"><option value="en">English</option><option value="hi">हिन्दी</option></select>
+            <Link className="lv-chip-link" to="/templates"><Icon name="layout" size={14} /> Templates</Link>
+            <button className="lv-send" disabled={prompt.trim().length < 5} title="Draft my funnel (Enter)" aria-label="Draft my funnel"><Icon name="chevron" size={18} className="up" /></button>
+          </div>
+        )}
+      </form>
+      {err && <div className="err lv-err">{err}</div>}
+      {!busy && <div className="lv-chips">{CHIPS.map((x) => <button key={x} type="button" onClick={() => setPrompt(x)}>{x}</button>)}</div>}
+      {!aiEnabled && !busy && <p className="lv-note">AI is offline on this server — your description is matched to the closest of our templates.</p>}
+      {showSample && !busy && <button className="linkish lv-sample" onClick={onSample} disabled={seeding}>{seeding ? 'Loading sample data…' : 'Or explore with sample data'}</button>}
+    </section>
+  );
+}
+// your funnels as preview cards (newest first)
+function FunnelCards({ list }) {
+  if (!list?.length) return null;
+  return (
+    <section className="lv-section">
+      <div className="lv-head"><h2>Your funnels</h2><Link className="btn ghost sm" to="/funnels">View all</Link></div>
+      <div className="lv-grid">
+        {list.slice(0, 6).map((f) => (
+          <Link key={f.id} to={`/funnels/${f.id}`} className="lv-card">
+            <div className="lv-thumb">{f.hero ? <div className="thumb-in"><Page blocks={[f.hero]} theme={f.theme} ctx={{ live: false }} /></div> : <div className="fthumb-ph"><Icon name="layout" size={26} /></div>}</div>
+            <div className="lv-meta"><b>{f.name}</b><span><i className={`dot ${f.published ? 'on' : ''}`} />{f.published ? 'Live' : 'Draft'} · edited {ago(f.updatedAt)}</span></div>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function Dashboard() {
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
   const [me, setMe] = useState(null);
   const [create, setCreate] = useState(false);
   const [seeding, setSeeding] = useState(false);
-  const load = () => { api(`/analytics/overview?days=${days}`).then(setData); api('/me').then(setMe); };
+  const [funnels, setFunnels] = useState(null);
+  const load = () => { api(`/analytics/overview?days=${days}`).then(setData); api('/me').then(setMe); api('/funnels').then(setFunnels).catch(() => setFunnels([])); };
   useEffect(() => { load(); }, [days]);
   const removeDemo = async () => {
     if (!confirm('Remove all demo visits, leads and orders? Your real data stays untouched.')) return;
@@ -94,8 +149,6 @@ export default function Dashboard() {
   };
   const seed = async () => { setSeeding(true); await api('/demo/seed', 'POST'); setSeeding(false); toast('Demo data loaded — explore away!'); load(); };
 
-  const hour = new Date().getHours();
-  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const ob = me?.onboarding;
   const checklist = ob && [
     ['Create your first funnel', ob.funnel, () => setCreate(true)],
@@ -108,26 +161,12 @@ export default function Dashboard() {
   const noData = data && !data.funnels.length;
 
   return (
-    <Layout
-      title={`${greet}${me ? `, ${me.name.split(' ')[0]}` : ''}`}
-      subtitle="Here’s how your funnels are performing."
-      actions={<>
-        {data && !noData && <RangePicker value={days} onChange={setDays} />}
-        <button className="btn primary" onClick={() => setCreate(true)}><Icon name="plus" /> New funnel</button>
-      </>}
-    >
+    <Layout>
       {create && <CreateFunnel onClose={() => setCreate(false)} aiEnabled={me?.aiEnabled} />}
+      <PromptHero name={me?.name?.split(' ')[0]} aiEnabled={me?.aiEnabled} onSample={seed} seeding={seeding} showSample={!!data && noData} />
+      <FunnelCards list={funnels} />
       {!data ? <div className="skeleton" /> : noData ? (
-        <div className="hero-empty">
-          <div>
-            <h2>Create your first funnel</h2>
-            <p>Describe what you sell in a sentence and Hive AI drafts every page — sales page, checkout, upsell and thank-you. Or start from a template and edit it yourself.</p>
-            <div className="row">
-              <button className="btn primary lg" onClick={() => setCreate(true)}><Icon name="wand" /> Draft with AI</button>
-              <Link className="btn ghost lg" to="/templates"><Icon name="layout" /> Browse templates</Link>
-            </div>
-            <button className="linkish" onClick={seed} disabled={seeding}>{seeding ? 'Loading demo…' : 'Explore with sample data'}</button>
-          </div>
+        <div className="lv-how">
           <ol className="how">
             <li><b>1</b><div><h4>Describe your offer</h4><p>“Online yoga classes for women, ₹499”</p></div></li>
             <li><b>2</b><div><h4>Refine it</h4><p>Edit by hand, or ask: “add an upsell”</p></div></li>
@@ -151,13 +190,14 @@ export default function Dashboard() {
           {me?.hasDemo && (
             <div className="demo-banner"><Icon name="sparkles" size={16} /><span><b>You’re viewing demo data.</b> It’s here so you can explore the dashboards — remove it before you go live.</span><button className="btn ghost sm" onClick={removeDemo}><Icon name="trash" size={14} /> Remove demo data</button></div>
           )}
+          <div className="lv-head lv-perf"><h2>Performance</h2><RangePicker value={days} onChange={setDays} /></div>
           <Kpis data={data} />
           <div className="grid-2-1">
             <TrendPanel data={data} />
             <Panel title="Revenue by offer type"><OfferMix byKind={data.byKind} /><p className="hint">Bumps, upsells & cross-sells lift your average order value.</p></Panel>
           </div>
           <div className="grid-2-1">
-            <Panel title="Your funnels" actions={<Link className="btn ghost sm" to="/funnels">View all</Link>} pad={false}>
+            <Panel title="Funnel results" actions={<Link className="btn ghost sm" to="/funnels">View all</Link>} pad={false}>
               <table className="tbl">
                 <thead><tr><th>Funnel</th><th className="r">Visitors</th><th className="r">Orders</th><th className="r">Conv.</th><th className="r">Revenue</th><th /></tr></thead>
                 <tbody>{data.funnels.slice(0, 6).map((f) => (
