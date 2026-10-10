@@ -15,7 +15,7 @@ export default function Bookings() {
   useEffect(() => {
     const g = qs.get('gcal');
     if (!g) return;
-    toast({ connected: 'Google Calendar connected ✅', cancelled: 'Google Calendar wasn’t connected', expired: 'That took too long — please try connecting again', failed: 'Couldn’t connect Google Calendar — please try again' }[g] || g);
+    toast({ connected: 'Google Calendar connected', cancelled: 'Google Calendar wasn’t connected', expired: 'That took too long — please try connecting again', failed: 'Couldn’t connect Google Calendar — please try again' }[g] || g);
     setQs({ tab: 'calendars' });
   }, []);
   return (

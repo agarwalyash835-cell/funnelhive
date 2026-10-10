@@ -3,8 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Panel, Icon, Empty, RangePicker, inr, num, ago, downloadCSV } from '../ui';
 import { Kpis, TrendPanel, OfferMix, Sources, Campaigns } from './Dashboard';
+import { StepIcon } from '../blockIcons';
 
-const STEP_IC = { landing: '🏠', optin: '📝', sales: '💡', checkout: '💳', upsell: '⬆️', downsell: '⬇️', thankyou: '🎉' };
 const pct = (a, b) => (b ? +((a / b) * 100).toFixed(1) : 0);
 
 export default function Analytics() {
@@ -41,7 +41,7 @@ export default function Analytics() {
               <div className="flowbars">
                 {d.steps.map((s, i) => (
                   <div className="fb" key={s.id}>
-                    <div className="fb-name"><span>{STEP_IC[s.type] || '📄'}</span><div><b>{s.name}</b><small>{s.type}</small></div></div>
+                    <div className="fb-name"><span><StepIcon type={s.type} size={16} /></span><div><b>{s.name}</b><small>{s.type}</small></div></div>
                     <div className="fb-track"><div style={{ width: `${(s.views / top) * 100}%` }}><span>{num(s.views)}</span></div></div>
                     <div className="fb-rate">{s.type === 'thankyou' ? <small>end</small> : <><b>{pct(s.conversions, s.views)}%</b><small>{num(s.conversions)} converted</small></>}</div>
                     {i < d.steps.length - 1 && <div className="fb-drop">↓ {s.views ? `${Math.max(0, 100 - pct(d.steps[i + 1].views, s.views)).toFixed(0)}% drop-off` : ''}</div>}

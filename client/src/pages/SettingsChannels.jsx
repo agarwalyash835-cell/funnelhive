@@ -62,7 +62,7 @@ export function WhatsAppPanel() {
   useEffect(() => { api('/channels').then((c) => { setCh(c); setV({ phoneNumberId: c.whatsapp.phoneNumberId, businessId: c.whatsapp.businessId, token: '' }); }); }, []);
   if (!ch) return <Panel title="WhatsApp"><div className="skeleton sm" /></Panel>;
   const save = async () => { setBusy('save'); try { const c = await api('/channels/whatsapp', 'PUT', v); setCh(c); setV((x) => ({ ...x, token: '' })); toast('WhatsApp connected'); } catch (e) { toast(e.message); } setBusy(''); };
-  const test = async () => { setBusy('test'); try { await api('/channels/whatsapp/test', 'POST', { to, template: tpl, language: tpl === 'hello_world' ? 'en_US' : 'en' }); toast('Test message sent ✅'); } catch (e) { toast(e.message); } setBusy(''); };
+  const test = async () => { setBusy('test'); try { await api('/channels/whatsapp/test', 'POST', { to, template: tpl, language: tpl === 'hello_world' ? 'en_US' : 'en' }); toast('Test message sent'); } catch (e) { toast(e.message); } setBusy(''); };
   const clear = async () => { if (!confirm('Disconnect WhatsApp?')) return; const c = await api('/channels/whatsapp', 'PUT', { clear: true }); setCh(c); setV({ phoneNumberId: '', businessId: '', token: '' }); };
   return (
     <Panel title="WhatsApp Business API" actions={<span className={`pill ${ch.whatsapp.configured ? 'ok' : 'warn'}`}>{ch.whatsapp.configured ? 'Connected' : 'Not connected'}</span>}>
@@ -90,7 +90,7 @@ export function DomainsPanel() {
   useEffect(() => { load(); api('/funnels').then((f) => { setFunnels(f); setNd((x) => ({ ...x, funnelId: x.funnelId || f[0]?.id || '' })); }); }, []);
   if (!d) return <Panel title="Custom domains"><div className="skeleton sm" /></Panel>;
   const add = async (e) => { e.preventDefault(); setBusy('add'); try { await api('/domains', 'POST', nd); setNd({ ...nd, domain: '' }); load(); toast('Domain added — now add the DNS records below'); } catch (x) { toast(x.message); } setBusy(''); };
-  const verify = async (x) => { setBusy(x.id); try { const r = await api(`/domains/${x.id}/verify`, 'POST'); toast(r.status === 'active' ? `${r.domain} is connected 🎉` : r.error); load(); } catch (e) { toast(e.message); } setBusy(''); };
+  const verify = async (x) => { setBusy(x.id); try { const r = await api(`/domains/${x.id}/verify`, 'POST'); toast(r.status === 'active' ? `${r.domain} is connected` : r.error); load(); } catch (e) { toast(e.message); } setBusy(''); };
   const remove = async (x) => { if (!confirm(`Disconnect ${x.domain}? Visitors there will no longer see your funnel.`)) return; await api(`/domains/${x.id}`, 'DELETE'); load(); };
   const point = async (x, funnelId) => { await api(`/domains/${x.id}`, 'PUT', { funnelId }); load(); toast('Domain now shows that funnel'); };
   const fname = (id) => funnels.find((f) => f.id === id)?.name || 'a deleted funnel';
@@ -132,7 +132,7 @@ export function RazorpayPanel() {
   if (!st) return <div className="skeleton sm" />;
   const save = async () => {
     setBusy(true);
-    try { const r = await api('/channels/razorpay', 'PUT', v); setSt({ ...st, ...r }); setV({ keyId: r.keyId, keySecret: '', webhookSecret: '' }); toast(`Razorpay connected (${r.mode === 'live' ? 'LIVE — real payments' : 'test mode'}) ✅`); } catch (e) { toast(e.message); }
+    try { const r = await api('/channels/razorpay', 'PUT', v); setSt({ ...st, ...r }); setV({ keyId: r.keyId, keySecret: '', webhookSecret: '' }); toast(`Razorpay connected (${r.mode === 'live' ? 'LIVE — real payments' : 'test mode'})`); } catch (e) { toast(e.message); }
     setBusy(false);
   };
   const clear = async () => { if (!confirm('Disconnect Razorpay? Checkouts go back to demo mode (no money collected).')) return; const r = await api('/channels/razorpay', 'PUT', { clear: true }); setSt({ ...st, ...r }); setV({ keyId: '', keySecret: '', webhookSecret: '' }); };
@@ -167,7 +167,7 @@ export function StripePanel() {
   if (!st) return <div className="skeleton sm" />;
   const save = async () => {
     setBusy(true);
-    try { const r = await api('/channels/stripe', 'PUT', v); setSt(r); setV({ publishableKey: r.publishableKey, secretKey: '', webhookSecret: '' }); toast(`Stripe connected (${r.mode === 'live' ? 'LIVE — real payments' : 'test mode'}) ✅`); } catch (e) { toast(e.message); }
+    try { const r = await api('/channels/stripe', 'PUT', v); setSt(r); setV({ publishableKey: r.publishableKey, secretKey: '', webhookSecret: '' }); toast(`Stripe connected (${r.mode === 'live' ? 'LIVE — real payments' : 'test mode'})`); } catch (e) { toast(e.message); }
     setBusy(false);
   };
   const clear = async () => { if (!confirm('Disconnect Stripe? Checkouts in foreign currencies stop taking payments.')) return; setSt(await api('/channels/stripe', 'PUT', { clear: true })); setV({ publishableKey: '', secretKey: '', webhookSecret: '' }); };

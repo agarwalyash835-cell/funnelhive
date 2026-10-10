@@ -91,7 +91,7 @@ export default function Orders() {
                   </tr>
                 ))}</tbody>
               </table></div>
-            )) : (!abandoned.length ? <Empty icon="check" title="No abandoned checkouts 🎉" text="When someone enters their email at checkout but doesn’t pay, they show up here so you can follow up." /> : (
+            )) : (!abandoned.length ? <Empty icon="check" title="No abandoned checkouts" text="When someone enters their email at checkout but doesn’t pay, they show up here so you can follow up." /> : (
               <div className="tbl-wrap"><table className="tbl">
                 <thead><tr><th>Contact</th><th>Funnel</th><th className="r">When</th><th className="r">Recover</th></tr></thead>
                 <tbody>{abandoned.slice(0, 300).map((a) => (

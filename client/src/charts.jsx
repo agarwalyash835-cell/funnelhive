@@ -47,8 +47,8 @@ export function AreaChart({ data, yKey, format = (v) => v, height = 260, label }
       <svg width={w} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={label}>
         <defs>
           <linearGradient id={`g-${yKey}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--c-accent)" stopOpacity=".28" />
-            <stop offset="100%" stopColor="var(--c-accent)" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--c-accent-2)" stopOpacity=".28" />
+            <stop offset="100%" stopColor="var(--c-accent-2)" stopOpacity="0" />
           </linearGradient>
         </defs>
         {ticks.map((t) => (
@@ -59,11 +59,11 @@ export function AreaChart({ data, yKey, format = (v) => v, height = 260, label }
         ))}
         {data.map((d, i) => (i % every === 0 ? <text key={d.date} x={x(i)} y={height - 8} textAnchor="middle" className="axis-t">{fmtDate(d.date)}</text> : null))}
         <path d={area} fill={`url(#g-${yKey})`} />
-        <path d={line} fill="none" stroke="var(--c-accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={line} fill="none" stroke="var(--c-accent-2)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         {h && (
           <g>
             <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + ih} className="cross" />
-            <circle cx={x(hover)} cy={y(h[yKey])} r="5" fill="var(--c-accent)" stroke="var(--c-surface)" strokeWidth="2" />
+            <circle cx={x(hover)} cy={y(h[yKey])} r="5" fill="var(--c-accent-2)" stroke="var(--c-surface)" strokeWidth="2" />
           </g>
         )}
       </svg>
@@ -80,7 +80,7 @@ export function Sparkline({ data, yKey, width = 96, height = 28 }) {
   if (!data?.length) return null;
   const max = Math.max(...data.map((d) => d[yKey]), 1);
   const pts = data.map((d, i) => `${(i / Math.max(1, data.length - 1)) * width},${height - 2 - (d[yKey] / max) * (height - 4)}`).join(' ');
-  return <svg width={width} height={height} className="spark" aria-hidden="true"><polyline points={pts} fill="none" stroke="var(--c-accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>;
+  return <svg width={width} height={height} className="spark" aria-hidden="true"><polyline points={pts} fill="none" stroke="var(--c-accent-2)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>;
 }
 
 // Horizontal bars — one hue, values labelled in text ink

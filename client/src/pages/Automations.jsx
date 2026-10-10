@@ -206,7 +206,7 @@ function Builder({ id }) {
       const r = await api(`/automations/${id}`, 'PUT', { name: a.name, trigger: a.trigger, steps: a.steps, stopOnPurchase: a.stopOnPurchase, allowRepeat: a.allowRepeat, ...extra });
       setA((x) => ({ ...x, ...r })); setDirty(false);
       if (r.hookToken && !a.hookUrl) load();
-      toast(extra.active === true ? 'Automation is live ✅' : extra.active === false ? 'Automation paused' : 'Saved');
+      toast(extra.active === true ? 'Automation is live' : extra.active === false ? 'Automation paused' : 'Saved');
     } catch (e) { toast(e.message); }
     setBusy(false);
   };

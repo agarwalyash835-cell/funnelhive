@@ -400,7 +400,7 @@ export default function Editor() {
   const [right, setRight] = useState('ai');
   const [status, setStatus] = useState('Saved');
   const [stepMenu, setStepMenu] = useState(false);
-  const [msgs, setMsgs] = useState([{ role: 'assistant', content: 'Hi! I’m your funnel co-pilot ✨ Tell me what to change — e.g. “add an upsell and a downsell”, “make it dark” or “add FAQ”. I’ll update the funnel for you.' }]);
+  const [msgs, setMsgs] = useState([{ role: 'assistant', content: 'I can edit this funnel for you. Tell me what to change — e.g. “add an upsell and a downsell”, “make it dark” or “add FAQ”. I’ll update the funnel for you.' }]);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
   const hist = useRef({ past: [], future: [], last: 0 });
@@ -696,7 +696,7 @@ export default function Editor() {
   };
   const loadLatest = () => { hist.current = { past: [], future: [], last: 0 }; adopt(conflict); setConflict(null); toast('Loaded the latest version'); };
   const keepMine = async () => { verRef.current = conflict.version; setConflict(null); if (await save(f)) toast('Your version was saved'); };
-  const publish = async () => { const nf = { ...f, published: !f.published }; commit(nf); await save(nf); toast(nf.published ? '🎉 Your funnel is live!' : 'Funnel unpublished'); };
+  const publish = async () => { const nf = { ...f, published: !f.published }; commit(nf); await save(nf); toast(nf.published ? 'Your funnel is live' : 'Funnel unpublished'); };
   const liveUrl = `${(typeof window !== 'undefined' && window.__PAGES_URL__) || location.origin}/f/${f.slug}`;
   const width = DEVICES.find((d) => d[0] === device)[2];
   const nextFor = (i, accept) => { let n = i + 1; if (accept) while (f.steps[n]?.type === 'downsell') n++; return f.steps[n]; };

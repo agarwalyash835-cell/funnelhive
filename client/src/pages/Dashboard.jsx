@@ -109,7 +109,7 @@ export default function Dashboard() {
 
   return (
     <Layout
-      title={`${greet}${me ? `, ${me.name.split(' ')[0]}` : ''} 👋`}
+      title={`${greet}${me ? `, ${me.name.split(' ')[0]}` : ''}`}
       subtitle="Here’s how your funnels are performing."
       actions={<>
         {data && !noData && <RangePicker value={days} onChange={setDays} />}
@@ -120,19 +120,18 @@ export default function Dashboard() {
       {!data ? <div className="skeleton" /> : noData ? (
         <div className="hero-empty">
           <div>
-            <span className="ca-badge"><Icon name="sparkles" size={14} /> Zero learning curve</span>
-            <h2>Launch your first funnel in 60 seconds</h2>
-            <p>Describe your business in one line and our AI builds the full funnel — landing page, checkout, order bump, upsell, downsell, cross-sells and thank-you page — ready to publish.</p>
+            <h2>Create your first funnel</h2>
+            <p>Describe what you sell in a sentence and Hive AI drafts every page — sales page, checkout, upsell and thank-you. Or start from a template and edit it yourself.</p>
             <div className="row">
-              <button className="btn primary lg" onClick={() => setCreate(true)}><Icon name="wand" /> Build with AI</button>
-              <Link className="btn ghost lg" to="/templates"><Icon name="layout" /> Browse 100+ templates</Link>
+              <button className="btn primary lg" onClick={() => setCreate(true)}><Icon name="wand" /> Draft with AI</button>
+              <Link className="btn ghost lg" to="/templates"><Icon name="layout" /> Browse templates</Link>
             </div>
-            <button className="linkish" onClick={seed} disabled={seeding}>{seeding ? 'Loading demo…' : 'Or explore with demo data →'}</button>
+            <button className="linkish" onClick={seed} disabled={seeding}>{seeding ? 'Loading demo…' : 'Explore with sample data'}</button>
           </div>
           <ol className="how">
-            <li><b>1</b><div><h4>Describe it</h4><p>“Online yoga classes for women, ₹499”</p></div></li>
-            <li><b>2</b><div><h4>Chat to tweak it</h4><p>“Make it dark, add an upsell”</p></div></li>
-            <li><b>3</b><div><h4>Publish & sell</h4><p>UPI-ready checkout, analytics built in</p></div></li>
+            <li><b>1</b><div><h4>Describe your offer</h4><p>“Online yoga classes for women, ₹499”</p></div></li>
+            <li><b>2</b><div><h4>Refine it</h4><p>Edit by hand, or ask: “add an upsell”</p></div></li>
+            <li><b>3</b><div><h4>Publish</h4><p>On your domain, with checkout and analytics</p></div></li>
           </ol>
         </div>
       ) : (

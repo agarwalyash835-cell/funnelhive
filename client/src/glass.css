@@ -15,21 +15,21 @@ html.glass .app, html.glass .auth, html.glass .ed-top, html.glass .ed-left, html
   --g-spec: inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 -1px 0 rgba(255, 255, 255, .25);
   --g-shadow: 0 1px 1px rgba(20, 24, 54, .04), 0 10px 30px -12px rgba(30, 34, 90, .22);
   --c-surface: #fcfcff; --c-surface-2: var(--g-fill-2); /* solid: anything floating (drawers, menus) stays readable; glass is opt-in below */ --c-line: var(--g-hair); --c-line-2: rgba(20, 24, 54, .055);
-  --c-accent-soft: rgba(91, 91, 246, .12); --c-ok-soft: rgba(15, 157, 88, .12); --c-warn-soft: rgba(245, 158, 11, .14); --c-bad-soft: rgba(220, 38, 38, .1);
+  --c-accent-soft: rgba(245, 165, 36, .16); --c-ok-soft: rgba(15, 157, 88, .12); --c-warn-soft: rgba(245, 158, 11, .14); --c-bad-soft: rgba(220, 38, 38, .1);
   --r-sm: 11px; --r: 16px; --r-lg: 22px;
   --sh-1: var(--g-shadow); --sh-2: 0 2px 4px rgba(20, 24, 54, .04), 0 18px 40px -14px rgba(30, 34, 90, .3);
 }
 
 /* the colour field the glass sits on */
-html.glass .app, html.glass .auth { position: relative; isolation: isolate; background: #eef0fb; }
+html.glass .app, html.glass .auth { position: relative; isolation: isolate; background: #f4f2ee; }
 html.glass .app::before, html.glass .auth-form::before {
   content: ''; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(42% 38% at 12% 8%, rgba(129, 140, 248, .55), transparent 70%),
-    radial-gradient(38% 34% at 92% 6%, rgba(236, 72, 153, .32), transparent 70%),
-    radial-gradient(46% 40% at 78% 92%, rgba(56, 189, 248, .38), transparent 70%),
-    radial-gradient(40% 36% at 6% 96%, rgba(167, 139, 250, .4), transparent 70%),
-    linear-gradient(160deg, #f3f4ff, #eef2fb 45%, #f6f0fb);
+    radial-gradient(42% 38% at 12% 8%, rgba(245, 165, 36, .30), transparent 70%),
+    radial-gradient(38% 34% at 92% 6%, rgba(251, 191, 114, .30), transparent 70%),
+    radial-gradient(46% 40% at 78% 92%, rgba(214, 211, 209, .45), transparent 70%),
+    radial-gradient(40% 36% at 6% 96%, rgba(253, 230, 190, .5), transparent 70%),
+    linear-gradient(160deg, #faf8f4, #f4f2ee 45%, #f8f3ea);
   filter: saturate(115%);
   animation: glassDrift 40s ease-in-out infinite alternate;
 }
@@ -59,10 +59,10 @@ html.glass .side nav a { color: var(--c-ink-2); border-radius: 13px; }
 html.glass .side nav a:hover { background: rgba(255, 255, 255, .55); color: var(--c-ink); }
 html.glass .side nav a.active {
   color: var(--c-accent); background: rgba(255, 255, 255, .85);
-  box-shadow: inset 0 1px 0 #fff, 0 6px 18px -8px rgba(91, 91, 246, .45);
+  box-shadow: inset 0 1px 0 #fff, inset 3px 0 0 var(--c-honey), 0 6px 18px -8px rgba(28, 25, 23, .25);
 }
 html.glass .side .ai-status { background: rgba(255, 255, 255, .5); color: var(--c-muted); }
-html.glass .side .ai-status.on { color: #7c3aed; }
+html.glass .side .ai-status.on { color: var(--c-accent); }
 html.glass .side .me { border-color: rgba(255, 255, 255, .7); background: rgba(255, 255, 255, .4); }
 html.glass .side .me b { color: var(--c-ink); }
 html.glass .side .me small { color: var(--c-muted); }
@@ -75,13 +75,13 @@ html.glass .app :is(input, textarea, select), html.glass .auth :is(input, textar
   background: rgba(255, 255, 255, .62); border-color: rgba(20, 24, 54, .1); box-shadow: inset 0 1px 2px rgba(20, 24, 54, .04);
 }
 html.glass .app :is(input, textarea, select):focus, html.glass .auth :is(input, textarea, select):focus, html.glass :is(.ed-left, .ed-right, .ed-top) :is(input, textarea, select):focus {
-  background: rgba(255, 255, 255, .9); border-color: rgba(91, 91, 246, .55); box-shadow: 0 0 0 4px rgba(91, 91, 246, .14);
+  background: rgba(255, 255, 255, .9); border-color: rgba(68, 64, 60, .45); box-shadow: 0 0 0 4px rgba(245, 165, 36, .25);
 }
 html.glass .app .search input { background: transparent; box-shadow: none; }
 html.glass :is(.app, .auth, .ed-top, .ed-left, .ed-right) .btn { border-radius: 999px; }
 html.glass :is(.app, .auth, .ed-top, .ed-left, .ed-right) .btn.primary {
-  background: linear-gradient(135deg, rgba(99, 102, 241, .92), rgba(168, 85, 247, .92));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -2px 6px rgba(76, 29, 149, .25), 0 10px 24px -10px rgba(91, 91, 246, .7);
+  background: rgba(28, 25, 23, .9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 10px 24px -12px rgba(28, 25, 23, .55);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
 html.glass :is(.app, .auth, .ed-top, .ed-left, .ed-right) .btn.ghost {
@@ -119,7 +119,7 @@ html.glass .auth-form form {
 html.glass .auth-quote { backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 20px; }
 
 /* editor chrome (not the canvas) */
-html.glass .ed { background: #eef0fb; }
+html.glass .ed { background: #f4f2ee; }
 html.glass .ed-top { margin: 8px 8px 0; border-radius: 18px; }
 html.glass .ed-cols { gap: 8px; padding: 8px; }
 html.glass .ed-left, html.glass .ed-right { border-radius: 18px; overflow: hidden; }
@@ -157,4 +157,4 @@ html.glass .app .au-menu { background: rgba(252, 252, 255, .9); }
 html.glass .side .ws-cur { border-color: rgba(255, 255, 255, .75); background: rgba(255, 255, 255, .45); color: var(--c-ink-2); }
 html.glass .side .ws-menu { background: rgba(252, 252, 255, .92); border-color: var(--g-edge); box-shadow: var(--g-spec), 0 18px 40px -14px rgba(30, 34, 90, .35); backdrop-filter: var(--g-blur); -webkit-backdrop-filter: var(--g-blur); }
 html.glass .side .ws-menu button { color: var(--c-ink); }
-html.glass .side .ws-menu button:hover, html.glass .side .ws-menu button.on { background: rgba(91, 91, 246, .1); }
+html.glass .side .ws-menu button:hover, html.glass .side .ws-menu button.on { background: rgba(245, 165, 36, .14); }

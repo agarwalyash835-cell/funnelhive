@@ -23,7 +23,7 @@ export default function Agency() {
       {err ? <Panel><Empty icon="users" title="Agency tools" text={err} /></Panel> : !d ? <div className="skeleton" /> : (
         <>
           {!d.limit && (
-            <div className="note-bar"><span>🏢 Manage client accounts, white-label the app with your brand and send clients reports with the <b>Agency plan</b>.</span><Link to="/billing">See the Agency plan →</Link></div>
+            <div className="note-bar"><span>Manage client accounts, white-label the app with your brand and send clients reports with the <b>Agency plan</b>.</span><Link to="/billing">See the Agency plan →</Link></div>
           )}
           <div className="kpis k4">
             <div className="kpi"><span className="kpi-l">Client accounts</span><b className="kpi-v">{num(d.used)}<small> / {num(d.limit)}</small></b></div>

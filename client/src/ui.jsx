@@ -101,11 +101,11 @@ const NAV = [
   ['/billing', 'card', 'Plan & billing'],
 ];
 export const BRAND = 'FunnelHive';
-// the app's look: Liquid Glass (default) or the classic solid look — remembered on this device
 const LOOK_KEY = 'ff_ui';
-export const currentLook = () => { try { return localStorage.getItem(LOOK_KEY) === 'classic' ? 'classic' : 'glass'; } catch { return 'glass'; } };
+// the app's look: Studio (default) or Liquid Glass — remembered on this device
+export const currentLook = () => { try { return localStorage.getItem(LOOK_KEY) === 'glass' ? 'glass' : 'studio'; } catch { return 'studio'; } };
 export const applyLook = (look = currentLook()) => { if (typeof document !== 'undefined') document.documentElement.classList.toggle('glass', look === 'glass'); };
-const toggleLook = () => { const next = currentLook() === 'glass' ? 'classic' : 'glass'; try { localStorage.setItem(LOOK_KEY, next); } catch {} applyLook(next); };
+const toggleLook = () => { const next = currentLook() === 'glass' ? 'studio' : 'glass'; try { localStorage.setItem(LOOK_KEY, next); } catch {} applyLook(next); };
 // where live funnel pages are served (PAGES_URL on the server, else this app)
 export const pagesOrigin = () => (typeof window !== 'undefined' && window.__PAGES_URL__) || location.origin;
 
@@ -132,7 +132,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
           <div className="me">
             <span className="me-av">{(me?.name || '?')[0]?.toUpperCase()}</span>
             <div><b>{me?.name}</b><small>{me?.email}</small></div>
-            <button className="icon-btn" title="Switch between the Liquid Glass and classic look" onClick={toggleLook}><Icon name="palette" size={16} /></button>
+            <button className="icon-btn" title="Switch between the standard and Liquid Glass look" onClick={toggleLook}><Icon name="palette" size={16} /></button>
             <button className="icon-btn" title="Log out" onClick={logout}><Icon name="logout" size={16} /></button>
           </div>
         </div>
@@ -237,7 +237,7 @@ export function CreateFunnel({ onClose, aiEnabled }) {
     setBusy(true); setErr('');
     try {
       const r = await api('/ai/generate', 'POST', { prompt, lang });
-      if (r.usedAI && r.quality) toast(r.quality.finalIssues === 0 ? `✅ Quality check passed — ${r.steps.length} pages at template standard` : 'Funnel ready — review the highlighted sections');
+      if (r.usedAI && r.quality) toast(r.quality.finalIssues === 0 ? `Quality check passed — ${r.steps.length} pages ready` : 'Funnel ready — review the highlighted sections');
       nav(`/funnels/${r.id}`);
     } catch (x) { setErr(x.message); setBusy(false); }
   };

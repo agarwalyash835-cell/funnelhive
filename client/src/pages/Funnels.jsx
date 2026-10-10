@@ -3,8 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Icon, Empty, CreateFunnel, inr, num, toast , Modal , pagesOrigin } from '../ui';
 import { Page } from '../blocks';
+import { StepIcon } from '../blockIcons';
 
-const STEP_IC = { landing: '🏠', optin: '📝', sales: '💡', checkout: '💳', upsell: '⬆️', downsell: '⬇️', thankyou: '🎉' };
 
 export default function Funnels() {
   const nav = useNavigate();
@@ -49,7 +49,7 @@ export default function Funnels() {
               </Link>
               <div className="fbody">
                 <h3><Link to={`/funnels/${f.id}`}>{f.name}</Link></h3>
-                <div className="chain">{f.steps.map((s, i) => <span key={s.id} title={s.name}>{STEP_IC[s.type] || '📄'}{i < f.steps.length - 1 && <i>›</i>}</span>)}<small>{f.steps.length} steps</small></div>
+                <div className="chain">{f.steps.map((s, i) => <span key={s.id} title={s.name}><StepIcon type={s.type} size={14} />{i < f.steps.length - 1 && <i>›</i>}</span>)}<small>{f.steps.length} steps</small></div>
                 <div className="fstats">
                   <div><b>{num(f.stats.visitors)}</b><small>visitors</small></div>
                   <div><b>{num(f.stats.orders)}</b><small>orders</small></div>

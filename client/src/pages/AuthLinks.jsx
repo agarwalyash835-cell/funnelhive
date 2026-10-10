@@ -13,7 +13,7 @@ export function Verify() {
   return (
     <AuthShell>
       <form onSubmit={(e) => e.preventDefault()}>
-        <h2>{state === 'ok' ? 'Email verified 🎉' : state === 'already' ? 'Already verified ✓' : state === 'fail' ? 'Link not valid' : 'Verifying…'}</h2>
+        <h2>{state === 'ok' ? 'Email verified' : state === 'already' ? 'Already verified ✓' : state === 'fail' ? 'Link not valid' : 'Verifying…'}</h2>
         {state === 'ok' && <p className="muted">Thanks for confirming your email address.</p>}
         {state === 'already' && <p className="muted">Your email address is already confirmed — nothing more to do.</p>}
         {state === 'fail' && <div className="err">{err}</div>}
