@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, toast, num, ago } from '../ui';
+import { Layout, Panel, Icon, Empty, toast, num, ago, useWaTemplates, WaTemplateSelect, WaTemplateInfo } from '../ui';
 
 const STATUS = { draft: ['Draft', ''], scheduled: ['Scheduled', 'info'], sending: ['Sending…', 'warn'], sent: ['Sent', 'ok'], cancelled: ['Cancelled', 'bad'] };
 const VARS = ['first_name', 'name', 'email', 'phone', 'business'];
@@ -69,6 +69,7 @@ function Editor({ b, meta, funnels, onBack, onChange }) {
   const [later, setLater] = useState(b.scheduledAt ? localInput(b.scheduledAt) : '');
   const [testTo, setTestTo] = useState('');
   const [detail, setDetail] = useState(null);
+  const waTpls = useWaTemplates(); // approved Hive WhatsApp templates (null: type a name)
   const locked = !['draft', 'scheduled'].includes(b.status);
   const seg = v.segment || {};
   const set = (patch) => setV({ ...v, ...patch });
@@ -129,11 +130,14 @@ function Editor({ b, meta, funnels, onBack, onChange }) {
               ) : (
                 <>
                   <div className="form2">
-                    <label className="fld"><span>Approved template name</span><input value={v.wa?.template || ''} onChange={(e) => set({ wa: { ...v.wa, template: e.target.value.trim().toLowerCase() } })} placeholder="diwali_offer" /></label>
+                    <label className="fld"><span>Approved template name</span>{waTpls
+                      ? <WaTemplateSelect list={waTpls} value={v.wa?.template || ''} onPick={(t) => set({ wa: { ...v.wa, template: t?.name || '', language: t?.language || v.wa?.language || 'en' } })} inputProps={{ value: v.wa?.template || '', onChange: (e) => set({ wa: { ...v.wa, template: e.target.value.trim().toLowerCase() } }), placeholder: 'diwali_offer' }} />
+                      : <input value={v.wa?.template || ''} onChange={(e) => set({ wa: { ...v.wa, template: e.target.value.trim().toLowerCase() } })} placeholder="diwali_offer" />}</label>
                     <label className="fld"><span>Language code</span><input value={v.wa?.language || 'en'} onChange={(e) => set({ wa: { ...v.wa, language: e.target.value.trim() } })} placeholder="en / hi / en_US" /></label>
                     <label className="fld full"><span>Template variables <small className="muted">· in order, comma-separated — e.g. {'{{first_name}}'}, 30%</small></span><input value={v.wa?.params || ''} onChange={(e) => set({ wa: { ...v.wa, params: e.target.value } })} placeholder="{{first_name}}, 30%" /></label>
                   </div>
-                  <p className="hint">WhatsApp only allows pre-approved <b>marketing templates</b> for broadcasts. Create them in Meta Business Manager → WhatsApp Manager → Message templates.</p>
+                  <WaTemplateInfo t={waTpls?.find((t) => t.name === v.wa?.template)} />
+                  <p className="hint">WhatsApp only allows pre-approved <b>marketing templates</b> for broadcasts. {waTpls ? <>Create them in <Link to="/settings">Settings</Link> → Channels → WhatsApp → Your own templates (choose Marketing).</> : 'Create them in Meta Business Manager → WhatsApp Manager → Message templates.'}</p>
                 </>
               )}
             </fieldset>

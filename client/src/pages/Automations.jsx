@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
-import { Layout, Panel, Empty, Modal, toast, ago, num } from '../ui';
+import { Layout, Panel, Empty, Modal, toast, ago, num, useWaTemplates, WaTemplateSelect, WaTemplateInfo } from '../ui';
 
 const BRANCH_KEYS = { condition: ['yes', 'no'], split: ['a', 'b'] };
 const BRANCH_TITLE = { yes: '✓ Yes', no: '✕ No', a: 'Path A', b: 'Path B' };
@@ -186,6 +186,7 @@ function Builder({ id }) {
   const [adding, setAdding] = useState(null); // "<list path>:<index>"
   const [history, setHistory] = useState(null);
   const lastField = useRef(null);
+  const waTpls = useWaTemplates(); // approved Hive WhatsApp templates (null: type a name)
   const load = () => api(`/automations/${id}`).then((x) => { setA(x); setDirty(false); }).catch(() => nav('/automations'));
   useEffect(() => { load(); api('/automations').then(setMeta); api('/funnels').then(setFunnels); api('/pipelines').then(setPipes); api('/crm/fields').then(setFields).catch(() => {}); }, [id]);
   useEffect(() => { const t = setInterval(() => { if (!dirty) api(`/automations/${id}`).then((x) => setA((cur) => (cur ? { ...cur, runs: x.runs, running: x.running, stats: x.stats, stepStats: x.stepStats } : x))).catch(() => {}); }, 8000); return () => clearInterval(t); }, [id, dirty]);
@@ -316,9 +317,12 @@ function Builder({ id }) {
           {s.type === 'whatsapp' && <>
             <div className="seg sm"><button className={s.mode === 'template' ? 'on' : ''} onClick={() => update(path, i, { mode: 'template' })}>Approved template</button><button className={s.mode === 'text' ? 'on' : ''} onClick={() => update(path, i, { mode: 'text' })}>Plain text</button></div>
             {s.mode === 'template' ? <>
-              <div className="form2c"><label>Template name<input placeholder="cart_reminder" {...fp(path, i, s, 'template')} /></label><label>Language<input placeholder="en" {...fp(path, i, s, 'language')} /></label></div>
+              <div className="form2c"><label>Template name{waTpls
+                ? <WaTemplateSelect list={waTpls} value={s.template} onPick={(t) => update(path, i, { template: t?.name || '', language: t?.language || s.language || 'en' })} inputProps={{ placeholder: 'cart_reminder', ...fp(path, i, s, 'template') }} />
+                : <input placeholder="cart_reminder" {...fp(path, i, s, 'template')} />}</label><label>Language<input placeholder="en" {...fp(path, i, s, 'language')} /></label></div>
               <label>Template variables <small className="muted">· in order, comma separated → {'{{1}}'}, {'{{2}}'}…</small><input placeholder="{{first_name}}, {{checkout_link}}" {...fp(path, i, s, 'params')} /></label>
-              <p className="hint">Templates are created and approved in Meta WhatsApp Manager. They can be sent any time.</p>
+              <WaTemplateInfo t={waTpls?.find((t) => t.name === s.template)} />
+              <p className="hint">{waTpls ? 'Create your own in Settings → Channels → WhatsApp → Your own templates; Meta approves them.' : 'Templates are created and approved in Meta WhatsApp Manager.'} They can be sent any time.</p>
             </> : <>
               <textarea rows={4} placeholder="Hi {{first_name}}! …" {...fp(path, i, s, 'text')} />
               <p className="hint warn">Plain text only reaches people who messaged you in the last 24 hours. For automated follow-ups use a template.</p>

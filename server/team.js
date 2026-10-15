@@ -41,6 +41,8 @@ export function allows(role, method, path) {
   if (role === 'agency') return !/^\/api\/(admin|auth\/|account|billing)/.test(path);
   if (OWNER_ONLY.test(path)) return path === '/api/team/members' && method === 'GET' && role === 'admin';
   if (role === 'admin') return true;
+  // the approved WhatsApp templates (names and wording only), for those who build automations and broadcasts
+  if (path === '/api/channels/whatsapp/hive/templates/approved') return method === 'GET' && role === 'marketer';
   if (SECRET.test(path)) return false;
   if (method === 'DELETE' && /^\/api\/contacts\/[^/]+$/.test(path)) return false; // erasing a contact: owners and admins
   if (/^\/api\/privacy/.test(path) && method !== 'GET') return false;

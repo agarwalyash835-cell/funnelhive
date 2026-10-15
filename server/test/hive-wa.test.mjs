@@ -11,7 +11,9 @@ import path from 'node:path';
 import { startServer, register } from './helpers.mjs';
 
 const KEY = 'hk_test_ok_supersecret_123';
-const fake = { reqs: [], sent: [], msgs: new Map(), templates: [{ id: 't0', name: 'fh_quote_sent', language: 'en', status: 'APPROVED', category: 'UTILITY' }], hook: null, failOnce: new Set() };
+const fake = { reqs: [], sent: [], msgs: new Map(), templates: [{ id: 't0', name: 'fh_quote_sent', language: 'en', status: 'APPROVED', category: 'UTILITY' }], hook: null, failOnce: new Set(), noEdit: false };
+// a template as Hive lists it: components as Meta has them ([{ type: 'BODY', text }])
+const listed = (j, extra) => ({ name: j.name, language: j.language, category: j.category, components: (j.components || []).map((c) => ({ type: String(c.type).toUpperCase(), text: c.parameters?.[0]?.text ?? c.text })), ...extra });
 let hive, hiveUrl, srv, api, T, f, co;
 const k = (key) => encodeURIComponent(key);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -38,9 +40,22 @@ before(async () => {
       if (route === 'GET /templates') return send(200, { templates: fake.templates });
       if (route === 'POST /templates') {
         if (fake.templates.some((t) => t.name === j.name)) return send(409, { error: 'Template already exists' });
-        const t = { id: `t${fake.templates.length + 1}`, name: j.name, language: j.language, status: 'PENDING', category: j.category };
+        const t = listed(j, { id: `t${fake.reqs.length}`, status: 'PENDING' });
         fake.templates.push(t);
         return send(201, t);
+      }
+      const tm = p.match(/^\/templates\/([\w-]+)$/);
+      if (tm && req.method === 'DELETE') {
+        const i = fake.templates.findIndex((t) => t.name === tm[1]);
+        if (i < 0) return send(404, { error: 'Template not found' });
+        fake.templates.splice(i, 1);
+        res.writeHead(204); return res.end();
+      }
+      if (tm && req.method === 'POST') { // edit by id
+        const t = fake.templates.find((x) => x.id === tm[1]);
+        if (!t || fake.noEdit) return send(400, { error: 'Template cannot be edited right now' });
+        Object.assign(t, listed({ ...t, ...j, name: t.name, language: t.language }), { status: 'PENDING', rejected_reason: '' });
+        return send(200, t);
       }
       if (route === 'PUT /webhooks') { fake.hook = j; return send(200, { ok: true, url: j.url, events: j.events }); }
       if (route === 'POST /webhooks/test') return send(200, { ok: true });
@@ -121,7 +136,9 @@ test('templates: the standard set is submitted (existing ones skipped) and appro
   const r = await api('/channels/whatsapp/hive/templates/setup', 'POST', {}, T);
   assert.equal(r.status, 200, JSON.stringify(r.data));
   const posts = fake.reqs.filter((x) => x.method === 'POST' && x.path === '/templates');
-  assert.equal(posts.length, 11);
+  assert.equal(posts.length, 10, 'the one already on Hive isn’t submitted again');
+  assert.equal(r.data.result.order_receipt, 'SUBMITTED');
+  assert.equal(r.data.result.quote_sent, 'APPROVED');
   for (const p of posts) {
     assert.match(p.body.name, /^fh_[a-z_]+$/);
     assert.equal(p.body.category, 'UTILITY');
@@ -134,8 +151,9 @@ test('templates: the standard set is submitted (existing ones skipped) and appro
   assert.equal(byEv.order_receipt, 'PENDING');
   assert.equal(byEv.quote_sent, 'APPROVED', 'one that already existed is picked up, not duplicated');
   // again: nothing new is submitted while they're in review
-  await api('/channels/whatsapp/hive/templates/setup', 'POST', {}, T);
-  assert.equal(fake.reqs.filter((x) => x.method === 'POST' && x.path === '/templates').length, 11);
+  const again = await api('/channels/whatsapp/hive/templates/setup', 'POST', {}, T);
+  assert.equal(fake.reqs.filter((x) => x.method === 'POST' && x.path === '/templates').length, 10);
+  assert.ok(Object.values(again.data.result).every((s) => ['PENDING', 'APPROVED'].includes(s)), JSON.stringify(again.data.result));
 
   assert.equal((await hook('template.status', { name: 'fh_order_receipt', status: 'APPROVED' }, { sig: 'sha256=00' })).status, 401, 'bad signature');
   for (const t of fake.templates) {
@@ -318,6 +336,105 @@ test('abandoned checkouts get one WhatsApp reminder when the toggle is on — no
   assert.equal(sentTo('919600000002', 'fh_abandoned_checkout').length, 0, 'not after buying');
 });
 
+test('setup again: a REJECTED template is edited and resubmitted (or deleted and created again if it can’t be edited); the result says what happened', async () => {
+  const S = '/channels/whatsapp/hive/templates/setup';
+  const ship = fake.templates.find((t) => t.name === 'fh_order_shipped');
+  Object.assign(ship, { status: 'REJECTED', rejected_reason: 'INVALID_FORMAT' });
+  const v = (await api('/channels/whatsapp/hive/templates', 'GET', null, T)).data.templates.find((t) => t.event === 'order_shipped');
+  assert.deepEqual([v.status, v.reason], ['REJECTED', 'INVALID_FORMAT']);
+  const r = (await api(S, 'POST', {}, T)).data;
+  assert.equal(r.result.order_shipped, 'SUBMITTED');
+  assert.equal(Object.values(r.result).filter((s) => s === 'APPROVED').length, 10, JSON.stringify(r.result));
+  assert.ok(fake.reqs.some((x) => x.method === 'POST' && x.path === `/templates/${ship.id}`), 'edited in place');
+  assert.equal(r.templates.find((t) => t.event === 'order_shipped').status, 'PENDING');
+
+  // can't be edited: deleted and created again, once
+  const pay = fake.templates.find((t) => t.name === 'fh_payment_failed');
+  Object.assign(pay, { status: 'REJECTED', rejected_reason: 'NONE' });
+  fake.noEdit = true;
+  assert.equal((await api('/channels/whatsapp/hive/templates', 'GET', null, T)).data.templates.find((t) => t.event === 'payment_failed').reason, '', 'Meta’s “NONE” isn’t shown as a reason');
+  const posts = fake.reqs.filter((x) => x.method === 'POST' && x.path === '/templates').length;
+  const r2 = (await api(S, 'POST', {}, T)).data;
+  fake.noEdit = false;
+  assert.equal(r2.result.payment_failed, 'SUBMITTED');
+  assert.ok(fake.reqs.some((x) => x.method === 'DELETE' && x.path === '/templates/fh_payment_failed' && x.query.from === '1111'));
+  assert.equal(fake.reqs.filter((x) => x.method === 'POST' && x.path === '/templates').length, posts + 1);
+  assert.equal(fake.templates.filter((t) => t.name === 'fh_payment_failed').length, 1);
+  for (const t of fake.templates) t.status = 'APPROVED';
+  await api('/channels/whatsapp/hive/templates', 'GET', null, T);
+});
+
+test('own templates: checked like Meta checks them before anything reaches Hive; created with BODY (+FOOTER), listed, deleted', async () => {
+  const C = '/channels/whatsapp/hive/templates/custom';
+  const ok = { name: 'diwali_offer', category: 'MARKETING', body: 'Hi {{1}}, our Diwali sale is live now with {{2}} off every course in the store until Sunday night.', samples: ['Priya', '30%'], footer: 'Reply STOP to opt out' };
+  const n0 = fake.reqs.length;
+  for (const [patch, re] of [
+    [{ name: 'Diwali Offer' }, /lowercase/],
+    [{ name: 'fh_mine' }, /fh_/],
+    [{ category: 'AUTHENTICATION' }, /category/],
+    [{ body: ok.body.replace('{{2}}', '{{3}}') }, /no gaps/],
+    [{ body: ok.body.replace('Hi {{1}}', '{{1}}') }, /can’t start with a variable/],
+    [{ body: `${ok.body} {{3}}`, samples: ['a', 'b', 'c'] }, /can’t end with a variable/],
+    [{ body: ok.body.replace('{{2}}', '{{2}} {{3}}'), samples: ['a', 'b', 'c'] }, /next to each other/],
+    [{ body: 'Hi {{1}}, sale: {{2}} off now' }, /Too many variables.*at least 11 words/],
+    [{ samples: ['Priya'] }, /example value per variable \(2 needed\)/],
+    [{ samples: ['Priya', ' '] }, /example value for \{\{2\}\}/],
+    [{ footer: 'Thanks {{1}}' }, /footer/],
+    [{ footer: 'x'.repeat(61) }, /60 characters/],
+  ]) {
+    const r = await api(C, 'POST', { ...ok, ...patch }, T);
+    assert.equal(r.status, 400, JSON.stringify(patch));
+    assert.match(r.data.error, re);
+  }
+  assert.equal(fake.reqs.length, n0, 'nothing reached Hive');
+
+  const r = await api(C, 'POST', ok, T);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const p = fake.reqs.at(-1);
+  assert.deepEqual([p.method, p.path, p.body.name, p.body.category, p.body.language, p.body.from], ['POST', '/templates', 'diwali_offer', 'MARKETING', 'en', '1111']);
+  assert.deepEqual(p.body.components, [{ type: 'body', parameters: [{ type: 'text', text: ok.body }] }, { type: 'footer', parameters: [{ type: 'text', text: ok.footer }] }]);
+  assert.deepEqual(p.body.samples.body, ['Priya', '30%']);
+  assert.equal(r.data.template.status, 'PENDING');
+  assert.equal((await api(C, 'POST', { ...ok, name: 'new_batch', category: 'UTILITY', footer: '' }, T)).status, 200);
+  assert.deepEqual(fake.reqs.at(-1).body.components.map((c) => c.type), ['body'], 'no footer: BODY only');
+  const dup = await api(C, 'POST', ok, T);
+  assert.equal(dup.status, 400);
+  assert.match(dup.data.error, /already have a template with this name/);
+
+  const list = (await api(C, 'GET', null, T)).data.templates;
+  assert.deepEqual(list.map((t) => t.name).sort(), ['diwali_offer', 'new_batch'], 'the standard fh_ ones aren’t listed');
+  const d = list.find((t) => t.name === 'diwali_offer');
+  assert.deepEqual([d.category, d.status, d.body, d.footer], ['MARKETING', 'PENDING', ok.body, ok.footer]);
+
+  assert.equal((await api(`${C}/fh_order_receipt`, 'DELETE', null, T)).status, 400, 'standard templates can’t be deleted');
+  assert.ok(fake.templates.some((t) => t.name === 'fh_order_receipt'));
+  assert.equal((await api(`${C}/new_batch`, 'DELETE', null, T)).status, 200);
+  assert.ok(fake.reqs.some((x) => x.method === 'DELETE' && x.path === '/templates/new_batch' && x.query.from === '1111'));
+  assert.ok(!fake.templates.some((t) => t.name === 'new_batch'));
+});
+
+test('approved templates for automations and broadcasts: only APPROVED ones, with their variable count; marketers may read them', async () => {
+  fake.templates.find((t) => t.name === 'diwali_offer').status = 'APPROVED';
+  fake.templates.push({ id: 'p1', name: 'still_pending', language: 'en', status: 'PENDING', category: 'MARKETING', components: [{ type: 'BODY', text: 'Hello {{1}} there' }] });
+  const a = await api('/channels/whatsapp/hive/templates/approved', 'GET', null, T);
+  assert.equal(a.status, 200, JSON.stringify(a.data));
+  const names = a.data.templates.map((t) => t.name);
+  assert.ok(!names.includes('still_pending'));
+  assert.ok(names.includes('fh_order_receipt'), 'the standard ones too');
+  assert.equal(fake.reqs.at(-1).query.status, 'APPROVED');
+  const d = a.data.templates.find((t) => t.name === 'diwali_offer');
+  assert.deepEqual([d.vars, d.category, d.language], [2, 'MARKETING', 'en']);
+  assert.match(d.body, /^Hi \{\{1\}\}/);
+  assert.equal(a.data.templates.find((t) => t.name === 'fh_order_receipt').vars, 4);
+
+  const m = await register(api);
+  const inv = (await api('/team/invite', 'POST', { email: m.email, role: 'marketer' }, T)).data;
+  const ws = (await api('/team/accept', 'POST', { token: inv.token }, m.token)).data.token;
+  assert.equal((await api('/channels/whatsapp/hive/templates/approved', 'GET', null, ws)).status, 200);
+  assert.equal((await api('/channels/whatsapp/hive/templates/custom', 'GET', null, ws)).status, 403, 'the rest of the settings stay admin-only');
+  assert.equal((await api('/channels/whatsapp/hive/templates/custom', 'POST', {}, ws)).status, 403);
+});
+
 test('per-event switches; Meta direct can be chosen again; disconnecting keeps Meta details', async () => {
   await api('/channels/whatsapp/hive', 'PUT', { events: { order_receipt: false } }, T);
   await api(`/public/${f.slug}/order`, 'POST', { stepId: co.id, email: 'off@x.in', name: 'Off', phone: '9555500001' });
@@ -332,6 +449,7 @@ test('per-event switches; Meta direct can be chosen again; disconnecting keeps M
   await api('/channels/whatsapp/hive', 'PUT', { provider: 'meta' }, T);
   ch = (await api('/channels', 'GET', null, T)).data;
   assert.equal(ch.whatsapp.provider, 'meta');
+  assert.equal((await api('/channels/whatsapp/hive/templates/approved', 'GET', null, T)).status, 400, 'not in use: the editors keep a free-text name');
   assert.equal((await api(`/public/${f.slug}`)).data.waRequired, undefined, 'phone optional again');
   await api('/channels/whatsapp/hive', 'PUT', { clear: true }, T);
   ch = (await api('/channels', 'GET', null, T)).data;

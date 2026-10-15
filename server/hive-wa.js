@@ -202,24 +202,68 @@ async function refreshTemplates(u) {
     }
   });
 }
-// submits the templates that aren't there yet; one that already exists (409 / duplicate) is picked up by the refresh
-async function setupTemplates(u) {
+const isExists = (e) => e.status === 409 || /exist|duplicate/i.test(e.message);
+const isAuth = (e) => e.status === 401 || e.status === 402; // the rest would fail the same way
+// Submits the ones not there yet, not accepted (ERROR) or REJECTED; the rest are left alone. Hive's list is read
+// first, so one that already exists is picked up, never duplicated. A rejected one is edited in place (Meta
+// won't take a deleted name again for a while); if that can't be done it's deleted and created again, once.
+// → { event: 'SUBMITTED' | 'EXISTS' | 'ERROR' | the status it already had }
+async function setupTemplates(u0) {
+  const u = await refreshTemplates(u0);
   const h = hiveOf(u), key = keyOf(h), out = {};
   for (const [ev, d] of Object.entries(TEMPLATES)) {
-    const have = h.templates?.[ev]?.status;
-    if (['APPROVED', 'PENDING', 'IN_APPEAL'].includes(have)) { out[ev] = have; continue; }
+    const t = h.templates?.[ev] || {}, have = t.status || '';
+    if (!['', 'ERROR', 'REJECTED'].includes(have)) { out[ev] = have; continue; }
+    const tpl = { from: h.from, category: 'UTILITY', components: [{ type: 'body', parameters: [{ type: 'text', text: d.text }] }], samples: { body: d.samples } };
+    const create = () => call(key, 'POST', '/templates', { ...tpl, name: tplName(ev), language: 'en' });
+    const again = async () => { await call(key, 'DELETE', `/templates/${tplName(ev)}?from=${encodeURIComponent(h.from)}`).catch((e) => { if (isAuth(e)) throw e; }); return create(); };
     try {
-      const r = await call(key, 'POST', '/templates', { from: h.from, name: tplName(ev), category: 'UTILITY', language: 'en', components: [{ type: 'body', parameters: [{ type: 'text', text: d.text }] }], samples: { body: d.samples } });
-      out[ev] = String(r.status || 'PENDING').toUpperCase();
-      setHive(u.id, (x) => { x.templates = { ...x.templates, [ev]: { name: r.name || tplName(ev), language: r.language || 'en', status: out[ev], id: r.id || null, at: Date.now() } }; });
+      let r;
+      if (have === 'REJECTED' && t.id) r = await call(key, 'POST', `/templates/${encodeURIComponent(t.id)}`, tpl).catch((e) => { if (isAuth(e)) throw e; return again(); });
+      else r = await create().catch((e) => { if (have !== 'REJECTED' || !isExists(e)) throw e; return again(); });
+      out[ev] = 'SUBMITTED';
+      setHive(u.id, (x) => { x.templates = { ...x.templates, [ev]: { name: r.name || tplName(ev), language: r.language || 'en', status: String(r.status || 'PENDING').toUpperCase(), id: r.id || t.id || null, at: Date.now() } }; });
     } catch (e) {
-      if (e.status === 409 || /exist|duplicate/i.test(e.message)) { out[ev] = 'EXISTS'; continue; }
-      if (e.status === 401 || e.status === 402) throw e; // the rest would fail the same way
+      if (isExists(e)) { out[ev] = 'EXISTS'; continue; }
+      if (isAuth(e)) throw e;
       out[ev] = 'ERROR';
       setHive(u.id, (x) => { x.templates = { ...x.templates, [ev]: { name: tplName(ev), language: 'en', status: 'ERROR', reason: e.message, at: Date.now() } }; });
     }
   }
   return out;
+}
+
+// ---------- the seller's own templates (any name but fh_…) ----------
+// the text of a template's BODY / FOOTER (Hive lists components as Meta does: [{ type: 'BODY', text }])
+const part = (t, type) => { const c = (t?.components || []).find((x) => String(x.type).toUpperCase() === type); return String(c?.text ?? c?.parameters?.[0]?.text ?? ''); };
+const varsIn = (text) => Math.max(0, ...[...String(text).matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => Number(m[1])));
+const custom = (t) => ({ name: t.name, category: t.category || '', language: t.language || 'en', status: String(t.status || 'PENDING').toUpperCase(), reason: /^none$/i.test(t.rejected_reason || t.reason || '') ? '' : t.rejected_reason || t.reason || '', body: part(t, 'BODY'), footer: part(t, 'FOOTER'), id: t.id || null });
+// checked the way Meta checks it, so a mistake is explained now rather than rejected later (the same rules run
+// in Settings as you type). → an error message, or null
+export function checkTemplate({ name, category, language, body, samples, footer } = {}) {
+  name = String(name ?? '').trim(); body = String(body ?? '').trim(); footer = String(footer ?? '').trim();
+  if (!/^[a-z0-9_]{1,60}$/.test(name)) return 'Name: lowercase letters, numbers and _ only (up to 60), e.g. diwali_offer';
+  if (name.startsWith('fh_')) return 'Names starting with fh_ are kept for the standard templates — pick another name';
+  if (!['UTILITY', 'MARKETING'].includes(category)) return 'Choose a category: Utility or Marketing';
+  if (language && !/^[a-z]{2,3}(_[A-Z]{2})?$/.test(language)) return 'Language: a code like en, hi or en_US';
+  if (!body) return 'Write the message';
+  if (body.length > 1024) return 'The message can be up to 1024 characters';
+  const tags = [...body.matchAll(/\{\{([^{}]*)\}\}/g)].map((m) => m[1].trim());
+  if (tags.some((x) => !/^\d+$/.test(x))) return 'Variables are numbers in double curly brackets: {{1}}, {{2}}…';
+  const nums = [...new Set(tags.map(Number))].sort((a, b) => a - b), n = nums.length;
+  if (nums.some((x, i) => x !== i + 1)) return `Number the variables in order from {{1}}, with no gaps (found ${nums.map((x) => `{{${x}}}`).join(', ')})`;
+  if (n && body.startsWith('{{')) return 'The message can’t start with a variable — put a few words first, e.g. “Hi {{1}}”';
+  if (n && body.endsWith('}}')) return 'The message can’t end with a variable — add a few words after it';
+  if (/\}\}\s*\{\{/.test(body)) return 'Two variables can’t sit next to each other — put some words between them';
+  const words = body.replace(/\{\{[^{}]*\}\}/g, ' ').split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  if (n && words < 3 * n + 5) return `Too many variables for the length: with ${n} variable${n > 1 ? 's' : ''}, write at least ${3 * n + 5} words of fixed text (now ${words})`;
+  const s = Array.isArray(samples) ? samples.map((x) => String(x ?? '').trim()) : [];
+  if (s.length !== n) return `Give one example value per variable (${n} needed)`;
+  const blank = s.findIndex((x) => !x);
+  if (blank >= 0) return `Give an example value for {{${blank + 1}}}`;
+  if (footer.length > 60) return 'The footer can be up to 60 characters';
+  if (footer.includes('{{')) return 'The footer can’t have variables';
+  return null;
 }
 
 // ---------- abandoned checkouts: one WhatsApp reminder per cart, 30 minutes after it was left ----------
@@ -381,6 +425,39 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
   app.get(`${P}/templates`, auth, wrap(async (req, res) => {
     const h = needNumber(req, res); if (!h) return;
     try { res.json(view(await refreshTemplates(req.user))); } catch (e) { fail(res, e); }
+  }));
+  // every APPROVED template on the number (standard ones too), for automations and broadcasts — marketers may read it (team.js)
+  app.get(`${P}/templates/approved`, auth, wrap(async (req, res) => {
+    const h = live(req.user);
+    if (!h) return res.status(400).json({ error: 'Hive WhatsApp isn’t in use' });
+    try {
+      const list = (await call(keyOf(h), 'GET', `/templates?from=${encodeURIComponent(h.from)}&status=APPROVED`)).templates || [];
+      res.json({ templates: list.filter((t) => String(t.status).toUpperCase() === 'APPROVED').map((t) => { const body = part(t, 'BODY'); return { name: t.name, category: t.category || '', language: t.language || 'en', vars: varsIn(body), body }; }) });
+    } catch (e) { fail(res, e); }
+  }));
+  app.get(`${P}/templates/custom`, auth, wrap(async (req, res) => {
+    const h = needNumber(req, res); if (!h) return;
+    try { res.json({ templates: ((await call(keyOf(h), 'GET', `/templates?from=${encodeURIComponent(h.from)}`)).templates || []).filter((t) => !String(t.name).startsWith('fh_')).map(custom) }); } catch (e) { fail(res, e); }
+  }));
+  // { name, category: UTILITY | MARKETING, language?, body, samples: [...], footer? }
+  app.post(`${P}/templates/custom`, auth, setupLimiter, wrap(async (req, res) => {
+    const h = needNumber(req, res); if (!h) return;
+    const b = req.body || {};
+    const t = { name: String(b.name ?? '').trim(), category: String(b.category || '').toUpperCase(), language: String(b.language ?? '').trim() || 'en', body: String(b.body ?? '').trim(), samples: Array.isArray(b.samples) ? b.samples : [], footer: String(b.footer ?? '').trim() };
+    const bad = checkTemplate(t);
+    if (bad) return res.status(400).json({ error: bad });
+    const components = [{ type: 'body', parameters: [{ type: 'text', text: t.body }] }, ...(t.footer ? [{ type: 'footer', parameters: [{ type: 'text', text: t.footer }] }] : [])];
+    try {
+      const r = await call(keyOf(h), 'POST', '/templates', { from: h.from, name: t.name, category: t.category, language: t.language, components, samples: { body: t.samples.map((x) => param(x).slice(0, 200)) } });
+      res.json({ template: custom({ ...r, name: r.name || t.name, category: r.category || t.category, language: r.language || t.language, components: [{ type: 'BODY', text: t.body }, { type: 'FOOTER', text: t.footer }] }) });
+    } catch (e) { fail(res, isExists(e) ? new Error('You already have a template with this name — pick another name') : e); }
+  }));
+  app.delete(`${P}/templates/custom/:name`, auth, wrap(async (req, res) => {
+    const h = needNumber(req, res); if (!h) return;
+    const name = String(req.params.name);
+    if (name.startsWith('fh_')) return res.status(400).json({ error: 'The standard templates can’t be deleted here' });
+    if (!/^[a-z0-9_]{1,60}$/.test(name)) return res.status(400).json({ error: 'Not a template name' });
+    try { await call(keyOf(h), 'DELETE', `/templates/${name}?from=${encodeURIComponent(h.from)}`); res.json({ ok: true }); } catch (e) { fail(res, e); }
   }));
   // a test to the seller's own number: the alert template once approved, else plain text inside the 24-hour window
   app.post(`${P}/test`, auth, testLimiter, wrap(async (req, res) => {

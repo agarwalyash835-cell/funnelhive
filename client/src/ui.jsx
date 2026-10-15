@@ -444,3 +444,37 @@ export function CreateFunnel({ onClose, aiEnabled }) {
     </Modal>
   );
 }
+
+// ---------- Hive WhatsApp's approved templates, for automations and broadcasts ----------
+// fetched once a minute at most; null while loading, or when Hive WhatsApp isn't in use (then a name is typed as before)
+let waTpls = null;
+export function useWaTemplates() {
+  const [list, setList] = useState(null);
+  useEffect(() => {
+    if (!waTpls || Date.now() - waTpls.at > 60000) waTpls = { at: Date.now(), p: api('/channels/whatsapp/hive/templates/approved').then((r) => r.templates, () => null) };
+    let on = true;
+    waTpls.p.then((l) => { if (on) setList(l); });
+    return () => { on = false; };
+  }, []);
+  return list;
+}
+// a select of the approved templates, plus "Other (type a name)" for one that isn't listed
+export function WaTemplateSelect({ list, value, onPick, inputProps }) {
+  const known = list.some((t) => t.name === value);
+  const [other, setOther] = useState(!!value && !known);
+  return (
+    <>
+      <select value={other ? '__other' : known ? value : ''} onChange={(e) => { const name = e.target.value; setOther(name === '__other'); if (name !== '__other') onPick(list.find((t) => t.name === name) || null); }}>
+        <option value="">{list.length ? 'Choose an approved template…' : 'No approved templates yet'}</option>
+        {list.map((t) => <option key={`${t.name}:${t.language}`} value={t.name}>{t.name}{t.category ? ` · ${t.category.toLowerCase()}` : ''}</option>)}
+        <option value="__other">Other (type a name)</option>
+      </select>
+      {other && <input {...inputProps} />}
+    </>
+  );
+}
+// how many variables the chosen template takes, with its wording
+export function WaTemplateInfo({ t }) {
+  if (!t) return null;
+  return <p className="hint" style={{ whiteSpace: 'pre-wrap' }}>{t.vars ? `This template has ${t.vars} variable${t.vars > 1 ? 's' : ''}: fill them in order.` : 'This template has no variables — leave the variables empty.'}{'\n'}<span className="muted">{t.body}</span></p>;
+}
