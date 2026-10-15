@@ -304,7 +304,7 @@ function view(u) {
     quality: h.quality || null, abandonedReminder: !!h.abandonedReminder,
     // the latest sends and how they went (delivery statuses come in on the webhook)
     recent: T.wamsgs.all({ userId: u.id }, { order: 'at', desc: true, limit: 20 }).map((m) => ({ id: m.id, event: m.event || '', template: m.template || '', to: m.to, status: m.status, error: m.error || '', at: m.at })),
-    templates: Object.entries(TEMPLATES).map(([event, d]) => { const t = h.templates?.[event] || {}; return { event, label: d.label, name: tplName(event), text: d.text, status: t.status || null, reason: t.reason || '', enabled: h.events?.[event] !== false }; }),
+    templates: Object.entries(TEMPLATES).map(([event, d]) => { const t = h.templates?.[event] || {}; return { event, label: d.label, name: tplName(event), text: d.text, status: t.status || null, reason: /^none$/i.test(t.reason || '') ? '' : t.reason || '', enabled: h.events?.[event] !== false }; }),
   };
 }
 export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl }) {
