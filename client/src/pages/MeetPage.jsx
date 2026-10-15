@@ -207,7 +207,7 @@ function Book({ handle, cal: slug, embed }) {
             <h2>Your details</h2>
             <label>Name<input required autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
             <label>Email<input required type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
-            <label>WhatsApp / phone <small>for reminders</small><input type="tel" autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
+            <label>{c.waRequired ? <>WhatsApp number <small>for your confirmation and reminders</small></> : <>WhatsApp / phone <small>for reminders</small></>}<input type="tel" autoComplete="tel" required={!!c.waRequired} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
             {(c.questions || []).map((q) => (
               <label key={q.id}>{q.label}{q.required ? ' *' : ''}
                 {q.type === 'long' ? <textarea rows={3} required={q.required} value={answers[q.id] || ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />

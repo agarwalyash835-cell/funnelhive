@@ -9,6 +9,7 @@ import { fill, emailTracking } from './automations.js';
 import { sellerTz, zoned, localYmd } from './tz.js';
 import { accessFor } from './billing.js';
 import { limitsFor } from './limits.js';
+import { waOptedOut } from './hive-wa.js';
 const sharedCap = (u) => Math.min(SHARED_DAILY, limitsFor(u).broadcastDaily ?? Infinity);
 
 const TICK = Number(process.env.BROADCAST_TICK_MS || 5000);
@@ -57,7 +58,7 @@ export function audience(userId, segment, channel) {
   const all = contactList(userId).filter((c) => !demo.has(c.key) && matches(c, segment, now));
   const reach = [], left = { unsubscribed: 0, noAddress: 0 };
   for (const c of all) {
-    if (c.unsubscribed) left.unsubscribed++;
+    if (c.unsubscribed || (channel === 'whatsapp' && c.waOptOut)) left.unsubscribed++;
     else if (channel === 'whatsapp' ? String(c.phone).replace(/\D/g, '').length < 10 : !c.email) left.noAddress++;
     else reach.push(c);
   }
@@ -102,7 +103,7 @@ async function deliver(u, b, to) {
     logActivity(u.id, to.key, { type: 'email', title: `Broadcast sent: ${msg.subject}`, text: text.slice(0, 2000), by: 'broadcast', broadcast: b.name, status: 'sent' });
   } else {
     const params = b.wa.params ? b.wa.params.split(',').map((p) => fill(p.trim(), ctx)) : [];
-    const r = await sendWhatsApp(u, to.phone, { template: b.wa.template, language: b.wa.language, params });
+    const r = await sendWhatsApp(u, to.phone, { template: b.wa.template, language: b.wa.language, params, key: `bc:${b.id}:${to.key}`, ckey: to.key });
     if (r.status !== 'sent') throw new Error('WhatsApp isn’t connected');
     logActivity(u.id, to.key, { type: 'whatsapp', title: `Broadcast sent on WhatsApp: ${b.wa.template}`, text: params.join(' · '), by: 'broadcast', broadcast: b.name, status: 'sent' });
   }
@@ -162,7 +163,8 @@ export async function broadcastTick(now = Date.now()) {
     for (let i = 0; i < work.length; i += PARALLEL) {
       await Promise.all(work.slice(i, i + PARALLEL).map(async ({ s, b, u }) => {
         // checked again at send time: they may have unsubscribed since the broadcast started
-        if (metaFor(u.id, s.key)?.unsubscribed) { T.bsends.update(s.id, (x) => { x.status = 'skipped'; x.error = 'Unsubscribed'; }); return bump(b.id, 'skipped'); }
+        const m = metaFor(u.id, s.key);
+        if (m?.unsubscribed || (b.channel === 'whatsapp' && (m?.waOptOut || waOptedOut(u.id, s.phone)))) { T.bsends.update(s.id, (x) => { x.status = 'skipped'; x.error = 'Unsubscribed'; }); return bump(b.id, 'skipped'); }
         try {
           await deliver(u, b, s);
           T.bsends.update(s.id, (x) => { x.status = 'sent'; x.sentAt = Date.now(); });

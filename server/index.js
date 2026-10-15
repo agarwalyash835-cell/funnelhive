@@ -53,6 +53,7 @@ import { dropRollups, trimRollups } from './rollup.js';
 import { registerWebinars, registrationFor, previewSession } from './webinars.js';
 import { notify, money, registerNotifications, unreadCount } from './notify.js';
 import { checkoutPhone, phoneTail, ordersByPhone } from './db.js';
+import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
@@ -70,6 +71,7 @@ app.use('/api/razorpay/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/stripe/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/billing/stripe-webhook', express.raw({ type: '*/*', limit: '1mb' }));
+app.use('/api/hive/webhook', express.raw({ type: '*/*', limit: '1mb' })); // Hive WhatsApp events (signed raw body)
 app.use(express.json({ limit: '4mb' }));
 // Requests on a seller's own domain (offer.theirbrand.in) show their funnel
 app.use(domainRouter((...a) => renderFunnel(...a)));
@@ -710,6 +712,7 @@ app.get('/api/funnels/:id/analytics', auth, (req, res) => {
 // ---------- CRM ----------
 registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
+registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerRazorpaySettings(app, { auth, wrap });
 registerDomains(app, { auth });
 registerAutomations(app, { auth, secret: SECRET, appUrl, rateLimit, isTest });
@@ -950,7 +953,7 @@ const funnelIso = (f) => isoOf(f.steps.flatMap((s) => allBlocks(s)).find((b) => 
 function publicData(f, owner = T.users.get(f.userId)) {
   const inv = invoicingOf(owner);
   // tracking: the funnel's own ids where it has them, else the workspace's
-  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f) } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}) };
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f) } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}) };
 }
 app.get('/api/public/:slug', (req, res) => {
   const f = pub(req, res);
@@ -1119,6 +1122,8 @@ function buildCharge(f, body) {
 }
 // a checkout that ships something needs a valid address
 const addressError = (charge, buyer) => (charge.needsAddress && !buyer.address ? (buyer.addressError || 'Please enter your delivery address') : null);
+// while the seller sends WhatsApp through Hive, the checkout asks for a WhatsApp number (the first purchase, not one-click offers)
+const waPhoneError = (f, charge, buyer, orderId) => (!orderId && charge.items[0]?.kind === 'main' && waRequired(ownerOf(f)) && !waPhoneOk(buyer.phone) ? 'Please enter your WhatsApp number' : null);
 // Records a paid charge: a new order, or more items on the buyer's order (upsells, cross-sells).
 // verified: the money really arrived (Razorpay, or a free order while Razorpay is connected) — only then are
 // products delivered, invoices issued and the sale reported to the ad platforms from the server.
@@ -1167,6 +1172,11 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
     } else if (items.some((it) => it.productId)) order = T.orders.update(order.id, (o) => { o.undelivered = true; }) || order; // demo checkout: nothing is handed out without a payment
     // the seller's bell (sample-data orders aside); test-mode sales are marked so they aren't mistaken for money
     if (!order.demo) notify(f.userId, { kind: 'order', title: `${updated ? 'Upsell' : cod ? 'New COD order' : 'New order'} · ${money(charge.total, order.currency || 'INR')} · ${order.name || order.email || order.phone || 'a buyer'}${testOrder(order) ? ' (test)' : ''}`, body: `${items.map((it) => it.name).join(', ')} — ${f.name}`, link: '/orders' });
+    // WhatsApp (Hive): the buyer's receipt and the seller's alert, for a new order (not each one-click offer)
+    if (!order.demo && !updated) {
+      waEvent(owner, 'order_receipt', { to: order.phone, params: [String(order.name || '').split(/\s+/)[0] || 'there', items.map((it) => it.name).join(', ').slice(0, 200), money(charge.total, order.currency || 'INR')], link: invoice || access?.library || funnelUrl(f, process.env.APP_URL || base || 'http://localhost:4000'), entityId: order.id, ckey: contactKey(order.email, order.phone) });
+      sellerAlert(owner, { kind: cod ? 'COD order' : 'order', where: f.name, what: `${money(charge.total, order.currency || 'INR')} from ${order.name || order.email || order.phone || 'a buyer'}${testOrder(order) ? ' (test)' : ''}`, path: '/orders', entityId: order.id });
+    }
     const { userId, ...out } = order;
     fireWebhook(f.userId, updated ? 'order.updated' : 'order.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}), ...(invoice ? { invoice } : {}) });
     fireAutomation(f.userId, updated ? 'offer' : 'purchase', { email: order.email, phone: order.phone, name: order.name, funnelId: f.id, product: items[0]?.name, amount: charge.total, source: order.source, ...(access ? { accessLink: access.library } : {}), ...(invoice ? { invoiceLink: invoice } : {}) });
@@ -1193,6 +1203,7 @@ app.post('/api/public/:slug/order', (req, res) => {
   const buyer = buyerOf(req);
   if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
   if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
+  if (waPhoneError(f, charge, buyer, req.body.orderId)) return res.status(400).json({ error: waPhoneError(f, charge, buyer, req.body.orderId) });
   delete buyer.tk; // nothing is reported to ad platforms from the server for unpaid demo orders
   res.json(recordOrder(f, charge, buyer, { orderId: req.body.orderId, preview, base: appUrl(req) }));
 });
@@ -1211,6 +1222,7 @@ app.post('/api/public/:slug/cod', codLimiter, (req, res) => {
   if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
   if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
   if (!/^\d{10}$/.test(String(buyer.phone).replace(/\D/g, '').replace(/^91(?=\d{10}$)/, ''))) return res.status(400).json({ error: 'Please enter your 10-digit mobile number — the courier will call before delivery' });
+  if (waPhoneError(f, charge, buyer)) return res.status(400).json({ error: waPhoneError(f, charge, buyer) });
   if (isPreview(req)) return res.json(recordOrder(f, charge, buyer, { preview: true }));
   res.json({ provider: 'cod', ...recordOrder(f, charge, buyer, { cod: true, base: appUrl(req) }) });
 });
@@ -1248,6 +1260,8 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
   if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
   if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
   const prev = req.body.orderId && T.orders.get(req.body.orderId);
+  const waErr = waPhoneError(f, charge, buyer, prev && prev.funnelId === f.id ? prev.id : null);
+  if (waErr) return res.status(400).json({ error: waErr });
   // one-click offers after a Cash on Delivery checkout are added to that COD order (paid together on delivery)
   if (prev && prev.funnelId === f.id && prev.status === 'cod') return res.json({ provider: 'cod', ...recordOrder(f, charge, { ...buyer, email: prev.email, name: prev.name, phone: prev.phone }, { orderId: prev.id, cod: true, base: appUrl(req) }) });
   const orderId = prev && prev.funnelId === f.id ? prev.id : undefined;

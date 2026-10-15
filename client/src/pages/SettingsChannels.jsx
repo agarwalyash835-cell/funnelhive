@@ -55,28 +55,125 @@ export function EmailPanel({ me }) {
 
 export function WhatsAppPanel() {
   const [ch, setCh] = useState(null);
-  const [v, setV] = useState({ phoneNumberId: '', businessId: '', token: '' });
+  const [tab, setTab] = useState(null);
+  const reload = () => api('/channels').then((c) => { setCh(c); setTab((t) => t || (c.whatsapp.provider === 'hive' || !c.whatsapp.configured ? 'hive' : 'meta')); });
+  useEffect(() => { reload(); }, []);
+  if (!ch) return <Panel title="WhatsApp"><div className="skeleton sm" /></Panel>;
+  const using = ch.whatsapp.provider === 'hive' ? 'Hive WhatsApp' : 'Meta direct';
+  return (
+    <Panel title="WhatsApp" actions={<span className={`pill ${ch.whatsapp.configured ? 'ok' : 'warn'}`}>{ch.whatsapp.configured ? `Connected · ${using}` : 'Not connected'}</span>}>
+      <div className="seg" role="tablist" style={{ marginBottom: 10 }}>
+        <button type="button" role="tab" className={tab === 'hive' ? 'on' : ''} onClick={() => setTab('hive')}>WhatsApp (Hive)</button>
+        <button type="button" role="tab" className={tab === 'meta' ? 'on' : ''} onClick={() => setTab('meta')}>Meta direct (Cloud API)</button>
+      </div>
+      {tab === 'hive' ? <HiveWhatsApp onChange={reload} /> : <MetaWhatsApp ch={ch} setCh={setCh} />}
+    </Panel>
+  );
+}
+
+function MetaWhatsApp({ ch, setCh }) {
+  const [v, setV] = useState({ phoneNumberId: ch.whatsapp.phoneNumberId, businessId: ch.whatsapp.businessId, token: '' });
   const [to, setTo] = useState('');
   const [tpl, setTpl] = useState('hello_world');
   const [busy, setBusy] = useState('');
-  useEffect(() => { api('/channels').then((c) => { setCh(c); setV({ phoneNumberId: c.whatsapp.phoneNumberId, businessId: c.whatsapp.businessId, token: '' }); }); }, []);
-  if (!ch) return <Panel title="WhatsApp"><div className="skeleton sm" /></Panel>;
+  const metaOn = !!(ch.whatsapp.phoneNumberId && ch.whatsapp.hasToken);
   const save = async () => { setBusy('save'); try { const c = await api('/channels/whatsapp', 'PUT', v); setCh(c); setV((x) => ({ ...x, token: '' })); toast('WhatsApp connected'); } catch (e) { toast(e.message); } setBusy(''); };
   const test = async () => { setBusy('test'); try { await api('/channels/whatsapp/test', 'POST', { to, template: tpl, language: tpl === 'hello_world' ? 'en_US' : 'en' }); toast('Test message sent'); } catch (e) { toast(e.message); } setBusy(''); };
   const clear = async () => { if (!confirm('Disconnect WhatsApp?')) return; const c = await api('/channels/whatsapp', 'PUT', { clear: true }); setCh(c); setV({ phoneNumberId: '', businessId: '', token: '' }); };
+  const useMeta = async () => { try { await api('/channels/whatsapp/hive', 'PUT', { provider: 'meta' }); setCh(await api('/channels')); toast('WhatsApp now sends through Meta directly'); } catch (e) { toast(e.message); } };
   return (
-    <Panel title="WhatsApp Business API" actions={<span className={`pill ${ch.whatsapp.configured ? 'ok' : 'warn'}`}>{ch.whatsapp.configured ? 'Connected' : 'Not connected'}</span>}>
+    <>
       <p className="muted sm">Send WhatsApp messages from automations and the contact screen through Meta’s official WhatsApp Cloud API. Until it’s connected, the WhatsApp button opens WhatsApp on your phone instead.</p>
+      {ch.whatsapp.provider === 'hive' && <p className="hint warn">Messages go through Hive WhatsApp right now. {metaOn && <button className="link-btn" onClick={useMeta}>Send through Meta directly instead</button>}</p>}
       <div className="form2">
         <label>Phone number ID<input value={v.phoneNumberId} onChange={(e) => setV({ ...v, phoneNumberId: e.target.value.trim() })} placeholder="e.g. 106540352242922" /></label>
         <label>WhatsApp Business account ID <small className="muted">· optional</small><input value={v.businessId} onChange={(e) => setV({ ...v, businessId: e.target.value.trim() })} placeholder="e.g. 102290129340398" /></label>
         <label className="full">Permanent access token {ch.whatsapp.hasToken && <small className="muted">· saved — leave empty to keep it</small>}<input type="password" value={v.token} onChange={(e) => setV({ ...v, token: e.target.value })} placeholder={ch.whatsapp.hasToken ? '••••••••' : 'EAAG…'} autoComplete="new-password" /></label>
       </div>
-      <div className="row"><button className="btn primary" disabled={busy || !v.phoneNumberId} onClick={save}>Save WhatsApp</button>{ch.whatsapp.configured && <button className="btn ghost danger" onClick={clear}>Disconnect</button>}
+      <div className="row"><button className="btn primary" disabled={busy || !v.phoneNumberId} onClick={save}>Save WhatsApp</button>{metaOn && <button className="btn ghost danger" onClick={clear}>Disconnect</button>}
         <a className="btn ghost" href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer"><ExternalLink size={14} /> Setup guide</a></div>
       <div className="row test-row"><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Your WhatsApp number" /><input value={tpl} onChange={(e) => setTpl(e.target.value)} placeholder="template name" style={{ maxWidth: 160 }} /><button className="btn ghost" disabled={busy || !ch.whatsapp.configured || !to} onClick={test}>{busy === 'test' ? 'Sending…' : 'Send test'}</button></div>
       <p className="hint">Find these in Meta Business → WhatsApp Manager → API setup. Business-initiated messages must use a template approved by Meta (“hello_world” works for testing). The token is encrypted and never shown again.</p>
-    </Panel>
+    </>
+  );
+}
+
+// Hive WhatsApp: the owner's own WhatsApp API — key, number, webhook, ready-made templates, what gets sent
+const TPL_PILL = { APPROVED: ['ok', 'Approved'], PENDING: ['warn', 'In review'], IN_APPEAL: ['warn', 'In appeal'], REJECTED: ['bad', 'Rejected'], PAUSED: ['bad', 'Paused'], DISABLED: ['bad', 'Disabled'], ERROR: ['bad', 'Not submitted'] };
+const QUALITY = { GREEN: ['ok', 'High'], YELLOW: ['warn', 'Medium'], RED: ['bad', 'Low'] };
+const when = (t) => (t ? new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
+function HiveWhatsApp({ onChange }) {
+  const [h, setH] = useState(null);
+  const [key, setKey] = useState('');
+  const [numbers, setNumbers] = useState(null);
+  const [mine, setMine] = useState('');
+  const [busy, setBusy] = useState('');
+  const load = (x) => { setH(x); setMine(x.notifyPhone ? `+${x.notifyPhone}` : ''); };
+  useEffect(() => { api('/channels/whatsapp/hive').then(load).catch(() => {}); }, []);
+  useEffect(() => { if (h?.hasKey) api('/channels/whatsapp/hive/numbers').then((r) => setNumbers(r.numbers)).catch(() => setNumbers([])); }, [h?.hasKey, h?.keyPrefix]);
+  if (!h) return <div className="skeleton sm" />;
+  const run = async (name, fn, ok) => {
+    setBusy(name);
+    try { const r = await fn(); if (r?.templates) { load(r); onChange?.(); } if (ok) toast(typeof ok === 'function' ? ok(r) : ok); } catch (e) { toast(e.message); }
+    setBusy('');
+  };
+  const save = (body, ok, name = 'save') => run(name, () => api('/channels/whatsapp/hive', 'PUT', body), ok);
+  const saveKey = () => run('key', async () => { const r = await api('/channels/whatsapp/hive', 'PUT', { apiKey: key.trim() }); setKey(''); return r; }, 'Key verified and saved');
+  const clear = () => { if (confirm('Disconnect Hive WhatsApp? Messages stop going out through it.')) save({ clear: true }, 'Hive WhatsApp disconnected'); };
+  const approved = h.templates.filter((t) => t.status === 'APPROVED').length;
+  const q = QUALITY[String(h.quality?.rating || '').toUpperCase()];
+  return (
+    <div className="hive-wa">
+      <p className="muted sm">Your own WhatsApp number through the Hive WhatsApp API — it also works with a number you keep using in the WhatsApp Business app. Buyers get their receipt, booking, access and shipping messages on WhatsApp; their replies show up on the contact’s timeline.</p>
+      {h.hasKey && h.provider !== 'hive' && <p className="hint warn">WhatsApp messages currently go through Meta directly. <button className="link-btn" onClick={() => save({ provider: 'hive' }, 'WhatsApp now sends through Hive')}>Send through Hive instead</button></p>}
+
+      <div className="form2">
+        <label className="full">API key {h.hasKey && <small className="muted">· saved ({h.keyPrefix}…{h.mode === 'test' ? ', test key' : ''}) — leave empty to keep it</small>}
+          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={h.hasKey ? '••••••••' : 'hk_live_…'} autoComplete="new-password" /></label>
+      </div>
+      <div className="row"><button className="btn primary" disabled={!!busy || !key.trim()} onClick={saveKey}>{busy === 'key' ? 'Checking with Hive…' : 'Save & verify key'}</button>{h.hasKey && <button className="btn ghost danger" onClick={clear}>Disconnect</button>}</div>
+
+      {h.hasKey && <>
+        <div className="form2">
+          <label>WhatsApp number
+            <select value={h.from} onChange={(e) => save({ from: e.target.value }, 'Number saved')} disabled={!numbers}>
+              <option value="">{numbers ? (numbers.length ? 'Choose your number…' : 'No numbers connected in Hive') : 'Loading…'}</option>
+              {(numbers || []).map((n) => <option key={n.id} value={n.phone_number_id || n.display || n.id}>{n.display}{n.quality ? ` · quality ${n.quality}` : ''}</option>)}
+              {h.from && numbers && !numbers.some((n) => [n.id, n.display, n.phone_number_id].includes(h.from)) && <option value={h.from}>{h.fromLabel || h.from}</option>}
+            </select></label>
+          <label>Your own WhatsApp <small className="muted">· for new order &amp; booking alerts</small>
+            <div className="row"><input type="tel" value={mine} onChange={(e) => setMine(e.target.value)} placeholder="+91 98765 43210" /><button className="btn ghost" disabled={!!busy} onClick={() => save({ notifyPhone: mine }, mine ? 'Alerts will come to this number' : 'Alerts turned off')}>Save</button></div></label>
+        </div>
+        {h.quality && <p className="muted sm">Number quality: <span className={`pill ${q?.[0] || 'info'}`}>{q?.[1] || h.quality.rating}</span>{h.quality.limit && <> · messaging limit {h.quality.limit}</>}{h.quality.at && <> · updated {when(h.quality.at)}</>}</p>}
+
+        <div className="rzp-hook">
+          <b>Replies, opt-outs and delivery updates</b> {h.webhook ? <span className="pill ok">Connected{h.webhook.lastEventAt ? ` · last event ${when(h.webhook.lastEventAt)}` : ''}</span> : <span className="pill warn">Not connected</span>}
+          <p className="hint">One click: FunnelHive tells Hive where to send WhatsApp events, with a private signing key — nothing to copy. Old chats from the WhatsApp app aren’t imported.</p>
+          <div className="row"><button className="btn ghost" disabled={!!busy || !h.from} onClick={() => run('hook', () => api('/channels/whatsapp/hive/webhook', 'POST'), 'Webhook connected')}>{busy === 'hook' ? 'Connecting…' : h.webhook ? 'Reconnect webhook' : 'Connect webhook'}</button>
+            {h.webhook && <button className="btn ghost" disabled={!!busy} onClick={() => run('hooktest', () => api('/channels/whatsapp/hive/webhook/test', 'POST'), 'Test event sent — it shows as “last event” in a few seconds')}>Send test event</button>}</div>
+          {/^https?:\/\/(localhost|127\.)/.test(location.origin) && <p className="hint warn">This app is running on your computer — Hive can only reach the webhook once it’s hosted on a public https address.</p>}
+        </div>
+
+        <div className="rzp-hook">
+          <b>Message templates</b> <span className="muted sm">{approved} of {h.templates.length} approved</span>
+          <p className="hint">WhatsApp only lets a business start a chat with templates Meta has approved. Create the standard set once — review usually takes minutes to a few hours. Each message goes out only when its template is approved and its switch is on.</p>
+          <div className="row"><button className="btn primary" disabled={!!busy || !h.from} onClick={() => run('tpl', () => api('/channels/whatsapp/hive/templates/setup', 'POST'), 'Templates submitted for review')}>{busy === 'tpl' ? 'Submitting…' : 'Create my message templates'}</button>
+            <button className="btn ghost" disabled={!!busy || !h.from} onClick={() => run('refresh', () => api('/channels/whatsapp/hive/templates'), 'Statuses updated')}><RefreshCw size={14} /> Refresh</button></div>
+          <table className="tbl compact"><thead><tr><th>Message</th><th>Template</th><th>Status</th><th className="r">Send</th></tr></thead>
+            <tbody>{h.templates.map((t) => { const pl = TPL_PILL[t.status]; return (
+              <tr key={t.event}><td title={t.text}>{t.label}</td><td className="mono sm">{t.name}</td>
+                <td>{t.status ? <span className={`pill ${pl?.[0] || 'info'}`} title={t.reason || ''}>{pl?.[1] || t.status}</span> : <span className="muted sm">not created</span>}{t.reason && t.status !== 'APPROVED' && <small className="muted"> {t.reason}</small>}</td>
+                <td className="r"><label className="tog"><input type="checkbox" checked={t.enabled} onChange={(e) => save({ events: { [t.event]: e.target.checked } }, null, `ev-${t.event}`)} /><span /></label></td></tr>); })}</tbody></table>
+          <label className="tog"><input type="checkbox" checked={h.abandonedReminder} onChange={(e) => save({ abandonedReminder: e.target.checked }, e.target.checked ? 'Unfinished checkouts get a WhatsApp reminder after 30 minutes' : 'Checkout reminders turned off')} /><span />Send a WhatsApp reminder to abandoned checkouts after 30 minutes (once per cart, never after they buy)</label>
+        </div>
+
+        {h.recent?.length > 0 && <details className="rzp-hook"><summary><b>Recent WhatsApp messages</b></summary>
+          <table className="tbl compact"><thead><tr><th>When</th><th>To</th><th>Message</th><th>Status</th></tr></thead>
+            <tbody>{h.recent.map((m) => <tr key={m.id}><td className="muted sm">{when(m.at)}</td><td className="mono sm">+{m.to}</td><td className="sm">{m.template || m.event || 'message'}</td><td><span className={`pill ${m.status === 'failed' ? 'bad' : ['delivered', 'read'].includes(m.status) ? 'ok' : 'info'}`} title={m.error}>{m.status}</span></td></tr>)}</tbody></table></details>}
+        <div className="row test-row"><button className="btn ghost" disabled={!!busy || !h.notifyPhone || !h.from} onClick={() => run('test', () => api('/channels/whatsapp/hive/test', 'POST'), (r) => `Test message sent to +${r.to}`)}>{busy === 'test' ? 'Sending…' : 'Send me a test message'}</button>{!h.notifyPhone && <span className="muted sm">Add your own WhatsApp number above first</span>}</div>
+        <p className="hint">While Hive WhatsApp is in use, checkouts and booking forms ask for a WhatsApp number. Contacts who reply STOP are never messaged again. Your API key is encrypted and never shown again.</p>
+      </>}
+    </div>
   );
 }
 

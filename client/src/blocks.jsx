@@ -919,7 +919,7 @@ function Checkout({ p, ctx }) {
           <div className="co-step"><span className="co-n">1</span> <E ctx={ctx} k="step1" v={p.step1} keep /></div>
           {ctx.testCheckout && !ctx.editable && <p className="co-test">{tr(ctx.lang, 'Test checkout — no payment will be taken. The seller hasn’t connected online payments yet.')}</p>}
           <input placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
-          <div className="two"><input type="email" placeholder={tr(ctx.lang, 'Email')} required value={f.email} onChange={set('email')} onBlur={onEmailBlur} /><input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} value={f.phone} onChange={set('phone')} onBlur={onEmailBlur} /></div>
+          <div className="two"><input type="email" placeholder={tr(ctx.lang, 'Email')} required value={f.email} onChange={set('email')} onBlur={onEmailBlur} /><input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} required={!!ctx.waRequired && !ctx.editable} value={f.phone} onChange={set('phone')} onBlur={onEmailBlur} /></div>
           {ctx.gstInvoices && !ctx.editable && (biz ? (
             <div className="co-gst">
               <input placeholder={tr(ctx.lang, 'Business name')} value={gst.company} onChange={(e) => setGst({ ...gst, company: e.target.value })} />
@@ -1066,7 +1066,7 @@ function Booking({ p, ctx }) {
               <form className="bk-form" onSubmit={submit}>
                 <p className="bk-picked">📅 <b>{fmtDay(pick, off)}</b> at <b>{fmtTime(pick, off)}</b> {tzLabel(off)}</p>
                 <div className="two"><input required placeholder={tr(ctx.lang, 'Full name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><input required type="email" placeholder={tr(ctx.lang, 'Email')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-                <input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} required={!!cal?.waRequired} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
                 {(cal?.questions || []).map((q) => q.type === 'select'
                   ? <select key={q.id} required={q.required} value={answers[q.id] || ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}><option value="">{q.label}{q.required ? ' *' : ''}</option>{(q.options || []).map((o) => <option key={o}>{o}</option>)}</select>
                   : q.type === 'long' ? <textarea key={q.id} rows={2} required={q.required} placeholder={`${q.label}${q.required ? ' *' : ''}`} value={answers[q.id] || ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />

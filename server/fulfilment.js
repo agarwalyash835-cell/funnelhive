@@ -2,8 +2,9 @@
 // tracking, emailed to the buyer), and when it's delivered the cash counts as paid — the GST invoice is issued and
 // any digital products are delivered then. A COD order that's refused / returned (RTO) is cancelled and nets out of
 // revenue. Online-paid orders use the same shipping steps.
-import { T, tx } from './db.js';
+import { T, tx, contactKey } from './db.js';
 import { sendEmail } from './messaging.js';
+import { waEvent } from './hive-wa.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { fire as fireAutomation } from './automations.js';
 import { deliver, revoke, linkBase } from './products.js';
@@ -61,6 +62,7 @@ export function registerFulfilment(app, { auth, appUrl }) {
     if (status === 'shipped') {
       const ff = order.fulfilment;
       if (o.email) sendEmail(owner, { to: o.email, subject: `Your order is on its way 🚚`, text: `Hi ${first},\n\nYour order (#${o.id}) has been shipped${ff.courier ? ` with ${ff.courier}` : ''}.${ff.tracking ? `\nTracking number: ${ff.tracking}` : ''}${ff.trackingUrl ? `\nTrack it here: ${ff.trackingUrl}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${o.total.toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
+      waEvent(owner, 'order_shipped', { to: o.phone, params: [first, ff.courier || 'our courier'], link: ff.trackingUrl || (ff.tracking ? `tracking number ${ff.tracking}` : 'we will share the tracking soon'), entityId: o.id, ckey: contactKey(o.email, o.phone) });
       fireAutomation(o.userId, 'shipped', { email: o.email, phone: o.phone, name: o.name, funnelId: o.funnelId, product: o.items[0]?.name, amount: o.total, trackingLink: ff.trackingUrl || '', courier: ff.courier || '', trackingId: ff.tracking || '' });
       fireWebhook(o.userId, 'order.shipped', { order: o.id, courier: ff.courier, tracking: ff.tracking, trackingUrl: ff.trackingUrl, email: o.email });
     }

@@ -17,6 +17,7 @@ import { tzOf, sellerTz, zoned, localYmd, addDays, dowOfYmd, formatIn, offsetAt,
 import { refundOrder, issueInvoice, invoiceUrl } from './sales.js';
 import { fxRate } from './fx.js';
 import { notify } from './notify.js';
+import { waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 
 const MIN = 60000, HOUR = 3600000, DAY = 86400000;
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -146,7 +147,7 @@ function icsOf(b, cal, owner) {
 }
 function notifyBuyer(b, kind, base) {
   const owner = T.users.get(b.userId), cal = T.calendars.get(b.calendarId);
-  if (!owner || !cal || !b.email) return;
+  if (!owner || !cal) return;
   const biz = owner.settings?.businessName || owner.name;
   const link = manageUrl(base || b.base, b), ics = `${base || b.base}/api/booking/${b.id}/ics?t=${manageToken(b)}`;
   const first = String(b.name || '').split(/\s+/)[0] || 'there';
@@ -158,7 +159,13 @@ function notifyBuyer(b, kind, base) {
     hour: [`Starting in 1 hour: ${cal.name}`, `Hi ${first},\n\nYour ${cal.name} with ${biz} starts at ${when(b.start, calTz(cal))}.${join}\n\n— ${biz}`],
     cancelled: [`Cancelled: ${cal.name} on ${when(b.start, calTz(cal))}`, `Hi ${first},\n\nYour ${cal.name} on ${when(b.start, calTz(cal))} has been cancelled.${b.cancelledBy === 'buyer' ? '' : ' Book a new time whenever you like.'}\n\n— ${biz}`],
   }[kind];
-  if (text) sendEmail(owner, { to: b.email, subject: text[0], text: text[1] }).catch((e) => console.error('booking email failed', e.message));
+  if (text && b.email) sendEmail(owner, { to: b.email, subject: text[0], text: text[1] }).catch((e) => console.error('booking email failed', e.message));
+  // the same on WhatsApp (Hive), when the buyer gave a number
+  const wa = { to: b.phone, ckey: contactKey(b.email, b.phone) }, call = cal.name, at = when(b.start, calTz(cal));
+  if (kind === 'confirmed') waEvent(owner, b.replaces ? 'booking_changed' : 'booking_confirmed', { ...wa, params: b.replaces ? [first, call, `moved to ${at}`] : [first, call, at], link, entityId: b.id });
+  if (kind === 'day' || kind === 'hour') waEvent(owner, 'booking_reminder', { ...wa, params: [call, at], link: meet || link, entityId: `${b.id}-${kind}` });
+  if (kind === 'cancelled') waEvent(owner, 'booking_changed', { ...wa, params: [first, call, 'cancelled'], link, entityId: `${b.id}-cancelled` });
+  if (!b.email) return;
   // the seller hears about new bookings and cancellations
   if (kind === 'confirmed' || kind === 'cancelled') sendEmail(owner, { to: owner.email, subject: `${kind === 'confirmed' ? 'New booking' : 'Booking cancelled'}: ${b.name || b.email} · ${when(b.start, calTz(cal))}`, text: `${cal.name}\n${b.name || ''} · ${b.email}${b.phone ? ` · ${b.phone}` : ''}\n${when(b.start, calTz(cal))}${Object.entries(b.answers || {}).map(([q, a]) => `\n\n${q}\n${a}`).join('')}${b.notes ? `\n\nNotes: ${b.notes}` : ''}` }).catch(() => {});
 }
@@ -187,6 +194,7 @@ function confirmed(b, cal, base, rescheduled) {
   const data = { email: b.email, phone: b.phone, name: b.name, funnelId: b.funnelId, bookingTime: when(b.start, calTz(cal)), bookingLink: manageUrl(base, b), meetingLink: cal.meetingLink || '' };
   fireWebhook(cal.userId, rescheduled ? 'booking.rescheduled' : 'booking.created', { booking: outBooking(b, cal), manage: manageUrl(base, b) });
   notify(cal.userId, { kind: 'booking', title: `${rescheduled ? 'Booking moved' : 'New booking'} · ${b.name || b.email || b.phone} · ${cal.name}`, body: data.bookingTime, link: '/bookings' });
+  sellerAlert(cal.userId, { kind: rescheduled ? 'booking change' : 'booking', where: cal.name, what: `${b.name || b.email || b.phone} at ${data.bookingTime}`, path: '/bookings', entityId: b.id });
   // the Google event (and its Meet link) first, so the confirmation email can include the link
   addEvent(b, cal).then((ev) => {
     const fresh = T.bookings.get(b.id) || b;
@@ -389,7 +397,7 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     const r = await confirmPaidBooking(pay, id, base);
     res.status(r.error ? 409 : 200).json(r);
   };
-  const calInfo = (cal, owner) => ({ name: cal.name, duration: cal.duration, durations: cal.durations || [cal.duration], tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), description: cal.description || '', location: cal.meetingLink || owner?.channels?.gcal?.refreshEnc ? 'Video call' : cal.location || '', price: cal.price || 0, prices: Object.fromEntries((cal.durations || [cal.duration]).map((d) => [d, priceFor(cal, d)])), currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24, questions: cal.questions || [] });
+  const calInfo = (cal, owner) => ({ name: cal.name, duration: cal.duration, durations: cal.durations || [cal.duration], tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), description: cal.description || '', location: cal.meetingLink || owner?.channels?.gcal?.refreshEnc ? 'Video call' : cal.location || '', price: cal.price || 0, prices: Object.fromEntries((cal.durations || [cal.duration]).map((d) => [d, priceFor(cal, d)])), currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24, questions: cal.questions || [], ...(waRequired(owner) ? { waRequired: true } : {}) });
 
   // --- public: slots and booking on a funnel page ---
   const blockOf = (f, stepId, blockId) => { const st = f.steps.find((s) => s.id === stepId); return st && allBlocks(st).find((b) => b.id === blockId && b.type === 'booking'); };
@@ -418,8 +426,10 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     const base = linkBase(f.id, process.env.APP_URL || appUrl(req));
     const ans = cleanAnswers(cal, req.body.answers);
     if (ans.error) return res.status(400).json({ error: ans.error });
+    const owner = T.users.get(f.userId);
+    if (waRequired(owner) && !waPhoneOk(req.body.phone)) return res.status(400).json({ error: 'Please enter your WhatsApp number' });
     const input = { start: req.body.start, email: req.body.email, name: req.body.name, phone: req.body.phone, notes: req.body.notes, duration: req.body.duration, answers: ans.answers, funnelId: f.id, stepId: req.body.stepId, base, attr: req.body.attr, source: 'funnel' };
-    await startBooking(req, res, { cal, owner: T.users.get(f.userId), base, input, funnelId: f.id, stepId: req.body.stepId, title: f.name, color: f.theme?.primary || '#b45309' });
+    await startBooking(req, res, { cal, owner, base, input, funnelId: f.id, stepId: req.body.stepId, title: f.name, color: f.theme?.primary || '#b45309' });
   }));
   app.post('/api/public/:slug/book/verify', bookLimiter, wrap(async (req, res) => {
     const f = pub(req, res);
@@ -460,6 +470,7 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     const cal = meetCal(req, res, u); if (!cal) return;
     const ans = cleanAnswers(cal, req.body?.answers);
     if (ans.error) return res.status(400).json({ error: ans.error });
+    if (waRequired(u) && !waPhoneOk(req.body?.phone)) return res.status(400).json({ error: 'Please enter your WhatsApp number' });
     await refreshBusy(u.id, cal.daysAhead + 1);
     const base = meetBase(req);
     const input = { start: req.body.start, email: req.body.email, name: req.body.name, phone: req.body.phone, notes: req.body.notes, duration: req.body.duration, answers: ans.answers, base, attr: req.body.attr, source: 'booking page' };

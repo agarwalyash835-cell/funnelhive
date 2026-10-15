@@ -71,10 +71,21 @@ export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverr
 // ---------- WhatsApp (Meta Cloud API) ----------
 const GRAPH = process.env.WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v21.0';
 export const waTo = (p = '') => { const d = String(p).replace(/\D/g, ''); return d.length === 10 ? `91${d}` : d.replace(/^0+/, ''); };
-export function whatsappStatus(u) { const w = u?.channels?.whatsapp; return { configured: !!(w?.phoneNumberId && w?.tokenEnc) }; }
+// other providers (the owner's Hive WhatsApp API — hive-wa.js) plug in here; Meta direct stays the default
+// (a hoisted function holding the list, so a provider can register while this module is still loading)
+export function registerWhatsAppProvider(name, p) { registerWhatsAppProvider.list = { ...registerWhatsAppProvider.list, [name]: p }; }
+const waProvider = (u) => { const n = u?.channels?.whatsapp?.provider; return n && n !== 'meta' ? registerWhatsAppProvider.list?.[n] || null : null; };
+export function whatsappStatus(u) {
+  const p = waProvider(u);
+  if (p) return { configured: p.configured(u), provider: u.channels.whatsapp.provider };
+  const w = u?.channels?.whatsapp; return { configured: !!(w?.phoneNumberId && w?.tokenEnc) };
+}
 
 // msg: { text } (only inside the 24-hour customer-service window) or { template, language, params: [] }
+// (Hive also takes key — the Idempotency-Key, so a retry never sends twice — and ckey, the contact)
 export async function sendWhatsApp(u, to, msg) {
+  const p = waProvider(u);
+  if (p) return p.send(u, to, msg);
   const w = u?.channels?.whatsapp;
   if (!w?.phoneNumberId || !w?.tokenEnc) return { status: 'not-configured' };
   const num = waTo(to);
@@ -101,7 +112,7 @@ export const publicChannels = (u) => {
   const e = u.channels?.email || {}, w = u.channels?.whatsapp || {};
   return {
     email: { host: e.host || '', port: e.port || 465, secure: e.secure ?? true, user: e.user || '', hasPassword: !!e.passEnc, fromName: e.fromName || '', fromEmail: e.fromEmail || '', replyTo: e.replyTo || '', ...emailStatus(u) },
-    whatsapp: { phoneNumberId: w.phoneNumberId || '', businessId: w.businessId || '', hasToken: !!w.tokenEnc, ...whatsappStatus(u) },
+    whatsapp: { phoneNumberId: w.phoneNumberId || '', businessId: w.businessId || '', hasToken: !!w.tokenEnc, provider: w.provider || 'meta', ...whatsappStatus(u) },
     razorpay: (({ keyId = '', secretEnc, webhookSecretEnc } = {}) => ({ keyId, hasSecret: !!secretEnc, hasWebhookSecret: !!webhookSecretEnc, mode: keyId.startsWith('rzp_live_') ? 'live' : keyId ? 'test' : null, configured: !!(keyId && secretEnc), webhookUrl: `/api/razorpay/webhook/${u.id}` }))(u.channels?.razorpay),
   };
 };
@@ -132,13 +143,15 @@ export function registerChannels(app, { auth, wrap, rateLimit, isTest }) {
   }));
   app.put('/api/channels/whatsapp', auth, (req, res) => {
     const b = req.body || {};
-    if (b.clear) return res.json(publicChannels(setChannel(req.user.id, 'whatsapp', undefined)));
+    const prev = req.user.channels?.whatsapp || {};
+    // the Hive WhatsApp settings (and which provider is in use) stay when the Meta details change
+    const keep = prev.hive ? { hive: prev.hive, ...(prev.provider ? { provider: prev.provider } : {}) } : {};
+    if (b.clear) return res.json(publicChannels(setChannel(req.user.id, 'whatsapp', prev.hive ? keep : undefined)));
     const phoneNumberId = str(b.phoneNumberId, 40);
     if (!/^\d{6,30}$/.test(phoneNumberId)) return res.status(400).json({ error: 'The Phone number ID is a long number from Meta → WhatsApp → API setup' });
-    const prev = req.user.channels?.whatsapp || {};
     const token = str(b.token, 1000);
     if (!token && !prev.tokenEnc) return res.status(400).json({ error: 'Paste your permanent access token' });
-    res.json(publicChannels(setChannel(req.user.id, 'whatsapp', { phoneNumberId, businessId: str(b.businessId, 40), tokenEnc: token ? encrypt(token) : prev.tokenEnc })));
+    res.json(publicChannels(setChannel(req.user.id, 'whatsapp', { ...keep, phoneNumberId, businessId: str(b.businessId, 40), tokenEnc: token ? encrypt(token) : prev.tokenEnc })));
   });
   app.post('/api/channels/email/test', auth, testLimiter, wrap(async (req, res) => {
     const to = str(req.body.to || req.user.email, 200);

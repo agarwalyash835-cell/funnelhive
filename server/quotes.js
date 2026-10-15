@@ -4,8 +4,9 @@
 // order (Orders, refunds, GST / export invoice, contacts, automations, webhooks); with a deposit the balance is paid
 // later through the same link.
 import crypto from 'node:crypto';
-import { T, tx, uid } from './db.js';
+import { T, tx, uid, contactKey } from './db.js';
 import { sendEmail } from './messaging.js';
+import { waEvent, waReady } from './hive-wa.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { fire as fireAutomation } from './automations.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment } from './razorpay.js';
@@ -98,6 +99,7 @@ export function confirmQuotePayment(pay, paymentId, base) {
   T.payments.put(pay);
   const biz = owner.settings?.businessName || owner.name;
   const money = fmt(item.price, iso);
+  waEvent(owner, 'order_receipt', { to: c.phone, params: [String(c.name || '').split(/\s+/)[0] || 'there', quote.title, money], link: link || quoteLink(quote, base || pay.base), entityId: order.id + '-' + order.items.length, ckey: contactKey(c.email, c.phone) });
   if (c.email) sendEmail(owner, { to: c.email, subject: `Payment received — ${quote.title}`, text: `Hi ${c.name.split(/\s+/)[0] || 'there'},\n\nThank you — we received ${money} for “${quote.title}” (${quote.number}).${q2.status === 'deposit_paid' ? ` The balance of ${fmt(dueNow(q2), iso)} can be paid any time from the same link.` : ''}${link ? `\n\nYour invoice: ${link}` : ''}\n\n— ${biz}` }).catch((e) => console.error('quote receipt failed', e.message));
   sendEmail(owner, { to: owner.email, subject: `${c.name || c.email} paid ${money} — ${quote.number}`, text: `${c.name || c.email} paid ${money} for “${quote.title}” (${quote.number}).${q2.status === 'deposit_paid' ? `\nBalance still due: ${fmt(dueNow(q2), iso)}.` : '\nThe quote is now fully paid.'}` }).catch(() => {});
   notify(quote.userId, { kind: 'quote_paid', title: `${q2.status === 'deposit_paid' ? 'Deposit paid' : 'Quote paid'} · ${money} · ${c.name || c.email}${pay.mode === 'test' ? ' (test)' : ''}`, body: `${quote.title} (${quote.number})`, link: '/quotes' });
@@ -147,10 +149,12 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     const q = own(req, res); if (!q) return;
     const p = problems(q);
     if (p) return res.status(400).json({ error: p });
-    if (!q.client.email) return res.status(400).json({ error: 'Add the client’s email address first' });
     const owner = T.users.get(q.userId), biz = owner.settings?.businessName || owner.name;
+    // by email, and on WhatsApp (Hive) when the client has a number — either one is enough
+    if (!q.client.email && !(q.client.phone && waReady(owner, 'quote_sent'))) return res.status(400).json({ error: 'Add the client’s email address first' });
+    waEvent(owner, 'quote_sent', { to: q.client.phone, params: [q.client.name.split(/\s+/)[0] || 'there', q.title, fmt(total(q), q.currency || 'INR')], link: quoteLink(q, base(req)), entityId: `${q.id}-${q.sentAt || 0}`, ckey: contactKey(q.client.email, q.client.phone) });
     const note = clip(req.body?.message, 2000);
-    await sendEmail(owner, { to: q.client.email, subject: `${biz}: ${q.title} (${q.number})`, text: `Hi ${q.client.name.split(/\s+/)[0] || 'there'},\n\n${note || `Here’s my proposal for “${q.title}”.`}\n\nView it${dueNow(q) > 0 ? ' and pay securely' : ''} here:\n${quoteLink(q, base(req))}\n\n${q.validUntil ? `Valid until ${new Date(q.validUntil).toDateString()}.\n\n` : ''}— ${biz}` });
+    if (q.client.email) await sendEmail(owner, { to: q.client.email, subject: `${biz}: ${q.title} (${q.number})`, text: `Hi ${q.client.name.split(/\s+/)[0] || 'there'},\n\n${note || `Here’s my proposal for “${q.title}”.`}\n\nView it${dueNow(q) > 0 ? ' and pay securely' : ''} here:\n${quoteLink(q, base(req))}\n\n${q.validUntil ? `Valid until ${new Date(q.validUntil).toDateString()}.\n\n` : ''}— ${biz}` });
     res.json(sellerView(T.quotes.update(q.id, (x) => { if (['draft', 'expired'].includes(statusOf(x))) x.status = 'sent'; x.sentAt = Date.now(); }), base(req)));
   }));
 

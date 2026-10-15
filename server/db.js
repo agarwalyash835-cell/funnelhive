@@ -126,6 +126,8 @@ const SCHEMA = {
   webinars: { cols: { userId: 0, funnelId: 0, at: 0 }, index: [['userId', 'at'], ['funnelId']] },
   quotes: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // proposals with a pay link
   notifications: { cols: { userId: 0, read: (n) => bool(n.read), at: 0 }, index: [['userId', 'at']] }, // the seller's bell: new orders, leads, bookings…
+  // WhatsApp messages sent through Hive: one per logical message (ikey), so a retry never sends twice; statuses from its webhook
+  wamsgs: { cols: { userId: 0, ikey: 0, hiveId: 0, at: 0 }, unique: [['userId', 'ikey']], index: [['hiveId'], ['userId', 'at'], ['at']] },
   registrations: { cols: { userId: 0, webinarId: 0, ckey: (r) => contactKey(r.email, r.phone), session: 0, at: 0 }, index: [['webinarId', 'session'], ['session'], ['userId', 'at'], ['webinarId', 'ckey']] },
   // GST invoices and credit notes a seller issues to their buyers
   sinvoices: { cols: { userId: 0, orderId: 0, number: 0, at: 0 }, unique: [['userId', 'number']], index: [['userId', 'at'], ['orderId']] },

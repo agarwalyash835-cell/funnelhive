@@ -79,7 +79,7 @@ function buildContacts(userId, onlyKey) {
 }
 const listItem = (c, pipelines) => ({
   key: c.key, email: c.email, name: c.name, phone: c.phone, type: c.type, orders: c.orders, ltv: c.ltv, funnels: [...c.funnels].filter(Boolean),
-  source: c.source, firstSeen: c.firstSeen, lastSeen: c.lastSeen, fields: c.fields, custom: c.meta?.custom || {}, tags: c.meta?.tags || [], unsubscribed: !!c.meta?.unsubscribed,
+  source: c.source, firstSeen: c.firstSeen, lastSeen: c.lastSeen, fields: c.fields, custom: c.meta?.custom || {}, tags: c.meta?.tags || [], unsubscribed: !!c.meta?.unsubscribed, ...(c.meta?.waOptOut ? { waOptOut: true } : {}),
   stages: Object.fromEntries(pipelines.map((p) => [p.id, stageFor(p, c.meta, c.type === 'customer')])),
 });
 
@@ -410,7 +410,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     if (!r.c.phone) return res.status(400).json({ error: 'This contact has no phone number' });
     if (!text) return res.status(400).json({ error: 'Write a message first' });
     try {
-      const out = await sendWhatsApp(userOf(req), r.c.phone, { text });
+      const out = await sendWhatsApp(userOf(req), r.c.phone, { text, ckey: r.c.key });
       if (out.status !== 'sent') return res.status(400).json({ error: 'WhatsApp isn’t connected yet' });
       res.json(logActivity(req.user.id, r.c.key, { type: 'whatsapp', title: 'WhatsApp sent', text, status: 'sent', by: 'you' }));
     } catch (e) { res.status(502).json({ error: e.message }); }

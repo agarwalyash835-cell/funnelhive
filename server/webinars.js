@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import { T, tx, uid, contactKey, JOBS } from './db.js';
 import { sendEmail } from './messaging.js';
+import { waEvent } from './hive-wa.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { fire as fireAutomation } from './automations.js';
 import { linkBase } from './products.js';
@@ -108,7 +109,7 @@ export function register(f, w, { email, name = '', phone = '', session, leadId =
 
 function notify(r, w, kind) {
   const owner = T.users.get(r.userId);
-  if (!owner || !r.email) return;
+  if (!owner) return;
   const biz = owner.settings?.businessName || owner.name;
   const link = joinUrl(r.base, r), first = String(r.name || '').split(/\s+/)[0] || 'there';
   const replay = w.replayUrl || (r.replayStep ? `${r.base}${r.replayStep}` : '');
@@ -119,7 +120,8 @@ function notify(r, w, kind) {
     live: [`🔴 We’re live: ${w.name}`, `Hi ${first},\n\nWe’re starting now — join here:\n${link}\n\n— ${biz}`],
     replay: replay ? [r.attended ? `The replay: ${w.name}` : `You missed it — here’s the replay of ${w.name}`, `Hi ${first},\n\n${r.attended ? 'Thanks for joining live! ' : 'We missed you live. '}Here’s the full replay${w.replayHours ? ` — it’s up for ${w.replayHours} hours` : ''}:\n${replay}\n\n— ${biz}`] : null,
   }[kind];
-  if (msg) sendEmail(owner, { to: r.email, subject: msg[0], text: msg[1] }).catch((e) => console.error('webinar email failed', e.message));
+  if (msg && r.email) sendEmail(owner, { to: r.email, subject: msg[0], text: msg[1] }).catch((e) => console.error('webinar email failed', e.message));
+  if (kind === 'day' || kind === 'hour') waEvent(owner, 'webinar_reminder', { to: r.phone, params: [w.name, when(r.session, webTz(w))], link, entityId: `${r.id}-${kind}`, ckey: contactKey(r.email, r.phone) });
 }
 
 // ---------- reminders, attendance follow-up, replays ----------

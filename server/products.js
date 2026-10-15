@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { T, q, tx, uid, contactKey, dir as DATA_DIR } from './db.js';
 import { encrypt, decrypt, sendEmail, emailStatus } from './messaging.js';
+import { waEvent } from './hive-wa.js';
 import { randomToken, hashToken } from './security.js';
 import { buyerPlans } from './plans.js';
 import { stripeCreds } from './stripe.js';
@@ -184,6 +185,7 @@ export function deliver({ f, owner, email, name, phone, grants, orderId = null, 
   const first = String(name || '').split(/\s+/)[0] || 'there';
   const text = `Hi ${first},\n\nThank you for your ${leadId ? 'sign-up' : 'purchase'}! Here’s your access to ${names.join(', ')}:\n\n${lib}\n\nThis link is your personal library — bookmark it. Everything you get from ${biz} will appear there.${invoiceUrl ? `\n\nYour invoice: ${invoiceUrl}` : ''}${owner?.settings?.supportWhatsapp ? `\n\nNeed help? WhatsApp us: ${owner.settings.supportWhatsapp}` : ''}\n\n— ${biz}`;
   if (!notify) return { receipt, library: lib, products: names };
+  waEvent(owner, 'access_link', { to: phone, params: [first, names.join(', ').slice(0, 200)], link: lib, entityId: orderId || leadId, ckey: contactKey(email) });
   sendEmail(owner, { to: email, subject: `Your access: ${names.join(', ').slice(0, 120)}`, text })
     .then((r) => { for (const a of made) T.access.update(a.id, (x) => { x.emailed = r.status; x.emailedAt = Date.now(); }); })
     .catch((e) => { for (const a of made) T.access.update(a.id, (x) => { x.emailed = 'failed'; x.emailError = String(e.message).slice(0, 200); }); });

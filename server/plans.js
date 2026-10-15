@@ -9,12 +9,13 @@ import crypto from 'node:crypto';
 import { T, q, uid, tx, JOBS, contactKey } from './db.js';
 import { call, rzpCreds } from './razorpay.js';
 import { stripe, stripeCreds } from './stripe.js';
-import { revoke, linkBase } from './products.js';
+import { revoke, linkBase, libraryToken, libraryUrl } from './products.js';
+import { waEvent } from './hive-wa.js';
 import { issueInvoice, invoiceUrl } from './sales.js';
 import { fire as fireAutomation } from './automations.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { sendEmail } from './messaging.js';
-import { notify } from './notify.js';
+import { notify, money } from './notify.js';
 import { appUrl } from './mail.js';
 
 const DAY = 86400000;
@@ -149,6 +150,7 @@ function applyPlan(subId, owner, { status, paidCount, nextAt, paid, cancelAtEnd 
     const it = order.items[idx];
     // same place of supply as the first invoice, and emailed to the buyer like it
     const inv = issueInvoice(owner, order, [{ index: idx, name: it.name, kind: it.kind, amount: it.price }], { paymentId: it.paymentId, gst: order.gst || (order.address?.state ? { state: order.address.state } : null) });
+    if (inv) waEvent(owner, 'order_receipt', { to: order.phone, params: [String(order.name || '').split(/\s+/)[0] || 'there', it.name, money(it.price, order.currency || 'INR')], link: invoiceUrl(linkBase(order.funnelId, base), inv), entityId: `${order.id}-${idx}`, ckey: contactKey(order.email, order.phone) });
     if (inv && order.email) sendEmail(owner, { to: order.email, subject: `Your invoice from ${biz}`, text: `Hi ${String(order.name || '').split(/\s+/)[0] || 'there'},\n\nThank you — we received your payment for ${it.name}. Your invoice: ${invoiceUrl(linkBase(order.funnelId, base), inv)}\n\n— ${biz}` }).catch((e) => console.error('invoice email failed', e.message));
     fireAutomation(order.userId, 'renewal', { ...who, amount: it.price });
     fireWebhook(order.userId, 'order.renewed', { order: order.id, amount: it.price, payment: it.paymentId, plan: order.plan });
@@ -164,6 +166,9 @@ function onStatusChange(owner, order, prev, now) {
   if (now === 'pending' || (now === 'halted' && prev !== 'pending')) {
     fireAutomation(order.userId, 'payment_failed', who);
     fireWebhook(order.userId, 'order.payment_failed', { order: order.id, plan: pl, email: order.email });
+    // the buyer's library has the "pay now" button for the failed charge
+    const lib = order.email && libraryToken(order.userId, order.email);
+    waEvent(owner, 'payment_failed', { to: order.phone, params: [String(order.name || '').split(/\s+/)[0] || 'there', product], link: lib ? libraryUrl(linkBase(order.funnelId, 'http://localhost:4000'), lib) : linkBase(order.funnelId, 'http://localhost:4000'), entityId: `${order.id}-${pl.paid || 1}`, ckey: contactKey(order.email, order.phone) });
     notify(order.userId, { kind: 'payment_failed', title: `Payment didn’t go through · ${order.name || order.email || order.phone}`, body: `${product}${now === 'halted' ? ' — retries ran out, access is paused' : ' — it will be retried'}`, link: '/orders' });
   }
   // access ends when payments stop: retries exhausted, paused, a cancelled membership, or an expired one

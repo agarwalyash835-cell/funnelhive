@@ -235,7 +235,7 @@ export default function Public() {
       });
     };
     return {
-      live: true, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, delivery, webinar: sessions, privacy: f.privacy || null,
+      live: true, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, waRequired: !!f.waRequired, delivery, webinar: sessions, privacy: f.privacy || null,
       onNext: async () => {
         if (blocks.some((b) => b.type === 'optin')) return document.getElementById('optin')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         if (blocks.some((b) => b.type === 'checkout')) return document.querySelector('.co-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });

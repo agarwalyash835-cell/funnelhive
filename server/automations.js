@@ -10,6 +10,7 @@ import { enqueue as fireWebhook, checkWebhookUrl } from './webhooks.js';
 import { accessFor } from './billing.js';
 import { sellerTz, zoned, localYmd, addDays } from './tz.js';
 import { broadcastSeen } from './broadcasts.js';
+import { waOptedOut } from './hive-wa.js';
 
 export const TRIGGERS = {
   lead: 'Someone signs up (opt-in or form)',
@@ -348,9 +349,11 @@ async function runStep(a, r, s, u) {
     }
     case 'whatsapp': {
       if (!ctx.phone) return { result: 'skipped', detail: 'No phone number' };
+      if (meta(r)?.waOptOut || waOptedOut(r.userId, ctx.phone)) return { result: 'skipped', detail: 'Contact opted out of WhatsApp' };
       if (!whatsappStatus(u).configured) { tl('whatsapp', `WhatsApp not sent — WhatsApp isn’t connected (${a.name})`, s.mode === 'text' ? fill(s.text, ctx) : `Template: ${s.template}`, { status: 'not-configured' }); return { result: 'skipped', detail: 'WhatsApp not connected' }; }
       const msg = s.mode === 'text' ? { text: fill(s.text, ctx) } : { template: s.template, language: s.language, params: s.params ? s.params.split(',').map((p) => fill(p.trim(), ctx)) : [] };
-      await sendWhatsApp(u, ctx.phone, msg);
+      // one message per run and step: a retried step never sends twice (Hive's Idempotency-Key)
+      await sendWhatsApp(u, ctx.phone, { ...msg, key: `auto:${r.id}:${s.id}`, ckey: r.key });
       tl('whatsapp', s.mode === 'text' ? 'WhatsApp sent' : `WhatsApp template sent: ${s.template}`, msg.text || (msg.params.length ? msg.params.join(' · ') : ''), { status: 'sent' });
       return { result: 'sent', detail: s.mode === 'text' ? 'text' : s.template };
     }
