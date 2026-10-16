@@ -24,6 +24,16 @@
 	}
 }
 
+# Live funnel pages on their own domain (PAGES_DOMAIN, e.g. pages.yourbrand.in; matches PAGES_URL for the app),
+# so buyers' pages never share an origin with the dashboard. Unset, it only answers pages.localhost.
+{$PAGES_DOMAIN:pages.localhost} {
+	encode zstd gzip
+	reverse_proxy funnelhive:4000 {
+		lb_try_duration 30s
+		lb_try_interval 500ms
+	}
+}
+
 # Any other host name: sellers' custom domains (certificate issued on first visit)
 https:// {
 	tls {
