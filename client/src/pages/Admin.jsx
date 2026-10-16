@@ -12,6 +12,15 @@ const mb = (b) => (b > 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${Math.round(b / 1e
 export default function Admin() {
   const [sp, setSp] = useSearchParams();
   const tab = sp.get('tab') || 'overview';
+  // the admin panel needs 2-step login on (the server refuses it otherwise)
+  const [tfa, setTfa] = useState(null);
+  useEffect(() => { api('/me').then((m) => setTfa(!!m.twoFactor)).catch(() => setTfa(true)); }, []);
+  if (tfa === false) return (
+    <Layout title="Admin" subtitle="Your platform: revenue, sellers and settings.">
+      <Panel title="Two-factor authentication needed"><p>Turn on two-factor authentication to use the admin panel.</p><Link className="btn primary" to="/settings#security">Open Settings → Security</Link></Panel>
+    </Layout>
+  );
+  if (tfa == null) return <Layout title="Admin"><div className="skeleton" /></Layout>;
   return (
     <Layout title="Admin" subtitle="Your platform: revenue, sellers and settings." wide actions={<div className="seg">{TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setSp({ tab: k })}>{l}</button>)}</div>}>
       {tab === 'overview' && <Overview />}
@@ -178,6 +187,10 @@ function SellerModal({ id, onClose, onChange }) {
       toast(msg || 'Done'); load(); onChange();
     } catch (e) { toast(e.message); }
   };
+  // a one-time link (valid 1 hour) to send the seller yourself — how to help while email isn't set up
+  const resetLink = async () => {
+    try { const r = await api(`/admin/users/${id}/reset-link`, 'POST'); await navigator.clipboard?.writeText(r.link).catch(() => {}); prompt('Password-reset link (copied; valid for 1 hour, works once). Send it to the seller yourself:', r.link); load(); } catch (e) { toast(e.message); }
+  };
   if (!u) return <Modal title="Seller" onClose={onClose}><div className="skeleton" /></Modal>;
   const c = u.counts;
   return (
@@ -187,7 +200,7 @@ function SellerModal({ id, onClose, onChange }) {
           <div><div className="row"><Pill s={u.access.status} />{u.admin && <span className="pill">admin</span>}{!u.emailVerified && <span className="pill warn">email not verified</span>}{u.twoFactor && <span className="pill ok">2-step on</span>}</div>
             <p className="muted sm">{u.email} · joined {fmtDate(u.createdAt)} · last seen {u.lastSeenAt ? ago(u.lastSeenAt) : 'never'}{u.settings.businessName ? ` · ${u.settings.businessName}` : ''}</p>
             <p className="sm">{u.billing?.status === 'trialing' ? `Trial ends ${fmtDate(u.billing.trialEndsAt)}` : u.billing?.interval ? `${u.billing.interval} plan · period ends ${fmtDate(u.billing.currentPeriodEnd)}${u.billing.cancelAtPeriodEnd ? ' · cancelled' : ''}` : ''}{u.billing?.subscriptionId && <span className="mono"> · {u.billing.subscriptionId}</span>}</p></div>
-          <button className="btn primary sm" onClick={() => act('impersonate')}><Icon name="eye" size={14} /> Log in as seller</button>
+          <button className="btn primary sm" onClick={() => { const reason = prompt('Why are you opening this account? (The seller is told, and it’s kept in the audit log.)', ''); if (reason?.trim()) act('impersonate', { reason }); }}><Icon name="eye" size={14} /> Log in as seller</button>
         </div>
         <div className="mini-stats">
           {[['Funnels', `${c.funnels} (${c.published} live)`], ['Contacts', num(c.contacts)], ['Leads', num(c.leads)], ['Automations', c.automations], ['Domains', c.domains], ['Views 30d', num(c.views30)], ['Orders 30d', `${c.orders30.n} · ${inr(c.orders30.gmv)}`], ['AI credits', `${num(u.credits.used)} / ${u.credits.limit == null ? '∞' : num(u.credits.limit)}`], ['Funnel limit', `${u.usage.funnels} / ${num(u.limits.funnels)}`], ['Images', `${u.usage.storageMB} / ${num(u.limits.storageMB)} MB`]].map(([l, v]) => <div key={l}><small>{l}</small><b>{v}</b></div>)}
@@ -202,6 +215,7 @@ function SellerModal({ id, onClose, onChange }) {
             {!u.emailVerified && <button className="btn ghost sm" onClick={() => act('verify_email')}>Mark email verified</button>}
             {u.twoFactor && <button className="btn ghost sm" onClick={() => confirm('Turn off 2-step verification for this seller?') && act('reset_2fa')}>Reset 2-step</button>}
             <button className="btn ghost sm" onClick={() => act('sign_out', {}, 'Signed out everywhere')}>Sign out everywhere</button>
+            <button className="btn ghost sm" onClick={resetLink}>Create password-reset link</button>
             {u.admin ? <button className="btn ghost sm" onClick={() => confirm('Remove admin access?') && act('remove_admin')}>Remove admin</button> : <button className="btn ghost sm" onClick={() => confirm(`Make ${u.email} a platform admin? They will see all sellers and revenue.`) && act('make_admin')}>Make admin</button>}
             <button className="btn ghost sm danger" onClick={() => { const e = prompt(`This permanently deletes the seller and all their data (invoices are kept). Type their email to confirm:`); if (e) act('delete', { confirm: e }); }}><Icon name="trash" size={14} /> Delete</button>
           </div>
@@ -270,6 +284,9 @@ function PlatformSettings() {
   const hookUrl = `${location.origin}${s.razorpay.webhookPath}`;
   return (
     <div className="settings">
+      {s.companyMissing?.length > 0 && (
+        <div className="setup-warn"><Icon name="bolt" size={16} /><div><p><b>Your Terms, Privacy and Contact pages are missing company details.</b> Fill in {s.companyMissing.join(', ')} under Company details below — Indian law needs them shown (IT Rules 2021, Consumer Protection Rules).</p></div></div>
+      )}
       <Panel title="Plan & pricing">
         <div className="form2">
           <label>Monthly price (₹)<input type="number" min="1" value={s.plans.monthly.amount} onChange={(e) => set({ plans: { ...s.plans, monthly: { amount: e.target.value } } })} /></label>
@@ -292,6 +309,7 @@ function PlatformSettings() {
         </div>
         <label className="tog"><input type="checkbox" checked={s.pricesIncludeGst} onChange={(e) => set({ pricesIncludeGst: e.target.checked })} /><span />Prices include GST</label>
         <p className="hint">Sellers pay {inr(s.prices.monthly.amount)}/month or {inr(s.prices.yearly.amount)}/year. Changing a price applies to new subscriptions; existing subscribers keep theirs.</p>
+        {Object.values(s.plans).some((p) => Number(p?.amount) > 15000) && <p className="hint">A plan above ₹15,000 is never auto-debited silently: RBI requires the payer to approve each renewal in their bank app (Razorpay sends the request). Invoices use SAC {s.sac || '998314'} (PLATFORM_SAC overrides).</p>}
         <button className="btn primary" onClick={() => save({ plans: s.plans, agency: s.agency, trialDays: s.trialDays, gstRate: s.gstRate, aiCredits: s.aiCredits, graceDays: s.graceDays, pagesOfflineAfterDays: s.pagesOfflineAfterDays, pricesIncludeGst: s.pricesIncludeGst, limits: s.limits })}>Save pricing</button>
       </Panel>
 
@@ -325,15 +343,22 @@ function PlatformSettings() {
         <button className="btn primary" onClick={() => save({ intl: { prices: s.intl.prices, lut: !!s.intl.lut } })}>Save international prices</button>
       </Panel>
 
-      <Panel title="Company details (on GST invoices)">
+      <Panel title="Company details (GST invoices and legal pages)">
         <div className="form2">
-          <label>Legal name<input value={s.company.name} onChange={(e) => set({ company: { ...s.company, name: e.target.value } })} placeholder="Hive Labs Pvt Ltd" /></label>
+          <label>Legal name *<input value={s.company.name} onChange={(e) => set({ company: { ...s.company, name: e.target.value } })} placeholder="Hive Labs Pvt Ltd" /></label>
+          <label><span>CIN <small className="muted">· optional</small></span><input value={s.company.cin || ''} onChange={(e) => set({ company: { ...s.company, cin: e.target.value.toUpperCase() } })} maxLength={21} placeholder="U72900MH2026PTC123456" /></label>
           <label><span>GSTIN <small className="muted">· leave empty if not registered</small></span><input value={s.company.gstin} onChange={(e) => set({ company: { ...s.company, gstin: e.target.value.toUpperCase() } })} maxLength={15} /></label>
           <label>State<select value={s.company.state} onChange={(e) => set({ company: { ...s.company, state: e.target.value } })}><option value="">Choose…</option>{s.states.map((x) => <option key={x}>{x}</option>)}</select></label>
           <label>Invoice number prefix<input value={s.company.invoicePrefix} onChange={(e) => set({ company: { ...s.company, invoicePrefix: e.target.value } })} /></label>
           <label>Billing email<input value={s.company.email} onChange={(e) => set({ company: { ...s.company, email: e.target.value } })} placeholder="billing@yourbrand.in" /></label>
-          <label>Address<input value={s.company.address} onChange={(e) => set({ company: { ...s.company, address: e.target.value } })} /></label>
+          <label className="full">Registered address *<input value={s.company.address} onChange={(e) => set({ company: { ...s.company, address: e.target.value } })} placeholder="Office, street, city, PIN" /></label>
+          <label>Phone *<input value={s.company.phone || ''} onChange={(e) => set({ company: { ...s.company, phone: e.target.value } })} placeholder="+91 98xxx xxxxx" /></label>
+          <label>Support email *<input value={s.company.supportEmail || ''} onChange={(e) => set({ company: { ...s.company, supportEmail: e.target.value } })} placeholder="support@yourbrand.in" /></label>
+          <label>Grievance officer name *<input value={s.company.grievanceName || ''} onChange={(e) => set({ company: { ...s.company, grievanceName: e.target.value } })} /></label>
+          <label>Grievance officer email *<input value={s.company.grievanceEmail || ''} onChange={(e) => set({ company: { ...s.company, grievanceEmail: e.target.value } })} placeholder="grievance@yourbrand.in" /></label>
+          <label>Grievance officer phone *<input value={s.company.grievancePhone || ''} onChange={(e) => set({ company: { ...s.company, grievancePhone: e.target.value } })} /></label>
         </div>
+        <p className="hint">Shown on the Terms, Privacy, Refund and Contact pages. The grievance officer must acknowledge complaints within 24 hours and resolve them within 15 days.</p>
         <button className="btn primary" onClick={() => save({ company: s.company })}>Save company details</button>
       </Panel>
 

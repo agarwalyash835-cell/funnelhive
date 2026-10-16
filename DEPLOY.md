@@ -51,5 +51,30 @@ it running with `pm2 start "npm start" --name funnelhive` or a systemd service.
 - `SMTP_*` or `RESEND_API_KEY` — account emails (verify / reset password). Sellers add their own SMTP in Settings.
 - WhatsApp and Razorpay keys are added per seller in Settings, not here.
 - `CDN_URL` — serve uploaded images through a CDN.
+- `ENCRYPTION_KEY` — the key stored secrets (sellers' SMTP passwords, WhatsApp tokens, payment keys) and off-site
+  backups (`backups/funnelhive-YYYY-MM-DD.db.enc`, AES-256-GCM) are encrypted with. Without it the JWT secret is used,
+  so changing `JWT_SECRET` later would make them unreadable. If the server has been running without it, set
+  `ENCRYPTION_KEY` to the **current** `JWT_SECRET` value (or the contents of `.jwt-secret` in the data folder) — a new
+  random value would break the secrets already saved. Keep a copy of it somewhere safe: an off-site backup can't be
+  restored without it. The app warns at start-up when it isn't set.
+- `PAGES_URL` — serve live funnel pages from their own domain, e.g. `https://pages.yourbrand.in`, so buyers' pages
+  never share the dashboard's origin (logins, cookies, reputation). Without it pages are at `https://app…/f/<slug>`
+  and the app warns at start-up. To set it up:
+  1. DNS: an **A record** for `pages.yourbrand.in` → your server's IP.
+  2. Caddy: add a site for it in `deploy/Caddyfile` (above the `https://` catch-all), then restart Caddy:
+     ```
+     pages.yourbrand.in {
+     	encode zstd gzip
+     	reverse_proxy funnelhive:4000
+     }
+     ```
+  3. `server/.env`: `PAGES_URL=https://pages.yourbrand.in`, then restart the app. Existing `/f/…` links on the app
+     address keep working.
+
+## Security notes
+- **Admin panel:** platform admins must turn on 2-step verification (Settings → Security) before **Admin** opens.
+- Sessions last 14 days and slide while in use; Settings → Security lists each signed-in device and can sign them out.
+- With email not configured, production logs never show sign-in or reset links. To help a seller, open
+  **Admin → Sellers → (seller) → Create password-reset link** (valid 1 hour, works once, written to the audit log).
 
 See `server/.env.example` for every option and `README.md` for features.

@@ -18,20 +18,22 @@ const round9 = (n) => Math.max(99, Math.round(n / 100) * 100 - 1);
 export const DEFAULT_BLOCKS = {
   faq: { eyebrow: 'FAQ', title: 'Questions? We have answers.', items: [{ q: 'How do I get access?', a: 'Instantly after payment, on email and WhatsApp.' }, { q: 'Is there a refund?', a: 'Yes — 7-day money-back guarantee.' }] },
   testimonials: { eyebrow: 'Success stories', title: 'Real people. Real results.', items: [{ name: 'Priya M., Delhi', quote: 'Worth every rupee. Highly recommended!', tag: 'Verified' }, { name: 'Rahul S., Pune', quote: 'Exceeded my expectations.', tag: 'Verified' }, { name: 'Anjali K., Mumbai', quote: 'Simple, clear and effective.', tag: 'Verified' }] },
-  countdown: { label: 'Offer ends in', minutes: 30 },
+  // urgency and proof blocks show only real numbers: a real deadline (a week out until the seller sets theirs),
+  // the seller's own stock (hidden until entered), real visitors and real orders
+  get countdown() { return { label: 'Offer ends in', mode: 'fixed', endsAt: Date.now() + 7 * 864e5, endedText: 'Offer ended' }; },
   guarantee: { title: '7-Day Money-Back Guarantee', body: 'Try it risk-free. Not happy? Get a full refund — no questions asked.', days: 7 },
   bonuses: { eyebrow: 'Exclusive bonuses', title: 'Order today and get these FREE', items: [{ icon: '📘', title: 'Quick-start guide', value: '₹999' }, { icon: '🎥', title: 'Bonus video training', value: '₹1,499' }], totalText: 'Total value ₹2,498 — free today' },
-  stock: { label: 'Only {n} spots left at this price!', total: 50, left: 9 },
-  livecount: { text: 'people are viewing this page right now', min: 24, max: 68 },
-  proof: { action: 'just purchased', intervalSec: 9, items: [{ name: 'Rahul S.', city: 'Pune' }, { name: 'Priya M.', city: 'Delhi' }, { name: 'Ankit P.', city: 'Mumbai' }, { name: 'Sneha R.', city: 'Bengaluru' }] },
-  hellobar: { messages: [{ text: '🔥 Limited-time offer — today only' }, { text: '⏰ Prices go up at midnight' }] },
-  exitpopup: { title: 'Wait — don’t miss this!', body: 'Get an extra 10% OFF if you complete your order now.', code: 'INDIA10', buttonText: 'Claim my discount' },
-  stickybar: { text: 'Offer ends soon', price: '₹499', buttonText: 'Buy Now' },
+  stock: { label: 'Only {n} left in stock', left: 0, total: 0 },
+  livecount: { minShow: 3 },
+  proof: { intervalSec: 9 },
+  hellobar: { messages: [{ text: '🔥 Special launch offer' }, { text: '🔒 Secure UPI & card payments' }] },
+  exitpopup: { title: 'Before you go…', body: 'Get an extra 10% OFF if you complete your order now.', code: 'INDIA10', buttonText: 'Claim my discount' },
+  stickybar: { text: 'Special offer', price: '₹499', buttonText: 'Buy Now' },
   whatsapp: { number: '919999999999', message: 'Hi! I have a question.', label: 'Chat with us' },
   video: { url: '' },
-  stats: { items: [{ value: '10,000+', label: 'happy customers' }, { value: '4.9★', label: 'rating' }, { value: '200+', label: 'cities' }, { value: '95%', label: 'satisfaction' }] },
+  stats: { items: [{ value: '[Add your real number]', label: 'customers' }, { value: '[Add your real number]', label: 'rating' }, { value: '[Add your real number]', label: 'cities' }] }, // the seller's own numbers
   steps: { eyebrow: 'How it works', title: 'Get started in 3 simple steps', items: [{ title: 'Sign up', text: 'Takes 2 minutes' }, { title: 'Get access', text: 'Instantly on email & WhatsApp' }, { title: 'See results', text: 'Follow the simple plan' }] },
-  cta: { headline: 'Ready to get started?', subheadline: 'Join thousands of happy customers.', buttonText: 'Get Started', note: '🔒 Secure payment · 7-day guarantee' },
+  cta: { headline: 'Ready to get started?', subheadline: 'It takes a minute to get started.', buttonText: 'Get Started', note: '🔒 Secure payment · 7-day guarantee' },
   text: { title: 'Heading', body: 'Your copy here.' },
 };
 
@@ -45,10 +47,10 @@ export function offerStep(kind, f) {
       blk('offer', {
         progress: up ? 'Step 2 of 3 · Customise your order' : 'Step 2 of 3 · One last chance',
         headline: up ? 'Wait! Upgrade to the *VIP pack* — one-click, no re-entering details' : 'No problem — how about the *Lite version* at a fraction of the price?',
-        description: up ? 'Get personal 1-on-1 support, advanced resources and priority access. Only available on this page.' : 'Get the essential resources at a special one-time price. This offer disappears when you leave.',
+        description: up ? 'Get personal 1-on-1 support, advanced resources and priority access. Only available on this page.' : 'Get the essential resources at a special price, with one click.',
         productName: name, emoji: up ? '👑' : '🎁', price: round9(up ? p * 0.8 : p * 0.35), mrp: round9(up ? p * 2 : p), currency: '₹',
         bullets: up ? [{ text: 'Personal 1-on-1 sessions' }, { text: 'Advanced resources & templates' }, { text: 'Priority WhatsApp support' }] : [{ text: 'Core resources pack' }, { text: 'Lifetime access' }],
-        minutes: 10, acceptText: up ? 'Yes! Add VIP to my order' : 'Yes, add the Lite version', declineText: up ? 'No thanks, I don’t want the upgrade' : 'No thanks, skip this offer',
+        minutes: 0, acceptText: up ? 'Yes! Add VIP to my order' : 'Yes, add the Lite version', declineText: 'No thanks',
       }),
     ],
   };

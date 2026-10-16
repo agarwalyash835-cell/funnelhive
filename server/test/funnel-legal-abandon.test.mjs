@@ -40,17 +40,17 @@ test('a funnel’s own legal details; the other funnel keeps the workspace’s',
 
 test('an abandoned checkout with only a phone number, recovered by a later order with that number', async () => {
   const co = b.steps.find((s) => s.type === 'checkout');
-  await api(`/public/${b.slug}/abandon`, 'POST', { stepId: co.id, phone: '12345' }); // not a phone number
-  await api(`/public/${b.slug}/abandon`, 'POST', { stepId: co.id, name: 'Ravi', phone: '98765 43210' });
+  await api(`/public/${b.slug}/abandon`, 'POST', { notice: true, stepId: co.id, phone: '12345' }); // not a phone number
+  await api(`/public/${b.slug}/abandon`, 'POST', { notice: true, stepId: co.id, name: 'Ravi', phone: '98765 43210' });
   let d = (await api('/orders', 'GET', null, T)).data;
   assert.equal(d.abandoned.length, 1);
   assert.deepEqual([d.abandoned[0].email, d.abandoned[0].phone, d.abandoned[0].name], ['', '9876543210', 'Ravi']);
-  await api(`/public/${b.slug}/abandon`, 'POST', { stepId: co.id, name: 'Ravi K', phone: '9876543210' });
+  await api(`/public/${b.slug}/abandon`, 'POST', { notice: true, stepId: co.id, name: 'Ravi K', phone: '9876543210' });
   assert.equal((await api('/orders', 'GET', null, T)).data.abandoned.length, 1, 'the same cart, not a second one');
   const o = await api(`/public/${b.slug}/order`, 'POST', { stepId: co.id, email: 'ravi@x.in', name: 'Ravi', phone: '+91 98765 43210' });
   assert.equal(o.status, 200, JSON.stringify(o.data));
   d = (await api('/orders', 'GET', null, T)).data;
   assert.equal(d.abandoned.length, 0, 'recovered by the phone number');
-  await api(`/public/${b.slug}/abandon`, 'POST', { stepId: co.id, phone: '9876543210' });
+  await api(`/public/${b.slug}/abandon`, 'POST', { notice: true, stepId: co.id, phone: '9876543210' });
   assert.equal((await api('/orders', 'GET', null, T)).data.abandoned.length, 0, 'they already bought');
 });

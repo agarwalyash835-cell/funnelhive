@@ -27,6 +27,7 @@ test('live page is server-rendered with SEO + link-preview tags', { skip: !built
   assert.match(html, /fonts\.googleapis\.com\/css2\?family=Fraunces/, 'this style\'s fonts (Organic: Fraunces + Nunito Sans)');
   assert.doesNotMatch(html, /family=Poppins|family=Outfit|family=Sora|family=Plus\+Jakarta/, 'other styles\' fonts are not loaded');
   assert.match(html, /window\.__FUNNEL__=/);
+  assert.match(html, /<footer class="seller-foot"/, 'the seller\'s legal footer is in the first HTML');
   assert.doesNotMatch(html, /noindex/);
 });
 

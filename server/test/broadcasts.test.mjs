@@ -43,7 +43,7 @@ before(async () => {
   T = (await register(api)).token;
   f = (await api('/templates/yoga/use', 'POST', {}, T)).data;
   await api(`/funnels/${f.id}`, 'PUT', { published: true }, T);
-  const lead = (email, name, phone) => api(`/public/${f.slug}/lead`, 'POST', { stepId: f.steps[0].id, email, name, phone });
+  const lead = (email, name, phone) => api(`/public/${f.slug}/lead`, 'POST', { stepId: f.steps[0].id, email, name, phone, consent: true }); // agreed to marketing
   await lead('asha@example.com', 'Asha Rao', '9811100001');
   await lead('vikram@example.com', 'Vikram Singh', '9811100002');
   await lead('meera@example.com', 'Meera Das');

@@ -47,7 +47,7 @@ export function issueIntlInvoice(u, { key, total, currency, interval, from, to, 
     return T.invoices.insert({
       id: uid(), userId: u.id, key, number: `${p.company.invoicePrefix || 'FH'}/${fy}/${String(seq.n).padStart(4, '0')}`, at, status: 'paid', paymentId: paymentId || null,
       interval, period: { from, to }, total, currency, fx: fxRate(currency), export: true, lut: registered && lut,
-      registered, taxable, rate, cgst: 0, sgst: 0, igst,
+      registered, taxable, rate, cgst: 0, sgst: 0, igst, sac: String(process.env.PLATFORM_SAC || p.sac || '').replace(/\D/g, '').slice(0, 8) || '998314',
       item: `${p.brand} subscription — ${interval?.startsWith('agency_') ? 'Agency ' : ''}${String(interval).endsWith('yearly') ? 'Yearly' : 'Monthly'} plan`,
       billedTo: { name: d.name || u.name, email: u.email, gstin: '', address: d.address || '', state: '', country: d.country || '' },
       company: { ...p.company }, brand: p.brand, placeOfSupply: 'Outside India',
@@ -81,7 +81,7 @@ export function applyStripeSub(userId, sub, { cancelOld } = {}) {
 }
 
 // ---------- routes ----------
-export function registerIntlBilling(app, { auth, wrap, rateLimit, isTest, view, cancelRazorpay }) {
+export function registerIntlBilling(app, { auth, wrap, rateLimit, isTest, view, cancelRazorpay, creditNote }) {
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 10, key: (req) => req.user.id, message: 'Please wait a moment and try again.' });
   const cancelOld = (old) => {
     if (old.provider === 'stripe') { const sc = platformStripe(); if (sc) stripe(sc, 'DELETE', `/subscriptions/${old.id}`).catch((e) => console.error('old Stripe subscription cancel failed', e.message)); }
@@ -143,6 +143,8 @@ export function registerIntlBilling(app, { auth, wrap, rateLimit, isTest, view, 
     let ev;
     try { ev = JSON.parse(raw); } catch { return res.status(400).json({ error: 'Bad JSON' }); }
     const o = ev.data?.object || {};
+    // a plan payment refunded in the Stripe dashboard: a credit note against its invoice
+    if (ev.type === 'charge.refunded' && o.payment_intent && creditNote) creditNote({ paymentId: o.payment_intent, refundId: `${o.id}:${o.amount_refunded}`, refunded: (o.amount_refunded || 0) / 100 });
     const subId = o.object === 'subscription' ? o.id : o.subscription;
     const userId = o.metadata?.userId || (subId && q("SELECT id FROM users WHERE json_extract(data, '$.billing.subscriptionId') = ? OR json_extract(data, '$.billing.pending.id') = ?").get(subId, subId)?.id);
     if (subId && userId && T.users.get(userId)) {

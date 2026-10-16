@@ -134,6 +134,7 @@ const SCHEMA = {
   // platform: subscription invoices, admin audit log, platform settings (plans, prices)
   invoices: { cols: { userId: 0, status: 0, at: 0, number: 0 }, index: [['userId', 'at'], ['status', 'at']], unique: [['number']] },
   audit: { cols: { actorId: 0, userId: 0, at: 0 }, index: [['at'], ['userId', 'at']] },
+  sessions: { cols: { userId: 0, expiresAt: 0 }, index: [['userId', 'expiresAt'], ['expiresAt']] }, // signed-in devices (security.js)
   platform: { cols: {} },
 };
 const COLS = Object.fromEntries(Object.entries(SCHEMA).map(([t, d]) => [t, Object.keys(d.cols)]));
@@ -376,11 +377,19 @@ export async function backupNow() {
       // a copy off this server (S3 / R2 / B2…): survives losing the machine
       const { s3Enabled, putFile, listKeys, deleteObject } = await import('./storage.js');
       if (s3Enabled()) {
-        try { await putFile(`backups/${path.basename(f)}`, f, 'application/vnd.sqlite3'); lastOffsite = { at: Date.now(), ok: true, file: path.basename(f) }; } catch (e) { lastOffsite = { at: Date.now(), ok: false, error: e.message }; console.error('Off-site backup failed', e.message); }
-        // off-site, one file per day is kept for 90 days (Wasabi bills every file for 90 days anyway)
+        // encrypted before it leaves the server (backup-crypt.js); the copy on this disk stays a plain database
+        const enc = `${f}.enc`;
+        try {
+          const { encryptFile } = await import('./backup-crypt.js');
+          await encryptFile(f, enc, dir);
+          await putFile(`backups/${path.basename(enc)}`, enc, 'application/octet-stream');
+          lastOffsite = { at: Date.now(), ok: true, file: path.basename(enc) };
+        } catch (e) { lastOffsite = { at: Date.now(), ok: false, error: e.message }; console.error('Off-site backup failed', e.message); } finally { fs.rmSync(enc, { force: true }); }
+        // off-site, one file per day is kept for 90 days (Wasabi bills every file for 90 days anyway) — older
+        // plain .db copies from before encryption included
         if (lastOffsite.ok) {
           const cutoff = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-          try { for (const k of await listKeys('backups/')) { const d = (/funnelhive-(\d{4}-\d{2}-\d{2})\.db$/.exec(k) || [])[1]; if (d && d < cutoff) await deleteObject(k); } } catch (e) { console.error('Off-site backup cleanup failed', e.message); }
+          try { for (const k of await listKeys('backups/')) { const d = (/funnelhive-(\d{4}-\d{2}-\d{2})\.db(\.enc)?$/.exec(k) || [])[1]; if (d && d < cutoff) await deleteObject(k); } } catch (e) { console.error('Off-site backup cleanup failed', e.message); }
         }
       }
     }

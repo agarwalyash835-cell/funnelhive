@@ -45,7 +45,7 @@ test('password reset still needs the 2-step code when 2-step login is on', async
   const email = `tfa${Date.now()}@test.dev`;
   const tok = (await register(api, email)).token;
   const { secret } = (await api('/auth/2fa/setup', 'POST', {}, tok)).data;
-  await api('/auth/2fa/enable', 'POST', { code: totp(secret) }, tok);
+  await api('/auth/2fa/enable', 'POST', { code: totp(secret, Date.now() - 30000) }, tok); // each code works once: consecutive steps below
   await api('/auth/forgot', 'POST', { email });
   await new Promise((r) => setTimeout(r, 200));
   const link = srv.log().match(/reset\?token=([\w.]+)/g)?.pop();
@@ -56,7 +56,7 @@ test('password reset still needs the 2-step code when 2-step login is on', async
   assert.equal(r.data.token, undefined, 'no session without the code');
   assert.equal((await api('/auth/login', 'POST', { email, password: 'secret123', code: totp(secret) })).status, 200, 'password unchanged');
   assert.equal((await api('/auth/reset', 'POST', { token, password: 'newpass123', code: '000000' })).status, 401);
-  const ok = await api('/auth/reset', 'POST', { token, password: 'newpass123', code: totp(secret) });
+  const ok = await api('/auth/reset', 'POST', { token, password: 'newpass123', code: totp(secret, Date.now() + 30000) });
   assert.ok(ok.data.token);
 });
 
@@ -70,8 +70,8 @@ test('applications: skipping a qualifying question doesn’t pass it; the step m
   const y = (await api('/templates/yoga/use', 'POST', {}, T)).data;
   await api(`/funnels/${y.id}`, 'PUT', { published: true }, T);
   const co = y.steps.find((s) => s.type === 'checkout');
-  await api(`/public/${y.slug}/abandon`, 'POST', { stepId: co.id, email: 'cart@x.in', name: 'A' });
-  await api(`/public/${y.slug}/abandon`, 'POST', { stepId: { x: 1 }, email: 'cart@x.in', name: { evil: true }, phone: '9'.repeat(100000) });
+  await api(`/public/${y.slug}/abandon`, 'POST', { notice: true, stepId: co.id, email: 'cart@x.in', name: 'A' });
+  await api(`/public/${y.slug}/abandon`, 'POST', { notice: true, stepId: { x: 1 }, email: 'cart@x.in', name: { evil: true }, phone: '9'.repeat(100000) });
   const cart = (await api('/orders', 'GET', null, T)).data.abandoned.find((a) => a.email === 'cart@x.in');
   assert.ok(cart.phone.length <= 40 && typeof cart.name === 'string');
 });

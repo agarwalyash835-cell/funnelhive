@@ -233,7 +233,7 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
           <>
             <header className="cp-head">
               <span className="who-av lg">{initial(c)}</span>
-              <div className="cp-id"><h2>{label(c)}</h2><div><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type}</span>{c.unsubscribed && <span className="pill warn" title="Clicked unsubscribe — automated emails are skipped">unsubscribed</span>}{(c.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}</div></div>
+              <div className="cp-id"><h2>{label(c)}</h2><div><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type}</span>{c.unsubscribed && <span className="pill warn" title="Clicked unsubscribe — automated emails are skipped">unsubscribed</span>}<button className={`pill btnpill ${c.optIn ? 'ok' : ''}`} title={c.optIn ? 'Agreed to marketing — gets broadcasts. Click if they withdrew.' : 'No marketing consent on record — broadcasts skip them. Click only if they agreed.'} onClick={async () => { try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'PATCH', { optIn: !c.optIn }); refresh(); } catch (e) { toast(e.message); } }}>{c.optIn ? 'opted in' : 'not opted in'}</button>{(c.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}</div></div>
               <button className="icon-btn danger" title="Erase this contact’s data (privacy request)" onClick={async () => {
                 if (prompt(`Erase everything about ${label(c)}? Sign-ups, messages, bookings and product access are deleted; orders and invoices are kept for tax records without their name and contact details. This can’t be undone. Type ERASE to confirm.`) !== 'ERASE') return;
                 try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'DELETE'); toast('Contact erased'); onChanged?.(); onClose(); } catch (x) { toast(x.message); }
@@ -462,6 +462,7 @@ function ImportContacts({ fields, onClose, onDone }) {
   const [file, setFile] = useState(null); // { name, headers, rows }
   const [map, setMap] = useState({});
   const [tags, setTags] = useState('');
+  const [agreed, setAgreed] = useState(false); // the seller confirms these people agreed to marketing (else broadcasts skip them)
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
   const read = (f) => {
@@ -493,7 +494,7 @@ function ImportContacts({ fields, onClose, onDone }) {
       // in parts, so a big file stays under the request size limit
       for (let i = 0; i < file.rows.length; i += 2000) {
         const part = file.rows.slice(i, i + 2000).map((x) => Object.fromEntries(used.map((h) => [h, x[h]])));
-        const r = await api('/contacts/import', 'POST', { rows: part, mapping, tags: extra });
+        const r = await api('/contacts/import', 'POST', { rows: part, mapping, tags: extra, consent: agreed });
         out.created += r.created; out.updated += r.updated; out.skipped += r.skipped;
         out.errors.push(...r.errors.map((e) => ({ ...e, row: e.row + i })));
       }
@@ -539,6 +540,7 @@ function ImportContacts({ fields, onClose, onDone }) {
                 </table>
               </div>
               <div className="fld"><label>Add these tags to everyone (optional)</label><input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="imported, expo-2026" /><span className="hint">Separate with commas. A Tags column in the file is added too (tags separated by ; or ,).</span></div>
+              <label className="tog"><input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} /><span />These contacts agreed to receive marketing from me <small className="muted">· without this, broadcasts skip them</small></label>
               {!hasId && <p className="imp-warn">Pick the column that holds the email or the phone number — rows without either are skipped.</p>}
             </>}
             <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!file || !hasId || tooMany || busy} onClick={run}><Upload size={15} /> {busy ? 'Importing…' : file ? `Import ${num(file.rows.length)} rows` : 'Import'}</button></div>

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus, restorePending, safetyDir, dir as dataDir } from './db.js';
-import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE, DEFAULTS } from './platform.js';
+import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE, DEFAULTS, companyMissing } from './platform.js';
 import { decrypt } from './messaging.js';
 import { s3Enabled, storageFromEnv, testStorage, listKeys, getObject } from './storage.js';
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
@@ -16,12 +16,21 @@ import { fxRate } from './fx.js';
 import { limitsFor, usageFor, saveLimits, LIMIT_DEFAULTS } from './limits.js';
 import { clientLimit } from './agency.js';
 import { DAY, localDate } from './time.js';
+import { randomToken, hashToken, revokeOthers } from './security.js';
+import { decryptBuffer, isEncrypted } from './backup-crypt.js';
+import { notify } from './notify.js';
+import { sendMail, mailEnabled, appUrl } from './mail.js';
 
 const startedAt = Date.now();
 const audit = (req, userId, action, detail = '') => T.audit.insert({ id: uid(), actorId: req.impersonator || req.user.id, actor: req.user.email, userId, action, detail: String(detail).slice(0, 500), at: Date.now() });
 
 export function registerAdmin(app, { auth, wrap, signAs }) {
-  const admin = (req, res, next) => (isAdmin(req.user) && !req.impersonator ? next() : res.status(403).json({ error: 'Admins only' }));
+  // the admin panel needs 2-step login on: a stolen password alone must never reach every seller's account
+  const admin = (req, res, next) => {
+    if (!isAdmin(req.user) || req.impersonator || req.actor) return res.status(403).json({ error: 'Admins only' });
+    if (!req.user.totpEnabled) return res.status(403).json({ error: 'Turn on two-factor authentication (Settings → Security) to use the admin panel', code: 'ADMIN_2FA_REQUIRED' });
+    next();
+  };
   const A = [auth, admin];
 
   // ---------- overview ----------
@@ -129,10 +138,15 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       case 'remove_admin': if (u.id === req.user.id) return res.status(400).json({ error: 'You can’t remove your own admin access' }); T.users.update(u.id, (x) => { delete x.role; }); break;
       case 'verify_email': T.users.update(u.id, (x) => { x.emailVerified = true; }); break;
       case 'reset_2fa': T.users.update(u.id, (x) => { x.totpEnabled = false; delete x.totpSecret; }); break;
-      case 'sign_out': T.users.update(u.id, (x) => { x.pv = (x.pv || 0) + 1; }); break;
+      case 'sign_out': T.users.update(u.id, (x) => { x.pv = (x.pv || 0) + 1; }); revokeOthers(u.id); break;
       case 'impersonate': {
-        audit(req, u.id, 'impersonate');
-        return res.json({ token: signAs(T.users.get(u.id), req.user.id) });
+        // why support looked is recorded, and the seller is told (bell, and email when it's set up)
+        const reason = String(req.body.reason || '').trim().slice(0, 200);
+        if (reason.length < 3) return res.status(400).json({ error: 'Say why you’re opening this account (it’s shown to the seller)' });
+        audit(req, u.id, 'impersonate', reason);
+        notify(u.id, { kind: 'support', title: 'Support viewed your account', body: reason });
+        if (mailEnabled()) sendMail({ to: u.email, subject: 'Support viewed your account', text: `Hi ${u.name},\n\nOur support team opened your account: ${reason}\n\nIf you didn’t expect this, reply to this email.` }).catch((e) => console.error('support email failed', e.message));
+        return res.json({ token: signAs(T.users.get(u.id), req.user.id, req) });
       }
       case 'delete': {
         if (req.body.confirm !== u.email) return res.status(400).json({ error: 'Type the seller’s email to confirm' });
@@ -147,12 +161,23 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     res.json({ ok: true });
   });
 
+  // a one-time password-reset link (valid 1 hour) to pass on to the seller — how the owner helps while email is off
+  app.post('/api/admin/users/:uid/reset-link', ...A, (req, res) => {
+    const u = target(req, res);
+    if (!u) return;
+    const token = `${u.id}.${randomToken()}`;
+    const expiresAt = Date.now() + 3600000;
+    T.users.update(u.id, (x) => { x.resetHash = hashToken(token); x.resetExp = expiresAt; });
+    audit(req, u.id, 'reset_link');
+    res.json({ link: `${appUrl(req)}/reset?token=${token}`, expiresAt });
+  });
+
   // ---------- platform settings ----------
   const settingsView = () => {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
     const st = p.storage;
-    return { ...rest, storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -170,7 +195,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (b.googleClientId != null) { const v = String(b.googleClientId).trim(); if (v && !/^[\w-]+\.apps\.googleusercontent\.com$/.test(v)) return res.status(400).json({ error: 'The Google client ID ends with .apps.googleusercontent.com' }); patch.googleClientId = v; }
     if (b.company) {
       const c = { ...platform().company };
-      for (const k of ['name', 'address', 'email', 'invoicePrefix']) if (b.company[k] != null) c[k] = String(b.company[k]).trim().slice(0, k === 'address' ? 300 : 120);
+      for (const k of ['name', 'cin', 'address', 'phone', 'email', 'supportEmail', 'grievanceName', 'grievanceEmail', 'grievancePhone', 'invoicePrefix']) if (b.company[k] != null) c[k] = String(b.company[k]).trim().slice(0, k === 'address' ? 300 : 120);
+      for (const k of ['email', 'supportEmail', 'grievanceEmail']) if (c[k] && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c[k])) return res.status(400).json({ error: 'Check the company email addresses' });
       if (b.company.state != null) { if (b.company.state && !STATES[b.company.state]) return res.status(400).json({ error: 'Choose a state' }); c.state = b.company.state; }
       if (b.company.gstin != null) { const g = String(b.company.gstin).trim().toUpperCase(); if (g && !GSTIN_RE.test(g)) return res.status(400).json({ error: 'That GSTIN doesn’t look right' }); c.gstin = g; }
       if (c.gstin && !c.state) return res.status(400).json({ error: 'Choose your company’s state (needed for GST)' });
@@ -230,7 +256,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   // every backup we can restore from: on this server, and off-site in the storage bucket
   app.get('/api/admin/backups', ...A, wrap(async (req, res) => {
     let bucket = [];
-    if (s3Enabled()) { try { bucket = (await listKeys('backups/')).filter((k) => /^backups\/funnelhive-\d{4}-\d{2}-\d{2}\.db$/.test(k)).map((k) => k.slice(8)).sort().reverse(); } catch (e) { bucket = { error: e.message }; } }
+    if (s3Enabled()) { try { bucket = (await listKeys('backups/')).filter((k) => /^backups\/funnelhive-\d{4}-\d{2}-\d{2}\.db(\.enc)?$/.test(k)).map((k) => k.slice(8)).sort().reverse(); } catch (e) { bucket = { error: e.message }; } }
     res.json({ local: backupFiles(), bucket, safety: fs.existsSync(safetyDir) ? fs.readdirSync(safetyDir).filter((n) => n.endsWith('.db')).sort().reverse() : [] });
   }));
   // a restore is checked (opens, passes SQLite's integrity check, has accounts), staged, then swapped in when the
@@ -238,10 +264,14 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   app.post('/api/admin/restore', ...A, wrap(async (req, res) => {
     const { name, from } = req.body || {};
     if (req.body?.confirm !== 'RESTORE') return res.status(400).json({ error: 'Type RESTORE to confirm' });
-    if (!/^[\w.-]+\.db$/.test(String(name || ''))) return res.status(400).json({ error: 'Choose a backup' });
+    if (!/^[\w-][\w.-]*\.db(\.enc)?$/.test(String(name || '')) || (from !== 'bucket' && name.endsWith('.enc'))) return res.status(400).json({ error: 'Choose a backup' });
     const tmp = `${restorePending}.partial`;
     try {
-      if (from === 'bucket') { if (!s3Enabled()) return res.status(400).json({ error: 'File storage isn’t connected' }); fs.writeFileSync(tmp, await getObject(`backups/${name}`)); }
+      if (from === 'bucket') {
+        if (!s3Enabled()) return res.status(400).json({ error: 'File storage isn’t connected' });
+        const buf = await getObject(`backups/${name}`);
+        fs.writeFileSync(tmp, name.endsWith('.enc') || isEncrypted(buf) ? decryptBuffer(buf, dataDir) : buf); // off-site copies are encrypted
+      }
       else {
         const src = path.join(from === 'safety' ? safetyDir : path.join(dataDir, 'backups'), name);
         if (!fs.existsSync(src)) return res.status(404).json({ error: 'That backup isn’t there any more' });

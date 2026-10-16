@@ -69,8 +69,10 @@ export const X = {
   tutoring: ['Your child is falling behind in class|Big coaching batches with no attention|Long travel to tuition every day', 'Ms. Priya Nambiar|Academic head · M.Sc, B.Ed|Leads a team of 200+ verified teachers.'],
 };
 
-const k = (n) => `${n},000+`;
-// Per-category section copy. stats(h) varies numbers per niche.
+// Stats are the seller's own numbers: templates ship a placeholder, never an invented figure
+export const REAL_NUMBER = '[Add your real number]';
+export const ownStats = (list) => list.map((x) => `${REAL_NUMBER}|${String(x).split('|').pop()}`); // 'label' or 'value|label'
+// Per-category section copy
 export const CAT = {
   Education: {
     bump: ['Lifetime access + PDF notes', 199], unit: 'seats', verb: 'enrolled in', who: 'students', icons: ['🎯', '📝', '📊', '👨‍🏫'],
@@ -78,7 +80,7 @@ export const CAT = {
     cmp: ['Studying alone', ['Random YouTube videos & PDFs|A structured, step-by-step plan', 'No one to clear doubts|Daily doubt-solving by experts', 'No idea where you stand|Regular tests with all-India ranking', 'Motivation fades fast|Mentor + community keep you on track', 'Outdated material|Updated for the latest pattern']],
     bonuses: ['📘|Exclusive PDF notes & formula sheets|999', '🎥|Lifetime access to all recordings|1499', '💬|Private doubt-solving community|499'],
     guarantee: ['7-Day Money-Back Guarantee', 'Attend the classes for 7 days. If you don\'t love them, message us and we\'ll refund every rupee — no questions asked.', 7],
-    stats: (h) => [`${k(20 + (h % 60))}|students enrolled`, `4.${7 + (h % 3)}★|average rating`, `${150 + (h % 300)}+|cities across India`, `${85 + (h % 12)}%|see better scores`],
+    stats: () => ownStats(['students enrolled', 'average rating', 'cities across India', 'see better scores']),
   },
   'Health & Fitness': {
     bump: ['Personal diet chart (PDF)', 149], unit: 'spots', verb: 'joined', who: 'members', icons: ['💪', '🥗', '📅', '🤝'],
@@ -86,23 +88,23 @@ export const CAT = {
     cmp: ['Doing it alone', ['Crash diets that don\'t last|Sustainable Indian meal plans', 'Random YouTube workouts|Structured, expert-designed routine', 'No accountability|Weekly check-ins with your coach', 'Expensive supplements|Natural, food-first approach', 'Giving up within weeks|A community that keeps you going']],
     bonuses: ['🥗|Healthy Indian recipe e-book|799', '📱|30-day habit tracker|299', '🎧|Guided relaxation audios|499'],
     guarantee: ['100% Satisfaction Guarantee', 'Follow the plan for 7 days. If you\'re not happy with how you feel, we\'ll refund your full payment.', 7],
-    stats: (h) => [`${k(10 + (h % 40))}|lives transformed`, `4.${7 + (h % 3)}★|member rating`, `${88 + (h % 10)}%|see results in 30 days`, `${100 + (h % 400)}+|cities`],
+    stats: () => ownStats(['lives transformed', 'member rating', 'see results in 30 days', 'cities']),
   },
   'Beauty & Wellness': {
     bump: ['Free skincare & care guide', 99], unit: 'units', verb: 'ordered', who: 'customers', icons: ['✨', '🌿', '💧', '💖'],
-    steps: ['Order or book in 60 seconds|Secure payment via UPI, card or COD', 'We prepare everything|Expert artists or fresh, quality-checked products', 'Enjoy the experience|Look and feel your absolute best', 'Share your glow|Join thousands of happy customers'],
+    steps: ['Order or book in 60 seconds|Secure payment via UPI, card or COD', 'We prepare everything|Expert artists or fresh, quality-checked products', 'Enjoy the experience|Look and feel your absolute best', 'Share your glow|Tell us how it went on WhatsApp'],
     cmp: ['Ordinary options', ['Harsh chemicals|Gentle, skin-safe ingredients', 'Generic, one-size-fits-all|Made for Indian skin & hair', 'Results fade quickly|Long-lasting, visible results', 'Hidden charges|Transparent pricing', 'No support after purchase|Expert guidance on WhatsApp']],
     bonuses: ['🎁|Beauty & care e-guide|299', '💌|Personal consultation call|499', '🛍|Member-only discount on next order|500'],
     guarantee: ['Love It or Your Money Back', 'If you\'re not completely happy, tell us within 7 days for a full refund or a free re-service.', 7],
-    stats: (h) => [`${k(15 + (h % 60))}|happy customers`, `4.${7 + (h % 3)}★|average rating`, `${90 + (h % 8)}%|reorder or rebook`, `${50 + (h % 300)}+|cities served`],
+    stats: () => ownStats(['happy customers', 'average rating', 'reorder or rebook', 'cities served']),
   },
   'Food & Ecommerce': {
     bump: ['Add a premium gift pack', 149], unit: 'units', verb: 'ordered', who: 'customers', icons: ['🌿', '📦', '⭐', '🚚'],
-    steps: ['Place your order|Pay via UPI, card or Cash on Delivery', 'Freshly packed for you|Quality-checked and sealed with care', 'Fast delivery|At your doorstep in 3–6 days, anywhere in India', 'Enjoy & reorder|Loved by thousands of Indian families'],
+    steps: ['Place your order|Pay via UPI, card or Cash on Delivery', 'Freshly packed for you|Quality-checked and sealed with care', 'Fast delivery|At your doorstep in 3–6 days, anywhere in India', 'Enjoy & reorder|Reorder any time on WhatsApp'],
     cmp: ['Regular market products', ['Preservatives & additives|Natural, honest ingredients', 'Old stock sitting on shelves|Freshly made in small batches', 'Unclear sourcing|Direct from makers & farms', 'No returns|7-day easy returns', 'Plain packaging|Beautiful, gift-ready packing']],
     bonuses: ['🎁|Premium gift wrapping|149', '🚚|Free shipping on this order|99', '🏷|10% OFF coupon for your next order|200'],
     guarantee: ['Taste & Quality Guarantee', 'Not happy with your order? We\'ll replace it or refund you in full within 7 days.', 7],
-    stats: (h) => [`${k(18 + (h % 70))}|orders delivered`, `4.${6 + (h % 4)}★|customer rating`, `${k(20 + (h % 9))}|pincodes served`, `${60 + (h % 30)}%|repeat customers`],
+    stats: () => ownStats(['orders delivered', 'customer rating', 'pincodes served', 'repeat customers']),
   },
   'Finance & Business': {
     bump: ['Ready-to-use templates pack', 299], unit: 'seats', verb: 'registered for', who: 'members', icons: ['📈', '🧠', '🛡️', '💼'],
@@ -110,7 +112,7 @@ export const CAT = {
     cmp: ['Without a plan', ['Random tips from social media|A proven, structured framework', 'Costly trial and error|Learn from real practitioners', 'Confusing jargon|Simple Hindi/English explanations', 'Alone with your doubts|Live Q&A + community support', 'No accountability|Clear action plan & checklists']],
     bonuses: ['📊|Ready-to-use Excel planner|999', '🎥|Full workshop recordings|1499', '💬|Private community access|999'],
     guarantee: ['Risk-Free 7-Day Guarantee', 'Go through everything for 7 days. If you feel it isn\'t worth it, get a 100% refund.', 7],
-    stats: (h) => [`${k(12 + (h % 50))}|members`, `4.${7 + (h % 3)}★|rating`, `${200 + (h % 600)}+|live sessions held`, `${85 + (h % 12)}%|would recommend`],
+    stats: () => ownStats(['members', 'rating', 'live sessions held', 'would recommend']),
   },
   'Real Estate & Local': {
     bump: ['Priority callback + visit', 0], unit: 'slots', verb: 'booked', who: 'families', icons: ['🏆', '📍', '🤝', '🛡️'],
@@ -118,7 +120,7 @@ export const CAT = {
     cmp: ['Typical providers', ['Hidden costs and surprises|100% transparent pricing', 'Pushy sales calls|Honest, no-pressure advice', 'Delays and excuses|On-time commitment', 'No after-sales support|Dedicated relationship manager', 'Unverified claims|Verified reviews & credentials']],
     bonuses: ['🚗|Free pickup & drop for your visit|500', '📋|Free expert consultation|1000', '🎁|Exclusive launch-offer benefits|5000'],
     guarantee: ['No-Obligation Promise', 'Your consultation is completely free. No pressure, no spam — just honest, expert advice.', 0],
-    stats: (h) => [`${k(2 + (h % 9))}|happy families`, `4.${7 + (h % 3)}★|Google rating`, `${10 + (h % 15)}+|years of trust`, '100%|transparent pricing'],
+    stats: () => ownStats(['happy families', 'Google rating', 'years of trust', 'transparent pricing']),
   },
   'Events & Spiritual': {
     bump: ['Recording + e-book bundle', 199], unit: 'seats', verb: 'registered for', who: 'attendees', icons: ['🕉️', '🎤', '📿', '✨'],
@@ -126,7 +128,7 @@ export const CAT = {
     cmp: ['Ordinary sessions', ['Generic, one-size advice|Personalised guidance', 'Pre-recorded and impersonal|Live and interactive', 'No follow-up|Resources & recordings included', 'Inexperienced hosts|Decades of real experience', 'Rushed sessions|Unhurried, in-depth time']],
     bonuses: ['📖|Exclusive companion e-book|499', '🎧|Session recordings|999', '💬|Community group access|499'],
     guarantee: ['100% Satisfaction Promise', 'If the experience doesn\'t meet your expectations, we\'ll refund you in full.', 7],
-    stats: (h) => [`${k(10 + (h % 45))}|attendees`, `4.${7 + (h % 3)}★|rating`, `${300 + (h % 700)}+|sessions conducted`, `${30 + (h % 60)}+|countries joined`],
+    stats: () => ownStats(['attendees', 'rating', 'sessions conducted', 'countries joined']),
   },
   'Services & Tech': {
     bump: ['Priority support (30 days)', 499], unit: 'slots', verb: 'booked', who: 'clients', icons: ['⚡', '🛠️', '📊', '🤝'],
@@ -134,7 +136,7 @@ export const CAT = {
     cmp: ['Typical vendors', ['Missed deadlines|On-time delivery guarantee', 'Unverified workers|Trained & verified professionals', 'Hidden charges|Fixed, transparent pricing', 'No accountability|Written warranty & support', 'Poor communication|Dedicated manager on WhatsApp']],
     bonuses: ['🎁|Free consultation & audit|1999', '🛡|Extended warranty & support|999', '📈|Priority scheduling|499'],
     guarantee: ['Satisfaction Guarantee', 'If you\'re not happy with the work, we\'ll redo it free or refund you — your choice.', 7],
-    stats: (h) => [`${k(3 + (h % 20))}|clients served`, `4.${7 + (h % 3)}★|Google rating`, `${8 + (h % 12)}+|years experience`, `${95 + (h % 5)}%|on-time delivery`],
+    stats: () => ownStats(['clients served', 'Google rating', 'years experience', 'on-time delivery']),
   },
 };
 

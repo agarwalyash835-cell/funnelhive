@@ -9,12 +9,15 @@ import { dropRollups } from './rollup.js';
 import { T, q, tx, dir as DATA_DIR } from './db.js';
 
 const OWNED = ['funnels', 'revisions', 'leads', 'orders', 'abandoned', 'coupons', 'webhooks', 'saved', 'crm', 'pipelines', 'automations', 'runs', 'domains', 'msgs', 'payments', 'hive', 'mcptokens', 'products', 'access', 'portals', 'downloads', 'conversions', 'calendars', 'bookings', 'webinars', 'registrations', 'broadcasts', 'bsends', 'apikeys', 'hooksubs', 'stripecust', 'rzplans', 'activity', 'adspend', 'quotes', 'notifications'];
-const strip = ({ hash, totpSecret, totpPending, verifyHash, resetHash, ...u }) => u;
+// never in an export: passwords, 2-step and webhook secrets, stored keys and tokens (…Enc, …Hash, …Token, …Secret)
+const SECRET_KEY = /^(hash|pass|verifyExp|resetExp|legacyBefore)$|^totp|enc$|hash$|token$|secret|apikey|password/i;
+const scrub = (v) => (Array.isArray(v) ? v.map(scrub) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([k]) => !SECRET_KEY.test(k)).map(([k, x]) => [k, scrub(x)])) : v);
+const strip = (u) => scrub(u);
 
 export function exportAccount(userId) {
   const u = T.users.get(userId);
   const out = { exportedAt: new Date().toISOString(), account: strip(u) };
-  for (const t of OWNED) out[t] = T[t].all({ userId }).map(({ hash, tokenHash, tokenEnc, ...r }) => r);
+  for (const t of OWNED) out[t] = T[t].all({ userId }).map(scrub);
   out.events = q('SELECT funnelId, stepId, type, variant, source, visitor, at FROM events WHERE userId = ? ORDER BY at').all(userId);
   out.pageViewsByDay = q('SELECT funnelId, stepId, type, variant, source, day, n FROM pv_days WHERE userId = ? ORDER BY day').all(userId); // older page views, as daily totals
   out.invoices = T.invoices.all({ userId });
@@ -37,6 +40,7 @@ export function deleteAccount(userId) {
     T.members.delWhere({ ownerId: userId }); // their team
     T.members.delWhere({ userId }); // teams they were on
     q('DELETE FROM usage WHERE userId = ?').run(userId);
+    T.sessions.delWhere({ userId });
     for (const i of T.invoices.all({ userId })) { i.userDeleted = true; T.invoices.put(i); }
     for (const i of T.sinvoices.all({ userId })) { i.userDeleted = true; T.sinvoices.put(i); } // invoices issued to buyers are kept too
     T.users.del(userId);

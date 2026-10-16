@@ -74,7 +74,8 @@ export default function Orders() {
   const exportInvoices = async () => {
     const list = await api('/sales-invoices');
     if (!list.length) return toast('No invoices yet — turn on GST invoices in Settings');
-    downloadCSV('gst-invoices.csv', list.map((i) => ({ number: i.number, type: i.type === 'credit' ? 'Credit note' : 'Invoice', against: i.against || '', date: new Date(i.at).toISOString().slice(0, 10), buyer: i.billedTo.name, buyer_email: i.billedTo.email, buyer_gstin: i.billedTo.gstin, place_of_supply: i.placeOfSupply, state_code: i.billedTo.stateCode || '', taxable: i.taxable, rate: i.rate, cgst: i.cgst, sgst: i.sgst, igst: i.igst, total: i.total, payment: i.paymentId || '', order: i.orderId })));
+    // one row per invoice line: each line has its own HSN/SAC and rate
+    downloadCSV('gst-invoices.csv', list.flatMap((i) => i.items.map((l) => ({ number: i.number, type: i.type === 'credit' ? 'Credit note' : 'Invoice', against: i.against || '', date: new Date(i.at).toISOString().slice(0, 10), buyer: i.billedTo.name, buyer_email: i.billedTo.email, buyer_gstin: i.billedTo.gstin, place_of_supply: i.placeOfSupply, state_code: i.billedTo.stateCode || '', item: l.name, hsn: l.sac || '', taxable: l.taxable, rate: l.rate ?? i.rate, cgst: l.cgst, sgst: l.sgst, igst: l.igst, total: l.amount, invoice_total: i.total, payment: i.paymentId || '', order: i.orderId }))));
   };
   const actions = (o) => (
     <div className="row end" onClick={(e) => e.stopPropagation()}>

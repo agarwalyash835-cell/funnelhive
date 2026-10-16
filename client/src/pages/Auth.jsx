@@ -112,7 +112,7 @@ export default function Auth() {
             <label>Email<input type="email" required autoComplete="email" placeholder="you@business.in" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
             {mode !== 'forgot' && (
               <label><span className="lbl-row">Password{mode === 'login' && <a onClick={() => go('forgot')}>Forgot password?</a>}</span>
-                <input type="password" required minLength={6} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="At least 6 characters" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
+                <input type="password" required minLength={mode === 'login' ? undefined : 8} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder={mode === 'login' ? 'Your password' : 'At least 8 characters'} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
             )}
             {mode === 'register' && <input className="hp" name="fh_hp_extra" id="fh_hp_extra" tabIndex={-1} autoComplete="off" aria-hidden="true" data-lpignore="true" data-1p-ignore="true" value={f.website || ''} onChange={(e) => setF({ ...f, website: e.target.value })} />}
             {mode === 'register' && tsKey && <div ref={tsBox} className="ts-box" />}

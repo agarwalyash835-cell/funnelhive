@@ -5,7 +5,8 @@
 //
 //   node server/scripts/restore-drill.mjs                    newest file in DATA_DIR/backups
 //   node server/scripts/restore-drill.mjs --file x.db        a specific backup
-//   node server/scripts/restore-drill.mjs --bucket           newest backups/*.db in the S3 / R2 bucket (S3_* env)
+//   node server/scripts/restore-drill.mjs --bucket           newest backup in the S3 / R2 bucket (S3_* env)
+// Off-site copies (backups/*.db.enc) are encrypted: they're decrypted with ENCRYPTION_KEY (or the JWT secret) first.
 //   add --keep to keep the restored copy for a look around
 import fs from 'node:fs';
 import os from 'node:os';
@@ -44,10 +45,13 @@ if (args.includes('--bucket')) {
   }
   const { s3Enabled, listKeys, getObject } = await import('../storage.js');
   if (!s3Enabled()) fail('no storage bucket configured (S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY)');
-  const keys = (await listKeys('backups/')).map((k) => (typeof k === 'string' ? k : k.key)).filter((k) => k.endsWith('.db')).sort();
-  if (!keys.length) fail('no backups/*.db in the bucket yet');
+  const keys = (await listKeys('backups/')).map((k) => (typeof k === 'string' ? k : k.key)).filter((k) => /\.db(\.enc)?$/.test(k)).sort();
+  if (!keys.length) fail('no backups in the bucket yet');
   source = `bucket:${keys.at(-1)}`;
-  fs.writeFileSync(target, await getObject(keys.at(-1)));
+  const buf = await getObject(keys.at(-1));
+  const { isEncrypted, decryptBuffer } = await import('../backup-crypt.js');
+  try { fs.writeFileSync(target, isEncrypted(buf) ? decryptBuffer(buf, dataDir) : buf); } catch (e) { fail(e.message); }
+  if (isEncrypted(buf)) ok('decrypted the off-site copy');
 } else {
   source = opt('--file');
   if (!source) {
@@ -57,7 +61,9 @@ if (args.includes('--bucket')) {
     source = path.join(bdir, files.at(-1));
   }
   if (!fs.existsSync(source)) fail(`${source} not found`);
-  fs.copyFileSync(source, target);
+  const { isEncrypted, decryptBuffer } = await import('../backup-crypt.js');
+  const buf = fs.readFileSync(source);
+  try { fs.writeFileSync(target, isEncrypted(buf) ? decryptBuffer(buf, dataDir) : buf); } catch (e) { fail(e.message); }
 }
 const mb = (fs.statSync(target).size / 1e6).toFixed(1);
 ok(`copied ${source} (${mb} MB) → ${work}`);

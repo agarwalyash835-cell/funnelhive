@@ -31,6 +31,10 @@ export function planFor(p, body) {
   if (!p.planEnabled || count < 2 || amount <= 0) return { error: 'This product can’t be paid in instalments' };
   return { type: 'installments', interval: 'monthly', count, amount };
 }
+// RBI: automatic debits above ₹15,000 need the payer's approval every time
+export const AFA_LIMIT = 15000;
+export const needsAfa = (amount, iso = 'INR') => iso === 'INR' && Number(amount) > AFA_LIMIT;
+export const AFA_NOTE = 'Each renewal above ₹15,000 needs your approval in your bank app';
 export const planText = (pl) => (pl.type === 'installments' ? `${pl.count} × ₹${pl.amount.toLocaleString('en-IN')}/month` : `₹${pl.amount.toLocaleString('en-IN')}/${INTERVAL_LABEL[pl.interval]}`);
 
 // One Razorpay plan per seller + Razorpay account + price + period + name, created once and reused
@@ -48,7 +52,9 @@ export async function startSubscription(creds, { userId, charge, payId, funnelNa
   const main = charge.items[0];
   const planId = await rzpPlan(creds, userId, { interval: charge.plan.interval, amount: main.price, name: main.name });
   const addons = charge.items.slice(1).filter((i) => i.price > 0).map((i) => ({ item: { name: String(i.name).slice(0, 120), amount: Math.round(i.price * 100), currency: 'INR' } }));
-  return call(creds, 'POST', '/subscriptions', { plan_id: planId, total_count: charge.plan.count, quantity: 1, customer_notify: 1, ...(addons.length ? { addons } : {}), notes: { payment: payId, funnel: String(funnelName).slice(0, 200) } });
+  // customer_notify stays on: above ₹15,000 a charge needs the buyer's approval in their bank app each time (RBI
+  // additional factor of authentication), which Razorpay asks for — such a plan never relies on a silent auto-debit
+  return call(creds, 'POST', '/subscriptions', { plan_id: planId, total_count: charge.plan.count, quantity: 1, customer_notify: 1, ...(addons.length ? { addons } : {}), notes: { payment: payId, funnel: String(funnelName).slice(0, 200), ...(needsAfa(main.price) ? { afa: 'each debit' } : {}) } });
 }
 const hmac = (secret, data) => crypto.createHmac('sha256', secret).update(data).digest('hex');
 export const validSubscription = (secret, subId, paymentId, signature) => {

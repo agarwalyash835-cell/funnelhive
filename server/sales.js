@@ -4,7 +4,8 @@
 // Invoices: one per payment (checkout, then each one-click upsell / add-on is its own supply), numbered
 // per seller per financial year (INV/2026-27/0001). Prices on funnels include GST; the invoice splits out
 // CGST + SGST (buyer in the seller's state) or IGST (another state). Without a GSTIN the seller issues a
-// plain invoice with no tax.
+// plain invoice with no tax. Each line has its own HSN/SAC and rate: the linked product's, else the seller's
+// defaults (checkout prices without a product, shipping, booking calls, quotes); totals are summed per rate.
 import crypto from 'node:crypto';
 import { T, q, tx, uid } from './db.js';
 import { STATES, GSTIN_RE } from './platform.js';
@@ -22,6 +23,10 @@ const r2 = (x) => Math.round(x * 100) / 100;
 const STATE_BY_CODE = Object.fromEntries(Object.entries(STATES).map(([n, c]) => [c, n]));
 export const INVOICING_DEFAULTS = { enabled: false, legalName: '', gstin: '', address: '', state: '', rate: 18, prefix: 'INV', sac: '998431', email: '', lut: false };
 export const invoicingOf = (u) => ({ ...INVOICING_DEFAULTS, ...(u?.settings?.invoicing || {}) });
+// GST slabs (0.25% / 3%: rough diamonds, gold and jewellery; 40%: the post-2025 luxury slab)
+export const GST_RATES = [0, 0.25, 3, 5, 12, 18, 28, 40];
+// HSN (goods, 4–8 digits) or SAC (services, 6 digits starting 99): digits only, '' = none
+export const cleanHsn = (v) => { const c = String(v ?? '').replace(/\s/g, ''); return !c ? '' : /^\d{4,8}$/.test(c) ? c : null; };
 
 export function cleanInvoicing(b = {}, cur = {}) {
   const out = { ...INVOICING_DEFAULTS, ...cur };
@@ -32,10 +37,10 @@ export function cleanInvoicing(b = {}, cur = {}) {
   if ('email' in b) out.email = s(b.email, 160);
   if ('gstin' in b) { const g = s(b.gstin, 15).toUpperCase(); if (g && !GSTIN_RE.test(g)) return { error: 'That GSTIN doesn’t look right — it has 15 characters, like 27ABCDE1234F1Z5' }; out.gstin = g; if (g && STATE_BY_CODE[g.slice(0, 2)]) out.state = STATE_BY_CODE[g.slice(0, 2)]; }
   if ('state' in b && !(out.gstin && STATE_BY_CODE[out.gstin.slice(0, 2)])) { const st = s(b.state, 60); if (st && !STATES[st]) return { error: 'Pick your state from the list' }; out.state = st; }
-  if ('rate' in b) { const r = Number(b.rate); if (![0, 5, 12, 18, 28].includes(r)) return { error: 'GST rate must be 0, 5, 12, 18 or 28%' }; out.rate = r; }
+  if ('rate' in b) { const r = Number(b.rate); if (!GST_RATES.includes(r)) return { error: `GST rate must be one of ${GST_RATES.join(', ')}%` }; out.rate = r; }
   if ('prefix' in b) { const p = s(b.prefix, 10).toUpperCase().replace(/[^A-Z0-9-]/g, ''); out.prefix = p || 'INV'; }
   if ('lut' in b) out.lut = !!b.lut; // exports of services under a Letter of Undertaking: zero-rated
-  if ('sac' in b) { const c = s(b.sac, 8).replace(/\D/g, ''); out.sac = c; }
+  if ('sac' in b) { const c = cleanHsn(s(b.sac, 12)); if (c === null) return { error: 'The default HSN/SAC code is 4–8 digits, like 998431' }; out.sac = c; }
   if (out.enabled && !out.legalName) return { error: 'Enter the business name to show on invoices' };
   if (out.enabled && !out.state) return { error: 'Choose the state your business is registered in' };
   return out;
@@ -71,7 +76,8 @@ function nextNumber(userId, prefix, fy) {
   return `${prefix}/${fy}/${String(n + 1).padStart(4, '0')}`;
 }
 
-// lines: [{ index, name, kind, amount }] — amounts include GST
+// lines: [{ index, name, kind, amount, sac?, rate? }] — amounts include GST; sac / rate given (credit notes) win,
+// otherwise the order item's product decides, otherwise the seller's defaults
 export function issueInvoice(owner, order, lines, { paymentId = null, gst = null, type = 'invoice', against = null, at = Date.now(), test = order.mode === 'test' } = {}) {
   const cfg = invoicingOf(owner);
   if (!cfg.enabled || !lines.length) return null;
@@ -81,16 +87,24 @@ export function issueInvoice(owner, order, lines, { paymentId = null, gst = null
   const buyerState = exported ? '' : gst?.state || '';
   const pos = exported ? 'Outside India' : buyerState || cfg.state; // place of supply: the buyer's state when known, otherwise the seller's
   const intra = !exported && pos === cfg.state;
-  const rate = registered ? (exported && cfg.lut ? 0 : cfg.rate) : 0;
-  const items = lines.map((l) => ({ index: l.index, name: l.name, kind: l.kind, sac: cfg.sac, amount: r2(l.amount), ...split(l.amount, rate, intra, registered) }));
-  const sum = (k) => r2(items.reduce((s, i) => s + i[k], 0));
+  // a renewal / instalment is the plan's main product again
+  const productOf = (i) => { const it = order.items?.[i], id = it?.productId || (it?.kind === 'renewal' ? order.items.find((x) => x.kind === 'main')?.productId : null), p = id && T.products.get(id); return p && p.userId === owner.id ? p : null; };
+  const items = lines.map((l) => {
+    const p = l.sac == null || l.rate == null ? productOf(l.index) : null;
+    const own = l.rate ?? (GST_RATES.includes(p?.gstRate) ? p.gstRate : cfg.rate);
+    const rate = registered ? (exported && cfg.lut ? 0 : own) : 0;
+    return { index: l.index, name: l.name, kind: l.kind, sac: l.sac ?? (p?.hsn || cfg.sac), rate, amount: r2(l.amount), ...split(l.amount, rate, intra, registered) };
+  });
+  const sum = (k, list = items) => r2(list.reduce((s, i) => s + i[k], 0));
+  // the per-rate summary (GSTR-1 reports taxable value and tax rate by rate)
+  const rates = [...new Set(items.map((i) => i.rate))].sort((a, b) => a - b).map((rate) => { const list = items.filter((i) => i.rate === rate); return { rate, taxable: sum('taxable', list), cgst: sum('cgst', list), sgst: sum('sgst', list), igst: sum('igst', list), amount: sum('amount', list) }; });
   return tx(() => {
     const fy = financialYear(at);
     // Razorpay test-mode sales get their own TEST- series, so the real GST sequence has no gaps or fake sales
     const prefix = `${test ? 'TEST-' : ''}${type === 'credit' ? 'CN' : cfg.prefix}`;
     return T.sinvoices.insert({
       id: uid(), userId: owner.id, orderId: order.id, funnelId: order.funnelId, type, against, number: nextNumber(owner.id, prefix, fy), prefix, fy, at, paymentId, ...(test ? { test: true } : {}),
-      registered, rate, intra, items, total: sum('amount'), taxable: sum('taxable'), cgst: sum('cgst'), sgst: sum('sgst'), igst: sum('igst'),
+      registered, rate: rates.length === 1 ? rates[0].rate : null, rates, intra, items, total: sum('amount'), taxable: sum('taxable'), cgst: sum('cgst'), sgst: sum('sgst'), igst: sum('igst'),
       billedTo: { name: gst?.company || order.name || '', person: order.name || '', email: order.email || '', phone: order.phone || '', gstin: gst?.gstin || '', state: buyerState, stateCode: STATES[buyerState] || '' },
       seller: { name: cfg.legalName || owner.settings?.businessName || owner.name, gstin: cfg.gstin, address: cfg.address, state: cfg.state, stateCode: STATES[cfg.state] || '', email: cfg.email || owner.email },
       placeOfSupply: pos, ...(exported ? { currency: iso, export: true, lut: !!(registered && cfg.lut), fx: order.fx || null } : {}),
@@ -171,7 +185,8 @@ export function applyRefund(owner, orderId, parts, { reason = '', by = 'seller',
   for (const r of fresh) {
     const invs = T.sinvoices.all({ orderId: order.id }).filter((i) => i.type === 'invoice');
     for (const inv of invs) {
-      const lines = inv.items.filter((l) => r.items.includes(l.index)).map((l) => ({ index: l.index, name: l.name, kind: l.kind, amount: l.amount }));
+      // the credit note mirrors the original lines: same code and rate (invoices from before per-line rates: the invoice's)
+      const lines = inv.items.filter((l) => r.items.includes(l.index)).map((l) => ({ index: l.index, name: l.name, kind: l.kind, amount: l.amount, sac: l.sac ?? '', rate: l.rate ?? inv.rate ?? 0 }));
       if (lines.length) issueInvoice(owner, order, lines, { type: 'credit', against: inv.number, gst: inv.billedTo.gstin || inv.billedTo.state ? { gstin: inv.billedTo.gstin, company: inv.billedTo.name, state: inv.billedTo.state } : null });
     }
   }

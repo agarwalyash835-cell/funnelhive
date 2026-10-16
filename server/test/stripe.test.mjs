@@ -74,11 +74,12 @@ test('connecting Stripe checks the keys; a USD checkout needs Stripe', async () 
   assert.deepEqual([ok.configured, ok.mode, ok.hasWebhookSecret], [true, 'test', true]);
   assert.ok(!JSON.stringify(ok).includes(SK));
   assert.equal((await api(`/public/${f.slug}`)).data.currency, 'USD');
+  assert.equal((await api(`/public/${f.slug}`)).data.stripe, true, 'the checkout offers the "Save my card" tick');
 });
 
 let paid;
-test('USD checkout: a PaymentIntent in cents, saved for upsells; counts only once Stripe says it succeeded', async () => {
-  const r = (await api(`/public/${f.slug}/pay/start`, 'POST', buyer('jane@x.com'))).data;
+test('USD checkout: a PaymentIntent in cents, saved for upsells (the buyer ticked “save my card”); counts only once Stripe says it succeeded', async () => {
+  const r = (await api(`/public/${f.slug}/pay/start`, 'POST', { ...buyer('jane@x.com'), saveCard: true })).data;
   assert.equal(r.provider, 'stripe');
   assert.equal(r.publishableKey, PK);
   const pi = S.pis[r.intent];

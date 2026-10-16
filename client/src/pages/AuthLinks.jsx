@@ -47,8 +47,8 @@ export function Reset() {
       <form onSubmit={submit}>
         <h2>Choose a new password</h2>
         <p className="muted">You’ll be logged in, and signed out on every other device.</p>
-        <label>New password<input type="password" required minLength={6} autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
-        <label>Confirm new password<input type="password" required minLength={6} autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></label>
+        <label>New password<input type="password" required minLength={8} autoComplete="new-password" placeholder="At least 8 characters" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+        <label>Confirm new password<input type="password" required minLength={8} autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></label>
         {needCode && <label>2-step code from your authenticator app<input inputMode="numeric" autoComplete="one-time-code" required autoFocus value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} /></label>}
         {err && <div className="err">{err}</div>}
         <button className="btn primary lg block" disabled={busy}>{busy ? <span className="spin" /> : 'Save new password'}</button>

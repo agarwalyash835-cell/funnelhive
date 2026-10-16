@@ -78,11 +78,11 @@ export const BLOCK_SPEC = `Block types and their props (all strings unless noted
 - testimonials: title, items: [{name, quote}]
 - video: url
 - text: title, body
-- countdown: label, minutes (number)
+- countdown: label, mode ("session" on webinar pages: counts down to the next live session; "fixed" + endsAt (ms timestamp) only for a real deadline the seller gave you). Never invent a deadline or a timer that restarts — no countdown on sales or checkout pages without a real date
 - optin: eyebrow, title, subtitle, buttonText, askPhone (boolean), points: [{text}], productId (leave "" — the seller picks a free product to send on sign-up). On a webinar registration page add webinarId: "" — sign-ups then get a seat in the next live session, a personal joining link and reminders.
 - form (applications, surveys): title, subtitle, fields: [{label, type 'text'|'email'|'tel'|'number'|'select'|'textarea'|'checkbox', required (bool), options "A, B, C" (select only), reject "A" (select only: answers that mean "not a fit")}], buttonText, after 'message'|'next', successMessage, rejectMessage (kind words for applicants who aren't a fit), note. Always include Full name, Email and WhatsApp fields, then 3–4 qualifying select questions with reject rules on budget/readiness.
 - checkout: productName, description, price (number), currency ("₹" default; "$" "€" "£" for buyers abroad), bumpEnabled (boolean), bumpTitle, bumpDescription, bumpPrice (number), buttonText (words only, e.g. "Enrol now" — never a price: the live total is added automatically). Optional: billing ("monthly" | "yearly" for a membership, price is per period), planEnabled + planCount + planPrice (an EMI-style monthly plan next to pay-in-full, e.g. 3 × 10999 for a 29999 programme), shipping ("address" for physical products) + shippingFee, cod (true to offer Cash on Delivery, ₹ only) + codFee. productId / bumpProductId: leave "" (the seller attaches the digital product that's delivered after payment)
-- offer: progress, headline, description, productName, emoji, price (number), mrp (number), currency, bullets: [{text}], minutes (number), acceptText, declineText   (use on upsell/downsell steps)
+- offer: progress, headline, description, productName, emoji, price (number), mrp (number), currency, bullets: [{text}], minutes (number, 0 = no timer; a timer really ends the offer), acceptText, declineText ("No thanks" — never guilt-tripping like "No thanks, I'll pay full price")   (use on upsell/downsell steps)
 - crosssell: title, subtitle, items: [{emoji, name, desc, price (number)}], buttonText   (one-click add-ons, usually on the thank-you page)
 - section: a free-form section. layout ('1' | '1-1' | '2-1' | '1-2' | '1-1-1' | '1-1-1-1'), valign ('top'|'center'), gap ('sm'|'md'|'lg'), columns: [{elements: [{type, props}]}]. Element types: heading {text, level 'h1'|'h2'|'h3', align}, text {text, size 'sm'|'md'|'lg', align}, button {label, action 'next'|'url'|'scroll', url, variant 'primary'|'outline', align, full (bool)}, image {src, alt, link, rounded, shadow}, list {items: [{text}], icon 'check'|'dot'|'num'}, price {price, mrp, currency, note}, video {url}, spacer {height}, divider {style}
 - Any block may include props._style: {bg '#hex', bgImage url, overlay 0-80, textColor '#hex', padTop/padBottom 'none'|'sm'|'md'|'lg'|'xl', width 'narrow'|'wide'|'full', align 'left'|'center', hideMobile, hideDesktop, anchor}
@@ -91,11 +91,12 @@ export const BLOCK_SPEC = `Block types and their props (all strings unless noted
 - thankyou: headline, body, steps: [{text}] (what happens next)
 - booking (a booking calendar — the "book your call" step after an application): calendarId (leave ""), eyebrow, title, subtitle, buttonText, successTitle, successText, qualifiedOnly (bool)
 - pricing: badge, mrp (number), price (number), currency, bullets: [{text}], buttonText, note
-- hellobar: messages: [{text}]   (FOMO, rotates every 9-10s)
-- livecount: text, min (number), max (number)   (FOMO live viewers)
-- stock: label (use {n} placeholder), total (number), left (number)
-- proof: action, intervalSec (number, >=9), items: [{name, city}]   (FOMO popup; use Indian names/cities)
-- exitpopup: title, body, code, buttonText
+- hellobar: messages: [{text}]   (rotates every 9-10s; no made-up deadlines like "ends tonight" or "only 3 left")
+- livecount: minShow (number)   (shows the page's real visitors in the last 30 minutes — only add when asked)
+- stock: label (use {n} placeholder), left (number), total (number)   (only with a real stock count the seller gave you — otherwise leave it out)
+- proof: intervalSec (number, >=9)   (popup of the funnel's real recent orders — no names to write; sales and checkout pages only)
+- exitpopup: title, body, code, buttonText   (no fake urgency in the title)
+Never invent urgency or social proof (India's Consumer Protection rules on dark patterns): no fake deadlines, resetting timers, stock, viewer counts or buyers, and no confirmshaming decline text.
 - stickybar: text, price, buttonText
 - whatsapp: number, message, label
 Landing-page block types (use them for rich 12+ section pages):
@@ -234,10 +235,9 @@ function templateFunnel(prompt) {
       {
         name: 'Landing page', type: 'landing', slug: 'start',
         blocks: [
-          { type: 'hero', props: { headline: `Finally: ${name}, made simple`, subheadline: 'Join thousands who got results in days, not months.', ctaText: 'Get Instant Access', image: '' } },
+          { type: 'hero', props: { headline: `Finally: ${name}, made simple`, subheadline: 'A clear, step-by-step way to get started.', ctaText: 'Get Instant Access', image: '' } },
           { type: 'features', props: { title: 'What you get', items: [{ title: 'Step-by-step system', text: 'A clear path from start to result.' }, { title: 'Done-for-you templates', text: 'Copy, paste and launch.' }, { title: 'Bonus community', text: 'Support when you need it.' }] } },
           { type: 'testimonials', props: { title: 'Real results', items: [{ name: 'Priya S.', quote: 'This changed how I work.' }, { name: 'Marcus T.', quote: 'Paid for itself in a week.' }] } },
-          { type: 'countdown', props: { label: 'Launch pricing ends in', minutes: 30 } },
           { type: 'cta', props: { headline: 'Ready to start?', buttonText: 'Yes, I want in' } },
         ],
       },
@@ -304,21 +304,21 @@ function agentFallback(kind, { product, price, headline, audience }) {
   const tag = product.replace(/[^a-z0-9]/gi, '');
   const T = {
     ads: [
-      `🔥 ${headline}\n\n${product} — now just ${p}. Thousands across India have already joined.\n👉 Tap "Learn More" before the offer ends.`,
+      `🔥 ${headline}\n\n${product} — just ${p}.\n👉 Tap "Learn More" to see what’s inside.`,
       `Tired of trying everything and getting nowhere?\n${product} gives you a proven, step-by-step system.\n✅ Instant access ✅ UPI accepted ✅ 7-day money-back\nOnly ${p} today.`,
-      `"Best decision I made this year" — Priya, Delhi ⭐⭐⭐⭐⭐\n${product} is ${p} for a limited time. Grab your spot 👇`,
+      `[Add a real customer review here]\n${product} is ${p}. See what’s inside 👇`,
     ],
     email: [
       `Email 1 · Subject: Welcome! Here's what happens next\nHi {name}, thanks for joining. Over the next few days I'll show you exactly how ${product} helps ${audience}…`,
       `Email 2 · Subject: The #1 mistake most people make\nMost people try to figure it out alone. Here's why that fails — and what to do instead…`,
-      `Email 3 · Subject: How Rahul from Pune got results in 21 days\nA quick story you'll relate to…`,
+      `Email 3 · Subject: What a real customer told us\n[Share a real customer’s story here — with their permission]…`,
       `Email 4 · Subject: Your questions, answered\nIs it right for me? Do you accept UPI? Is there a refund? Yes, yes and yes…`,
-      `Email 5 · Subject: ⏰ Last chance — price goes up tonight\n${product} is ${p} only until midnight. After that it goes back to full price.`,
+      `Email 5 · Subject: Still thinking it over?\n${product} is ${p}, with a 7-day money-back guarantee. Reply with any question — happy to help.`,
     ],
     whatsapp: [
-      `Hi {name} 👋 Quick update — ${product} is just ${p} today (limited seats). Reply YES and I'll send you the link.`,
-      `🔥 Only a few spots left for ${product}! 1,000+ people joined this month. Grab yours: {link}`,
-      `⏰ Final reminder: the ${p} offer ends at midnight. Any questions? Just reply here 🙂`,
+      `Hi {name} 👋 Quick update — ${product} is ${p}. Reply YES and I'll send you the link.`,
+      `Any questions about ${product}? Here’s the link with everything inside: {link}`,
+      `Just checking in — anything I can help with before you decide? Reply here 🙂`,
     ],
     social: [
       `${headline} 💯\n\nSave this post & share it with someone who needs it 👇\n#India #${tag} #growth #learning`,
@@ -327,7 +327,7 @@ function agentFallback(kind, { product, price, headline, audience }) {
     headlines: [
       headline,
       'The simplest way to get results — even if you have failed before',
-      `How thousands of Indians are winning with ${product}`,
+      `How ${product} helps ${audience}`,
       'Stop wasting time. Start getting results in 21 days.',
       'What nobody tells you about getting results fast',
       `${product}: the shortcut the experts don't talk about`,
@@ -336,16 +336,16 @@ function agentFallback(kind, { product, price, headline, audience }) {
       'Get results in days, not months — guaranteed',
       'Finally, a proven plan that fits your busy life',
     ],
-    video: [`HOOK (0–3s): "If you're still struggling with this, stop scrolling."\nPROBLEM (3–15s): Most people try random tips and give up.\nSOLUTION (15–40s): ${product} gives you a step-by-step plan — live support, UPI payments, 7-day guarantee.\nPROOF (40–50s): "Priya from Delhi got results in 3 weeks."\nCTA (50–60s): "Link in bio — just ${p} today."`],
+    video: [`HOOK (0–3s): "If you're still struggling with this, stop scrolling."\nPROBLEM (3–15s): Most people try random tips and give up.\nSOLUTION (15–40s): ${product} gives you a step-by-step plan — live support, UPI payments, 7-day guarantee.\nPROOF (40–50s): [a real customer result, with their permission]\nCTA (50–60s): "Link in bio — just ${p} today."`],
     seo: [
-      `Meta title: ${product} | Trusted by thousands across India`,
-      `Meta description: ${product} — just ${p} with UPI, instant access and a 7-day money-back guarantee. Join thousands of happy customers.`,
+      `Meta title: ${product} | Pay by UPI, instant access`,
+      `Meta description: ${product} — just ${p} with UPI, instant access and a 7-day money-back guarantee.`,
       `Keywords: ${product.toLowerCase()}, best ${product.toLowerCase()} in india, ${product.toLowerCase()} online, ${product.toLowerCase()} price`,
     ],
     abandon: [
       `After 1 hour (WhatsApp): Hi {name}, you left ${product} in your cart 🛒 Your ${p} price is still reserved — complete here: {link}`,
       `After 24 hours (Email) · Subject: Did something go wrong?\nNo worries! If you had a payment issue, you can pay with any UPI app. Here's your link…`,
-      `After 48 hours (Email) · Subject: Here's 10% OFF to help you decide\nUse code INDIA10 at checkout — valid for 24 hours only.`,
+      `After 48 hours (Email) · Subject: Here's 10% OFF to help you decide\nUse code INDIA10 at checkout.`,
     ],
   };
   return T[kind] || [];

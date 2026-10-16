@@ -1,7 +1,8 @@
 // Broadcasts: one email or WhatsApp message to a segment of contacts — now or at a set time.
 // Sending is a background job: the audience is frozen when the broadcast starts (one row per recipient),
 // rows are claimed one by one (safe with several server processes) and sent a batch at a time, so a big list
-// never blocks the server. Unsubscribed contacts are always left out; email opens and clicks are tracked.
+// never blocks the server. Only contacts who opted in to marketing are sent to, unsubscribed ones never;
+// email opens and clicks are tracked.
 import { T, q, tx, uid, JOBS } from './db.js';
 import { sendEmail, sendWhatsApp, emailStatus, whatsappStatus } from './messaging.js';
 import { contactList, metaFor, logActivity, pipelinesFor } from './crm.js';
@@ -56,9 +57,11 @@ export function audience(userId, segment, channel) {
   const now = Date.now();
   const demo = demoKeys(userId);
   const all = contactList(userId).filter((c) => !demo.has(c.key) && matches(c, segment, now));
-  const reach = [], left = { unsubscribed: 0, noAddress: 0 };
+  const reach = [], left = { unsubscribed: 0, notOptedIn: 0, noAddress: 0 };
   for (const c of all) {
     if (c.unsubscribed || (channel === 'whatsapp' && c.waOptOut)) left.unsubscribed++;
+    // marketing goes only to people who agreed to it (DPDP; WhatsApp's opt-in rule) — buying something isn't agreeing
+    else if (!c.optIn) left.notOptedIn++;
     else if (channel === 'whatsapp' ? String(c.phone).replace(/\D/g, '').length < 10 : !c.email) left.noAddress++;
     else reach.push(c);
   }

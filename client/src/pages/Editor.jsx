@@ -14,8 +14,9 @@ const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const mk = (type, over = {}) => (type === 'section'
   ? { id: uid(), type, props: { ...defaultSection(), ...over } }
-  : { id: uid(), type, props: { ...clone(BLOCK_TYPES[type].defaults), ...over } });
+  : { id: uid(), type, props: { ...clone(BLOCK_TYPES[type].defaults), ...(type === 'countdown' ? { endsAt: Date.now() + 7 * 864e5 } : {}), ...over } }); // a new countdown: a real deadline, a week out
 const FLOATING = ['proof', 'exitpopup', 'stickybar', 'whatsapp'];
+const REAL_ONLY = ['countdown', 'livecount', 'stock', 'proof'];
 // Copy/paste between funnels goes through localStorage, so it works across tabs and funnels
 const CLIP_KEY = 'ff_clipboard_block';
 const readClip = () => { try { const c = JSON.parse(localStorage.getItem(CLIP_KEY)); return c?.type && c?.props ? c : null; } catch { return null; } };
@@ -30,6 +31,10 @@ const setPath = (obj, path, value) => {
 
 // Button link fields only appear once "Open a link" / "Scroll to a section" is chosen
 const linkFieldShown = (key, props = {}) => {
+  // countdown: the deadline for a fixed date, the minutes for a per-visitor timer (offers have no mode: minutes stay)
+  const cd = props.mode || (Number(props.endsAt) > 0 ? 'fixed' : 'evergreen');
+  if (key === 'endsAt') return cd === 'fixed';
+  if (key === 'minutes' && 'mode' in props) return cd === 'evergreen';
   const m = /^(cta|button)(Url|NewTab)$/.exec(key);
   if (!m) return true;
   const action = props[`${m[1]}Action`];
@@ -40,7 +45,7 @@ const STEP_TYPES = {
   landing: { icon: '🏠', label: 'Landing page', blocks: () => [mk('hero'), mk('features'), mk('testimonials'), mk('cta')] },
   optin: { icon: '📝', label: 'Opt-in page', blocks: () => [mk('hero', { ctaText: 'Get instant access' }), mk('optin')] },
   sales: { icon: '💡', label: 'Sales page', blocks: () => [mk('hellobar'), mk('hero'), mk('problem'), mk('features'), mk('testimonials'), mk('pricing'), mk('guarantee'), mk('faq'), mk('cta')] },
-  checkout: { icon: '💳', label: 'Checkout', blocks: (f) => [mk('countdown', { label: 'Your price is locked for', minutes: 15 }), mk('checkout', { productName: f.name })] },
+  checkout: { icon: '💳', label: 'Checkout', blocks: (f) => [mk('checkout', { productName: f.name })] },
   upsell: { icon: '⬆️', label: 'One-click upsell', blocks: () => [mk('offer'), mk('guarantee')] },
   downsell: { icon: '⬇️', label: 'Downsell', blocks: () => [mk('offer', { progress: 'Step 2 of 3 · One last chance', headline: 'No problem — how about the *Lite version*?', productName: 'Lite Version', emoji: '🎁', price: 399, mrp: 999, acceptText: 'Yes, add the Lite version', declineText: 'No thanks, take me to my order' })] },
   thankyou: { icon: '🎉', label: 'Thank you', blocks: () => [mk('thankyou', { headline: 'Order confirmed! 🎉', body: 'Details are on your email & WhatsApp.', steps: [{ text: 'Check your inbox for access details' }, { text: 'Save our WhatsApp number' }] }), mk('crosssell')] },
@@ -229,6 +234,11 @@ function Field({ def, value, onChange }) {
   if (kind === 'calendar') return <div className="fld"><label>calendar</label><CalendarSelect value={value} onChange={onChange} />{hint && <span className="hint">{hint}</span>}</div>;
   if (kind === 'product') return <div className="fld"><label>{key === 'bumpProductId' ? 'deliver with the order bump' : key === 'productId' && hint?.startsWith('Free') ? 'free product (lead magnet)' : 'deliver after payment'}</label><ProductSelect value={value} onChange={onChange} />{hint && <span className="hint">{hint}</span>}</div>;
   if (kind === 'code') return <div className="fld"><label>{label}</label><textarea className="code-area" rows={8} spellCheck={false} value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="<iframe src=…></iframe>" />{hint && <span className="hint">{hint}</span>}</div>;
+  // a date and time in the seller's own time zone, saved as a timestamp
+  if (kind === 'datetime') {
+    const local = Number(value) > 0 ? new Date(Number(value) - new Date(Number(value)).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+    return <div className="fld"><label>{label}</label><input type="datetime-local" value={local} onChange={(e) => onChange(e.target.value ? new Date(e.target.value).getTime() : 0)} />{hint && <span className="hint">{hint}</span>}</div>;
+  }
   if (kind === 'bool') return <label className="tog"><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} /><span />{label}</label>;
   if (kind === 'select') return <div className="fld"><label>{label}</label><select value={value ?? sub[0][0]} onChange={(e) => onChange(e.target.value)}>{sub.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>{hint && <span className="hint">{hint}</span>}</div>;
   if (kind === 'list') {
@@ -236,6 +246,7 @@ function Field({ def, value, onChange }) {
     const set = (i, k, v) => onChange(items.map((it, n) => (n === i ? { ...it, [k]: v } : it)));
     return (
       <div className="fld"><label>{label} <small>({items.length})</small></label>
+        {hint && <span className="hint">{hint}</span>}
         {items.map((it, i) => (
           <div className="li" key={i}>
             <div className="li-h"><span>#{i + 1}</span><span className="row">
@@ -483,6 +494,7 @@ export default function Editor() {
   const verRef = useRef(1);          // server version this editor is based on
   const skipSave = useRef(false);    // set when f is replaced by a copy that is already saved
   const [conflict, setConflict] = useState(null);
+  const [legalMiss, setLegalMiss] = useState([]); // business & legal details still missing (publishing needs them)
   const [history, setHistory] = useState(null);
   const [mob, setMob] = useState('canvas'); // phone layout: which panel is open
   const [saved, setSaved] = useState([]);
@@ -497,6 +509,8 @@ export default function Editor() {
     api('/me').then(setMe);
     api('/saved').then(setSaved).catch(() => {});
   }, [id]);
+  // a live funnel missing the seller's legal details stays live, with a warning here
+  useEffect(() => { if (f?.published) api(`/funnels/${id}/legal-check`).then((r) => setLegalMiss(r.missing || [])).catch(() => {}); }, [id, f?.published]);
   // the clipboard may be filled from another tab
   useEffect(() => { const k = (e) => { if (e.key === CLIP_KEY) setClip(readClip()); }; window.addEventListener('storage', k); return () => window.removeEventListener('storage', k); }, []);
 
@@ -577,7 +591,7 @@ export default function Editor() {
   const latestBlocks = () => { const s = fRef.current.steps.find((x) => x.id === step.id); return isB ? s.ab.blocks : s.blocks; };
   const selBlock = blocks.find((b) => b.id === sel);
   const updateBlock = (bid, fn, group) => setBlocks(latestBlocks().map((b) => (b.id === bid ? fn(b) : b)), group);
-  const setProp = (k, v) => updateBlock(sel, (b) => ({ ...b, props: k === 'layout' && b.type === 'section' ? applyLayout(b.props, v) : setPath(withCopy(b.type, b.props), k, v) }), true);
+  const setProp = (k, v) => updateBlock(sel, (b) => ({ ...b, props: k === 'layout' && b.type === 'section' ? applyLayout(b.props, v) : { ...setPath(withCopy(b.type, b.props), k, v), ...(b.type === 'stock' && k === 'left' ? { setAt: Date.now() } : {}) } }), true); // stock: real orders after this count down
 
   // section elements
   const findEl = (b, eid) => { for (let c = 0; c < (b?.props.columns || []).length; c++) { const i = b.props.columns[c].elements.findIndex((e) => e.id === eid); if (i >= 0) return { c, i, el: b.props.columns[c].elements[i] }; } return null; };
@@ -770,7 +784,13 @@ export default function Editor() {
   };
   const loadLatest = () => { hist.current = { past: [], future: [], last: 0 }; adopt(conflict); setConflict(null); toast('Loaded the latest version'); };
   const keepMine = async () => { verRef.current = conflict.version; setConflict(null); if (await save(f)) toast('Your version was saved'); };
-  const publish = async () => { const nf = { ...f, published: !f.published }; commit(nf); await save(nf); toast(nf.published ? 'Your funnel is live' : 'Funnel unpublished'); };
+  const publish = async () => {
+    // going live needs the business & legal details (the server checks too)
+    if (!f.published) { const r = await api(`/funnels/${f.id}/legal-check`).catch(() => ({ missing: [] })); setLegalMiss(r.missing || []); if (r.missing?.length) return toast(`Add your ${r.missing.join(', ')} in Settings → Business & legal before publishing`); }
+    const nf = { ...f, published: !f.published }; commit(nf);
+    if (!(await save(nf))) { if (nf.published) adopt({ ...nf, published: false }); return; }
+    toast(nf.published ? 'Your funnel is live' : 'Funnel unpublished');
+  };
   const liveUrl = `${(typeof window !== 'undefined' && window.__PAGES_URL__) || location.origin}/f/${f.slug}`;
   const width = DEVICES.find((d) => d[0] === device)[2];
   const nextFor = (i, accept) => { let n = i + 1; if (accept) while (f.steps[n]?.type === 'downsell') n++; return f.steps[n]; };
@@ -811,6 +831,10 @@ export default function Editor() {
   return (
     <div className={`ed mob-${mob}`}>
       {pieceBar}
+      {f.published && legalMiss.length > 0 && (
+        <div className="conflict"><Icon name="shield" size={16} /><span><b>This live funnel is missing your {legalMiss.join(', ')}.</b> Indian consumer law needs them on your pages.</span>
+          <Link className="btn primary sm" to="/settings#legal">Add in Settings → Business & legal</Link></div>
+      )}
       {conflict && (
         <div className="conflict"><Icon name="split" size={16} /><span><b>This funnel was changed somewhere else</b> (another tab, device or teammate). Your latest edits are not saved yet.</span>
           <button className="btn ghost sm" onClick={loadLatest}>Load their version</button><button className="btn primary sm" onClick={keepMine}>Keep my version</button></div>
@@ -1066,6 +1090,7 @@ export default function Editor() {
                     <button className="icon-btn" title="Duplicate" onClick={() => dupBlock(selBlock.id)}><Icon name="copy" size={15} /></button>
                     <button className="icon-btn danger" title="Delete" onClick={() => removeBlock(selBlock.id)}><Icon name="trash" size={15} /></button>
                   </div>
+                  {REAL_ONLY.includes(selBlock.type) && <p className="hint">Shows only real numbers — fake urgency is not allowed under Indian e-commerce rules.</p>}
                   {BLOCK_TYPES[selBlock.type]?.fields.filter((d) => linkFieldShown(d[0], selBlock.props)).map((d) => <Field key={selBlock.id + d[0]} def={d} value={withCopy(selBlock.type, selBlock.props)[d[0]]} onChange={(v) => setProp(d[0], v)} />)}
                   {!FLOATING.includes(selBlock.type) && <StylePanel key={`st-${selBlock.id}`} value={selBlock.props._style} onChange={(v) => updateBlock(selBlock.id, (b) => { const props = { ...b.props }; if (v) props._style = v; else delete props._style; return { ...b, props }; }, true)} />}
                   {selBlock.type === 'section' && (

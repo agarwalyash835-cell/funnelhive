@@ -38,7 +38,7 @@ export default function Broadcasts() {
             <div className="note-bar">{!d.email.configured && <span>✉️ Email isn’t set up yet.</span>}{!d.whatsapp.configured && <span>💬 WhatsApp isn’t connected.</span>} <Link to="/settings">Connect in Settings →</Link></div>
           )}
           <Panel pad={false}>
-            {!d.broadcasts.length ? <Empty icon="mail" title="No broadcasts yet" text="Announce a launch, a sale or a new batch to everyone — or just to a tag, a funnel’s leads or your customers. Unsubscribed contacts are always left out.">
+            {!d.broadcasts.length ? <Empty icon="mail" title="No broadcasts yet" text="Announce a launch, a sale or a new batch to everyone — or just to a tag, a funnel’s leads or your customers. Only contacts who opted in to marketing get them; unsubscribed ones never do.">
               <button className="btn primary" onClick={() => create('email')}>Write your first broadcast</button>
             </Empty> : (
               <div className="tbl-wrap"><table className="tbl">
@@ -168,6 +168,8 @@ function Editor({ b, meta, funnels, onBack, onChange }) {
             {!locked && aud && (
               <div className="bc-reach">
                 <b>{num(aud.reach)}</b> {v.channel === 'email' ? 'will get this email' : 'will get this on WhatsApp'}
+                {/* marketing reaches only people who agreed to it: form consent, or marked opted in on the contact / at import */}
+                {aud.left.notOptedIn > 0 && <small>{num(aud.reach)} opted in · <b>{num(aud.left.notOptedIn)} not opted in</b> — they won’t receive this</small>}
                 {(aud.left.unsubscribed > 0 || aud.left.noAddress > 0) && <small>{[aud.left.unsubscribed && `${num(aud.left.unsubscribed)} unsubscribed`, aud.left.noAddress && `${num(aud.left.noAddress)} without ${v.channel === 'email' ? 'an email' : 'a phone number'}`].filter(Boolean).join(' · ')} left out</small>}
                 {aud.sample?.length > 0 && <small className="muted">{aud.sample.map((c) => c.name || c.email || c.phone).join(', ')}{aud.reach > aud.sample.length ? '…' : ''}</small>}
               </div>

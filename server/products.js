@@ -20,6 +20,7 @@ import { buyerPlans } from './plans.js';
 import { stripeCreds } from './stripe.js';
 import { s3Enabled, putFile, deleteObject, copyObject, presign } from './storage.js';
 import { domainOfFunnel } from './domains.js';
+import { GST_RATES, cleanHsn } from './sales.js';
 
 const FILE_DIR = path.resolve(DATA_DIR, 'products');
 const MB = 1024 * 1024;
@@ -53,6 +54,14 @@ function cleanProduct(b = {}, cur = {}) {
   if ('cover' in b) out.cover = imgUrl(b.cover);
   if ('accessDays' in b) out.accessDays = intIn(b.accessDays, 0, 3650);
   if ('downloadLimit' in b) out.downloadLimit = intIn(b.downloadLimit, 0, 1000);
+  // physical goods: country of origin, shown at checkout (empty = the seller's default in Settings, else India)
+  if ('origin' in b) out.origin = clip(b.origin, 60);
+  // GST on its invoice lines: HSN (goods) / SAC (services) and rate; empty = the seller's invoice defaults
+  if ('hsn' in b) { const c = cleanHsn(clip(b.hsn, 12)); if (c === null) return { error: 'The HSN / SAC code is 4–8 digits (SAC for services is 6, like 999293)' }; out.hsn = c; }
+  if ('gstRate' in b) {
+    if (b.gstRate === '' || b.gstRate == null) delete out.gstRate;
+    else { const r = Number(b.gstRate); if (!GST_RATES.includes(r)) return { error: `GST rate must be one of ${GST_RATES.join(', ')}%` }; out.gstRate = r; }
+  }
   if ('links' in b) {
     if (!Array.isArray(b.links)) return { error: 'Links must be a list' };
     out.links = b.links.slice(0, 50).map((l) => ({ label: clip(l?.label, 120), url: httpUrl(l?.url) })).filter((l) => l.url).map((l) => ({ ...l, label: l.label || l.url }));

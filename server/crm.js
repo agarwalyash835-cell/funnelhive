@@ -80,6 +80,8 @@ function buildContacts(userId, onlyKey) {
 const listItem = (c, pipelines) => ({
   key: c.key, email: c.email, name: c.name, phone: c.phone, type: c.type, orders: c.orders, ltv: c.ltv, funnels: [...c.funnels].filter(Boolean),
   source: c.source, firstSeen: c.firstSeen, lastSeen: c.lastSeen, fields: c.fields, custom: c.meta?.custom || {}, tags: c.meta?.tags || [], unsubscribed: !!c.meta?.unsubscribed, ...(c.meta?.waOptOut ? { waOptOut: true } : {}),
+  // agreed to marketing: ticked/accepted the consent line on a form, or the seller recorded it (by hand or on import)
+  optIn: c.meta?.optIn === false ? false : !!c.meta?.optIn || c.refs.leads.some((l) => l.consent?.given === true),
   stages: Object.fromEntries(pipelines.map((p) => [p.id, stageFor(p, c.meta, c.type === 'customer')])),
 });
 
@@ -174,7 +176,7 @@ function contactExport(u, key) {
   const data = {
     leads: leads.map((l) => ({ ...l, funnel: funnelName[l.funnelId] || null })),
     orders: orders.map((o) => ({ ...o, funnel: funnelName[o.funnelId] || null, invoices: T.sinvoices.all({ orderId: o.id }).filter((i) => i.userId === userId).map((i) => ({ number: i.number, type: i.type || 'invoice', at: i.at, total: i.total })) })),
-    abandonedCarts: byEmail ? T.abandoned.all({ userId, ckey: key }, { order: 'at' }) : [],
+    abandonedCarts: T.abandoned.all({ userId, ckey: key }, { order: 'at' }), // phone-only carts too
     bookings: T.bookings.all({ userId, ckey: key }, { order: 'at' }),
     webinarRegistrations: T.registrations.all({ userId, ckey: key }, { order: 'at' }).map((r) => ({ ...r, webinar: T.webinars.get(r.webinarId)?.name || null })),
     productAccess: byEmail ? T.access.all({ userId, ckey: key }, { order: 'at' }).map((a) => ({ ...a, product: T.products.get(a.productId)?.name || null })) : [],
@@ -188,7 +190,7 @@ function contactExport(u, key) {
     seller: { business: u.settings?.businessName || u.name || '', email: u.email },
     contact: { key, email: c?.email || meta?.email || (byEmail ? key : ''), name: c?.name || meta?.name || '', phone: c?.phone || meta?.phone || '', type: c?.type || 'lead', source: c?.source || null, firstSeen: c && c.firstSeen !== Infinity ? new Date(c.firstSeen).toISOString() : null, lastSeen: c?.lastSeen ? new Date(c.lastSeen).toISOString() : null, orders: c?.orders || 0, lifetimeValue: c?.ltv || 0 },
     crm: meta ? {
-      tags: meta.tags || [], unsubscribed: !!meta.unsubscribed, addedBy: meta.manual ? meta.source || 'added by you' : null,
+      tags: meta.tags || [], unsubscribed: !!meta.unsubscribed, ...(meta.optIn != null ? { marketingOptIn: { given: meta.optIn, at: meta.optInAt ? new Date(meta.optInAt).toISOString() : null, by: meta.optInBy || null } } : {}), addedBy: meta.manual ? meta.source || 'added by you' : null,
       customFields: Object.fromEntries(Object.entries(meta.custom || {}).map(([id, v]) => [labels[id] || id, v])),
       stages: Object.fromEntries(pipelines.map((p) => [p.name, p.stages.find((s) => s.id === stageFor(p, meta, c?.type === 'customer'))?.name || null])),
       activities: meta.activities || [],
@@ -259,6 +261,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
       added.push(...m.tags.filter((t) => !before.has(t.toLowerCase())));
     }
     if ('unsubscribed' in b) m.unsubscribed = !!b.unsubscribed;
+    if ('optIn' in b) Object.assign(m, { optIn: !!b.optIn, optInAt: Date.now(), optInBy: 'you' });
     let moved = null;
     if (b.stage?.pipelineId) {
       const p = pipelinesFor(req.user.id).find((x) => x.id === b.stage.pipelineId);
@@ -325,7 +328,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     const out = { created: 0, updated: 0, skipped: 0, errors: [] };
     const note = (row, reason) => { if (out.errors.length < 50) out.errors.push({ row, reason }); };
     const skip = (row, reason) => { out.skipped++; note(row, reason); };
-    const now = Date.now();
+    const now = Date.now(), optIn = req.body.consent === true;
     tx(() => rows.forEach((r, i) => {
       const row = i + 1;
       if (!r || typeof r !== 'object' || Array.isArray(r)) return skip(row, 'Not a row');
@@ -363,6 +366,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
         if (!hit) note(row, `No stage called “${str(v.stage, 40)}” — imported without a stage`);
         else if (m.stages?.[hit[0].id] !== hit[1].id) { m.stages = { ...m.stages, [hit[0].id]: hit[1].id }; if (!isNew) m.activities.push({ id: uid(), at: now, type: 'stage', title: `Moved to ${hit[1].name}`, text: `${hit[0].name} · CSV import` }); }
       }
+      if (optIn && m.optIn === undefined) Object.assign(m, { optIn: true, optInAt: now, optInBy: 'import' }); // the seller ticked “these contacts agreed to receive marketing”
       if (Object.keys(v.custom).length) m.custom = { ...m.custom, ...cleanCustom(defs, v.custom) };
       const text = str([v.notes, ...v.extra].filter(Boolean).join('\n'), 4000);
       if (text && !m.activities.some((a) => a.type === 'note' && a.text === text)) m.activities = [...m.activities, { id: uid(), at: now, type: 'note', title: 'Note (imported)', text, by: 'import' }].slice(-500);

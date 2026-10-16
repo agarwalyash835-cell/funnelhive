@@ -3,7 +3,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { startServer } from './helpers.mjs';
+import { startServer, enable2fa } from './helpers.mjs';
 
 const body = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => r(b)); });
 const PNG = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(200).fill(0)]).toString('base64')}`;
@@ -28,6 +28,7 @@ test('sign-ups: Turnstile checked, honeypot and throwaway inboxes refused, a dai
   await new Promise((r) => setTimeout(r, 200));
   const link = srv.log().match(/To: owner@limits\.test[\s\S]*?\/verify\?token=([a-f0-9.]+)/);
   await api('/auth/verify', 'POST', { token: link[1] });
+  ({ token: admin } = await enable2fa(api, admin)); // the admin panel needs 2-step login
   const s = await signup('coach@real.dev');
   assert.equal(s.status, 200);
   seller = s.data.token;

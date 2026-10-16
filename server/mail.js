@@ -9,6 +9,8 @@ export const mailEnabled = () => !!(process.env.RESEND_API_KEY || process.env.SM
 export async function sendMail({ to, subject, text, html }) {
   if (process.env.SMTP_HOST) { const r = await sendEmail(null, { to, subject, text }); return { sent: r.status === 'sent' }; }
   if (!process.env.RESEND_API_KEY) {
+    // in production the message (it may hold a sign-in or reset link) never goes to the logs
+    if (process.env.NODE_ENV === 'production') { console.log(`📧 email not configured — "${subject}" was not sent. To help someone sign in, use Admin → Sellers → Reset link`); return { logged: false }; }
     console.log(`\n📧 [email not configured — printing instead]\nTo: ${to}\nSubject: ${subject}\n${text}\n`);
     return { logged: true };
   }

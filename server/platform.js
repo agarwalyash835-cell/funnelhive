@@ -14,7 +14,8 @@ export const DEFAULTS = {
   aiCredits: { trial: 100, paid: 1500 }, // per calendar month
   graceDays: 7, // a failed renewal keeps the account working this long while Razorpay retries
   pagesOfflineAfterDays: 7, // after an account locks, its live pages stay up this long
-  company: { name: '', gstin: '', address: '', state: '', email: '', invoicePrefix: 'FH' },
+  // the company behind the platform: GST invoices, and the legal pages (IT Rules 2021 grievance officer, DPDP)
+  company: { name: '', cin: '', gstin: '', address: '', state: '', phone: '', email: '', supportEmail: '', grievanceName: '', grievanceEmail: '', grievancePhone: '', invoicePrefix: 'FH' },
   razorpay: { keyId: '', secretEnc: '', webhookSecretEnc: '', planIds: {} },
   storage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // S3-compatible (Wasabi…): backups, uploads, product files
   signupsOpen: true,
@@ -46,6 +47,14 @@ export function savePlatform(fn) {
   return next;
 }
 export const brand = () => platform().brand || DEFAULTS.brand;
+// what the public policy pages show (never a placeholder: blank stays blank)
+export function publicCompany() {
+  const c = platform().company;
+  return { name: c.name, cin: c.cin, email: c.supportEmail || c.email, billingEmail: c.email, phone: c.phone, address: c.address, state: c.state, gstin: c.gstin, grievance: { name: c.grievanceName, email: c.grievanceEmail || c.supportEmail || c.email, phone: c.grievancePhone || c.phone } };
+}
+// the company details the policy pages need before the platform takes sellers' money
+export const COMPANY_REQUIRED = { name: 'Legal name', address: 'Registered address', phone: 'Phone', supportEmail: 'Support email', grievanceName: 'Grievance officer name', grievanceEmail: 'Grievance officer email', grievancePhone: 'Grievance officer phone' };
+export const companyMissing = () => Object.entries(COMPANY_REQUIRED).filter(([k]) => !platform().company[k]).map(([, l]) => l);
 
 // The Razorpay account that collects subscription payments (env vars win over the admin panel)
 export function platformRzp() {

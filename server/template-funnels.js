@@ -1,6 +1,8 @@
 // Builds the VSL + application funnels and the webinar funnels from their copy
 // (templates-vsl.js, templates-webinar.js). Section layouts and order vary per template.
 
+import { ownStats } from './template-kit.js';
+
 const hash = (s) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
 // "Wednesday evening" stays capitalised mid-sentence; "This Sunday" → "this Sunday"
@@ -10,12 +12,11 @@ const pairs = (arr, ...keys) => arr.map((s) => Object.fromEntries(split(s).map((
 const emojiOf = (s) => (String(s).match(/^\S+/) || ['✦'])[0];
 const plain = (h) => h.replace(/\*/g, '');
 const WA = '919999999999';
+// stats: the seller's own numbers (placeholders); no invented ratings, attendee counts or "only N left" lines
+const NO_RATING = { rating: '', reviews: '', socialText: '' };
 
-// people for the "just applied / just registered" popups
-const FIRST = ['Aarav', 'Ishita', 'Kabir', 'Meher', 'Vihaan', 'Tanvi', 'Rehan', 'Diya', 'Arnav', 'Sana', 'Yash', 'Nandini', 'Pranav', 'Zoya', 'Siddharth', 'Riya', 'Harsh', 'Ananya'];
-const LAST = ['S.', 'K.', 'M.', 'R.', 'P.', 'N.', 'G.', 'D.', 'T.', 'B.'];
-const TOWNS = ['Indore', 'Kochi', 'Guwahati', 'Ludhiana', 'Coimbatore', 'Nagpur', 'Surat', 'Bhubaneswar', 'Mysuru', 'Dehradun', 'Vadodara', 'Ranchi', 'Pune', 'Jaipur', 'Lucknow', 'Hyderabad', 'Chennai', 'Bengaluru'];
-const popups = (h) => Array.from({ length: 12 }, (_, i) => ({ name: `${FIRST[(h + i * 5) % FIRST.length]} ${LAST[(h + i) % LAST.length]}`, city: TOWNS[(h + i * 7) % TOWNS.length] }));
+// No made-up urgency or buyers (India's dark-pattern rules): countdowns run to the real live session, and the
+// recent-buyer popup (real orders only) sits on the pages where people buy
 
 // Order a page: fixed sections stay put, the middle ones are reshuffled per template
 function arrange(blocks, h, movable) {
@@ -33,18 +34,18 @@ export function buildVsl(t) {
   const pick = variantPicker(h);
   const [ename, erole, ebio] = split(t.expert);
   const [gTitle, gBody] = split(t.guarantee);
-  const stats = pairs(t.stats, 'value', 'label');
+  const stats = pairs(ownStats(t.stats), 'value', 'label');
   const results = pairs(t.results, 'name', 'quote', 'tag');
   const chapters = t.chapters.map((c) => { const [time, title] = split(c); return { text: `${time} · ${title}` }; });
   const faq = pairs(t.faqs, 'q', 'a');
   const apply = { ctaText: t.cta };
   const hero = {
     variant: t.hero, badge: t.badge, headline: t.headline, subheadline: t.sub, ...apply, secondaryText: 'See client results',
-    rating: t.rating, reviews: t.reviews, socialText: t.social, image: '', cardEmoji: emojiOf(t.badge), cardTitle: t.name, cardPrice: 'By application', cardMrp: '',
-    cardPoints: chapters, chip1: `⏳ ${t.urgency}`, chip2: '🔒 Your answers stay private', cardTag: 'Free training', videoUrl: '', videoNote: t.videoNote, videoLength: t.videoLength,
+    ...NO_RATING, image: '', cardEmoji: emojiOf(t.badge), cardTitle: t.name, cardPrice: 'By application', cardMrp: '',
+    cardPoints: chapters, chip1: '📋 Every application is read personally', chip2: '🔒 Your answers stay private', cardTag: 'Free training', videoUrl: '', videoNote: t.videoNote, videoLength: t.videoLength,
   };
   const watch = [
-    { type: 'hellobar', props: { messages: [{ text: `⏳ ${t.urgency}` }, { text: '🎥 Watch the full video, then apply for your call' }] } },
+    { type: 'hellobar', props: { messages: [{ text: '📋 Every application is read personally' }, { text: '🎥 Watch the full video, then apply for your call' }] } },
     { type: 'hero', props: hero },
     { type: 'stats', props: { variant: pick(['strip', 'band', 'cards'], 1), items: stats } },
     { type: 'problem', props: { variant: pick(['split', 'list', 'cards'], 2), eyebrow: pick(['Sound familiar?', 'The real problem', 'If this is you'], 3), title: pick(['Why hard work alone isn’t getting you there', 'What’s really holding you back', 'You’re not short of effort'], 4), subtitle: 'Every applicant we speak to says some version of this.', items: t.pains.map((text) => ({ text })), closing: `${t.name} was built to fix exactly this. 👇` } },
@@ -55,9 +56,8 @@ export function buildVsl(t) {
     { type: 'steps', props: { variant: pick(['timeline', 'cards', 'columns'], 12), eyebrow: 'Next steps', title: 'What happens after you apply', items: pairs(t.process, 'title', 'text') } },
     { type: 'guarantee', props: { variant: pick(['strip', 'box'], 13), title: gTitle, body: gBody, days: 0 } },
     { type: 'faq', props: { variant: pick(['accordion', 'two'], 14), eyebrow: 'FAQ', title: 'Questions before you apply', items: faq } },
-    { type: 'cta', props: { variant: pick(['banner', 'plain'], 15), headline: 'Ready to see if it’s a fit?', subheadline: `Applications take about 3 minutes. ${t.urgency}.`, buttonText: t.cta, note: '✅ Free call · ✅ No obligation · ✅ Every application reviewed personally' } },
-    { type: 'stickybar', props: { text: t.urgency, price: 'By application', buttonText: 'Apply now' } },
-    { type: 'proof', props: { action: 'just applied for a call', intervalSec: 12, items: popups(h) } },
+    { type: 'cta', props: { variant: pick(['banner', 'plain'], 15), headline: 'Ready to see if it’s a fit?', subheadline: 'Applications take about 3 minutes.', buttonText: t.cta, note: '✅ Free call · ✅ No obligation · ✅ Every application reviewed personally' } },
+    { type: 'stickybar', props: { text: 'Applications take about 3 minutes', price: 'By application', buttonText: 'Apply now' } },
     { type: 'whatsapp', props: { number: WA, message: `Hi! I have a question about ${t.name}.`, label: 'Questions? Chat with us' } },
   ];
   const fields = [
@@ -94,7 +94,7 @@ export function buildWebinar(t) {
   const [gTitle, gBody] = split(t.guarantee);
   const o = t.offer;
   const disc = Math.round((1 - o.price / o.mrp) * 100);
-  const stats = pairs(t.stats, 'value', 'label');
+  const stats = pairs(ownStats(t.stats), 'value', 'label');
   const quotes = pairs(t.testimonials, 'name', 'quote', 'tag');
   const learn = pairs(t.learn, 'icon', 'title', 'text');
   const bonusItems = t.bonuses.map((s) => { const [icon, title, value] = split(s); return { icon, title, value: inr(value) }; });
@@ -106,18 +106,17 @@ export function buildWebinar(t) {
   const [bumpTitle, bumpPrice] = split(o.bump);
   const [upTitle, upPrice] = split(o.up);
   const host = { name: hname, role: hrole, bio: hbio, image: '', points: t.hostCreds.map((text) => ({ text })) };
-  const countdownMins = [45, 90, 180, 240][h % 4];
 
   const register = [
-    { type: 'hellobar', props: { messages: [{ text: t.seats }, { text: `📅 ${t.when} · ${t.time} · ${t.length}` }, { text: `🎁 Live attendees get bonuses worth ${inr(bonusTotal)}` }] } },
+    { type: 'hellobar', props: { messages: [{ text: '🆓 Free to join · live Q&A' }, { text: `📅 ${t.when} · ${t.time} · ${t.length}` }, { text: `🎁 Live attendees get bonuses worth ${inr(bonusTotal)}` }] } },
     { type: 'hero', props: {
       variant: t.hero, badge: t.badge, headline: t.headline, subheadline: t.sub, ctaText: t.cta, secondaryText: 'See what you’ll learn',
-      rating: t.rating, reviews: t.reviews, socialText: t.social, image: '', cardEmoji: emojiOf(t.badge), cardTitle: t.name, cardPrice: 'FREE', cardMrp: '',
-      cardPoints: t.forWho.map((text) => ({ text })), chip1: t.seats, chip2: '🔒 No spam — joining link on WhatsApp', cardTag: 'Live masterclass',
+      ...NO_RATING, image: '', cardEmoji: emojiOf(t.badge), cardTitle: t.name, cardPrice: 'FREE', cardMrp: '',
+      cardPoints: t.forWho.map((text) => ({ text })), chip1: '🆓 Free to join · live Q&A', chip2: '🔒 No spam — joining link on WhatsApp', cardTag: 'Live masterclass',
       eventDate: t.when, eventTime: t.time, eventLength: t.length, hostName: hname, hostRole: hrole,
     } },
-    { type: 'countdown', props: { label: 'Registrations close in', minutes: countdownMins } },
-    { type: 'problem', props: { variant: pick(['cards', 'list', 'split'], 1), eyebrow: pick(['Sound familiar?', 'Why this session exists', 'The honest truth'], 2), title: pick(['If any of this sounds like you, save a seat', 'Where most people get stuck', 'This is what we’ll fix together'], 3), subtitle: 'You’re not alone — thousands of attendees started right here.', items: t.pains.map((text) => ({ text })), closing: `In ${t.length.split('·')[0].trim()}, we’ll show you a better way. 👇` } },
+    { type: 'countdown', props: { label: 'The live session starts in', mode: 'session', endedText: 'The session has started' } },
+    { type: 'problem', props: { variant: pick(['cards', 'list', 'split'], 1), eyebrow: pick(['Sound familiar?', 'Why this session exists', 'The honest truth'], 2), title: pick(['If any of this sounds like you, save a seat', 'Where most people get stuck', 'This is what we’ll fix together'], 3), subtitle: 'If any of these sound familiar, this session is for you.', items: t.pains.map((text) => ({ text })), closing: `In ${t.length.split('·')[0].trim()}, we’ll show you a better way. 👇` } },
     { type: 'features', props: { variant: pick(['grid', 'zigzag', 'list', 'cards'], 4), eyebrow: 'In this free session', title: 'What you’ll learn', subtitle: 'Live, practical and specific — no fluff, no recycled tips.', items: learn } },
     { type: 'steps', props: { variant: pick(['timeline', 'cards', 'columns'], 5), eyebrow: 'Run of show', title: 'The session, minute by minute', items: pairs(t.agenda, 'title', 'text') } },
     { type: 'mentor', props: { variant: pick(['split', 'story', 'card'], 6), eyebrow: 'Your host', ...host } },
@@ -126,39 +125,37 @@ export function buildWebinar(t) {
     { type: 'stats', props: { variant: pick(['band', 'cards', 'strip'], 9), items: stats } },
     { type: 'optin', props: { webinarId: '', eyebrow: 'Free · Live · Limited seats', title: 'Save your free seat', subtitle: `${t.when} at ${t.time}. We’ll send the joining link on WhatsApp and email.`, buttonText: t.cta, askPhone: true, points: learn.map((l) => ({ text: l.title })) } },
     { type: 'faq', props: { variant: pick(['accordion', 'two'], 10), eyebrow: 'FAQ', title: 'About the session', items: faq } },
-    { type: 'cta', props: { variant: pick(['banner', 'plain'], 11), headline: `Join ${t.name} — ${lcWhen(t.when)} at ${t.time}`, subheadline: `${t.social}. Your seat is free.`, buttonText: t.cta, note: '✅ Free · ✅ Live Q&A · ✅ Joining link on WhatsApp' } },
-    { type: 'proof', props: { action: 'just saved a seat', intervalSec: 10, items: popups(h) } },
+    { type: 'cta', props: { variant: pick(['banner', 'plain'], 11), headline: `Join ${t.name} — ${lcWhen(t.when)} at ${t.time}`, subheadline: 'Your seat is free.', buttonText: t.cta, note: '✅ Free · ✅ Live Q&A · ✅ Joining link on WhatsApp' } },
     { type: 'stickybar', props: { text: `${t.name} · ${t.when}, ${t.time}`, price: 'FREE', buttonText: 'Save my seat' } },
     { type: 'whatsapp', props: { number: WA, message: `Hi! I have a question about ${t.name}.`, label: 'Chat with us' } },
   ];
   const registered = [
     { type: 'thankyou', props: { headline: `You’re in! 🎉 See you ${lcWhen(t.when)}`, body: `${t.name} · ${t.time} · ${t.length}. Your joining link is on its way to your email and WhatsApp.`, steps: t.confirm.map((text) => ({ text })) } },
-    { type: 'countdown', props: { label: 'The masterclass starts in', minutes: countdownMins + 30 } },
+    { type: 'countdown', props: { label: 'The masterclass starts in', mode: 'session', endedText: 'The masterclass has started', hideEnded: true } },
     { type: 'mentor', props: { variant: 'card', eyebrow: 'See you there', ...host } },
     { type: 'whatsapp', props: { number: WA, message: `Hi! I just registered for ${t.name}.`, label: 'Message us' } },
   ];
   const offerBullets = [...o.points.map((text) => ({ text })), ...bonusItems.map((b) => ({ text: `BONUS: ${b.title} (${b.value})` }))];
   const replay = [
-    { type: 'hellobar', props: { messages: [{ text: '⏳ The replay comes down in 48 hours' }, { text: `🔥 Attendee price: ${disc}% off ${o.name}` }] } },
+    { type: 'hellobar', props: { messages: [{ text: '▶ The full masterclass replay is below' }, { text: `🔥 Attendee price: ${disc}% off ${o.name}` }] } },
     { type: 'hero', props: {
       variant: pick(['videosplit', 'video'], 12), badge: '▶ Masterclass replay', headline: t.replayHeadline, subheadline: `Missed it live? Here’s the full session — and ${o.name} at the attendee price.`, ctaText: 'Join the programme', secondaryText: 'See what’s included',
-      rating: t.rating, reviews: t.reviews, socialText: t.social, image: '', cardEmoji: '🎓', cardTitle: o.name, cardPrice: inr(o.price), cardMrp: inr(o.mrp),
+      ...NO_RATING, image: '', cardEmoji: '🎓', cardTitle: o.name, cardPrice: inr(o.price), cardMrp: inr(o.mrp),
       cardPoints: chapters, chip1: `🔥 ${disc}% off for attendees`, chip2: '🔒 Secure UPI & card payments', cardTag: 'Replay', videoUrl: '', videoNote: `Watch the full ${t.name} replay`, videoLength: `${Math.max(30, mins - 4)}:${String(10 + (h % 49)).padStart(2, '0')}`,
     } },
     { type: 'pricing', props: { variant: pick(['split', 'card'], 13), badge: `🔥 Attendee price — ${disc}% off`, title: o.name, mrp: o.mrp, price: o.price, currency: '₹', bullets: offerBullets, buttonText: 'Yes, I’m in', note: '🔒 Secure checkout · UPI, cards & EMI' } },
-    { type: 'countdown', props: { label: 'Attendee price ends in', minutes: 60 * (24 + (h % 24)) } },
     { type: 'testimonials', props: { variant: pick(['spotlight', 'cards'], 14), eyebrow: 'Inside the programme', title: 'What members say', items: quotes } },
     { type: 'guarantee', props: { variant: pick(['box', 'strip'], 15), title: gTitle, body: gBody, days: Number((gTitle.match(/(\d+)-day/) || [])[1]) || 7 } },
     { type: 'faq', props: { variant: 'accordion', eyebrow: 'FAQ', title: 'Before you join', items: faq } },
-    { type: 'cta', props: { variant: 'banner', headline: `Join ${o.name} at ${inr(o.price)} — *attendee price*`, subheadline: `Save ${inr(o.mrp - o.price)} before the replay comes down.`, buttonText: 'Join the programme', note: '🔒 Secure UPI & card payments · ✅ Money-back guarantee' } },
-    { type: 'stickybar', props: { text: `${disc}% off ends soon`, price: inr(o.price), buttonText: 'Join now' } },
+    { type: 'cta', props: { variant: 'banner', headline: `Join ${o.name} at ${inr(o.price)} — *attendee price*`, subheadline: `Save ${inr(o.mrp - o.price)} with the attendee price.`, buttonText: 'Join the programme', note: '🔒 Secure UPI & card payments · ✅ Money-back guarantee' } },
+    { type: 'stickybar', props: { text: `${disc}% off for attendees`, price: inr(o.price), buttonText: 'Join now' } },
+    { type: 'proof', props: { intervalSec: 10 } },
     { type: 'whatsapp', props: { number: WA, message: `Hi! I watched ${t.name} and have a question.`, label: 'Chat with us' } },
   ];
   const checkout = [
-    { type: 'hellobar', props: { messages: [{ text: '⏰ Your attendee price is held for 15 minutes' }, { text: '🔒 100% secure payment · money-back guarantee' }] } },
-    { type: 'countdown', props: { label: 'Your price is locked for', minutes: 15 } },
-    { type: 'checkout', props: { productName: o.name, description: 'Instant access · confirmation on email & WhatsApp', price: o.price, mrp: o.mrp, currency: '₹', bumpEnabled: true, bumpTitle: bumpTitle, bumpDescription: `One-time offer — add this for just ₹${bumpPrice}. Not available later.`, bumpPrice: Number(bumpPrice), buttonText: 'Pay Securely' } },
-    { type: 'testimonials', props: { variant: 'cards', eyebrow: 'You’re in good company', title: `Join ${stats[0].value} ${stats[0].label}`, items: quotes.slice(0, 3) } },
+    { type: 'hellobar', props: { messages: [{ text: `✅ Attendee price: ${disc}% off` }, { text: '🔒 100% secure payment · money-back guarantee' }] } },
+    { type: 'checkout', props: { productName: o.name, description: 'Instant access · confirmation on email & WhatsApp', price: o.price, mrp: o.mrp, currency: '₹', bumpEnabled: true, bumpTitle: bumpTitle, bumpDescription: `Add this to your order for just ₹${bumpPrice}.`, bumpPrice: Number(bumpPrice), buttonText: 'Pay Securely' } },
+    { type: 'testimonials', props: { variant: 'cards', eyebrow: 'You’re in good company', title: 'What past attendees say', items: quotes.slice(0, 3) } },
     { type: 'guarantee', props: { variant: 'strip', title: gTitle, body: gBody, days: Number((gTitle.match(/(\d+)-day/) || [])[1]) || 7 } },
     { type: 'whatsapp', props: { number: WA, message: 'Hi! I need help with my payment.', label: 'Need help?' } },
   ];
@@ -166,8 +163,8 @@ export function buildWebinar(t) {
     { type: 'offer', props: {
       progress: 'Step 2 of 3 · Make it count', headline: `Wait — add a *${upTitle}*`, description: 'Members who add this get results faster. One click adds it to your order — no need to re-enter payment details.',
       productName: upTitle, emoji: '🚀', price: Number(upPrice), mrp: Math.round((Number(upPrice) * 2.5) / 100) * 100 - 1, currency: '₹',
-      bullets: [{ text: `Personal guidance from ${hname.split(' ')[0]}’s team` }, { text: 'A plan built around your situation' }, { text: 'Priority answers on WhatsApp' }], minutes: 10,
-      acceptText: `Yes! Add the ${upTitle}`, declineText: 'No thanks, take me to my access',
+      bullets: [{ text: `Personal guidance from ${hname.split(' ')[0]}’s team` }, { text: 'A plan built around your situation' }, { text: 'Priority answers on WhatsApp' }], minutes: 0,
+      acceptText: `Yes! Add the ${upTitle}`, declineText: 'No thanks',
     } },
     { type: 'testimonials', props: { variant: 'spotlight', eyebrow: 'Why members add this', title: 'What upgraders say', items: quotes.slice(1, 4) } },
     { type: 'guarantee', props: { variant: 'box', title: gTitle, body: 'Your upgrade is covered by the same guarantee.', days: Number((gTitle.match(/(\d+)-day/) || [])[1]) || 7 } },

@@ -32,13 +32,13 @@ const HL = 'Wrap words in *stars* to highlight them';
 export const BLOCK_TYPES = {
   section: { label: 'Custom section', fields: [['layout', 'select', [['1', 'One column'], ['1-1', 'Two equal columns'], ['2-1', 'Wide + narrow'], ['1-2', 'Narrow + wide'], ['1-1-1', 'Three columns'], ['1-1-1-1', 'Four columns']]], ['valign', 'select', [['top', 'Align to top'], ['center', 'Align to middle']]], ['gap', 'select', [['sm', 'Tight spacing'], ['md', 'Normal spacing'], ['lg', 'Roomy spacing']]]], defaults: { layout: '1', valign: 'top', gap: 'md', columns: [{ id: 'c1', elements: [] }] } },
   hero: { label: 'Hero', fields: [['badge', T], ['headline', LONG, null, HL], ['subheadline', LONG], ['ctaText', T], ['ctaAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['ctaUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['ctaNewTab', B, null, 'Open the link in a new tab'], ['secondaryText', T], ['secondaryUrl', T, null, 'Where the small link goes — a section id (default: how-it-works) or https://…'], ['socialText', T], ['rating', NUM], ['reviews', T], ['image', T, null, 'Optional image URL — replaces the product card'], ['cardEmoji', T], ['cardTitle', T], ['cardPrice', T], ['cardMrp', T], ['cardPoints', L, ['text']], ['chip1', T], ['chip2', T], ['cardTag', T, null, 'Small label on the product card'], ['showCard', B, null, 'Show the product card (when there is no image)'], ['showTrust', B, null, 'Show the avatars & rating row'], ['videoUrl', T, null, 'Video layouts: YouTube, Vimeo, Loom, Google Drive or .mp4 link'], ['videoNote', T, null, 'Video layouts: label on the cover, e.g. “Watch the free 12-minute training”'], ['videoLength', T, null, 'Video layouts: length shown on the cover, e.g. 14:32. Card points written as “01:10 · Chapter” become chapters'], ['eventDate', T, null, 'Event layouts: when, e.g. “Every Sunday”'], ['eventTime', T, null, 'Event layouts: time, e.g. “7:00 PM IST”'], ['eventLength', T, null, 'Event layouts: e.g. “90 min · Live on Zoom”'], ['hostName', T, null, 'Event layouts: who hosts it'], ['hostRole', T, null, 'Event layouts: the host’s title']], defaults: { badge: '⭐ Rated 4.9 by 10,000+ customers', headline: 'Your big promise — *the result they want*', subheadline: 'One sentence that makes the reader want it.', ctaText: 'Get Started', secondaryText: 'See how it works', socialText: 'Loved by 10,000+ customers', rating: 4.9, reviews: '2,300', image: '', cardEmoji: '🚀', cardTitle: 'Your Product', cardPrice: '₹499', cardMrp: '₹1,999', cardPoints: [{ text: 'Key benefit one' }, { text: 'Key benefit two' }], chip1: '🔥 120 joined today', chip2: '🔒 Secure payment' } },
-  stats: { label: 'Stats strip', fields: [['items', L, ['value', 'label']]], defaults: { items: [{ value: '10,000+', label: 'happy customers' }, { value: '4.9★', label: 'rating' }, { value: '200+', label: 'cities' }, { value: '95%', label: 'satisfaction' }] } },
+  stats: { label: 'Stats strip', fields: [['items', L, ['value', 'label'], 'Use real numbers you can back up']], defaults: { items: [{ value: '[Add your real number]', label: 'customers' }, { value: '[Add your real number]', label: 'rating' }, { value: '[Add your real number]', label: 'cities' }] } },
   problem: { label: 'Pain points', fields: [['eyebrow', T], ['title', T], ['subtitle', T], ['items', L, ['text']], ['closing', T]], defaults: { eyebrow: 'Sound familiar?', title: 'You are not alone if…', subtitle: '', items: [{ text: 'Problem one' }, { text: 'Problem two' }, { text: 'Problem three' }], closing: 'There is a better way 👇' } },
   features: { label: 'Features', fields: [['eyebrow', T], ['title', T], ['subtitle', T], ['items', L, ['icon', 'title', 'text']]], defaults: { eyebrow: 'The solution', title: 'Why you will love it', subtitle: '', items: [{ icon: '⚡', title: 'Benefit one', text: 'Describe it.' }, { icon: '🎯', title: 'Benefit two', text: 'Describe it.' }] } },
   steps: { label: 'How it works', fields: [['eyebrow', T], ['title', T], ['items', L, ['title', 'text']]], defaults: { eyebrow: 'How it works', title: 'Get started in 3 simple steps', items: [{ title: 'Sign up', text: 'Takes 2 minutes' }, { title: 'Get access', text: 'Instantly' }, { title: 'See results', text: 'Fast' }] } },
   compare: { label: 'Comparison', fields: [['eyebrow', T], ['title', T], ['leftTitle', T], ['rightTitle', T], ['rows', L, ['left', 'right']], ['tag', T, null, 'Label on the highlighted column']], defaults: { eyebrow: 'Why us', title: 'The difference is clear', leftTitle: 'Others', rightTitle: 'Us', rows: [{ left: 'Slow', right: 'Fast' }] } },
-  testimonials: { label: 'Testimonials', fields: [['eyebrow', T], ['title', T], ['items', L, ['name', 'quote', 'tag']]], defaults: { eyebrow: 'Success stories', title: 'What people say', items: [{ name: 'Happy Customer, Pune', quote: 'Amazing results!', tag: 'Verified' }] } },
-  mentor: { label: 'Expert / About', fields: [['eyebrow', T], ['name', T], ['role', T], ['bio', LONG], ['image', T], ['points', L, ['text']], ['badge', T, null, 'Badge on the photo']], defaults: { eyebrow: 'Meet your expert', name: 'Expert Name', role: 'Title · 10 years', bio: 'Short credibility-building bio.', image: '', points: [{ text: '10,000+ students' }] } },
+  testimonials: { label: 'Testimonials', fields: [['eyebrow', T], ['title', T], ['items', L, ['name', 'quote', 'tag'], 'Template reviews are samples: replace them with real ones from your customers']], defaults: { eyebrow: 'Success stories', title: 'What people say', items: [{ name: 'Happy Customer, Pune', quote: 'Amazing results!', tag: '' }] } },
+  mentor: { label: 'Expert / About', fields: [['eyebrow', T], ['name', T], ['role', T], ['bio', LONG], ['image', T], ['points', L, ['text']], ['badge', T, null, 'Badge on the photo']], defaults: { eyebrow: 'Meet your expert', name: 'Expert Name', role: 'Title · 10 years', bio: 'Short credibility-building bio.', image: '', points: [{ text: '[Add a real credential]' }] } },
   bonuses: { label: 'Bonus stack', fields: [['eyebrow', T], ['title', T], ['items', L, ['icon', 'title', 'value']], ['totalText', T], ['freeLabel', T, null, 'Corner tag on each bonus'], ['itemLabel', T, null, 'Numbered label, e.g. "Bonus #"'], ['worthLabel', T, null, 'Text before the value']], defaults: { eyebrow: 'Exclusive bonuses', title: 'Order today and get these FREE', items: [{ icon: '🎁', title: 'Bonus one', value: '₹999' }], totalText: 'Total value: ₹999 — free today' } },
   guarantee: { label: 'Guarantee', fields: [['title', T], ['body', LONG], ['days', NUM, null, '0 shows a "100% free" seal'], ['showSeal', B, null, 'Show the seal']], defaults: { title: '7-Day Money-Back Guarantee', body: 'Try it risk-free.', days: 7 } },
   video: { label: 'Video', fields: [['url', T, null, 'YouTube (incl. Shorts), Vimeo, Loom, Google Drive or an .mp4 link']], defaults: { url: '' } },
@@ -49,9 +49,9 @@ export const BLOCK_TYPES = {
   html: { label: 'Custom code / embed', fields: [['code', 'code', null, 'Paste HTML or an embed code (Calendly, Typeform, Google Maps, Razorpay button…). It runs in a secure sandbox.'], ['height', NUM, null, '0 = size automatically'], ['title', T, null, 'Short description for screen readers']], defaults: { code: '', height: 0, title: 'Embedded content' } },
   form: { label: 'Form', fields: [['productId', 'product', null, 'Free product sent on submit (not to applicants marked “not a fit”)'], ['title', T], ['subtitle', T], ['fields', 'formfields'], ['buttonText', T], ['after', 'select', [['message', 'Show a thank-you message'], ['next', 'Go to the next step']]], ['successMessage', T], ['rejectMessage', LONG, null, 'Shown to applicants whose answers mean “not a fit” (set per question in Form fields)'], ['note', T]], defaults: { title: 'Tell us about yourself', subtitle: 'We’ll get back to you within 24 hours.', fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }, { label: 'WhatsApp number', type: 'tel', required: false }, { label: 'What do you need help with?', type: 'select', options: 'Getting started, Pricing, Something else', required: false }], buttonText: 'Send', after: 'message', successMessage: 'Thank you! We’ll be in touch shortly.', note: '🔒 We never share your details.' } },
   text: { label: 'Text', fields: [['title', T], ['body', LONG]], defaults: { title: 'Heading', body: 'Your copy here.' } },
-  countdown: { label: 'Countdown', fields: [['label', T], ['minutes', NUM]], defaults: { label: 'Offer ends in', minutes: 15 } },
+  countdown: { label: 'Countdown', fields: [['label', T], ['mode', 'select', [['evergreen', 'Each visitor gets their own time — it never restarts'], ['fixed', 'Ends at a fixed date and time'], ['session', 'Counts down to the next live webinar session']]], ['endsAt', 'datetime', null, 'When the offer really ends (your time zone)'], ['minutes', NUM, null, 'Minutes from the visitor’s first visit'], ['endedText', T, null, 'Shown once the time is up'], ['hideEnded', B, null, 'Hide the timer once it ends']], defaults: { label: 'Offer ends in', mode: 'fixed', endsAt: 0, minutes: 15, endedText: 'Offer ended' } },
   optin: { label: 'Opt-in form', fields: [['productId', 'product', null, 'Free product sent on sign-up (lead magnet)'], ['eyebrow', T], ['title', T], ['subtitle', T], ['buttonText', T], ['askPhone', B], ['points', L, ['text']], ['nameLabel', T], ['emailLabel', T], ['phoneLabel', T], ['secureText', T]], defaults: { eyebrow: '100% free', title: 'Get the free guide', subtitle: 'Enter your details to get instant access.', buttonText: 'Send it to me', askPhone: true, points: [] } },
-  checkout: { label: 'Checkout', fields: [['productId', 'product', null, 'Delivered to the buyer automatically after a verified payment'], ['productName', T], ['description', T], ['price', NUM], ['mrp', NUM], ['currency', 'select', [['₹', '₹ Indian rupee (Razorpay / Stripe)'], ['$', '$ US dollar (Stripe)'], ['€', '€ Euro (Stripe)'], ['£', '£ British pound (Stripe)'], ['A$', 'A$ Australian dollar (Stripe)'], ['C$', 'C$ Canadian dollar (Stripe)'], ['S$', 'S$ Singapore dollar (Stripe)'], ['AED', 'AED UAE dirham (Stripe)']]], ['bumpEnabled', B], ['bumpTitle', T], ['bumpDescription', T], ['bumpPrice', NUM], ['billing', 'select', [['', 'One-time payment'], ['monthly', 'Membership — billed every month'], ['yearly', 'Membership — billed every year']]], ['planEnabled', B, null, 'Also offer a monthly payment plan (EMI-style instalments)'], ['planCount', NUM, null, 'Number of monthly instalments (2–36)'], ['planPrice', NUM, null, 'Each instalment in ₹'], ['shipping', 'select', [['', 'Nothing to ship (digital / service)'], ['address', 'Ship it — ask for the delivery address']]], ['shippingFee', NUM, null, 'Delivery charge in ₹ (0 = free delivery)'], ['cod', B, null, 'Offer Cash on Delivery'], ['codFee', NUM, null, 'Extra ₹ for Cash on Delivery (0 = none)'], ['bumpProductId', 'product', null, 'Delivered when the buyer ticks the order bump'], ['buttonText', T], ['step1', T, null, 'Heading above the details'], ['step2', T, null, 'Heading above payment methods'], ['secureText', T], ['summaryTitle', T], ['perks', L, ['text']]], defaults: { productName: 'My Product', description: 'Instant access', price: 499, mrp: 1999, currency: '₹', bumpEnabled: true, bumpTitle: 'Add the bonus pack', bumpDescription: 'Extra templates and checklists.', bumpPrice: 99, buttonText: 'Pay Securely' } },
+  checkout: { label: 'Checkout', fields: [['productId', 'product', null, 'Delivered to the buyer automatically after a verified payment'], ['productName', T], ['description', T], ['price', NUM], ['mrp', NUM], ['currency', 'select', [['₹', '₹ Indian rupee (Razorpay / Stripe)'], ['$', '$ US dollar (Stripe)'], ['€', '€ Euro (Stripe)'], ['£', '£ British pound (Stripe)'], ['A$', 'A$ Australian dollar (Stripe)'], ['C$', 'C$ Canadian dollar (Stripe)'], ['S$', 'S$ Singapore dollar (Stripe)'], ['AED', 'AED UAE dirham (Stripe)']]], ['bumpEnabled', B], ['bumpTitle', T], ['bumpDescription', T], ['bumpPrice', NUM], ['billing', 'select', [['', 'One-time payment'], ['monthly', 'Membership — billed every month'], ['yearly', 'Membership — billed every year']]], ['planEnabled', B, null, 'Also offer a monthly payment plan (EMI-style instalments)'], ['planCount', NUM, null, 'Number of monthly instalments (2–36)'], ['planPrice', NUM, null, 'Each instalment in ₹'], ['shipping', 'select', [['', 'Nothing to ship (digital / service)'], ['address', 'Ship it — ask for the delivery address']]], ['shippingFee', NUM, null, 'Delivery charge in ₹ (0 = free delivery)'], ['origin', T, null, 'Physical products: country of origin, shown under the product (required for goods sold online in India). Blank = your default in Settings (India)'], ['cod', B, null, 'Offer Cash on Delivery'], ['codFee', NUM, null, 'Extra ₹ for Cash on Delivery (0 = none)'], ['bumpProductId', 'product', null, 'Delivered when the buyer ticks the order bump'], ['buttonText', T], ['step1', T, null, 'Heading above the details'], ['step2', T, null, 'Heading above payment methods'], ['secureText', T], ['summaryTitle', T], ['perks', L, ['text']]], defaults: { productName: 'My Product', description: 'Instant access', price: 499, mrp: 1999, currency: '₹', bumpEnabled: true, bumpTitle: 'Add the bonus pack', bumpDescription: 'Extra templates and checklists.', bumpPrice: 99, buttonText: 'Pay Securely' } },
   offer: { label: 'Upsell / downsell offer', fields: [['productId', 'product', null, 'Delivered when the buyer accepts this offer'], ['progress', T], ['headline', LONG, null, HL], ['description', LONG], ['productName', T], ['emoji', T], ['price', NUM], ['mrp', NUM], ['currency', T], ['bullets', L, ['text']], ['minutes', NUM, null, 'Offer timer — 0 hides it'], ['acceptText', T], ['declineText', T], ['tag', T, null, 'Label on the product card'], ['oneClickText', T]], defaults: { progress: 'Step 2 of 3 · Customise your order', headline: 'Wait! Add the *VIP upgrade* to your order', description: 'One click adds it — no need to re-enter payment details.', productName: 'VIP Upgrade', emoji: '👑', price: 999, mrp: 2999, currency: '₹', bullets: [{ text: 'Personal 1-on-1 support' }, { text: 'Advanced resources' }], minutes: 10, acceptText: 'Yes! Add it to my order', declineText: 'No thanks' } },
   crosssell: { label: 'Cross-sells', fields: [['title', T], ['subtitle', T], ['eyebrow', T], ['items', L, ['emoji', 'name', 'desc', 'price', 'productId']], ['buttonText', T]], defaults: { title: 'Customers also bought', subtitle: 'Add these to your order with one click.', items: [{ emoji: '📚', name: 'Advanced Masterclass', desc: 'Go deeper with expert sessions.', price: 499 }, { emoji: '🧾', name: 'Templates Pack', desc: 'Ready-to-use resources.', price: 299 }], buttonText: 'Add to my order' } },
   pricing: { label: 'Pricing box', fields: [['badge', T], ['title', T], ['mrp', NUM], ['price', NUM], ['currency', T], ['bullets', L, ['text']], ['buttonText', T], ['buttonAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T], ['priceNote', T, null, 'Line under the price'], ['payMethods', T, null, 'Payment badges, separated by ·']], defaults: { badge: 'Limited-time offer', title: 'Your Product', mrp: 1999, price: 499, currency: '₹', bullets: [{ text: 'Everything included' }], buttonText: 'Enroll Now', note: '🔒 Secure checkout' } },
@@ -60,10 +60,11 @@ export const BLOCK_TYPES = {
   booking: { label: 'Booking calendar', fields: [['calendarId', 'calendar', null, 'Which availability to book against (Bookings → Calendars)'], ['eyebrow', T], ['title', T], ['subtitle', T], ['buttonText', T], ['successTitle', T], ['successText', LONG], ['qualifiedOnly', B, null, 'In an application funnel, only applicants who qualified can book']], defaults: { calendarId: '', eyebrow: 'Book your call', title: 'Pick a time that suits you', subtitle: 'Times are shown in India time (IST).', buttonText: 'Confirm my call', successTitle: 'Your call is booked ✅', successText: 'The confirmation and joining link are in your email.', qualifiedOnly: true } },
   thankyou: { label: 'Thank you', fields: [['headline', T], ['body', LONG], ['steps', L, ['text']]], defaults: { headline: 'Thank you! 🎉', body: 'Check your email.', steps: [] } },
   // ---- FOMO blocks (each refreshes every 9–10 seconds) ----
-  hellobar: { label: 'FOMO: Hello bar', fields: [['messages', L, ['text']]], defaults: { messages: [{ text: '🔥 Flash sale: flat 75% OFF today only' }, { text: '⏰ Offer ends tonight — hurry!' }] } },
-  livecount: { label: 'FOMO: Live viewers', fields: [['text', T], ['min', NUM], ['max', NUM]], defaults: { text: 'people are viewing this page right now', min: 24, max: 68 } },
-  stock: { label: 'FOMO: Seats / stock left', fields: [['label', T, null, '{n} is replaced by the live number'], ['total', NUM], ['left', NUM]], defaults: { label: 'Only {n} seats left at this price!', total: 50, left: 11 } },
-  proof: { label: 'FOMO: Social proof popup', fields: [['action', T], ['intervalSec', NUM], ['items', L, ['name', 'city']]], defaults: { action: 'just enrolled', intervalSec: 9, items: [{ name: 'Rahul S.', city: 'Pune' }, { name: 'Priya M.', city: 'Delhi' }] } },
+  hellobar: { label: 'FOMO: Hello bar', fields: [['messages', L, ['text']]], defaults: { messages: [{ text: '🔥 Launch offer: flat 75% OFF' }, { text: '🔒 Secure UPI & card payments' }] } },
+  // livecount, stock and proof show only real numbers (analytics, the seller's stock, real orders) — see the server's /social
+  livecount: { label: 'FOMO: Recent visitors', fields: [['minShow', NUM, null, 'Hidden until at least this many people visited in the last 30 minutes']], defaults: { minShow: 3 } },
+  stock: { label: 'FOMO: Seats / stock left', fields: [['label', T, null, '{n} is replaced by the real number left'], ['left', NUM, null, 'How many you really have — goes down by one with each real order. 0 hides the block'], ['total', NUM, null, 'Optional: how many you started with (shows a bar)']], defaults: { label: 'Only {n} left in stock', left: 0, total: 0 } },
+  proof: { label: 'FOMO: Recent buyers popup', fields: [['intervalSec', NUM]], defaults: { intervalSec: 9 } },
   exitpopup: { label: 'FOMO: Exit-intent popup', fields: [['title', T], ['body', T], ['code', T], ['buttonText', T]], defaults: { title: 'Wait! Don’t go yet', body: 'Grab an extra 10% OFF on your order.', code: 'STAY10', buttonText: 'Claim my discount' } },
   stickybar: { label: 'Sticky buy bar', fields: [['text', T], ['price', T], ['buttonText', T], ['buttonAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab']], defaults: { text: 'Offer ends soon', price: '₹499', buttonText: 'Buy Now' } },
   whatsapp: { label: 'WhatsApp chat button', fields: [['number', T, null, 'Leave 919999999999 to use the Support WhatsApp from Settings'], ['message', T], ['label', T]], defaults: { number: '919999999999', message: 'Hi! I have a question.', label: 'Chat with us' } },
@@ -101,7 +102,7 @@ export const BLOCK_ICONS = { section: '🧱', image: '🖼️', gallery: '🎞�
 export const COPY = {
   hero: { cardTag: 'Bestseller', showCard: true, showTrust: true },
   compare: { tag: 'Recommended' },
-  mentor: { badge: '✔ Verified' },
+  mentor: { badge: '' }, // no "Verified" badge nobody verified
   bonuses: { freeLabel: 'FREE', itemLabel: 'Bonus #', worthLabel: 'Worth' },
   guarantee: { showSeal: true },
   pricing: { priceNote: 'One-time payment · Lifetime value', payMethods: 'UPI · GPay · PhonePe · Paytm · Visa · RuPay · NetBanking' },
@@ -258,7 +259,7 @@ function Hero({ p, ctx }) {
             <div className="trust" data-rm="showTrust" data-rm-label="rating row">
               <div className="avs">{['Riya S', 'Arjun P', 'Meena K', 'Sahil N', 'Vikas J'].map((n) => <Avatar key={n} name={n} />)}</div>
               <div>
-                <div className="stars">★★★★★ {p.rating ? <E ctx={ctx} k="rating" v={p.rating} as="b" num fmt={(v) => `${v}/5`} /> : null}{p.reviews && <span className="muted"> · <E ctx={ctx} k="reviews" v={p.reviews} /> reviews</span>}</div>
+                {p.rating ? <div className="stars">★★★★★ <E ctx={ctx} k="rating" v={p.rating} as="b" num fmt={(v) => `${v}/5`} />{p.reviews && <span className="muted"> · <E ctx={ctx} k="reviews" v={p.reviews} /> reviews</span>}</div> : null}
                 <E ctx={ctx} k="socialText" v={p.socialText} as="div" className="muted sm" />
               </div>
             </div>
@@ -288,7 +289,7 @@ const Trust = ({ p, ctx, stars = true }) => (p.showTrust !== false && (p.socialT
   <div className="trust" data-rm="showTrust" data-rm-label="rating row">
     <div className="avs">{['Riya S', 'Arjun P', 'Meena K', 'Sahil N', 'Vikas J'].map((n) => <Avatar key={n} name={n} />)}</div>
     <div>
-      {stars && <div className="stars">★★★★★ {p.rating ? <E ctx={ctx} k="rating" v={p.rating} as="b" num fmt={(x) => `${x}/5`} /> : null}{p.reviews && <span className="muted"> · <E ctx={ctx} k="reviews" v={p.reviews} /> reviews</span>}</div>}
+      {stars && p.rating ? <div className="stars">★★★★★ <E ctx={ctx} k="rating" v={p.rating} as="b" num fmt={(x) => `${x}/5`} />{p.reviews && <span className="muted"> · <E ctx={ctx} k="reviews" v={p.reviews} /> reviews</span>}</div> : null}
       <E ctx={ctx} k="socialText" v={p.socialText} as="div" className="muted sm" />
     </div>
   </div>
@@ -456,7 +457,7 @@ function HeroBento({ p, ctx }) {
           <E ctx={ctx} k="cardEmoji" v={p.cardEmoji} className="hc-emoji" />
           <div><E ctx={ctx} k="cardTitle" v={p.cardTitle} as="h3" />{p.cardPrice && <div className="hc-price"><E ctx={ctx} k="cardPrice" v={p.cardPrice} as="b" />{p.cardMrp && <E ctx={ctx} k="cardMrp" v={p.cardMrp} as="s" />}</div>}</div>
         </div>
-        <div className="bt bt-rate"><b>{p.rating ? <E ctx={ctx} k="rating" v={p.rating} num /> : '5.0'}</b><span className="stars">★★★★★</span>{p.reviews && <small><E ctx={ctx} k="reviews" v={p.reviews} /> reviews</small>}</div>
+        {p.rating ? <div className="bt bt-rate"><b><E ctx={ctx} k="rating" v={p.rating} num /></b><span className="stars">★★★★★</span>{p.reviews && <small><E ctx={ctx} k="reviews" v={p.reviews} /> reviews</small>}</div> : null}
         <div className="bt bt-proof"><div className="avs">{['Riya S', 'Arjun P', 'Meena K', 'Sahil N'].map((n) => <Avatar key={n} name={n} />)}</div>{p.socialText && <E ctx={ctx} k="socialText" v={p.socialText} as="small" />}</div>
         <div className="bt bt-pts">
           <ul className="checks">{(p.cardPoints || []).map((x, i) => x.text ? <li key={i} data-item={`cardPoints.${i}`}><E ctx={ctx} k={`cardPoints.${i}.text`} v={x.text} /></li> : null)}</ul>
@@ -601,31 +602,38 @@ const Guarantee = ({ p, ctx }) => (
   </Sec>
 );
 
-// Evergreen: the deadline survives reloads so urgency feels real; restarts when it lapses
-function Countdown({ label, minutes, ctx }) {
-  const total = (Number(minutes) || 15) * 60;
-  const key = `ff_cd_${typeof location === 'undefined' ? '' : location.pathname}_${total}`;
-  const read = () => {
-    if (typeof window === 'undefined') return Date.now() + total * 1000; // server render
+// Only real deadlines (fake urgency is a dark pattern under India's e-commerce rules): a fixed date the seller
+// sets, the next live webinar session, or a per-visitor window that is saved and never restarts once it ends
+const cdMode = (p) => p.mode || (Number(p.endsAt) > 0 ? 'fixed' : 'evergreen');
+function Countdown({ p, ctx }) {
+  const mode = cdMode(p), mins = Number(p.minutes) || 15;
+  const key = `ff_cd_${typeof location === 'undefined' ? '' : location.pathname}_${mins * 60}`;
+  const target = () => {
+    // the editor and template previews show how it looks (days: a template's "N days after it's created")
+    if (mode === 'fixed') return Number(p.endsAt) || (!ctx.live && Number(p.days) > 0 ? Date.now() + p.days * 864e5 : 0);
+    if (mode === 'session') return Number(ctx.webinar?.sessions?.[0] || ctx.delivery?.webinar?.start) || (!ctx.live ? Date.now() + 2 * 864e5 : 0);
+    if (!ctx.live || typeof window === 'undefined') return Date.now() + mins * 60000;
     try {
       let end = Number(localStorage.getItem(key));
-      if (!end || end < Date.now()) { end = Date.now() + total * 1000; localStorage.setItem(key, end); }
+      if (!end) { end = Date.now() + mins * 60000; localStorage.setItem(key, end); }
       return end;
-    } catch { return Date.now() + total * 1000; }
+    } catch { return Date.now() + mins * 60000; }
   };
-  const [end, setEnd] = useState(read);
-  const [left, setLeft] = useState(total);
-  useEffect(() => { setEnd(read()); }, [total]);
-  useEffect(() => {
-    const tick = () => { const l = Math.round((end - Date.now()) / 1000); if (l <= 0) setEnd(read()); else setLeft(l); };
-    tick();
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
-  }, [end]);
-  const parts = [[Math.floor(left / 3600), 'Hours'], [Math.floor((left % 3600) / 60), 'Minutes'], [left % 60, 'Seconds']];
+  const [end, setEnd] = useState(target);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { setEnd(target()); }, [mode, p.endsAt, mins, ctx.webinar, ctx.delivery]);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  if (!end) return ctx.editable ? <Sec type="countdown"><p className="cd-label">⏳ {mode === 'session' ? 'Counts down to the next session of the webinar on this page' : 'Set the date and time the offer really ends in the panel'}</p></Sec> : null;
+  const left = Math.max(0, Math.round((end - now) / 1000));
+  if (!left) {
+    if (p.hideEnded && !ctx.editable) return null;
+    return <Sec type="countdown"><p className="cd-label">⏳ <E ctx={ctx} k="endedText" v={p.endedText || tr(ctx.lang, 'Offer ended')} /></p></Sec>;
+  }
+  const d = Math.floor(left / 86400);
+  const parts = [...(d ? [[d, 'Days']] : []), [Math.floor((left % 86400) / 3600), 'Hours'], [Math.floor((left % 3600) / 60), 'Minutes'], [left % 60, 'Seconds']];
   return (
     <Sec type="countdown">
-      {label && <p className="cd-label">⏳ <E ctx={ctx} k="label" v={label} /></p>}
+      {p.label && <p className="cd-label">⏳ <E ctx={ctx} k="label" v={p.label} /></p>}
       <div className="tiles">{parts.map(([v, l]) => <div className="tile" key={l}><b>{pad(v)}</b><small>{tr(ctx.lang, l)}</small></div>)}</div>
     </Sec>
   );
@@ -639,38 +647,50 @@ function HelloBar({ p, ctx }) {
   return <div className={`hellobar ${ctx.live ? 'live' : ''}`}><span key={i}>{msgs[i % (msgs.length || 1)]?.text}</span></div>;
 }
 
+// Real visitors to this step in the last 30 minutes (from the page's analytics); hidden while it's quiet
 function LiveCount({ p, ctx }) {
-  const min = Number(p.min) || 20, max = Number(p.max) || 60;
-  const [n, setN] = useState(() => Math.round(rnd(min, max)));
-  useTick(() => setN((x) => Math.min(max, Math.max(min, x + Math.round(rnd(-4, 4))))), true);
-  return <div className="livecount"><span className="lc-pill"><i className="dot" /> <b>{n}</b> <E ctx={ctx} k="text" v={p.text} /></span></div>;
+  const n = Number(ctx.social?.viewers) || 0;
+  const text = (v) => tr(ctx.lang, '{n} people viewed this page in the last 30 minutes', { n: v });
+  if (!ctx.live) return <div className="livecount"><span className="lc-pill"><i className="dot" /> {text('N')}</span></div>;
+  if (n < Math.max(1, Number(p.minShow) || 3)) return null;
+  return <div className="livecount"><span className="lc-pill"><i className="dot" /> {text(n)}</span></div>;
 }
 
+// The seller's real stock: the number they entered, less the real orders since they entered it (from the server)
 function Stock({ p, ctx }) {
-  const total = Number(p.total) || 50;
-  const [left, setLeft] = useState(Number(p.left) || 10);
-  useEffect(() => { setLeft(Number(p.left) || 10); }, [p.left]);
-  useTick(() => setLeft((x) => (x > 3 && Math.random() < 0.4 ? x - 1 : x)), true);
-  const pct = Math.round(100 - (left / total) * 100);
+  const set = Number(p.left) > 0;
+  const left = Math.max(0, ctx.social?.stock?.[ctx.blockId] ?? Math.round(Number(p.left) || 0));
+  if (!set) return ctx.editable ? <Sec type="stock"><div className="pc stockbox"><div className="stock-top"><b>⚡ Enter how many you really have in the panel — until then this is hidden</b></div></div></Sec> : null;
+  const total = Number(p.total) || 0;
+  const pct = total > left ? Math.round(100 - (left / total) * 100) : 0;
   return (
     <Sec type="stock">
       <div className="pc stockbox">
-        <div className="stock-top"><b>⚡ <E ctx={ctx} k="label" v={p.label} fmt={(v) => String(v || '').replace('{n}', left)} /></b><span className="stock-pct">{pct}% claimed</span></div>
-        <div className="track"><div style={{ width: `${pct}%` }} /></div>
+        <div className="stock-top"><b>⚡ {left ? <E ctx={ctx} k="label" v={p.label} fmt={(v) => String(v || '').replace('{n}', left)} /> : tr(ctx.lang, 'Sold out')}</b>{pct > 0 && <span className="stock-pct">{pct}% claimed</span>}</div>
+        {pct > 0 && <div className="track"><div style={{ width: `${pct}%` }} /></div>}
       </div>
     </Sec>
   );
 }
 
+const agoText = (lang, at) => {
+  const m = Math.max(1, Math.round((Date.now() - at) / 60000));
+  if (m < 60) return tr(lang, m > 1 ? '{n} mins ago' : '{n} min ago', { n: m });
+  const h = Math.round(m / 60);
+  if (h < 24) return tr(lang, h > 1 ? '{n} hours ago' : '{n} hour ago', { n: h });
+  const d = Math.round(h / 24);
+  return tr(lang, d > 1 ? '{n} days ago' : '{n} day ago', { n: d });
+};
+// Real recent buyers of this funnel (first name, city, when) — nothing at all until someone has bought
 function Proof({ p, ctx }) {
-  const items = (p.items || []).filter((i) => i.name);
+  const items = ctx.social?.orders || [];
   const [toast, setToast] = useState(null);
   const sec = Math.max(9, Number(p.intervalSec) || 9);
   useEffect(() => {
     if (!ctx.live || !items.length) return;
-    let t, h;
+    let t, h, i = 0;
     const show = () => {
-      setToast({ ...items[Math.floor(Math.random() * items.length)], ago: Math.ceil(rnd(1, 12)) });
+      setToast(items[i++ % items.length]);
       h = setTimeout(() => setToast(null), 5000);
       t = setTimeout(show, rnd(sec * 1000, sec * 1000 + 1000));
     };
@@ -678,17 +698,16 @@ function Proof({ p, ctx }) {
     return () => { clearTimeout(t); clearTimeout(h); };
   }, [ctx.live, items.length, sec]);
   if (!ctx.live) {
-    const one = items[0] || { name: 'Priya M.', city: 'Pune' };
     return (
-      <FloatPreview label="🔔 Social proof popup" hint={`Bottom-left corner · a new buyer every ${sec}–${sec + 1}s · ${items.length} names`}>
-        <div className="toast static"><Avatar name={one.name} size={42} /><div><b>{one.name}</b> from {one.city}<br /><E ctx={ctx} k="action" v={p.action} /><small>2 mins ago · <em>✔ Verified</em></small></div></div>
+      <FloatPreview label="🔔 Recent buyers popup" hint={`Bottom-left corner · shows your real recent orders (first name and city), one every ${sec}–${sec + 1}s · hidden until you have an order`}>
+        <div className="toast static"><Avatar name="Priya" size={42} /><div><b>Priya</b> from Pune<br />{tr(ctx.lang, 'bought')}<small>2 mins ago</small></div></div>
       </FloatPreview>
     );
   }
   return toast ? (
     <div className="toast">
       <Avatar name={toast.name} size={42} />
-      <div><b>{toast.name}</b> {tr(ctx.lang, 'from')} {toast.city}<br /><span>{p.action}</span><small>{tr(ctx.lang, toast.ago > 1 ? '{n} mins ago' : '{n} min ago', { n: toast.ago })} · <em>✔ {tr(ctx.lang, 'Verified')}</em></small></div>
+      <div><b>{toast.name}</b>{toast.city && <> {tr(ctx.lang, 'from')} {toast.city}</>}<br /><span>{tr(ctx.lang, 'bought')}</span><small>{agoText(ctx.lang, toast.at)}</small></div>
     </div>
   ) : null;
 }
@@ -712,7 +731,7 @@ function ExitPopup({ p, ctx }) {
           <E ctx={ctx} k="title" v={p.title} as="h2" /><E ctx={ctx} k="body" v={p.body} as="p" />
           <E ctx={ctx} k="code" v={p.code} as="div" className="code" />
           <Btn big block ctx={ctx} k="buttonText">{p.buttonText}</Btn>
-          <span className="decline">{tr(ctx.lang, 'No thanks, I’ll pay full price')}</span>
+          <span className="decline">{tr(ctx.lang, 'No thanks')}</span>
         </div>
       </FloatPreview>
     );
@@ -726,7 +745,7 @@ function ExitPopup({ p, ctx }) {
         <h2>{p.title}</h2><p>{p.body}</p>
         <div className="code">{p.code}</div>
         <Btn big block onClick={() => { setOpen(false); ctx.onClaim?.(p.code); ctx.onNext(); }}>{p.buttonText}</Btn>
-        <a className="decline" onClick={() => setOpen(false)}>{tr(ctx.lang, 'No thanks, I’ll pay full price')}</a>
+        <a className="decline" onClick={() => setOpen(false)}>{tr(ctx.lang, 'No thanks')}</a>
       </div>
     </div>
   );
@@ -766,6 +785,10 @@ function WhatsApp({ p, ctx }) {
   );
 }
 
+// Prices on funnels include GST (the invoice splits it out), so rupee prices say so (Legal Metrology / e-commerce rules)
+const inr = (c) => !c || /^(₹|rs\.?|inr)$/i.test(String(c).trim());
+const TaxNote = ({ c, ctx }) => (inr(c) ? <p className="muted sm tax-note" style={{ fontSize: 12, margin: '2px 0 0' }}>{tr(ctx.lang, 'Inclusive of all taxes')}</p> : null);
+
 function Pricing({ p, ctx }) {
   const off = p.mrp > p.price ? Math.round((1 - p.price / p.mrp) * 100) : 0;
   const v = vOf('pricing', p);
@@ -784,6 +807,7 @@ function Pricing({ p, ctx }) {
               <E ctx={ctx} k="price" v={p.price} as="b" num fmt={(v2) => money(p.currency, v2)} />
             </div>
             {off > 0 && <span className="off">You save {off}%</span>}
+            <TaxNote c={p.currency} ctx={ctx} />
             {p.priceNote && <E ctx={ctx} k="priceNote" v={p.priceNote} as="p" className="muted sm" />}
             <Btn big block onClick={go(ctx)} ctx={ctx} k="buttonText" link={buttonLink(p.buttonAction, p.buttonUrl, p.buttonNewTab)}>{p.buttonText}</Btn>
             {p.payMethods && (ctx.editable ? <E ctx={ctx} k="payMethods" v={p.payMethods} as="div" className="pay pay-ed" /> : <div className="pay">{String(p.payMethods).split(/\s*[·,|]\s*/).filter(Boolean).map((m) => <span key={m}>{m}</span>)}</div>)}
@@ -803,6 +827,7 @@ function Pricing({ p, ctx }) {
           <E ctx={ctx} k="price" v={p.price} as="b" num fmt={(v) => money(p.currency, v)} />
           {off > 0 && <span className="off">Save {off}%</span>}
         </div>
+        <TaxNote c={p.currency} ctx={ctx} />
         {p.priceNote && <E ctx={ctx} k="priceNote" v={p.priceNote} as="p" className="muted sm" />}
         <ul className="checks">{(p.bullets || []).map((b, i) => b.text ? <li key={i} data-item={`bullets.${i}`} className={b.text.startsWith('BONUS') ? 'bonus-li' : ''}><E ctx={ctx} k={`bullets.${i}.text`} v={b.text} /></li> : null)}</ul>
         <Btn big block onClick={go(ctx)} ctx={ctx} k="buttonText" link={buttonLink(p.buttonAction, p.buttonUrl, p.buttonNewTab)}>{p.buttonText}</Btn>
@@ -893,9 +918,14 @@ function Checkout({ p, ctx }) {
   const per = p.billing === 'monthly' ? 'month' : p.billing === 'yearly' ? 'year' : '';
   const canPlan = !per && p.planEnabled && Number(p.planCount) >= 2 && Number(p.planPrice) > 0;
   const [payPlan, setPayPlan] = useState(false);
+  // Stripe card payments: the card is kept only when the buyer ticks this (RBI card-on-file consent)
+  const [saveCard, setSaveCard] = useState(false);
   const instal = canPlan && payPlan;
   const today = instal ? Number(p.planPrice) : per ? price : price - discount; // no coupons on memberships (as on the server)
   const total = today + (bump && p.bumpEnabled ? bp : 0) + shipFee + (instal ? 0 : codFee);
+  const canSave = ctx.stripe && !instal && !per && !(p.cod && method === 'cod');
+  // RBI: an automatic debit above ₹15,000 needs the buyer's approval each time
+  const afa = inr(p.currency) && (instal ? Number(p.planPrice) : per ? price : 0) > 15000;
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   // A code claimed from the exit popup is applied automatically
   useEffect(() => {
@@ -915,11 +945,12 @@ function Checkout({ p, ctx }) {
   return (
     <Sec type="checkout">
       <div className="co-grid">
-        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await ctx.onCheckout({ ...f, total, withBump: bump, coupon: per ? undefined : coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}) }); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
+        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await ctx.onCheckout({ ...f, total, withBump: bump, coupon: per ? undefined : coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}), ...(canSave && saveCard ? { saveCard: true } : {}) }); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
           <div className="co-step"><span className="co-n">1</span> <E ctx={ctx} k="step1" v={p.step1} keep /></div>
           {ctx.testCheckout && !ctx.editable && <p className="co-test">{tr(ctx.lang, 'Test checkout — no payment will be taken. The seller hasn’t connected online payments yet.')}</p>}
           <input placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
           <div className="two"><input type="email" placeholder={tr(ctx.lang, 'Email')} required value={f.email} onChange={set('email')} onBlur={onEmailBlur} /><input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} required={!!ctx.waRequired && !ctx.editable} value={f.phone} onChange={set('phone')} onBlur={onEmailBlur} /></div>
+          <p className="co-save" style={{ fontSize: 12, opacity: 0.65, margin: '2px 0 6px' }}>{tr(ctx.lang, 'We save these details so we can help you finish your order.')}</p>
           {ctx.gstInvoices && !ctx.editable && (biz ? (
             <div className="co-gst">
               <input placeholder={tr(ctx.lang, 'Business name')} value={gst.company} onChange={(e) => setGst({ ...gst, company: e.target.value })} />
@@ -958,6 +989,7 @@ function Checkout({ p, ctx }) {
               <span><b>{tr(ctx.lang, '👉 Yes!')} <E ctx={ctx} k="bumpTitle" v={p.bumpTitle} keep /> — just {money(p.currency, bp)}</b><br /><E ctx={ctx} k="bumpDescription" v={p.bumpDescription} /></span>
             </label>
           )}
+          {canSave && !ctx.editable && <label className="co-savecard" style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, margin: '4px 0' }}><input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} />{tr(ctx.lang, 'Save my card for faster checkout next time')}</label>}
           {payErr && <p className="c-err" role="alert">{payErr}</p>}
           {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Processing…') : method === 'cod' && p.cod && !instal && !per ? tr(ctx.lang, 'Place order · pay {amount} on delivery', { amount: money(p.currency, total) }) : per ? tr(ctx.lang, 'Subscribe · {amount}/{per}', { amount: money(p.currency, today), per: tr(ctx.lang, per) }) : `${payLabel(p.buttonText) || tr(ctx.lang, 'Pay Securely')} · ${money(p.currency, total)}${instal ? tr(ctx.lang, ' today') : ''}`}</Btn>}
           {p.secureText && <E ctx={ctx} k="secureText" v={p.secureText} as="p" className="secure" />}
@@ -965,13 +997,15 @@ function Checkout({ p, ctx }) {
         </form>
         <aside className="pc co-sum">
           {p.summaryTitle && <E ctx={ctx} k="summaryTitle" v={p.summaryTitle} as="h4" />}
-          <div className="line"><span><E ctx={ctx} k="productName" v={p.productName} keep /><E ctx={ctx} k="description" v={p.description} as="small" /></span><b>{instal ? <>{money(p.currency, Number(p.planPrice))}<small>/month × {Number(p.planCount)}</small></> : <>{money(p.currency, price)}{per && <small>/{per}</small>}</>}</b></div>
+          <div className="line"><span><E ctx={ctx} k="productName" v={p.productName} keep /><E ctx={ctx} k="description" v={p.description} as="small" />{ships && <small className="co-origin">{tr(ctx.lang, 'Country of origin')}: {p.origin || ctx.seller?.origin || 'India'}</small>}</span><b>{instal ? <>{money(p.currency, Number(p.planPrice))}<small>/month × {Number(p.planCount)}</small></> : <>{money(p.currency, price)}{per && <small>/{per}</small>}</>}</b></div>
           {bump && p.bumpEnabled && <div className="line"><span>{p.bumpTitle}</span><b>{money(p.currency, bp)}</b></div>}
           {coupon && <div className="line disc"><span>🎁 Coupon {coupon.code} applied</span><b>−{money(p.currency, discount)}</b></div>}
           {ships && <div className="line"><span>{tr(ctx.lang, 'Delivery')}</span><b>{shipFee ? money(p.currency, shipFee) : tr(ctx.lang, 'FREE')}</b></div>}
           {codFee > 0 && <div className="line"><span>{tr(ctx.lang, 'Cash on Delivery fee')}</span><b>{money(p.currency, codFee)}</b></div>}
           <div className="line total"><span>{tr(ctx.lang, instal || per ? 'Due today' : 'Total')}</span><b>{money(p.currency, total)}</b></div>
+          <TaxNote c={p.currency} ctx={ctx} />
           {instal && <p className="co-plan-note">Then {money(p.currency, Number(p.planPrice))} on the same date each month for {Number(p.planCount) - 1} more month{Number(p.planCount) > 2 ? 's' : ''} — {money(p.currency, Number(p.planPrice) * Number(p.planCount))} in all. Charged automatically to your card or UPI AutoPay.</p>}
+          {afa && <p className="co-plan-note co-afa">{tr(ctx.lang, 'Each charge above ₹15,000 needs your approval in your bank app (RBI rule).')}</p>}
           {per && <p className="co-plan-note">{tr(ctx.lang, 'Renews every {per} until you cancel — cancel any time from your library link.', { per: tr(ctx.lang, per) })}</p>}
           {mrp > price && <div className="save">🎉 You save {money(p.currency, mrp - price + discount)} today</div>}
           {instal || per ? null : showCoupon ? (
@@ -1088,6 +1122,7 @@ function Booking({ p, ctx }) {
 function Offer({ p, ctx }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [ended, setEnded] = useState(false);
   const off = p.mrp > p.price ? Math.round((1 - p.price / p.mrp) * 100) : 0;
   return (
     <Sec type="offer">
@@ -1106,9 +1141,9 @@ function Offer({ p, ctx }) {
           <E ctx={ctx} k="headline" v={p.headline} as="h1" isRich />
           <E ctx={ctx} k="description" v={p.description} as="p" className="lead" multiline />
           <ul className="checks">{(p.bullets || []).map((b, i) => b.text ? <li key={i} data-item={`bullets.${i}`}><E ctx={ctx} k={`bullets.${i}.text`} v={b.text} /></li> : null)}</ul>
-          {p.minutes ? <OfferTimer minutes={p.minutes} /> : null}
+          {p.minutes ? <OfferTimer minutes={p.minutes} live={ctx.live} onEnd={setEnded} /> : null}
           {err && <p className="c-err" role="alert">{err}</p>}
-          <Btn big block disabled={busy} ctx={ctx} k="acceptText" onClick={async () => { if (!ctx.live) return; setBusy(true); setErr(''); const r = await ctx.onAccept(); if (r?.error) setErr(r.error); setBusy(false); }}>{busy ? 'Adding…' : p.acceptText}</Btn>
+          <Btn big block disabled={busy || ended} ctx={ctx} k="acceptText" onClick={async () => { if (!ctx.live || ended) return; setBusy(true); setErr(''); const r = await ctx.onAccept(); if (r?.error) setErr(r.error); setBusy(false); }}>{busy ? 'Adding…' : p.acceptText}</Btn>
           {p.oneClickText && <E ctx={ctx} k="oneClickText" v={p.oneClickText} as="p" className="oneclick" />}
           <a className="decline" onClick={() => ctx.live && ctx.onDecline()}><E ctx={ctx} k="declineText" v={p.declineText} /></a>
         </div>
@@ -1117,9 +1152,19 @@ function Offer({ p, ctx }) {
   );
 }
 
-function OfferTimer({ minutes }) {
-  const [left, setLeft] = useState(minutes * 60);
-  useEffect(() => { const t = setInterval(() => setLeft((l) => Math.max(0, l - 1)), 1000); return () => clearInterval(t); }, []);
+// The offer timer is real: saved per visitor (a reload doesn't restart it) and the offer ends with it
+function OfferTimer({ minutes, live, onEnd }) {
+  const end = useMemo(() => {
+    const fresh = Date.now() + minutes * 60000;
+    if (!live || typeof window === 'undefined') return fresh;
+    const key = `ff_ot_${location.pathname}_${minutes}`;
+    try { const e = Number(localStorage.getItem(key)); if (e) return e; localStorage.setItem(key, fresh); } catch {}
+    return fresh;
+  }, [minutes, live]);
+  const [left, setLeft] = useState(() => Math.max(0, Math.round((end - Date.now()) / 1000)));
+  useEffect(() => { const tick = () => setLeft(Math.max(0, Math.round((end - Date.now()) / 1000))); tick(); const t = setInterval(tick, 1000); return () => clearInterval(t); }, [end]);
+  useEffect(() => { if (live) onEnd?.(!left); }, [left, live]);
+  if (!left) return <div className="otimer">⏳ This offer has ended</div>;
   return <div className="otimer">⏳ This offer expires in <b>{pad(Math.floor(left / 60))}:{pad(left % 60)}</b></div>;
 }
 
@@ -1233,17 +1278,24 @@ const EMBED_SIZER = '<script>(function(){function s(){parent.postMessage({ffEmbe
 function HtmlEmbed({ p, ctx }) {
   const ref = useRef();
   const [h, setH] = useState(Number(p.height) || 120);
+  const doc = p.code?.trim() ? `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>html,body{margin:0;font-family:system-ui,sans-serif}img,iframe,video{max-width:100%}</style></head><body>${p.code}${EMBED_SIZER}</body></html>` : '';
+  // the editor and dashboard previews run under the dashboard's strict policy, which a srcdoc frame inherits (no
+  // inline scripts): there the frame loads a sandboxed shell with the live pages' embed policy and we post the HTML in
+  const framed = !ctx.live || !!ctx.editable;
   useEffect(() => {
-    if (Number(p.height)) { setH(Number(p.height)); return; }
-    const onMsg = (e) => { if (e.source === ref.current?.contentWindow && typeof e.data?.ffEmbedH === 'number') setH(Math.min(4000, Math.max(20, e.data.ffEmbedH))); };
+    if (Number(p.height)) setH(Number(p.height));
+    const onMsg = (e) => {
+      if (e.source !== ref.current?.contentWindow) return;
+      if (framed && e.data?.ffEmbedReady) e.source.postMessage({ ffEmbedDoc: doc }, '*');
+      else if (!Number(p.height) && typeof e.data?.ffEmbedH === 'number') setH(Math.min(4000, Math.max(20, e.data.ffEmbedH)));
+    };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, [p.height]);
-  if (!p.code?.trim()) return ctx.editable ? <Sec type="embed"><div className="el-img-ph">🧩 <span>Paste HTML or an embed code (Calendly, Typeform, Google Maps…) in the panel</span></div></Sec> : null;
-  const doc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>html,body{margin:0;font-family:system-ui,sans-serif}img,iframe,video{max-width:100%}</style></head><body>${p.code}${EMBED_SIZER}</body></html>`;
+  }, [p.height, doc, framed]);
+  if (!doc) return ctx.editable ? <Sec type="embed"><div className="el-img-ph">🧩 <span>Paste HTML or an embed code (Calendly, Typeform, Google Maps…) in the panel</span></div></Sec> : null;
   return (
     <Sec type="embed" className={p.fullWidth ? 'embed-full' : ''}>
-      <iframe ref={ref} className="embed-frame" title={p.title || 'Embedded content'} srcDoc={doc} style={{ height: h }} loading="lazy"
+      <iframe ref={ref} key={framed ? doc : 'doc'} className="embed-frame" title={p.title || 'Embedded content'} {...(framed ? { src: '/api/embed-frame' } : { srcDoc: doc })} style={{ height: h }} loading="lazy"
         sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" />
     </Sec>
   );
@@ -1496,7 +1548,7 @@ function renderBlock(block, ctx) {
       return <Sec type="video">{p.url ? <VideoEmbed url={p.url} /> : <div className="video ph">Add a video link (YouTube, Vimeo, Loom, Google Drive or .mp4)</div>}</Sec>;
     case 'text':
       return <Sec type="text"><div className="narrow"><E ctx={ctx} k="title" v={p.title} as="h2" isRich /><E ctx={ctx} k="body" v={p.body} as="p" multiline style={{ whiteSpace: 'pre-wrap' }} /></div></Sec>;
-    case 'countdown': return <Countdown label={p.label} minutes={p.minutes} ctx={ctx} />;
+    case 'countdown': return <Countdown p={p} ctx={ctx} />;
     case 'optin': return <OptinForm p={p} ctx={ctx} />;
     case 'checkout': return <Checkout p={p} ctx={ctx} />;
     case 'offer': return <Offer p={p} ctx={ctx} />;
@@ -1552,13 +1604,25 @@ function renderBlock(block, ctx) {
     case 'pricing': return <Pricing p={p} ctx={ctx} />;
     case 'hellobar': return <HelloBar p={p} ctx={ctx} />;
     case 'livecount': return <LiveCount p={p} ctx={ctx} />;
-    case 'stock': return <Stock p={p} ctx={ctx} />;
+    case 'stock': return <Stock p={p} ctx={{ ...ctx, blockId: block.id }} />;
     case 'proof': return <Proof p={p} ctx={ctx} />;
     case 'exitpopup': return <ExitPopup p={p} ctx={ctx} />;
     case 'stickybar': return <StickyBar p={p} ctx={ctx} />;
     case 'whatsapp': return <WhatsApp p={p} ctx={ctx} />;
     default: return <Sec type="unknown">Unknown block: {block.type}</Sec>;
   }
+}
+
+// The seller's legal name, address and policies on every live page (Consumer Protection (E-Commerce) Rules 2020).
+// Always shown — sellers can't remove it — but kept small.
+function SellerFooter({ s, lang }) {
+  const links = [['terms', 'Terms'], ['privacy', 'Privacy Policy'], ['refund', 'Refund Policy'], ['contact', 'Contact']].filter(([k]) => s[k]);
+  return (
+    <footer className="seller-foot" style={{ padding: '22px 16px 28px', textAlign: 'center', fontSize: 12, lineHeight: 1.6, opacity: 0.7 }}>
+      {s.name && <div><b>{s.name}</b>{s.address && <> · {s.address}</>}</div>}
+      <div>{links.map(([k, l], i) => <span key={k}>{i > 0 && ' · '}<a href={s[k]} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{tr(lang, l)}</a></span>)}</div>
+    </footer>
+  );
 }
 
 export const RADIUS = { sharp: ['2px', '2px', '2px'], soft: ['14px', '10px', '10px'], round: ['24px', '16px', '14px'], pill: ['24px', '999px', '14px'] };
@@ -1579,6 +1643,7 @@ export function Page({ blocks, theme, ctx }) {
   return (
     <div className={`page s-${style}`} style={vars}>
       {blocks.map((b) => <Block key={b.id} block={b} ctx={ctx} />)}
+      {ctx?.seller && ctx.live && !ctx.editable && <SellerFooter s={ctx.seller} lang={ctx.lang} />}
     </div>
   );
 }

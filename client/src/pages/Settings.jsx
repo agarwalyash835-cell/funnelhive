@@ -239,11 +239,12 @@ function InvoicingPanel({ s, setS }) {
             <label>GSTIN <small className="muted">· leave empty if not registered</small><input value={v.gstin} maxLength={15} onChange={(e) => set({ gstin: e.target.value.toUpperCase() })} placeholder="27ABCDE1234F1Z5" /></label>
             <label className="full">Address<input value={v.address} onChange={(e) => set({ address: e.target.value })} placeholder="Shown on invoices" /></label>
             <label>State<select value={v.state} onChange={(e) => set({ state: e.target.value })} disabled={!!v.gstin && v.gstin.length === 15}><option value="">Choose…</option>{STATES.map((x) => <option key={x}>{x}</option>)}</select></label>
-            <label>GST rate<select value={v.rate} onChange={(e) => set({ rate: Number(e.target.value) })}>{[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}</select></label>
-            <label>SAC code<input value={v.sac} onChange={(e) => set({ sac: e.target.value })} placeholder="998431" /></label>
+            <label>Default GST rate<select value={v.rate} onChange={(e) => set({ rate: Number(e.target.value) })}>{[0, 0.25, 3, 5, 12, 18, 28, 40].map((r) => <option key={r} value={r}>{r}%</option>)}</select></label>
+            <label>Default HSN / SAC code<input value={v.sac} inputMode="numeric" maxLength={8} onChange={(e) => set({ sac: e.target.value.replace(/\D/g, '') })} placeholder="998431" /><small className="hint">For lines without a product (checkout prices, bumps, upsells, calls, quotes). Set a code and rate per product in Products → Settings.</small></label>
             <label>Invoice number prefix<input value={v.prefix} onChange={(e) => set({ prefix: e.target.value })} placeholder="INV" /><small className="hint">Numbers look like {v.prefix || 'INV'}/2026-27/0001 and restart every financial year.</small></label>
             <label>Email on invoices<input value={v.email} onChange={(e) => set({ email: e.target.value })} placeholder="accounts@yourbrand.in" /></label>
           </div>
+          <p className="hint">E-invoicing: if your turnover is above ₹5 crore you must also generate e-invoices (IRN) on the government portal — FunnelHive invoices don’t include an IRN yet.</p>
           <div className="row"><button className="btn primary" onClick={() => save({ enabled: true })}>Save invoice settings</button><span className="hint">Business buyers can add their GSTIN at checkout once a GSTIN is saved here.</span></div>
         </>
       )}

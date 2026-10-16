@@ -21,11 +21,14 @@ export function inWords(n) {
 
 export default function Invoice({ admin }) {
   const { id } = useParams();
-  const [i, setI] = useState(null);
+  const [raw, setI] = useState(null);
   const [err, setErr] = useState('');
   useEffect(() => { api(`${admin ? '/admin' : '/billing'}/invoices/${id}`).then(setI).catch((e) => setErr(e.message)); }, [id, admin]);
   if (err) return <div className="inv-page"><p className="err">{err}</p></div>;
-  if (!i) return <div className="inv-page"><div className="skeleton" /></div>;
+  if (!raw) return <div className="inv-page"><div className="skeleton" /></div>;
+  // a credit note (refund) is stored with negative amounts; it shows them as refunded amounts
+  const credit = raw.type === 'credit';
+  const i = credit ? { ...raw, total: -raw.total, taxable: -raw.taxable, cgst: -raw.cgst, sgst: -raw.sgst, igst: -raw.igst } : raw;
   const c = i.company || {}, t = i.billedTo || {};
   const intra = i.cgst > 0;
   CUR = i.currency || 'INR';
@@ -37,22 +40,22 @@ export default function Invoice({ admin }) {
       </div>
       <article className="invoice">
         <header className="inv-h">
-          <div><h1>{i.registered ? 'Tax Invoice' : 'Invoice'}</h1><p className="muted">{i.number}</p></div>
+          <div><h1>{credit ? 'Credit Note' : i.registered ? 'Tax Invoice' : 'Invoice'}</h1><p className="muted">{i.number}</p>{credit && i.against && <p className="muted sm">Against invoice {i.against}</p>}</div>
           <div className="inv-from"><b>{c.name || i.brand}</b>{c.address && <span>{c.address}</span>}{c.state && <span>{c.state}{c.stateCode ? ` (${c.stateCode})` : ''}</span>}{c.gstin && <span>GSTIN: {c.gstin}</span>}{c.email && <span>{c.email}</span>}</div>
         </header>
         <section className="inv-meta">
           <div><small>Billed to</small><b>{t.name}</b><span>{t.email}</span>{t.address && <span>{t.address}</span>}{t.state && <span>{t.state}{t.stateCode ? ` (${t.stateCode})` : ''}</span>}{t.gstin && <span>GSTIN: {t.gstin}</span>}{i.export && t.country && <span>Country: {t.country}</span>}</div>
-          <div><small>Invoice date</small><b>{fmtDate(i.at)}</b><small>Period</small><span>{fmtDate(i.period?.from)} – {fmtDate(i.period?.to)}</span>{i.registered && <><small>Place of supply</small><span>{i.export ? 'Outside India' : t.state || '—'}</span></>}{i.paymentId && <><small>Payment</small><span className="mono">{i.paymentId}</span></>}</div>
+          <div><small>Invoice date</small><b>{fmtDate(i.at)}</b><small>Period</small><span>{fmtDate(i.period?.from)} – {fmtDate(i.period?.to)}</span>{i.registered && <><small>Place of supply</small><span>{i.export ? 'Outside India' : t.state || c.state || '—'}</span></>}{i.paymentId && <><small>Payment</small><span className="mono">{i.paymentId}</span></>}</div>
         </section>
         <table className="inv-t">
           <thead><tr><th>Description</th>{i.registered && <th>SAC</th>}<th className="r">Amount</th></tr></thead>
-          <tbody><tr><td>{i.item}</td>{i.registered && <td>998314</td>}<td className="r">{money(i.taxable)}</td></tr></tbody>
+          <tbody><tr><td>{i.item}</td>{i.registered && <td>{i.sac || '998314'}</td>}<td className="r">{money(i.taxable)}</td></tr></tbody>
           <tfoot>
             {i.registered && (intra ? <>
               <tr><td colSpan={2}>CGST @ {i.rate / 2}%</td><td className="r">{money(i.cgst)}</td></tr>
               <tr><td colSpan={2}>SGST @ {i.rate / 2}%</td><td className="r">{money(i.sgst)}</td></tr>
             </> : <tr><td colSpan={2}>IGST @ {i.rate}%</td><td className="r">{money(i.igst)}</td></tr>)}
-            <tr className="tot"><td colSpan={i.registered ? 2 : 1}>Total paid</td><td className="r">{money(i.total)}</td></tr>
+            <tr className="tot"><td colSpan={i.registered ? 2 : 1}>{credit ? 'Total refunded' : 'Total paid'}</td><td className="r">{money(i.total)}</td></tr>
           </tfoot>
         </table>
         {CUR === 'INR' && <p className="inv-words">{inWords(i.total)}</p>}

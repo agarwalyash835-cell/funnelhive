@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { signHeaders, presignQuery } from '../storage.js';
-import { startServer, register } from './helpers.mjs';
+import { startServer, register, enable2fa } from './helpers.mjs';
 
 test('Signature V4 matches the AWS documentation examples', () => {
   const base = { accessKey: 'AKIAIOSFODNN7EXAMPLE', secret: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', region: 'us-east-1', amz: '20130524T000000Z', host: 'examplebucket.s3.amazonaws.com', path: '/test.txt' };
@@ -39,10 +39,11 @@ after(async () => { await srv.stop(); s3.close(); });
 test('storage entered in the admin panel: checked with a real write, kept encrypted, used for off-site backups', async () => {
   const s2 = await startServer({ ADMIN_EMAILS: 'boss@store.test' });
   try {
-    const A = (await register(s2.api, 'boss@store.test')).token;
+    let A = (await register(s2.api, 'boss@store.test')).token;
     // admins must verify their email first
     const link = s2.log().match(/To: boss@store\.test[\s\S]*?\/verify\?token=([a-f0-9.]+)/);
     await s2.api('/auth/verify', 'POST', { token: link[1] });
+    ({ token: A } = await enable2fa(s2.api, A)); // the admin panel needs 2-step login
     const put = (storage) => s2.api('/admin/settings', 'PUT', { storage }, A);
     const ep = `http://127.0.0.1:${s3.address().port}`;
     assert.equal((await put({ endpoint: 'ftp://nope', bucket: 'bucket', key: 'AK', secret: 'SK' })).status, 400);
@@ -57,7 +58,10 @@ test('storage entered in the admin panel: checked with a real write, kept encryp
     assert.ok(![...objects.keys()].some((k) => k.startsWith('funnelhive-check-')), 'the test file is cleaned up');
     // the first off-site copy follows straight away
     for (let i = 0; i < 50 && ![...objects.keys()].some((k) => k.startsWith('backups/')); i++) await new Promise((r) => setTimeout(r, 100));
-    assert.ok([...objects.keys()].some((k) => /^backups\/funnelhive-\d{4}-\d{2}-\d{2}\.db$/.test(k)), 'backup copied off the server');
+    const key = [...objects.keys()].find((k) => /^backups\/funnelhive-\d{4}-\d{2}-\d{2}\.db\.enc$/.test(k));
+    assert.ok(key, 'backup copied off the server');
+    assert.equal(objects.get(key).subarray(0, 4).toString(), 'FHB1', 'encrypted before it leaves the server');
+    assert.ok(!objects.get(key).includes(Buffer.from('SQLite format 3')), 'no plain database off-site');
   } finally { await s2.stop(); }
 });
 

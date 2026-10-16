@@ -146,7 +146,7 @@ test('automation: abandoned checkout reminder stops when the person buys', async
   await api(`/automations/${a.id}`, 'PUT', { active: true }, T);
   const co = f.steps.find((s) => s.type === 'checkout');
   const before = mails.length;
-  await api(`/public/${f.slug}/abandon`, 'POST', { stepId: co.id, email: 'rahul@example.com', name: 'Rahul Verma' });
+  await api(`/public/${f.slug}/abandon`, 'POST', { notice: true, stepId: co.id, email: 'rahul@example.com', name: 'Rahul Verma' });
   const first = await until(() => mails.slice(before).find((m) => m.includes('You left something, Rahul')));
   assert.ok(first, 'reminder sent after the delay');
   assert.match(first, new RegExp(`/f/${f.slug}/${co.slug}`), 'link goes straight to checkout');

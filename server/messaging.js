@@ -2,7 +2,9 @@
 // and WhatsApp (Meta WhatsApp Cloud API). Passwords and tokens are stored encrypted (AES-256-GCM).
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
-import { checkPublicHost, allowPrivate } from './webhooks.js';
+import dns from 'node:dns/promises';
+import net from 'node:net';
+import { checkPublicHost, allowPrivate, isPrivateIp } from './webhooks.js';
 import { T } from './db.js';
 
 let KEY = null;
@@ -36,7 +38,7 @@ export function emailStatus(u) {
 const transports = new Map();
 function transportFor(cfg) {
   const k = JSON.stringify(cfg);
-  if (!transports.has(k)) transports.set(k, nodemailer.createTransport({ host: cfg.host, port: cfg.port, secure: !!cfg.secure, auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000 }));
+  if (!transports.has(k)) transports.set(k, nodemailer.createTransport({ host: cfg.ip || cfg.host, ...(cfg.ip ? { servername: cfg.host } : {}), port: cfg.port, secure: !!cfg.secure, auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000 }));
   return transports.get(k);
 }
 // track: { link(url) → tracked url, pixel: url } — open/click tracking for automation emails
@@ -49,8 +51,10 @@ export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverr
   const fromName = e.fromName || u?.settings?.businessName || 'FunnelHive';
   const body = unsubscribeUrl ? `${text}\n\n—\nDon’t want these emails? Unsubscribe: ${unsubscribeUrl}` : text;
   const headers = unsubscribeUrl ? { 'List-Unsubscribe': `<${unsubscribeUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } : undefined;
-  const smtp = own || envSmtp();
-  if (own) await checkPublicHost(own.host); // re-checked on send: DNS can change after saving
+  // a seller's SMTP host is re-checked on send (DNS can change after saving) and the connection goes to the very
+  // address that was checked, so a DNS answer that flips to a private address can't slip in between
+  let smtp = own || envSmtp();
+  if (own) { await checkPublicHost(own.host); if (!allowPrivate() && !net.isIP(own.host)) { const { address } = await dns.lookup(own.host); if (isPrivateIp(address)) throw new Error('This must be a public internet address'); smtp = { ...own, ip: address }; } }
   if (smtp) {
     const from = own ? `"${fromName.replace(/"/g, '')}" <${e.fromEmail || smtp.user}>` : process.env.MAIL_FROM || `"${fromName.replace(/"/g, '')}" <${smtp.user}>`;
     const info = await transportFor(smtp).sendMail({ from, to, subject, text: body, html: htmlOf(body, track), replyTo: e.replyTo || undefined, headers });

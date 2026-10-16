@@ -33,6 +33,8 @@ const priceLike = (v) => /^\s*(₹|rs\.?|inr)?\s*\d[\d,]*(\.\d+)?\s*(\/-)?\s*$/i
 // lists a template can't lend items to: a seller's application questions (and their reject rules) are their own
 const OWN_LISTS = new Set(['form.fields']);
 const num = (v) => Number(String(v ?? '').replace(/[^\d.]/g, ''));
+// a countdown counting minutes per visitor (not a fixed date or the next webinar session)
+const perVisitor = (p) => (p.mode ? p.mode === 'evergreen' : !(num(p.endsAt) > 0));
 
 // ---------- the bar, measured from the templates ----------
 let BAR = null;
@@ -58,9 +60,9 @@ export function barText(blueprint) {
 1. Steps, in this exact order, each with exactly these blocks in this order:
 ${blueprint.map((s, i) => `   ${i + 1}. ${s.type}: ${s.blocks.join(', ')}`).join('\n')}
 2. Every block has all its fields filled with specific copy (as in the example). Minimum list sizes: ${lists}.
-3. No placeholders anywhere ("Your Product", "Benefit one", "[link]", "lorem", "Expert Name"…). Invent realistic specifics: Indian names with cities, numbers, results.
+3. No placeholders anywhere ("Your Product", "Benefit one", "[link]", "lorem", "Expert Name"…). Be specific about the offer itself, but never invent facts about the seller: no customer / attendee counts, ratings, review counts, "only N left" or "price goes up tonight" lines. stats values stay "[Add your real number]" for the seller to fill in. Sample testimonials use realistic Indian names with cities.
 4. One price everywhere: checkout.price = pricing.price, and any hero.cardPrice / stickybar.price that shows a price shows that same amount (e.g. "₹1,999"). A free registration page (webinar, lead magnet) says "FREE" instead; an application funnel says "By application". Every mrp is higher than its price. Upsell and downsell offers have their own lower prices.
-5. Hero headline has one *highlighted phrase* in stars. Testimonials and proof use "Name, City" style Indian names. stock.label contains {n}. proof.intervalSec ≥ 9.
+5. Hero headline has one *highlighted phrase* in stars. Testimonials use "Name, City" style Indian names. stock.label contains {n}. proof.intervalSec ≥ 9.
 6. theme.style is one of ${STYLES.join('|')}; primary and secondary are #rrggbb colours.`;
 }
 
@@ -100,14 +102,12 @@ export function audit(f, blueprint) {
     if (b.type === 'hero' && (String(p.headline || '').length < 25 || String(p.headline || '').length > 160)) add(b.si, b.bi, b.type, 'headline should be 25–160 characters');
     if (b.type === 'stock' && !String(p.label || '').includes('{n}')) add(b.si, b.bi, b.type, 'label must contain {n}');
     if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) add(b.si, b.bi, b.type, `variant must be one of ${(VARIANTS[b.type] || ['(none)']).join(', ')}`);
-    if (b.type === 'livecount' && !(num(p.min) > 0 && num(p.max) > num(p.min))) add(b.si, b.bi, b.type, 'min/max viewers must be positive with max > min');
     if (b.type === 'proof' && num(p.intervalSec) < 9) add(b.si, b.bi, b.type, 'intervalSec must be ≥ 9');
-    if (b.type === 'proof' && (p.items || []).some((x) => empty(x?.name) || empty(x?.city))) add(b.si, b.bi, b.type, 'every proof item needs name and city');
     if (b.type === 'testimonials' && (p.items || []).some((x) => empty(x?.name) || empty(x?.quote))) add(b.si, b.bi, b.type, 'every testimonial needs name and quote');
     if (b.type === 'testimonials' && new Set((p.items || []).map((x) => x?.quote)).size < (p.items || []).length) add(b.si, b.bi, b.type, 'testimonials repeat the same quote');
     if (b.type === 'faq' && (p.items || []).some((x) => empty(x?.q) || empty(x?.a))) add(b.si, b.bi, b.type, 'every FAQ needs a question and an answer');
     if (b.type === 'checkout' && p.bumpEnabled && !(num(p.bumpPrice) > 0)) add(b.si, b.bi, b.type, 'order bump needs a price');
-    if (b.type === 'countdown' && !(num(p.minutes) > 0)) add(b.si, b.bi, b.type, 'countdown minutes must be positive');
+    if (b.type === 'countdown' && perVisitor(p) && !(num(p.minutes) > 0)) add(b.si, b.bi, b.type, 'countdown minutes must be positive');
   }
   // one price everywhere
   const main = num(first('checkout')?.props?.price) || num(first('pricing')?.props?.price);
@@ -197,10 +197,9 @@ function fixups(f, filled) {
     const p = b.props;
     if ('mrp' in p && 'price' in p && !(num(p.mrp) > num(p.price))) { const m = Math.round((num(p.price) * 2.2) / 100) * 100 - 1; p.mrp = typeof p.mrp === 'string' ? `₹${m.toLocaleString('en-IN')}` : m; filled.push(`${b.type}.mrp`); }
     if (b.type === 'hero' && !/\*[^*]+\*/.test(p.headline || '')) { const w = String(p.headline || '').split(' — '); p.headline = w.length > 1 ? `${w[0]} — *${w.slice(1).join(' — ')}*` : String(p.headline || '').replace(/(\S+\s+\S+)$/, '*$1*'); filled.push('hero.headline highlight'); }
-    if (b.type === 'stock' && !String(p.label || '').includes('{n}')) { p.label = 'Hurry! Only {n} left at this price'; filled.push('stock.label'); }
+    if (b.type === 'stock' && !String(p.label || '').includes('{n}')) { p.label = 'Only {n} left in stock'; filled.push('stock.label'); }
     if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) { if (VARIANTS[b.type]) p.variant = VARIANTS[b.type][0]; else delete p.variant; filled.push(`${b.type}.variant`); }
     if (b.type === 'proof' && num(p.intervalSec) < 9) { p.intervalSec = 9; filled.push('proof.intervalSec'); }
-    if (b.type === 'livecount' && !(num(p.max) > num(p.min) && num(p.min) > 0)) { p.min = 24; p.max = 68; filled.push('livecount'); }
-    if (b.type === 'countdown' && !(num(p.minutes) > 0)) { p.minutes = 30; filled.push('countdown.minutes'); }
+    if (b.type === 'countdown' && perVisitor(p) && !(num(p.minutes) > 0)) { p.minutes = 30; filled.push('countdown.minutes'); }
   }
 }

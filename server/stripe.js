@@ -1,7 +1,9 @@
 // Stripe: international buyers (USD, EUR, GBP…) and cards from anywhere. Each seller connects their own Stripe
 // account (publishable + secret key, optional webhook signing secret).
 //   one-time   — a PaymentIntent paid in Stripe's Payment Element (on the page, no redirect); the card is saved to
-//                a Stripe customer so one-click upsells charge it off-session
+//                a Stripe customer only when the buyer ticked "Save my card for faster checkout" (saveCard), so
+//                one-click upsells can charge it off-session — never for INR / Indian cards (RBI: each charge
+//                needs the buyer's authentication, so the upsell opens the card form again)
 //   membership — a Subscription (monthly / yearly) whose first invoice is paid in the Payment Element
 //   instalments— the same, ending after N payments (cancel_at)
 // A payment counts only after the server reads it back from Stripe (succeeded, right amount, our payment id),
@@ -59,19 +61,23 @@ async function customerFor(c, userId, buyer) {
 }
 
 // one-time payment: returns what the Payment Element needs
-export async function startStripePayment(c, { userId, pay, iso, buyer, description }) {
+// saveCard: the buyer's consent to keep the card (RBI card-on-file rules; no tick, nothing is saved)
+export async function startStripePayment(c, { userId, pay, iso, buyer, description, saveCard = false }) {
   const customer = await customerFor(c, userId, buyer);
   const pi = await stripe(c, 'POST', '/payment_intents', {
     amount: minor(pay.charge.total, iso), currency: iso.toLowerCase(), customer, description: description.slice(0, 500), receipt_email: buyer.email || undefined,
-    automatic_payment_methods: { enabled: true }, setup_future_usage: 'off_session', metadata: { payment: pay.id, funnel: pay.funnelId },
+    automatic_payment_methods: { enabled: true }, ...(saveCard ? { setup_future_usage: 'off_session' } : {}), metadata: { payment: pay.id, funnel: pay.funnelId, ...(saveCard ? { saveCard: 'yes' } : {}) },
   }, { idem: `pi-${pay.id}` });
   return { provider: 'stripe', payment: pay.id, publishableKey: c.publishableKey, clientSecret: pi.client_secret, intent: pi.id, customer };
 }
-// one-click upsell: charge the card saved at checkout, no form; a card that needs the buyer (3-D Secure) falls back to the form
+// one-click upsell: charge the card saved at checkout, no form; a card that needs the buyer (3-D Secure) falls back to the form.
+// INR, or a card issued in India: never off-session (RBI additional factor of authentication) — null, so the
+// buyer confirms in the card form on the page
 export async function chargeSaved(c, { pay, iso, customer, description }) {
+  if (iso === 'INR') return null;
   const pms = await stripe(c, 'GET', `/customers/${customer}/payment_methods`, { limit: 1 });
   const pm = pms.data?.[0]?.id;
-  if (!pm) return null;
+  if (!pm || pms.data[0].card?.country === 'IN') return null;
   try {
     const pi = await stripe(c, 'POST', '/payment_intents', { amount: minor(pay.charge.total, iso), currency: iso.toLowerCase(), customer, payment_method: pm, off_session: true, confirm: true, description: description.slice(0, 500), metadata: { payment: pay.id, funnel: pay.funnelId } }, { idem: `pi-${pay.id}` });
     return pi;
@@ -97,7 +103,9 @@ export async function startStripeSubscription(c, { userId, pay, iso, buyer, plan
     ...(plan.type === 'installments' ? { cancel_at: now + (plan.count - 1) * 31 * 86400 + 86400, proration_behavior: 'none' } : {}),
     expand: ['latest_invoice.payment_intent'], metadata: { payment: pay.id, funnel: pay.funnelId },
   }, { idem: `sub-${pay.id}` });
-  return { provider: 'stripe', payment: pay.id, publishableKey: c.publishableKey, clientSecret: sub.latest_invoice?.payment_intent?.client_secret, subscription: sub.id, customer };
+  // the card is kept for the later charges: the buyer is told so in the card form
+  const note = `${plan.type === 'installments' ? 'Your card will be saved for the instalments' : 'Your card will be saved for the renewals'}${iso === 'INR' && plan.amount > 15000 ? ' · each charge above ₹15,000 needs your approval in your bank app' : ''}`;
+  return { provider: 'stripe', payment: pay.id, publishableKey: c.publishableKey, clientSecret: sub.latest_invoice?.payment_intent?.client_secret, subscription: sub.id, customer, description: `${String(name).slice(0, 200)} — ${note}` };
 }
 // is this payment really paid? → the PaymentIntent id, or null
 export async function confirmedIntent(c, pay) {

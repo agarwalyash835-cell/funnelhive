@@ -106,6 +106,7 @@ export default function Billing() {
                 {!(abroad ? b.intl?.ready : b.ready) ? <p className="err">Online payments aren’t set up on this server yet. Please contact support.</p> : (
                   <button className="btn primary lg block" disabled={busy || !detailsOk} onClick={subscribe}>{busy ? <><span className="spin" /> {details?.country !== 'IN' ? 'Opening the card form…' : 'Opening Razorpay…'}</> : switching ? `Switch to this plan — from your next renewal` : a.status === 'trialing' ? `Subscribe — first charge after your trial` : `Subscribe for ${money(price.amount)}`}</button>
                 )}
+                {!abroad && price.amount > 15000 && <p className="hint center">Each renewal above ₹15,000 needs your approval in your bank app — Razorpay sends you a request before every charge.</p>}
                 <p className="hint center">{abroad ? `Secure card payment by Stripe · billed in ${cur}${b.intl?.mode === 'test' ? ' · TEST MODE' : ''}` : `Secure payment by Razorpay · UPI Autopay, cards, netbanking${b.mode === 'test' ? ' · TEST MODE' : ''}`}</p>
               </div>
             </Panel>

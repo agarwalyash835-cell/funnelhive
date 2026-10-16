@@ -97,17 +97,18 @@ const KIND = {
 };
 const FOOD = new Set(['pickle', 'organic', 'dryfruits', 'sweets', 'tea']);
 const FASHION = new Set(['ethnicwear', 'jewellery']);
-// [section, layout] in page order; '*' marks where the price box / form goes
+// [section, layout] in page order; '*' marks where the price box / form goes. No made-up urgency (India's dark-pattern
+// rules): countdowns only where there's a real time (a live session), no stock or viewer counts the seller didn't give
 const PLANS = {
-  course: ['hellobar', ['hero', ['split', 'editorial', 'center']], ['stats', ['strip', 'cards']], ['problem', ['split', 'list']], ['features', ['zigzag', 'cards', 'grid']], ['mentor', ['story', 'split']], ['steps', ['timeline', 'cards']], ['compare', ['table', 'columns']], ['testimonials', ['cards', 'wall', 'spotlight']], ['bonuses', ['dark', 'light']], 'countdown', '*', 'stock', ['guarantee', ['box', 'strip']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
-  money: ['hellobar', ['hero', ['editorial', 'center', 'split']], ['stats', ['band', 'strip']], ['problem', ['list', 'split']], ['features', ['grid', 'zigzag']], ['compare', ['table', 'columns']], ['mentor', ['card', 'story']], ['testimonials', ['spotlight', 'cards']], ['steps', ['cards', 'timeline']], ['bonuses', ['light', 'dark']], 'countdown', '*', 'stock', ['guarantee', ['strip', 'box']], ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
-  transform: ['hellobar', ['hero', ['split', 'center', 'banner']], 'livecount', ['problem', ['cards', 'list']], ['steps', ['cards', 'timeline']], ['features', ['list', 'grid']], ['testimonials', ['wall', 'spotlight']], ['stats', ['band', 'cards']], ['mentor', ['split', 'story']], ['bonuses', ['dark', 'light']], 'countdown', '*', 'stock', ['guarantee', ['box', 'strip']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
-  product: ['hellobar', ['hero', ['center', 'banner', 'split']], ['stats', ['cards', 'strip']], ['problem', ['list', 'cards']], ['features', ['grid', 'zigzag', 'cards']], ['mentor', ['story', 'card']], ['testimonials', ['chat', 'wall']], ['steps', ['columns', 'timeline']], '*', 'stock', ['guarantee', ['strip', 'box']], ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
+  course: ['hellobar', ['hero', ['split', 'editorial', 'center']], ['stats', ['strip', 'cards']], ['problem', ['split', 'list']], ['features', ['zigzag', 'cards', 'grid']], ['mentor', ['story', 'split']], ['steps', ['timeline', 'cards']], ['compare', ['table', 'columns']], ['testimonials', ['cards', 'wall', 'spotlight']], ['bonuses', ['dark', 'light']], '*', ['guarantee', ['box', 'strip']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
+  money: ['hellobar', ['hero', ['editorial', 'center', 'split']], ['stats', ['band', 'strip']], ['problem', ['list', 'split']], ['features', ['grid', 'zigzag']], ['compare', ['table', 'columns']], ['mentor', ['card', 'story']], ['testimonials', ['spotlight', 'cards']], ['steps', ['cards', 'timeline']], ['bonuses', ['light', 'dark']], '*', ['guarantee', ['strip', 'box']], ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
+  transform: ['hellobar', ['hero', ['split', 'center', 'banner']], ['problem', ['cards', 'list']], ['steps', ['cards', 'timeline']], ['features', ['list', 'grid']], ['testimonials', ['wall', 'spotlight']], ['stats', ['band', 'cards']], ['mentor', ['split', 'story']], ['bonuses', ['dark', 'light']], '*', ['guarantee', ['box', 'strip']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
+  product: ['hellobar', ['hero', ['center', 'banner', 'split']], ['stats', ['cards', 'strip']], ['problem', ['list', 'cards']], ['features', ['grid', 'zigzag', 'cards']], ['mentor', ['story', 'card']], ['testimonials', ['chat', 'wall']], ['steps', ['columns', 'timeline']], '*', ['guarantee', ['strip', 'box']], ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
   booking: ['hellobar', ['hero', ['banner', 'center', 'split']], ['stats', ['band', 'cards']], ['features', ['list', 'grid', 'cards']], ['steps', ['timeline', 'columns']], ['testimonials', ['spotlight', 'chat', 'wall']], ['mentor', ['card', 'split']], '*', ['guarantee', ['strip', 'box']], ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
   property: [['hero', ['banner', 'editorial']], ['stats', ['cards', 'band']], ['features', ['zigzag', 'grid']], ['compare', ['table', 'columns']], ['mentor', ['card', 'story']], ['testimonials', ['spotlight', 'cards']], ['steps', ['timeline', 'cards']], '*', ['faq', ['two', 'accordion']], ['cta', ['plain', 'banner']]],
   advice: ['hellobar', ['hero', ['center', 'split', 'banner']], ['stats', ['strip', 'band']], ['problem', ['split', 'cards']], ['features', ['grid', 'list']], ['steps', ['cards', 'timeline']], ['compare', ['columns', 'table']], ['testimonials', ['cards', 'spotlight']], ['mentor', ['card', 'split']], '*', ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
   agency: [['hero', ['editorial', 'split']], ['stats', ['strip', 'band']], ['problem', ['split', 'list']], ['features', ['grid', 'zigzag']], ['steps', ['cards', 'timeline']], ['testimonials', ['cards', 'spotlight']], ['compare', ['columns', 'table']], ['mentor', ['card', 'story']], '*', ['guarantee', ['strip', 'box']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
-  event: ['hellobar', ['hero', 'center'], 'countdown', 'livecount', ['features', 'list'], ['mentor', 'split'], ['bonuses', 'light'], ['testimonials', 'wall'], '*', ['faq', 'accordion'], ['cta', 'banner']],
+  event: ['hellobar', ['hero', 'center'], 'countdown', ['features', 'list'], ['mentor', 'split'], ['bonuses', 'light'], ['testimonials', 'wall'], '*', ['faq', 'accordion'], ['cta', 'banner']],
   spiritual: [['hero', ['center', 'split']], ['features', ['grid', 'list']], ['mentor', ['story', 'split']], ['steps', ['timeline', 'columns']], ['testimonials', ['chat', 'spotlight']], '*', ['guarantee', ['box', 'strip']], ['faq', ['accordion', 'two']], ['cta', ['banner', 'plain']]],
   kids: ['hellobar', ['hero', ['split', 'center']], ['problem', ['cards', 'list']], ['features', ['grid', 'cards']], ['steps', ['columns', 'cards']], ['testimonials', ['chat', 'wall']], ['mentor', ['card', 'split']], ['compare', ['columns', 'table']], '*', ['guarantee', ['box', 'strip']], ['faq', ['two', 'accordion']], ['cta', ['banner', 'plain']]],
 };
@@ -117,7 +118,7 @@ const REORDER = [['testimonials', 'mentor'], ['steps', 'features'], ['compare', 
 const EXTRAS = {
   course: ['proof', 'exitpopup', 'stickybar', 'whatsapp'], money: ['proof', 'exitpopup', 'stickybar', 'whatsapp'], transform: ['proof', 'exitpopup', 'stickybar', 'whatsapp'],
   product: ['proof', 'exitpopup', 'stickybar', 'whatsapp'], booking: ['exitpopup', 'stickybar', 'whatsapp'], property: ['exitpopup', 'stickybar', 'whatsapp'],
-  advice: ['exitpopup', 'stickybar', 'whatsapp'], agency: ['exitpopup', 'whatsapp'], event: ['proof', 'stickybar', 'whatsapp'], spiritual: ['proof', 'exitpopup', 'stickybar', 'whatsapp'],
+  advice: ['exitpopup', 'stickybar', 'whatsapp'], agency: ['exitpopup', 'whatsapp'], event: ['stickybar', 'whatsapp'], spiritual: ['proof', 'exitpopup', 'stickybar', 'whatsapp'],
   kids: ['exitpopup', 'stickybar', 'whatsapp'],
 };
 // how each kind talks about its sections
@@ -216,13 +217,10 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
   const h = hash(id);
   const pick = (opts, salt = 0) => (Array.isArray(opts) ? opts[(h + salt) % opts.length] : opts);
   const disc = mrp > price && mrp ? Math.round((1 - price / mrp) * 100) : 0;
-  const left = 7 + (h % 9);
   const stats = pairs(c.stats(h), 'value', 'label');
   const featItems = pairs(feats, 'title', 'text').map((f, i) => ({ icon: c.icons[i % c.icons.length], ...f }));
   const bonusItems = c.bonuses.map((s) => { const [icon, title, value] = s.split('|'); return { icon, title, value: inr(value) }; });
   const bonusTotal = c.bonuses.reduce((a, s) => a + Number(s.split('|')[2]), 0);
-  const proof = Array.from({ length: 12 }, (_, i) => ({ name: NAMES[(h + i * 3) % NAMES.length], city: CITIES[(h + i * 5) % CITIES.length] }));
-  const action = isLead ? 'just booked a free consultation' : `just ${c.verb} ${product}`;
   const cta = isLead ? (kind === 'event' ? 'Save My Free Seat' : 'Get My Free Consultation') : kind === 'booking' ? 'Book My Slot' : kind === 'product' ? 'Order Now' : disc ? 'Yes! I Want This Offer' : 'Reserve My Spot';
   const who = c.who;
   const x = { id, short: shortName(product), who, whoCap: who[0].toUpperCase() + who.slice(1) };
@@ -230,7 +228,7 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
   const testimonials = [
     ...pairs(quotes, 'name', 'quote'),
     ...GENERIC_QUOTES.map((q, i) => ({ name: `${NAMES[(h + 7 + i * 4) % NAMES.length]}, ${CITIES[(h + 3 + i * 7) % CITIES.length]}`, quote: q })),
-  ].map((t) => ({ ...t, tag: isLead ? 'Verified client' : `Verified ${who.replace(/s$/, '')}` }));
+  ]; // sample reviews the seller replaces: never tagged "Verified"
   const faqItems = [
     ...pairs(faqs, 'q', 'a'),
     { q: 'Which payment methods do you accept?', a: 'UPI (GPay, PhonePe, Paytm), debit/credit cards (Visa, Mastercard, RuPay), netbanking and wallets. COD on select products.' },
@@ -241,34 +239,33 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
   // every section this template can use, already written for its kind
   const S = {
     hellobar: { messages: [
-      { text: isLead ? (kind === 'event' ? '🎙️ Free live session — seats are limited' : '📞 Free consultations open this week') : kind === 'product' ? `🚚 Free shipping across India · COD available` : kind === 'booking' ? '📅 Weekend slots fill up fast — book early' : `🔥 Flat ${disc}% OFF — this week only` },
-      { text: kind === 'product' ? `🎁 ${disc}% OFF on your first order` : `⏰ Only ${left} ${c.unit} left at this price` },
+      { text: isLead ? (kind === 'event' ? '🎙️ Free live session — seats are limited' : '📞 Free consultations open this week') : kind === 'product' ? `🚚 Free shipping across India · COD available` : kind === 'booking' ? '📅 Weekend slots fill up fast — book early' : `🔥 Flat ${disc}% OFF` },
+      { text: kind === 'product' ? `🎁 ${disc}% OFF on your first order` : `✅ ${c.guarantee[0]}` },
       { text: `🎁 Free bonuses worth ${inr(bonusTotal)} with every ${isLead ? 'booking' : 'order'}` },
     ] },
     hero: {
       badge, headline: accentHeadline(headline), subheadline: sub, ctaText: cta, secondaryText: kind === 'product' ? 'See what’s inside' : 'See how it works',
-      rating: Number(stats[1].value.slice(0, 3)), reviews: `${1 + (h % 9)},${100 + (h % 899)}`, socialText: `Loved by ${stats[0].value} ${who} across India`,
+      rating: '', reviews: '', socialText: `Made for ${who} across India`, // no invented rating or review count
       image: '', cardEmoji: badge.split(' ')[0], cardTitle: product, cardPrice: isLead ? LEAD_PRICE[id] || 'FREE' : inr(price), cardMrp: isLead || !mrp ? '' : inr(mrp),
       cardPoints: featItems.slice(0, 3).map((f) => ({ text: f.title })),
-      chip1: `🔥 ${40 + (h % 160)} ${isLead ? 'booked' : c.verb.split(' ')[0]} today`, chip2: isLead ? '✅ No spam, no obligation' : '🔒 100% secure payment',
+      chip1: isLead ? '📅 Pick a time that suits you' : kind === 'product' ? '🚚 Delivery across India' : '⚡ Instant access after payment', chip2: isLead ? '✅ No spam, no obligation' : '🔒 100% secure payment',
     },
-    livecount: { text: isLead ? 'people are looking at this right now' : 'people are viewing this page right now', min: 24 + (h % 20), max: 70 + (h % 40) },
     stats: { items: stats },
-    problem: { eyebrow: K.problem[0], title: K.problem[1], subtitle: K.problem[2] || `Thousands of ${who} told us the same thing before they found us.`, items: painStr.split('|').map((text) => ({ text })), closing: `There’s a better way — and ${x.short} was built for exactly this. 👇` },
+    problem: { eyebrow: K.problem[0], title: K.problem[1], subtitle: K.problem[2] || `If this sounds like you, you’re not alone.`, items: painStr.split('|').map((text) => ({ text })), closing: `There’s a better way — and ${x.short} was built for exactly this. 👇` },
     features: { eyebrow: K.features[0], title: K.features[1], subtitle: K.features[2] || `${product}, done properly.`, items: featItems },
     steps: { eyebrow: K.steps[0], title: K.steps[1], items: pairs(c.steps, 'title', 'text') },
     compare: { eyebrow: K.compare[0], title: K.compare[1], leftTitle: c.cmp[0], rightTitle: `With ${x.short}`, rows: pairs(c.cmp[1], 'left', 'right') },
     testimonials: { eyebrow: K.testimonials[0], title: K.testimonials[1], items: testimonials },
-    mentor: { eyebrow: isBrand(ename) ? (kind === 'property' ? 'About the developer' : 'Who we are') : K.mentor, name: ename, role: erole, bio: ebio, image: '', points: stats.slice(0, 3).map((s) => ({ text: `${s.value} ${s.label}` })) },
+    mentor: { eyebrow: isBrand(ename) ? (kind === 'property' ? 'About the developer' : 'Who we are') : K.mentor, name: ename, role: erole, bio: ebio, image: '', points: [{ text: '[Add a real credential — years of experience, qualifications]' }] },
     bonuses: { eyebrow: K.bonuses[0], title: K.bonuses[1], items: bonusItems, totalText: `Total value: ${inr(bonusTotal)} — yours free today` },
-    countdown: { label: kind === 'event' ? 'The live session starts in' : isLead ? 'This offer closes in' : `${disc}% OFF ends in`, minutes: [30, 60, 120, 180][h % 4] },
-    stock: { label: `Hurry! Only {n} ${c.unit} left at this price`, total: 50, left },
+    // counts down to the webinar's next session (sales pages don't get a countdown: no real deadline)
+    countdown: { label: 'The live session starts in', mode: 'session', endedText: 'The session has started' },
     guarantee: { title: c.guarantee[0], body: c.guarantee[1], days: isLead ? 0 : c.guarantee[2] },
     faq: { eyebrow: K.faq[0], title: K.faq[1], items: faqItems },
-    cta: { headline: isLead ? (kind === 'event' ? 'Save your free seat — it takes 20 seconds' : 'Your free consultation is one click away') : kind === 'product' ? `Treat yourself — ${disc}% OFF today` : `Don’t miss ${disc}% OFF — start today`, subheadline: `Join ${stats[0].value} ${who} who already made the switch.`, buttonText: cta, note: isLead ? '✅ Free · ✅ No obligation · ✅ Callback within 24 hrs' : '🔒 Secure UPI & card payments · ✅ 7-day money-back guarantee' },
-    proof: { action, intervalSec: 9, items: proof },
-    exitpopup: { title: 'Wait — your offer expires soon!', body: isLead ? 'Book now and get a free priority callback within 2 hours.' : 'Complete your order now and get an extra 10% OFF.', code: 'INDIA10', buttonText: isLead ? 'Book free consultation' : 'Claim extra 10% OFF' },
-    stickybar: { text: isLead ? (kind === 'event' ? 'Free live session' : 'Free expert consultation') : `${disc}% OFF ends tonight`, price: isLead ? '₹0' : inr(price), buttonText: isLead ? (kind === 'event' ? 'Save Seat' : 'Book Free') : kind === 'booking' ? 'Book Now' : 'Buy Now' },
+    cta: { headline: isLead ? (kind === 'event' ? 'Save your free seat — it takes 20 seconds' : 'Your free consultation is one click away') : kind === 'product' ? `Treat yourself — ${disc}% OFF today` : `Don’t miss ${disc}% OFF — start today`, subheadline: `${product}, ready when you are.`, buttonText: cta, note: isLead ? '✅ Free · ✅ No obligation · ✅ Callback within 24 hrs' : '🔒 Secure UPI & card payments · ✅ 7-day money-back guarantee' },
+    proof: { intervalSec: 9 }, // real recent orders only
+    exitpopup: { title: 'Before you go…', body: isLead ? 'Book now and get a free priority callback within 2 hours.' : 'Complete your order now and get an extra 10% OFF.', code: 'INDIA10', buttonText: isLead ? 'Book free consultation' : 'Claim extra 10% OFF' },
+    stickybar: { text: isLead ? (kind === 'event' ? 'Free live session' : 'Free expert consultation') : `${disc}% OFF`, price: isLead ? '₹0' : inr(price), buttonText: isLead ? (kind === 'event' ? 'Save Seat' : 'Book Free') : kind === 'booking' ? 'Book Now' : 'Buy Now' },
     whatsapp: { number: '919999999999', message: `Hi! I want to know more about ${product}.`, label: 'Chat with us' },
   };
   const priceBox = isLead
@@ -293,19 +290,18 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
   for (const type of EXTRAS[kind]) landing.push({ type, props: S[type] });
   const tone = { course: 'Reserve your seat', money: 'Lock in your price', transform: 'Start your plan', product: 'Complete your order', booking: 'Confirm your booking', kids: 'Confirm your child’s seat', spiritual: 'Confirm your session', agency: 'Start your project' }[kind] || 'Complete your order';
   const checkout = [
-    { type: 'hellobar', props: { messages: [{ text: `⏰ ${tone} — your price is held for 15 minutes` }, { text: '🔒 100% secure payment · 7-day money-back guarantee' }] } },
-    { type: 'countdown', props: { label: 'Your price is locked for', minutes: 15 } },
-    { type: 'checkout', props: { productName: product, description: kind === 'product' ? 'Ships in 24 hours · tracking on WhatsApp' : 'Instant confirmation on email & WhatsApp', price, mrp, currency: '₹', ...(kind === 'product' ? { shipping: 'address', shippingFee: 0, cod: true, codFee: 0 } : {}), bumpEnabled: c.bump[1] > 0, bumpTitle: c.bump[0], bumpDescription: `One-time offer — add this for just ₹${c.bump[1]}. Not available later.`, bumpPrice: c.bump[1], buttonText: 'Pay Securely' } },
-    { type: 'testimonials', props: { variant: kind === 'product' || kind === 'kids' ? 'chat' : 'cards', eyebrow: 'You are in good company', title: `Join ${stats[0].value} happy ${who}`, items: testimonials.slice(0, 3) } },
+    { type: 'hellobar', props: { messages: [{ text: `✅ ${tone}` }, { text: '🔒 100% secure payment · 7-day money-back guarantee' }] } },
+    { type: 'checkout', props: { productName: product, description: kind === 'product' ? 'Ships in 24 hours · tracking on WhatsApp' : 'Instant confirmation on email & WhatsApp', price, mrp, currency: '₹', ...(kind === 'product' ? { shipping: 'address', shippingFee: 0, cod: true, codFee: 0 } : {}), bumpEnabled: c.bump[1] > 0, bumpTitle: c.bump[0], bumpDescription: `Add this to your order for just ₹${c.bump[1]}.`, bumpPrice: c.bump[1], buttonText: 'Pay Securely' } },
+    { type: 'testimonials', props: { variant: kind === 'product' || kind === 'kids' ? 'chat' : 'cards', eyebrow: 'You are in good company', title: `What ${who} say`, items: testimonials.slice(0, 3) } },
     { type: 'guarantee', props: { variant: 'strip', title: c.guarantee[0], body: c.guarantee[1], days: c.guarantee[2] } },
-    { type: 'proof', props: { action, intervalSec: 9, items: proof } },
+    { type: 'proof', props: { intervalSec: 9 } },
     { type: 'whatsapp', props: { number: '919999999999', message: 'Hi! I need help with my order.', label: 'Need help?' } },
   ];
   const thanks = [
     { type: 'thankyou', props: { headline: isLead ? (kind === 'event' ? 'You’re in! 🎉' : 'Booking confirmed! 🎉') : 'Order confirmed — thank you! 🎉', body: 'Details have been sent to your email & WhatsApp.', steps: [
       { text: isLead ? (kind === 'event' ? 'Watch WhatsApp for your joining link' : 'Our expert will call you within 24 hours') : kind === 'product' ? 'Your order ships within 24 hours' : 'Check your email & WhatsApp for access details' },
       { text: 'Save our WhatsApp number so you never miss an update' },
-      { text: `Join ${stats[0].value} ${who} in our community` },
+      { text: `Join our community of ${who}` },
     ] } },
     { type: 'whatsapp', props: { number: '919999999999', message: 'Hi! I just completed my booking.', label: 'Message us' } },
   ];
@@ -318,10 +314,10 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
       { type: 'offer', props: {
         progress: up ? 'Step 2 of 3 · Customise your order' : 'Step 2 of 3 · One last chance',
         headline: up ? `Wait! Your order isn't complete — add the *${pname}*` : `No problem — how about the *${pname}* instead?`,
-        description: up ? `Customers who add this get results up to 3× faster. One click adds it to your order — no need to re-enter payment details.` : `Get the essentials at a special one-time price. This offer disappears when you leave this page.`,
+        description: up ? `Customers who add this get results up to 3× faster. One click adds it to your order — no need to re-enter payment details.` : `Get the essentials at a special price, with one click.`,
         productName: pname, emoji, price: r9(price * (up ? 0.8 : 0.35)), mrp: r9(price * (up ? 2 : 0.9)), currency: '₹',
-        bullets: bullets.map((text) => ({ text })), minutes: 10,
-        acceptText: up ? `Yes! Add ${pname} to my order` : `Yes, add the ${pname}`, declineText: up ? 'No thanks, I don’t want this upgrade' : 'No thanks, take me to my order',
+        bullets: bullets.map((text) => ({ text })), minutes: 0,
+        acceptText: up ? `Yes! Add ${pname} to my order` : `Yes, add the ${pname}`, declineText: 'No thanks',
       } },
       { type: 'testimonials', props: { variant: up ? 'spotlight' : 'cards', eyebrow: 'Why people add this', title: 'What upgraders say', items: testimonials.slice(2, 5) } },
       { type: 'guarantee', props: { variant: up ? 'box' : 'strip', title: c.guarantee[0], body: 'Your upgrade is covered by the same no-questions-asked guarantee.', days: c.guarantee[2] || 7 } },

@@ -133,6 +133,8 @@ const META_EVENTS = new Set(['Purchase', 'Lead', 'InitiateCheckout', 'CompleteRe
 export function trackServer(userId, event) {
   if (event.tk?.consent === false) return []; // the visitor declined tracking on the consent banner
   const u = T.users.get(userId);
+  // with the consent banner on (the default), no browser ids means no recorded yes; a refund follows only a purchase that was sent
+  if (u?.settings?.privacy?.banner !== false && (event.name === 'Refund' ? !q("SELECT 1 FROM conversions WHERE userId = ? AND json_extract(data, '$.eventId') = ? LIMIT 1").get(userId, event.id) : !event.tk)) return [];
   const f = event.funnelId ? T.funnels.get(event.funnelId) : null;
   const c = creds(u, f);
   if (!c.meta && !c.ga4) return [];

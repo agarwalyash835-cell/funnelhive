@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { T, Events, q, tx, uid, contactKey, testOrder, dir as DATA_DIR, JOBS } from './db.js';
 import { generateFunnel, editBlocks, aiEnabled, aiProvider, chatAI, AGENTS, runAgent } from './ai.js';
 import { templateList, getTemplate, matchTemplate } from './templates.js';
@@ -13,7 +14,7 @@ import { applyActions, offlineChat } from './actions.js';
 import { abResult } from './stats.js';
 import { DAY, reportRange } from './time.js';
 import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, bumpRate, campaigns, refundsTotal } from './analytics.js';
-import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, verifyTotp, otpauthUrl } from './security.js';
+import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm } from './crm.js';
 import { initMessaging, registerChannels, sendEmail } from './messaging.js';
@@ -22,7 +23,7 @@ import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit, 
 import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerHive } from './hive.js';
 import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, creditsShort, usageSummary, AI_COST, pricing } from './billing.js';
-import { platform, isAdmin, brand } from './platform.js';
+import { platform, isAdmin, brand, publicCompany } from './platform.js';
 import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
 import { verifyGoogleToken, googleClientId } from './google.js';
@@ -37,7 +38,7 @@ import { registerQuotes, confirmQuotePayment } from './quotes.js';
 import { registerGcal } from './gcal.js';
 import { stripeCreds, isoOf, SYMBOL, startStripePayment, startStripeSubscription, chargeSaved, confirmedIntent, validStripeWebhook, registerStripeSettings } from './stripe.js';
 import { fxRate } from './fx.js';
-import { registerLegal, publicPrivacy, privacyOf, consentLine } from './legal.js';
+import { registerLegal, publicPrivacy, privacyOf, consentLine, legalMissing } from './legal.js';
 import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
 import { registerAgency, logRequest, brandFor, brandForHost } from './agency.js';
 import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
@@ -45,7 +46,7 @@ import { deleteAccount as deleteAccountData } from './account.js';
 import { registerFulfilment, cleanAddress } from './fulfilment.js';
 import { registerBroadcasts } from './broadcasts.js';
 import { registerTeam, enterWorkspace, allows } from './team.js';
-import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan } from './plans.js';
+import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan, needsAfa, AFA_NOTE } from './plans.js';
 import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
 import { registerObserve, requestMetrics, reportError } from './observe.js';
 import { sellerTz, offsetAt, validTz, COMMON_TZ, zoned } from './tz.js';
@@ -57,6 +58,10 @@ import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } fro
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
+if (process.env.NODE_ENV === 'production' && (!process.env.WORKER_INDEX || process.env.WORKER_INDEX === '0')) {
+  if (!process.env.ENCRYPTION_KEY) console.warn('⚠ ENCRYPTION_KEY is not set — stored secrets and off-site backups are encrypted with a key derived from the JWT secret, so changing JWT_SECRET would make them unreadable. Set ENCRYPTION_KEY to the value in use (see DEPLOY.md).');
+  if (!process.env.PAGES_URL) console.warn('⚠ PAGES_URL is not set — funnel pages share the dashboard’s origin. Serve them from their own domain (see DEPLOY.md).');
+}
 const app = express();
 app.set('trust proxy', process.env.TRUST_PROXY ? (/^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY) : 'loopback, linklocal, uniquelocal');
 app.use(requestMetrics); // request counts and timings (observe.js)
@@ -101,13 +106,26 @@ const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
 const DEFAULT_SETTINGS = { businessName: '', currency: '₹', supportWhatsapp: '', payments: { provider: 'razorpay', razorpayKey: '', stripeKey: '', cashfreeKey: '', phonepeKey: '', mode: 'test' }, tracking: { fbPixel: '', ga4: '' }, webhookUrl: '', customDomain: '', invoicing: { ...INVOICING_DEFAULTS } };
 // pv (password version) lets us invalidate every existing session when the password changes
 // ws: a team member working in another seller's workspace (see team.js)
-const sign = (u, ws) => jwt.sign({ id: u.id, pv: u.pv || 0, ...(ws ? { ws } : {}) }, SECRET, { expiresIn: '30d' });
-// an admin "logging in as" a seller (support): short-lived, and the seller's account shows it
-const signAs = (u, adminId) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId }, SECRET, { expiresIn: '2h' });
+// sid: the signed-in device (sessions, security.js). Inside a signed-in request a new token keeps that request's
+// session (and support access), so a "switch workspace" token is signed out together with the device it came from.
+const sessionCtx = new AsyncLocalStorage();
+const sign = (u, ws, sid) => {
+  const ctx = sessionCtx.getStore() || {};
+  const imp = !sid || sid === ctx.sid ? ctx.imp : null;
+  sid ||= ctx.sid;
+  return jwt.sign({ id: u.id, pv: u.pv || 0, ...(ws ? { ws } : {}), ...(sid ? { sid } : {}), ...(imp ? { imp } : {}) }, SECRET, { expiresIn: imp ? '2h' : '14d' });
+};
+// an admin "logging in as" a seller (support): short-lived, its own session (marked as support), and the seller's account shows it
+const signAs = (u, adminId, req) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId, sid: startSession(req, u, { imp: adminId, ms: 2 * 3600000 }) }, SECRET, { expiresIn: '2h' });
+// a new sign-in on this device
+const signIn = (req, u) => sign(u, null, startSession(req, u));
 const pubUser = (u) => ({ id: u.id, email: u.email, name: u.name });
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const withDefaults = (u) => { u.settings = { ...DEFAULT_SETTINGS, ...(u.settings || {}) }; return u; };
+// the person's own sign-in (refresh, sign out, their devices): any role on any team may do this
+const OWN_SESSION = /^\/api\/auth\/(refresh|logout|sessions)(\/|$)/;
 const auth = (req, res, next) => {
+  let p;
   try {
     const t = (req.headers.authorization || '').replace('Bearer ', '') || String(req.headers['x-api-key'] || '');
     // an API key (Zapier, Pabbly, your own code): the seller's account, with a key's limits — see api.js
@@ -121,16 +139,18 @@ const auth = (req, res, next) => {
       if (locked) return res.status(402).json({ error: locked, locked: true });
       return next();
     }
-    const p = jwt.verify(t, SECRET);
+    p = jwt.verify(t, SECRET);
     req.user = T.users.get(p.id);
     if (!req.user || (p.pv || 0) !== (req.user.pv || 0)) throw new Error();
+    if (!sessionOk(p, req.user)) throw new Error(); // signed out on that device (or everywhere)
+    req.sid = p.sid || null; req.tokenWs = p.ws || null; req.tokenIat = p.iat;
     if (p.imp) req.impersonator = p.imp;
     if (p.ws) {
       // a team member acting in the owner's workspace: everything below works on the owner's data
       const w = enterWorkspace(req.user, p.ws);
       if (!w) return res.status(401).json({ error: 'You no longer have access to that team', workspaceGone: true });
       req.actor = req.user; req.role = w.member.role; req.user = w.owner;
-      if (!allows(req.role, req.method, req.originalUrl.split('?')[0])) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
+      if (!OWN_SESSION.test(req.originalUrl.split('?')[0]) && !allows(req.role, req.method, req.originalUrl.split('?')[0])) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
       if (Date.now() - (w.member.lastSeenAt || 0) > 10 * 60000) T.members.update(w.member.id, (m) => { m.lastSeenAt = Date.now(); });
     }
     withDefaults(req.user);
@@ -141,7 +161,7 @@ const auth = (req, res, next) => {
   // an account whose trial / subscription has ended is read-only (402 Payment Required)
   const locked = lockedOut(req);
   if (locked) return res.status(402).json({ error: locked, locked: true });
-  next();
+  sessionCtx.run({ sid: p.sid, imp: p.imp }, next);
 };
 // AI features use monthly credits
 const credits = (kind) => (req, res, next) => {
@@ -170,9 +190,30 @@ async function sendVerification(req, user) {
   await sendMail({ to: user.email, subject: `Verify your ${brand()} email`, text: `Hi ${user.name},\n\nConfirm your email address by opening this link:\n${appUrl(req)}/verify?token=${token}\n\nThe link is valid for 3 days.` }).catch((e) => console.error('verification email failed', e.message));
 }
 
+// Too many wrong passwords for one email, or wrong 2-step codes for one account (shared by all processes):
+// that account is locked for 15 minutes, whichever network the attempts come from
+const loginLock = lockout('loginfail'), codeLock = lockout('codefail');
+const lockedMsg = (m) => `Too many failed attempts — this account is locked for ${m} more minute${m === 1 ? '' : 's'}. Try again later, or reset your password.`;
+// a 2-step code for an account that has it on: null when it's good (it's then used up — the same code can't be
+// replayed), otherwise the response to send
+function checkCode(user, code) {
+  if (!code) return { status: 200, body: { twoFactorRequired: true } };
+  const m = codeLock.locked(user.id);
+  if (m) return { status: 429, body: { error: lockedMsg(m), twoFactorRequired: true, locked: true } };
+  const step = totpStep(user.totpSecret, code);
+  let fresh = false;
+  if (step != null) T.users.update(user.id, (u) => { if ((u.totpStep || 0) < step) { u.totpStep = step; fresh = true; } });
+  if (!fresh) { codeLock.fail(user.id); return { status: 401, body: { error: step != null ? 'That code was already used — wait for the next one' : 'That 2-step code is not valid', twoFactorRequired: true } }; }
+  user.totpStep = step;
+  codeLock.clear(user.id);
+  return null;
+}
+
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const { email, password, name } = req.body;
-  if (!email || !EMAIL_RE.test(email) || !password || password.length < 6) return res.status(400).json({ error: 'A valid email and a 6+ character password are required' });
+  if (!email || !EMAIL_RE.test(email)) return res.status(400).json({ error: 'A valid email and a password of 8+ characters are required' });
+  const weak = weakPassword(password);
+  if (weak) return res.status(400).json({ error: weak });
   if (!platform().signupsOpen) return res.status(403).json({ error: 'New sign-ups are paused right now — please check back soon.' });
   if (T.users.exists({ email: email.toLowerCase() })) return res.status(409).json({ error: 'Email already registered' });
   const g = await signupGuard(req, email);
@@ -180,17 +221,18 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const user = { id: uid(), email: email.toLowerCase(), name: String(name || email.split('@')[0]).slice(0, 80), hash: bcrypt.hashSync(password, 10), settings: { ...DEFAULT_SETTINGS }, emailVerified: false, pv: 0, createdAt: Date.now(), billing: newBilling() };
   try { T.users.insert(user); } catch { return res.status(409).json({ error: 'Email already registered' }); }
   sendVerification(req, user);
-  res.json({ token: sign(user), user: pubUser(user) });
+  res.json({ token: signIn(req, user), user: pubUser(user) });
 }));
 
 app.post('/api/auth/login', authLimiter, (req, res) => {
-  const user = T.users.find({ email: String(req.body.email || '').toLowerCase() });
-  if (!user || !bcrypt.compareSync(req.body.password || '', user.hash)) return res.status(401).json({ error: 'Invalid email or password' });
-  if (user.totpEnabled) {
-    if (!req.body.code) return res.json({ twoFactorRequired: true });
-    if (!verifyTotp(user.totpSecret, req.body.code)) return res.status(401).json({ error: 'That 2-step code is not valid', twoFactorRequired: true });
-  }
-  res.json({ token: sign(user), user: pubUser(user) });
+  const email = String(req.body.email || '').toLowerCase().slice(0, 200);
+  const m = loginLock.locked(email);
+  if (m) return res.status(429).json({ error: lockedMsg(m), locked: true });
+  const user = T.users.find({ email });
+  if (!user || !bcrypt.compareSync(String(req.body.password || ''), user.hash)) { if (email) loginLock.fail(email); return res.status(401).json({ error: 'Invalid email or password' }); }
+  if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
+  loginLock.clear(email);
+  res.json({ token: signIn(req, user), user: pubUser(user) });
 });
 
 // Continue with Google: signs in, or creates the account on first use (the email is verified by Google)
@@ -207,11 +249,8 @@ app.post('/api/auth/google', authLimiter, wrap(async (req, res) => {
   } else if (!user.googleId || !user.emailVerified) {
     user = T.users.update(user.id, (u) => { u.googleId ||= g.sub; u.emailVerified = true; });
   }
-  if (user.totpEnabled) {
-    if (!req.body.code) return res.json({ twoFactorRequired: true });
-    if (!verifyTotp(user.totpSecret, req.body.code)) return res.status(401).json({ error: 'That 2-step code is not valid', twoFactorRequired: true });
-  }
-  res.json({ token: sign(user), user: pubUser(user) });
+  if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
+  res.json({ token: signIn(req, user), user: pubUser(user) });
 }));
 
 app.post('/api/auth/verify', authLimiter, (req, res) => {
@@ -243,18 +282,21 @@ app.post('/api/auth/forgot', authLimiter, wrap(async (req, res) => {
 
 app.post('/api/auth/reset', authLimiter, (req, res) => {
   const { token, password } = req.body;
-  if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const weak = weakPassword(password);
+  if (weak) return res.status(400).json({ error: weak });
   const user = userByToken(token, 'resetHash', 'resetExp');
   if (!user) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
   // with 2-step login on, the reset link alone isn't enough: the authenticator code is needed too
-  if (user.totpEnabled && !verifyTotp(user.totpSecret, req.body.code)) return res.status(req.body.code ? 401 : 200).json({ twoFactorRequired: true, ...(req.body.code ? { error: 'That 2-step code is not valid' } : {}) });
+  if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
   user.hash = bcrypt.hashSync(password, 10);
   user.passwordSet = true;
   user.pv = (user.pv || 0) + 1; // signs out every other session
   user.emailVerified = true; // they proved access to the inbox
   delete user.resetHash; delete user.resetExp;
   saveUser(user);
-  res.json({ token: sign(user), user: pubUser(user) });
+  revokeOthers(user.id);
+  loginLock.clear(user.email);
+  res.json({ token: signIn(req, user), user: pubUser(user) });
 });
 
 app.post('/api/auth/resend-verification', auth, authLimiter, wrap(async (req, res) => {
@@ -263,37 +305,87 @@ app.post('/api/auth/resend-verification', auth, authLimiter, wrap(async (req, re
   res.json({ ok: true, emailConfigured: mailEnabled() });
 }));
 
-app.post('/api/auth/change-password', auth, authLimiter, (req, res) => {
+// this device's session (tokens from before sessions existed get one), for signing everything else out
+const sidOf = (req) => req.sid || startSession(req, req.actor || req.user);
+// support ("log in as") can look around but never change how the seller signs in
+const notSupport = (req, res, next) => (req.impersonator ? res.status(403).json({ error: 'Support access can’t change sign-in settings' }) : next());
+
+app.post('/api/auth/change-password', auth, notSupport, authLimiter, (req, res) => {
   const { current, password } = req.body;
-  if (!bcrypt.compareSync(current || '', req.user.hash)) return res.status(401).json({ error: 'Current password is incorrect' });
-  if (!password || password.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  if (!bcrypt.compareSync(String(current || ''), req.user.hash)) return res.status(401).json({ error: 'Current password is incorrect' });
+  const weak = weakPassword(password);
+  if (weak) return res.status(400).json({ error: `New password: ${weak.charAt(0).toLowerCase()}${weak.slice(1)}` });
   req.user.hash = bcrypt.hashSync(password, 10);
   req.user.pv = (req.user.pv || 0) + 1;
   saveUser(req.user);
-  res.json({ token: sign(req.user) });
+  const sid = sidOf(req);
+  revokeOthers(req.user.id, sid);
+  res.json({ token: sign(req.user, null, sid) });
 });
 
-// Two-step login: setup returns a secret to add to an authenticator app; enable/disable require a valid code
-app.post('/api/auth/2fa/setup', auth, (req, res) => {
+// Two-step login: setup returns a secret to add to an authenticator app; enable/disable require a valid code.
+// Turning it on or off signs out every other device (the answer carries this device's token).
+app.post('/api/auth/2fa/setup', auth, notSupport, (req, res) => {
   if (req.user.totpEnabled) return res.status(400).json({ error: '2-step verification is already on' });
   req.user.totpPending = newTotpSecret();
   saveUser(req.user);
   res.json({ secret: req.user.totpPending, otpauth: otpauthUrl(req.user.totpPending, req.user.email) });
 });
-app.post('/api/auth/2fa/enable', auth, authLimiter, (req, res) => {
-  if (!req.user.totpPending || !verifyTotp(req.user.totpPending, req.body.code)) return res.status(400).json({ error: 'That code is not valid — check your authenticator app and try again' });
+app.post('/api/auth/2fa/enable', auth, notSupport, authLimiter, (req, res) => {
+  const step = req.user.totpPending ? totpStep(req.user.totpPending, req.body.code) : null;
+  if (step == null) return res.status(400).json({ error: 'That code is not valid — check your authenticator app and try again' });
   req.user.totpSecret = req.user.totpPending;
   req.user.totpEnabled = true;
+  req.user.totpStep = step;
   delete req.user.totpPending;
   saveUser(req.user);
-  res.json({ ok: true });
+  const sid = sidOf(req);
+  revokeOthers(req.user.id, sid);
+  res.json({ ok: true, token: sign(T.users.get(req.user.id), null, sid) });
 });
-app.post('/api/auth/2fa/disable', auth, authLimiter, (req, res) => {
-  if (!req.user.totpEnabled || !verifyTotp(req.user.totpSecret, req.body.code)) return res.status(400).json({ error: 'That code is not valid' });
+app.post('/api/auth/2fa/disable', auth, notSupport, authLimiter, (req, res) => {
+  if (!req.user.totpEnabled) return res.status(400).json({ error: 'That code is not valid' });
+  const bad = checkCode(req.user, req.body.code || '-');
+  if (bad) return res.status(bad.status === 429 ? 429 : 400).json({ error: bad.status === 429 ? bad.body.error : 'That code is not valid' });
   req.user.totpEnabled = false;
   delete req.user.totpSecret;
   saveUser(req.user);
+  const sid = sidOf(req);
+  revokeOthers(req.user.id, sid);
+  res.json({ ok: true, token: sign(T.users.get(req.user.id), null, sid) });
+});
+
+// ---------- sessions (signed-in devices) ----------
+// sliding: the app swaps a token older than a day for a fresh one, so an active device stays signed in and an
+// idle one is signed out after 14 days. Support ("log in as") sessions are never extended.
+app.post('/api/auth/refresh', auth, (req, res) => {
+  if (req.apiKey) return res.status(400).json({ error: 'API keys don’t expire' });
+  if (req.impersonator) return res.json({ token: null });
+  const me = req.actor || req.user, sid = sidOf(req);
+  extendSession(sid);
+  res.json({ token: sign(me, req.tokenWs, sid) });
+});
+app.post('/api/auth/logout', auth, (req, res) => {
+  if (req.sid) revokeSession(req.sid, (req.actor || req.user).id);
   res.json({ ok: true });
+});
+app.get('/api/auth/sessions', auth, (req, res) => {
+  if (req.apiKey) return res.status(403).json({ error: 'API keys can’t do that' });
+  const me = req.actor || req.user;
+  res.json({ sessions: activeSessions(me.id).map((s) => ({ id: s.id, device: s.device, ip: s.ip, createdAt: s.createdAt, lastSeenAt: s.lastSeenAt, current: s.id === req.sid, support: !!s.imp })) });
+});
+app.post('/api/auth/sessions/:sid/revoke', auth, (req, res) => {
+  if (req.apiKey || req.impersonator) return res.status(403).json({ error: 'Not allowed' });
+  const me = req.actor || req.user, s = T.sessions.get(req.params.sid);
+  if (!s || s.userId !== me.id) return res.status(404).json({ error: 'That session has already ended' });
+  revokeSession(s.id, me.id);
+  res.json({ ok: true, current: s.id === req.sid });
+});
+app.post('/api/auth/sessions/revoke-others', auth, (req, res) => {
+  if (req.apiKey || req.impersonator) return res.status(403).json({ error: 'Not allowed' });
+  const me = req.actor || req.user, sid = sidOf(req);
+  revokeOthers(me.id, sid);
+  res.json({ ok: true, token: sign(T.users.get(me.id), req.tokenWs, sid) });
 });
 
 const mine = (req) => T.funnels.all({ userId: req.user.id });
@@ -548,6 +640,8 @@ app.put('/api/funnels/:id', auth, (req, res) => {
   if ('name' in b) b.name = b.name.trim().slice(0, 120);
   if ('published' in b && typeof b.published !== 'boolean') return res.status(400).json({ error: 'published must be true or false' });
   if ('theme' in b && (!b.theme || typeof b.theme !== 'object' || Array.isArray(b.theme))) return res.status(400).json({ error: 'Invalid theme' });
+  // going live needs the seller's legal details (Consumer Protection (E-Commerce) Rules); live funnels stay live
+  if (b.published === true && !f.published) { const miss = legalMissing(T.users.get(f.userId), f); if (miss.length) return res.status(400).json({ error: `Add your ${miss.join(', ')} in Settings → Business & legal before publishing`, missing: miss, settings: '/settings#legal' }); }
   // a step's "hide from search engines" is stored as a plain true, or not at all
   if ('steps' in b) for (const s of b.steps) if (s.seo && typeof s.seo === 'object') { if (s.seo.noindex) s.seo.noindex = true; else delete s.seo.noindex; }
   if (req.body.baseVersion != null && Number(req.body.baseVersion) !== f.version) {
@@ -759,7 +853,7 @@ app.put('/api/orders/:id', auth, (req, res) => {
 app.get('/api/site', (req, res) => {
   const p = platform(), pr = pricing();
   const wl = brandForHost(req.hostname); // an agency's own app domain: their brand on the login page
-  res.json({ ...(wl ? { whiteLabel: wl } : {}), pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, turnstileSiteKey: turnstileSiteKey(), trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: { name: p.company.name, email: p.company.email, address: p.company.address, state: p.company.state, gstin: p.company.gstin } });
+  res.json({ ...(wl ? { whiteLabel: wl } : {}), pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, turnstileSiteKey: turnstileSiteKey(), trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: publicCompany() });
 });
 
 // ---------- templates ----------
@@ -948,16 +1042,60 @@ function resolveWhatsApp(steps, supportNumber) {
   return steps.map((s) => ({ ...s, blocks: fix(s.blocks), ...(s.ab ? { ab: { ...s.ab, blocks: fix(s.ab.blocks || []) } } : {}) }));
 }
 
+// a checkout with no country of origin of its own shows its linked product's (else the seller's default, in the browser)
+function productOrigins(steps, userId) {
+  const fix = (blocks) => blocks.map((b) => {
+    if (b.type !== 'checkout' || b.props?.origin || !b.props?.productId) return b;
+    const pr = T.products.get(b.props.productId);
+    return pr?.userId === userId && pr.origin ? { ...b, props: { ...b.props, origin: pr.origin } } : b;
+  });
+  return steps.map((s) => ({ ...s, blocks: fix(s.blocks), ...(s.ab ? { ab: { ...s.ab, blocks: fix(s.ab.blocks || []) } } : {}) }));
+}
+
 // a funnel sells in one currency: its checkout's (₹ by default)
 const funnelIso = (f) => isoOf(f.steps.flatMap((s) => allBlocks(s)).find((b) => b.type === 'checkout')?.props?.currency);
 function publicData(f, owner = T.users.get(f.userId)) {
   const inv = invoicingOf(owner);
-  // tracking: the funnel's own ids where it has them, else the workspace's
-  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f) } : {}), steps: resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}) };
+  // tracking: the funnel's own ids where it has them, else the workspace's; stripe: the checkout pays by
+  // Stripe (same rule as pay/start), so it offers the "Save my card" tick
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f), seller: sellerOf(f, owner, inv) } : {}), steps: productOrigins(resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), f.userId), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(owner && stripeCreds(owner) && (funnelIso(f) !== 'INR' || !rzpCreds(owner)) ? { stripe: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}) };
+}
+// the page footer: who sells this, where they are, and their policies (Consumer Protection (E-Commerce) Rules 2020).
+// Same details as the legal pages: the funnel's own business details first, then the workspace's
+function sellerOf(f, owner, inv = invoicingOf(owner)) {
+  const l = f.legal || {}, pv = privacyOf(owner), links = publicPrivacy(owner, '', f), base = links.terms.replace(/\/terms$/, '');
+  return { name: l.businessName || pv.legalName || inv.legalName || owner.settings?.businessName || owner.name || '', address: l.address || pv.address || inv.address || '', terms: links.terms, privacy: links.policy, refund: `${base}/refund`, contact: `${base}/contact`, origin: owner.settings?.originDefault || 'India' };
 }
 app.get('/api/public/:slug', (req, res) => {
   const f = pub(req, res);
   if (f) res.json(publicData(f));
+});
+// Real numbers for the live-viewers, stock and recent-buyer blocks — never invented. Visitors to this step in the
+// last 30 minutes, the seller's stock less real orders since they set it, and the last 10 real buyers
+// (first name, city, when — never email or phone). Cached for a minute per step.
+const socialCache = new Map();
+app.get('/api/public/:slug/social', (req, res) => {
+  const f = pub(req, res);
+  if (!f) return;
+  const step = f.steps.find((s) => s.id === req.query.stepId) || f.steps[0];
+  const k = `${f.id}:${step?.id}:${f.updatedAt || 0}`, hit = socialCache.get(k);
+  if (hit && Date.now() - hit.at < 60000) return res.json(hit.data);
+  const real = (o) => o.status === 'paid' && !o.demo && !o.erasedAt && !testOrder(o);
+  const orders = T.orders.all({ funnelId: f.id }, { order: 'at', desc: true, limit: 50 }).filter(real);
+  const stock = {};
+  for (const b of step ? allBlocks(step) : []) {
+    if (b.type !== 'stock' || !(Number(b.props?.left) > 0)) continue;
+    const from = Number(b.props.setAt) || Date.now();
+    stock[b.id] = Math.max(0, Math.round(Number(b.props.left)) - T.orders.all({ funnelId: f.id, at: { gt: from } }).filter(real).length);
+  }
+  const data = {
+    viewers: step ? q("SELECT COUNT(DISTINCT visitor) AS n FROM events WHERE funnelId = ? AND type = 'view' AND at > ? AND stepId = ? AND demo = 0").get(f.id, Date.now() - 30 * 60000, step.id).n : 0,
+    orders: orders.slice(0, 10).map((o) => ({ name: String(o.name || '').trim().split(/\s+/)[0].slice(0, 30), city: String(o.address?.city || '').trim().slice(0, 40), at: o.at })).filter((o) => o.name),
+    stock,
+  };
+  if (socialCache.size > 5000) socialCache.clear();
+  socialCache.set(k, { at: Date.now(), data });
+  res.json(data);
 });
 
 app.post('/api/public/:slug/event', (req, res) => {
@@ -1018,10 +1156,12 @@ app.post('/api/public/:slug/lead', (req, res) => {
   res.json({ ok: true, eventId, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
 });
 
-// An abandoned checkout: an email, or only a valid phone number (WhatsApp follow-up), and no order yet
+// An abandoned checkout: an email, or only a valid phone number (WhatsApp follow-up), and no order yet.
+// Kept only when the checkout showed its notice ("we may remind you about this order") and consent wasn't refused (DPDP)
 app.post('/api/public/:slug/abandon', (req, res) => {
   const f = pub(req, res);
   if (!f) return;
+  if (req.body.notice !== true || req.body.consent === false || req.body.tk?.consent === false) return res.json({ ok: true });
   let email = String(req.body.email || '').trim().slice(0, 200);
   const name = String(req.body.name || '').slice(0, 120), raw = String(req.body.phone || '').slice(0, 40);
   if (!EMAIL_RE.test(email)) email = '';
@@ -1031,8 +1171,8 @@ app.post('/api/public/:slug/abandon', (req, res) => {
   if (!isPreview(req) && (email || ph) && !T.orders.exists({ funnelId: f.id, ckey }) && !(ph && ordersByPhone({ funnelId: f.id }, ph).length)) {
     // a phone-only cart becomes this one once the email is typed too
     const ex = T.abandoned.find({ funnelId: f.id, ckey }) || (email && ph && T.abandoned.find({ funnelId: f.id, ckey: contactKey(null, ph) }));
-    if (ex) T.abandoned.put(Object.assign(ex, { email: email || ex.email, name: name || ex.name, phone: phone || ex.phone, visitor: ex.visitor || visitorOf(req), at: Date.now() }));
-    else { const attr = cleanAttr(req.body.attr); T.abandoned.insert({ id: uid(), userId: f.userId, funnelId: f.id, stepId, email, name, phone, visitor: visitorOf(req), at: Date.now(), recovered: false, ...(attr ? { attr } : {}) }); }
+    if (ex) T.abandoned.put(Object.assign(ex, { email: email || ex.email, name: name || ex.name, phone: phone || ex.phone, visitor: ex.visitor || visitorOf(req), at: Date.now(), noticeAt: ex.noticeAt || Date.now() }));
+    else { const attr = cleanAttr(req.body.attr); T.abandoned.insert({ id: uid(), userId: f.userId, funnelId: f.id, stepId, email, name, phone, visitor: visitorOf(req), at: Date.now(), noticeAt: Date.now(), recovered: false, ...(attr ? { attr } : {}) }); }
   }
   res.json({ ok: true });
 });
@@ -1289,7 +1429,7 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
         if (pi?.status === 'succeeded') { Object.assign(pay, { stripeIntent: pi.id, rzpOrderId: pi.id }); T.payments.insert(pay); return res.json({ provider: 'stripe', ...finalizePayment(pay, pi.id, appUrl(req)) }); }
       }
       if (!orderId && charge.items[0]?.kind === 'main') trackServer(f.userId, { name: 'InitiateCheckout', funnelId: f.id, id: safeEventId(req.body.eventId) || `ic-${pay.id}`, value: charge.total, currency: funnelIso(f), items: charge.items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer, tk: buyer.tk });
-      const r = await startStripePayment(sc, { userId: f.userId, pay, iso, buyer, description });
+      const r = await startStripePayment(sc, { userId: f.userId, pay, iso, buyer, description, saveCard: req.body.saveCard === true }); // the buyer's "Save my card" tick
       Object.assign(pay, { stripeIntent: r.intent, stripeCustomer: r.customer, rzpOrderId: r.intent });
       T.payments.insert(pay);
       return res.json({ ...r, amount: charge.total, currency: iso, name: (owner.settings || {}).businessName || f.name, description, color: f.theme?.primary || '#6366f1' });
@@ -1308,7 +1448,8 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
     pay.rzpOrderId = sub.id; pay.plan = charge.plan; pay.charge.plan = charge.plan;
     T.payments.insert(pay);
     const s = owner.settings || {};
-    return res.json({ provider: 'razorpay', payment: pay.id, key: creds.keyId, subscription_id: sub.id, name: s.businessName || f.name, description: `${charge.items[0].name} — ${charge.plan.type === 'installments' ? `${charge.plan.count} monthly payments` : `billed ${charge.plan.interval}`}`.slice(0, 250), prefill: { name: buyer.name, email: buyer.email, contact: buyer.phone }, color: f.theme?.primary || '#6366f1' });
+    // above ₹15,000 a charge needs the buyer's approval in their bank app every time (RBI): said up front
+    return res.json({ provider: 'razorpay', payment: pay.id, key: creds.keyId, subscription_id: sub.id, name: s.businessName || f.name, description: `${charge.items[0].name} — ${charge.plan.type === 'installments' ? `${charge.plan.count} monthly payments` : `billed ${charge.plan.interval}`}${needsAfa(charge.items[0].price) ? `. ${AFA_NOTE}` : ''}`.slice(0, 250), prefill: { name: buyer.name, email: buyer.email, contact: buyer.phone }, color: f.theme?.primary || '#6366f1' });
   }
   let rzp;
   try { rzp = await rzpCreateOrder(creds, { amount: Math.round(charge.total * 100), receipt: pay.id, notes: { funnel: f.name.slice(0, 200), payment: pay.id } }); } catch (e) {
@@ -1445,20 +1586,32 @@ app.get('/sitemap.xml', (req, res) => {
   }
   res.set('Cache-Control', 'public, max-age=3600').type('application/xml').send(sitemapXml(urls.slice(0, 50000)));
 });
+// The custom-HTML block in the editor and dashboard previews: the dashboard's strict policy would block its scripts
+// in a srcdoc frame, so it loads this empty shell instead and the parent posts the block's HTML in. The sandbox
+// header gives the shell an opaque origin (never the app's cookies or localStorage), with the live pages' embed policy.
+const EMBED_SHELL = '<!doctype html><meta charset="utf-8"><script>addEventListener("message",function(e){if(e.source!==parent||!e.data||typeof e.data.ffEmbedDoc!=="string")return;document.open();document.write(e.data.ffEmbedDoc);document.close()});parent.postMessage({ffEmbedReady:1},"*")</script>';
+app.get('/api/embed-frame', (req, res) => {
+  res.set('Content-Security-Policy', `sandbox allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation; ${csp('embed')}`);
+  res.set('Cache-Control', 'public, max-age=3600').type('html').send(EMBED_SHELL);
+});
 function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } = {}) {
   if (!indexHtml) return res.status(503).type('text').send('The app is not built yet');
   const owner = ownerOf(f);
   if (!accessFor(owner).pagesLive) return res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not available</title><p style="font:16px system-ui;padding:40px;text-align:center">This page isn’t available right now.</p>');
   const base = domain ? `https://${domain}` : appUrl(req);
-  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, f.tracking || null, f.seo || null, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin), !!rzpCreds(owner), !!stripeCreds(owner)]);
-  let html = cacheGet(key);
-  if (!html) {
-    html = renderHtml(f, owner, stepSlug, { domain, preview, base });
-    cacheSet(key, html);
+  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, f.tracking || null, f.seo || null, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin), !!rzpCreds(owner), !!stripeCreds(owner), owner ? sellerOf(f, owner) : null, f.steps.flatMap((s) => allBlocks(s)).filter((b) => b.type === 'checkout' && b.props?.productId).map((b) => T.products.get(b.props.productId)?.origin || '')]); // the seller footer and product origins follow their edits
+  let page = cacheGet(key);
+  if (!page) {
+    // a custom-HTML block anywhere in the funnel (steps change without a reload) needs the embed policy (security.js)
+    page = { html: renderHtml(f, owner, stepSlug, { domain, preview, base }), embed: JSON.stringify(f.steps).includes('"type":"html"') };
+    cacheSet(key, page);
   }
   // a step hidden from search engines (or a checkout / upsell / thank-you step) says so in a header too
   if (noindexStep(f, f.steps.find((s) => s.slug === stepSlug) || f.steps[0])) res.set('X-Robots-Tag', 'noindex');
-  res.set('Cache-Control', 'no-cache').type('html').send(html);
+  // the page's own inline scripts (window.__FUNNEL__ and friends) carry this request's nonce; nothing else inline runs
+  const nonce = newNonce();
+  res.set('Content-Security-Policy', csp(page.embed ? 'embed' : 'page', { nonce }));
+  res.set('Cache-Control', 'no-cache').type('html').send(page.embed ? page.html : page.html.replaceAll('<script>', `<script nonce="${nonce}">`));
 }
 function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
   const data = publicData(f, owner);
@@ -1495,7 +1648,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
   let body = '';
   // A/B steps are rendered in the browser so each visitor sees only their own variant
   if (ssr && !step.ab?.enabled) {
-    try { body = ssr.renderFunnelPage({ blocks: step.blocks, theme: f.theme }); } catch (e) { console.error('SSR failed for', f.slug, e.message); }
+    try { body = ssr.renderFunnelPage({ blocks: step.blocks, theme: f.theme, seller: data.seller, lang: f.theme?.lang || 'en' }); } catch (e) { console.error('SSR failed for', f.slug, e.message); }
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(new RegExp('[\\u2028\\u2029]', 'g'), '');
   return indexHtml

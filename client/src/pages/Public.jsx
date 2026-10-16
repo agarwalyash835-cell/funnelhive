@@ -168,6 +168,12 @@ export default function Public() {
     if (!regBlock || !slug) { setSessions(null); return; }
     fetch(`/api/public/${slug}/sessions${preview ? `${preview}&` : '?'}webinarId=${encodeURIComponent(regBlock.props.webinarId || '')}`).then((r) => r.json()).then((d) => setSessions(d.sessions ? d : null)).catch(() => {});
   }, [step?.id]);
+  // real numbers for the recent-visitors, stock and recent-buyers blocks (nothing is made up on the page)
+  const [social, setSocial] = useState(null);
+  useEffect(() => {
+    if (!slug || !step || !blocks.some((b) => ['livecount', 'stock', 'proof'].includes(b.type))) { setSocial(null); return; }
+    fetch(`/api/public/${slug}/social${preview ? `${preview}&` : '?'}stepId=${encodeURIComponent(step.id)}`).then((r) => r.json()).then((d) => setSocial(d && !d.error ? d : null)).catch(() => {});
+  }, [step?.id]);
 
   useEffect(() => {
     if (!step) return;
@@ -235,7 +241,7 @@ export default function Public() {
       });
     };
     return {
-      live: true, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, waRequired: !!f.waRequired, delivery, webinar: sessions, privacy: f.privacy || null,
+      live: true, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, stripe: !!f.stripe, waRequired: !!f.waRequired, delivery, webinar: sessions, privacy: f.privacy || null, seller: f.seller || null, social,
       onNext: async () => {
         if (blocks.some((b) => b.type === 'optin')) return document.getElementById('optin')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         if (blocks.some((b) => b.type === 'checkout')) return document.querySelector('.co-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -252,7 +258,7 @@ export default function Public() {
         track('Lead', {}, r?.eventId || id);
         await convert(); go(idx + 1);
       },
-      onAbandon: (data) => post(`${base}/abandon${preview}`, { ...data, stepId: step.id, visitor, attr }),
+      onAbandon: (data) => post(`${base}/abandon${preview}`, { notice: true, ...data, stepId: step.id, visitor, attr }), // the checkout shows the reminder notice
       onForm: async (data) => {
         const id = eventId('lead');
         const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, source, visitor, attr, tk: ids(), eventId: id });
@@ -344,7 +350,7 @@ export default function Public() {
         return r;
       },
     };
-  }, [f, step?.id, variant, sessions, choice]);
+  }, [f, step?.id, variant, sessions, choice, social]);
 
   if (err) return <div className="notfound"><h1>404</h1><p>{err}</p></div>;
   if (!step) return null;

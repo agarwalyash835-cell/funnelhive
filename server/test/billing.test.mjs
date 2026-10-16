@@ -4,7 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { startServer, register } from './helpers.mjs';
+import { startServer, register, enable2fa } from './helpers.mjs';
 
 const KEY = 'rzp_test_Platform12345', SECRET = 'platform_secret', WH = 'platform_wh';
 const plans = [], subs = {};
@@ -38,6 +38,7 @@ before(async () => {
   await new Promise((r) => setTimeout(r, 150));
   const link = srv.log().match(/To: owner@funnelhive\.test[\s\S]*?\/verify\?token=([a-f0-9.]+)/);
   await api('/auth/verify', 'POST', { token: link[1] });
+  ({ token: ADMIN } = await enable2fa(api, ADMIN)); // the admin panel needs 2-step login
   ({ token: S1, email: S1email } = await register(api));
 });
 after(async () => { await srv.stop(); fake.close(); });
@@ -183,7 +184,8 @@ test('admin actions: comp, suspend (pages offline, signed out), credits, imperso
   assert.equal(detail.access.status, 'comped');
   assert.deepEqual(detail.audit.map((x) => x.action).slice(0, 4), ['comp', 'unsuspend', 'suspend', 'set_credits']);
 
-  const imp = (await act('impersonate')).data.token;
+  assert.equal((await act('impersonate')).status, 400, 'a reason is needed');
+  const imp = (await act('impersonate', { reason: 'Helping with a refund' })).data.token;
   const asSeller = (await api('/me', 'GET', null, imp)).data;
   assert.equal(asSeller.email, e2);
   assert.equal(asSeller.impersonating, true);

@@ -5,10 +5,11 @@ import path from 'node:path';
 import { startServer, register } from './helpers.mjs';
 import { totp } from '../security.js';
 
-let srv, api;
-// Production-like limits, no JWT_SECRET → the server must generate its own
-before(async () => { srv = await startServer({ NODE_ENV: 'production', JWT_SECRET: '' }); api = srv.api; });
-after(() => srv.stop());
+let srv, api, dev;
+// Production-like limits, no JWT_SECRET → the server must generate its own. Links in emails are only printed to
+// the log outside production, so the link tests use a second (test-mode) server.
+before(async () => { srv = await startServer({ NODE_ENV: 'production', JWT_SECRET: '' }); api = srv.api; dev = await startServer(); });
+after(async () => { await srv.stop(); await dev.stop(); });
 
 test('no JWT_SECRET: a random secret is generated and persisted (no "dev-secret" default)', async () => {
   const f = path.join(srv.dataDir, '.jwt-secret');
@@ -25,12 +26,22 @@ test('security headers are set and CORS does not allow foreign origins', async (
   assert.equal(r.headers.get('access-control-allow-origin'), null);
 });
 
+test('production: no sign-in or reset links in the logs while email is off', async () => {
+  const email = `prodlog${Date.now()}@test.dev`;
+  await register(api, email);
+  await api('/auth/forgot', 'POST', { email });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.ok(!/verify\?token=|reset\?token=/.test(srv.log()), 'no tokens printed');
+  assert.match(srv.log(), /email not configured — .*Reset link/);
+});
+
 test('email verification link works', async () => {
+  const { api, log } = dev;
   const email = `verify${Date.now()}@test.dev`;
   const { token } = await register(api, email);
   assert.equal((await api('/me', 'GET', null, token)).data.emailVerified, false);
   await new Promise((r) => setTimeout(r, 200));
-  const link = srv.log().match(new RegExp(`To: ${email}[\\s\\S]*?/verify\\?token=([a-f0-9.]+)`));
+  const link = log().match(new RegExp(`To: ${email}[\\s\\S]*?/verify\\?token=([a-f0-9.]+)`));
   assert.ok(link, 'verification link printed to console');
   assert.equal((await api('/auth/verify', 'POST', { token: link[1] })).status, 200);
   assert.equal((await api('/me', 'GET', null, token)).data.emailVerified, true);
@@ -41,12 +52,13 @@ test('email verification link works', async () => {
 });
 
 test('password reset: link resets password and signs out old sessions', async () => {
+  const { api, log } = dev;
   const email = `reset${Date.now()}@test.dev`;
   const { token: old } = await register(api, email);
   assert.equal((await api('/auth/forgot', 'POST', { email: 'nobody@test.dev' })).status, 200, 'no account enumeration');
   await api('/auth/forgot', 'POST', { email });
   await new Promise((r) => setTimeout(r, 200));
-  const t = srv.log().match(new RegExp(`To: ${email}[\\s\\S]*?/reset\\?token=([a-f0-9.]+)`))[1];
+  const t = log().match(new RegExp(`To: ${email}[\\s\\S]*?/reset\\?token=([a-f0-9.]+)`))[1];
   const r = await api('/auth/reset', 'POST', { token: t, password: 'newpass456' });
   assert.equal(r.status, 200);
   assert.equal((await api('/me', 'GET', null, old)).status, 401, 'old session revoked');
@@ -60,7 +72,7 @@ test('2-step verification (TOTP)', async () => {
   const { token } = await register(api, email);
   const { secret } = (await api('/auth/2fa/setup', 'POST', {}, token)).data;
   assert.equal((await api('/auth/2fa/enable', 'POST', { code: '000000' }, token)).status, 400);
-  assert.equal((await api('/auth/2fa/enable', 'POST', { code: totp(secret) }, token)).status, 200);
+  assert.equal((await api('/auth/2fa/enable', 'POST', { code: totp(secret, Date.now() - 30000) }, token)).status, 200);
   const step1 = await api('/auth/login', 'POST', { email, password: 'secret123' });
   assert.equal(step1.data.twoFactorRequired, true);
   assert.ok(!step1.data.token);

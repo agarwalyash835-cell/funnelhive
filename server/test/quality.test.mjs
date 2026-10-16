@@ -35,7 +35,7 @@ function damage(f) {
       case 7: f.theme = { style: 'neon', primary: 'red', secondary: '' }; break; // bad theme
       case 8: st.blocks.reverse(); break; // out of order
       case 9: if (b?.type === 'hero') b.props.headline = 'Hi'; break; // weak headline
-      case 10: if (b?.type === 'testimonials') b.props.items = b.props.items.map((x) => ({ ...x, name: 'Happy Customer' })); break;
+      case 10: if (b?.type === 'testimonials' && Array.isArray(b.props.items)) b.props.items = b.props.items.map((x) => ({ ...x, name: 'Happy Customer' })); break;
       default: break;
     }
   }

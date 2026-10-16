@@ -10,7 +10,8 @@ import { brand } from './platform.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const PRIVACY_DEFAULTS = { banner: false, checkbox: false, consentText: '', policyUrl: '', grievanceName: '', grievanceEmail: '', refundDays: 7, address: '' };
+// consent is on unless the seller turns it off (an unset value is the default, so older accounts get it too)
+export const PRIVACY_DEFAULTS = { banner: true, checkbox: true, consentText: '', policyUrl: '', legalName: '', grievanceName: '', grievanceEmail: '', grievancePhone: '', refundDays: 7, address: '' };
 export const privacyOf = (u) => ({ ...PRIVACY_DEFAULTS, ...(u?.settings?.privacy || {}) });
 export const legalBase = (base, userId, f) => `${base}/legal/${userId}${legalOf(f) ? `/${f.id}` : ''}`;
 // a funnel's own business details (several brands in one workspace); blank fields use the workspace's
@@ -21,6 +22,19 @@ export function cleanLegal(b = {}) {
   for (const [k, n] of Object.entries(LEGAL_FIELDS)) { const v = clip(b[k], n); if (v) out[k] = v; }
   if (out.email && !EMAIL_RE.test(out.email)) return { error: 'Enter a valid email for this funnel’s legal pages' };
   if (b.refundDays !== '' && b.refundDays != null) out.refundDays = Math.min(365, Math.max(0, Math.round(Number(b.refundDays) || 0)));
+  return out;
+}
+// what a funnel needs before it can go live (Consumer Protection (E-Commerce) Rules 2020: who the seller is, where,
+// how to reach them and their grievance officer); a funnel's own legal details count
+const placeOk = (a) => String(a || '').split(',').map((x) => x.trim()).filter(Boolean).length >= 2; // "city, state" at least
+export function legalMissing(u, f) {
+  if (!u) return [];
+  const inv = invoicingOf(u), p = privacyOf(u), l = legalOf(f) || {};
+  const out = [];
+  if (!(l.businessName || p.legalName || inv.legalName || u.settings?.businessName)) out.push('business legal name');
+  if (!placeOk(l.address || p.address || inv.address)) out.push('business address (city and state at least)');
+  if (!(l.email || p.grievanceEmail || inv.email || u.channels?.email?.replyTo)) out.push('contact email');
+  if (!p.grievanceName) out.push('grievance officer name');
   return out;
 }
 export const consentLine = (u) => privacyOf(u).consentText || `I agree to the Privacy Policy and to receive updates from ${u?.settings?.businessName || u?.name || 'the seller'} by email and WhatsApp. I can unsubscribe any time.`;
@@ -36,13 +50,15 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 function details(u, f) {
   const inv = invoicingOf(u), p = privacyOf(u), l = legalOf(f) || {};
   return {
-    name: l.businessName || inv.legalName || u.settings?.businessName || u.name,
-    brand: l.businessName || u.settings?.businessName || inv.legalName || u.name,
+    name: l.businessName || p.legalName || inv.legalName || u.settings?.businessName || u.name,
+    brand: l.businessName || u.settings?.businessName || p.legalName || inv.legalName || u.name,
     email: l.email || p.grievanceEmail || u.channels?.email?.replyTo || inv.email || u.email,
     phone: l.phone || u.settings?.supportWhatsapp || '',
     address: l.address || p.address || inv.address || '',
     gstin: inv.gstin || '',
-    officer: p.grievanceName || l.businessName || inv.legalName || u.name,
+    officer: p.grievanceName || l.businessName || p.legalName || inv.legalName || u.name,
+    officerEmail: p.grievanceEmail || l.email || u.channels?.email?.replyTo || inv.email || u.email,
+    officerPhone: p.grievancePhone || '',
     refundDays: l.refundDays != null ? Number(l.refundDays) || 0 : Number(p.refundDays) || 0,
   };
 }
@@ -53,7 +69,7 @@ const PAGES = {
 <h2>Why we use it</h2><ul><li>To deliver what you signed up for or bought: access links, bookings, webinars, invoices and shipping.</li><li>To send you updates and offers by email and WhatsApp, when you agreed to receive them. You can unsubscribe from any email, or reply STOP on WhatsApp.</li><li>To keep tax records (orders and GST invoices are kept for 8 years as the law requires).</li><li>To measure and improve our advertising, only with your consent.</li></ul>
 <h2>Who we share it with</h2><p>Only the services that help us run this business — our website platform (${esc(brand())}), payment gateways, email and WhatsApp providers, shipping partners and, with your consent, Meta and Google for ad measurement. We never sell your data.</p>
 <h2>Your rights</h2><p>You can ask us to access, correct or erase your personal data, withdraw your consent at any time, and nominate someone to exercise these rights for you. Write to us and we’ll respond within 30 days.</p>
-<h2>Grievance officer</h2><p>${esc(d.officer)}<br>${esc(d.email)}${d.phone ? `<br>${esc(d.phone)}` : ''}${d.address ? `<br>${esc(d.address)}` : ''}</p><p>If we don’t resolve your complaint, you may approach the Data Protection Board of India.</p>`],
+<h2>Grievance officer</h2><p>${esc(d.officer)}<br>${esc(d.officerEmail)}${d.officerPhone || d.phone ? `<br>${esc(d.officerPhone || d.phone)}` : ''}${d.address ? `<br>${esc(d.address)}` : ''}</p><p>We acknowledge complaints within 48 hours and resolve them within one month. If we don’t resolve your complaint, you may approach the Data Protection Board of India.</p>`],
   terms: (d) => ['Terms & Conditions', `
 <p>These terms apply when you buy from or sign up with <b>${esc(d.name)}</b>${d.gstin ? ` (GSTIN ${esc(d.gstin)})` : ''}.</p>
 <h2>Purchases</h2><p>Prices are shown on the checkout page, including GST where applicable. Your order is confirmed once the payment succeeds; digital products are delivered by email right away, physical products are shipped to the address you give us, and calls are confirmed for the time you book.</p>
@@ -69,7 +85,8 @@ const PAGES = {
 <h2>Calls and sessions</h2><p>Booked calls can be rescheduled from your confirmation email. Paid calls are refunded if cancelled within the notice period shown when you booked.</p>
 <h2>Memberships and payment plans</h2><p>You can cancel a membership any time; you keep access until the end of the period you paid for. Instalments already paid for a delivered programme are not refundable unless stated on the offer.</p>`],
   contact: (d) => ['Contact Us', `
-<p><b>${esc(d.name)}</b></p>${d.address ? `<p>${esc(d.address)}</p>` : ''}<p>Email: ${esc(d.email)}</p>${d.phone ? `<p>WhatsApp / phone: ${esc(d.phone)}</p>` : ''}${d.gstin ? `<p>GSTIN: ${esc(d.gstin)}</p>` : ''}<p>We reply within 1–2 working days.</p>`],
+<p><b>${esc(d.name)}</b></p>${d.address ? `<p>${esc(d.address)}</p>` : ''}<p>Email: ${esc(d.email)}</p>${d.phone ? `<p>WhatsApp / phone: ${esc(d.phone)}</p>` : ''}${d.gstin ? `<p>GSTIN: ${esc(d.gstin)}</p>` : ''}<p>We reply within 1–2 working days.</p>
+<h2>Grievance officer</h2><p>${esc(d.officer)}<br>${esc(d.officerEmail)}${d.officerPhone ? `<br>${esc(d.officerPhone)}` : ''}</p><p>Complaints are acknowledged within 48 hours and resolved within one month.</p>`],
 };
 export function legalPage(u, kind, f) {
   const make = PAGES[kind];
@@ -113,20 +130,31 @@ export function eraseContact(userId, key) {
 }
 
 export function registerLegal(app, { auth, appUrl }) {
-  app.get('/api/privacy', auth, (req, res) => res.json({ ...privacyOf(req.user), consentLine: consentLine(req.user), pages: legalBase(process.env.APP_URL || appUrl(req), req.user.id) }));
+  const view = (u, req) => ({ ...privacyOf(u), consentLine: consentLine(u), pages: legalBase(process.env.APP_URL || appUrl(req), u.id), missing: legalMissing(u), originDefault: u.settings?.originDefault || 'India' });
+  app.get('/api/privacy', auth, (req, res) => res.json(view(req.user, req)));
   app.put('/api/privacy', auth, (req, res) => {
     const b = req.body || {}, cur = privacyOf(req.user);
     const out = { ...cur };
     for (const k of ['banner', 'checkbox']) if (k in b) out[k] = !!b[k];
     if ('consentText' in b) out.consentText = clip(b.consentText, 400);
     if ('policyUrl' in b) { const u = clip(b.policyUrl, 300); if (u && !/^https:\/\/[^\s"'<>]+$/.test(u)) return res.status(400).json({ error: 'The policy link must start with https://' }); out.policyUrl = u; }
+    if ('legalName' in b) out.legalName = clip(b.legalName, 160);
     if ('grievanceName' in b) out.grievanceName = clip(b.grievanceName, 120);
+    if ('grievancePhone' in b) out.grievancePhone = clip(b.grievancePhone, 40);
     if ('grievanceEmail' in b) { const e = clip(b.grievanceEmail, 200); if (e && !EMAIL_RE.test(e)) return res.status(400).json({ error: 'Enter a valid email for the grievance officer' }); out.grievanceEmail = e; }
     if ('address' in b) out.address = clip(b.address, 400);
     if ('refundDays' in b) out.refundDays = Math.min(365, Math.max(0, Math.round(Number(b.refundDays) || 0)));
     out.updatedAt = Date.now();
-    const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, privacy: out }; });
-    res.json({ ...privacyOf(u), consentLine: consentLine(u), pages: legalBase(process.env.APP_URL || appUrl(req), u.id) });
+    // where physical products are made, unless a product says otherwise (shown at checkout — E-Commerce Rules)
+    const origin = 'originDefault' in b ? clip(b.originDefault, 60) || 'India' : null;
+    const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, privacy: out, ...(origin ? { originDefault: origin } : {}) }; });
+    res.json(view(u, req));
+  });
+  // what this funnel still needs before it can be published (the editor warns on live ones too)
+  app.get('/api/funnels/:id/legal-check', auth, (req, res) => {
+    const f = T.funnels.get(req.params.id);
+    if (!f || f.userId !== req.user.id) return res.status(404).json({ error: 'Funnel not found' });
+    res.json({ missing: legalMissing(T.users.get(f.userId), f) });
   });
   app.delete('/api/contacts/:key', auth, (req, res) => {
     const n = eraseContact(req.user.id, req.params.key);

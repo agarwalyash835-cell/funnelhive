@@ -324,8 +324,8 @@ test('automation WhatsApp steps go through Hive (one key per run and step) and s
 
 test('abandoned checkouts get one WhatsApp reminder when the toggle is on — not after they buy', async () => {
   assert.equal((await api('/channels/whatsapp/hive', 'PUT', { abandonedReminder: true }, T)).data.abandonedReminder, true);
-  await api(`/public/${f.slug}/abandon`, 'POST', { stepId: co.id, name: 'Kiran Rao', phone: '9600000001' });
-  await api(`/public/${f.slug}/abandon`, 'POST', { stepId: co.id, name: 'Bought', phone: '9600000002' });
+  await api(`/public/${f.slug}/abandon`, 'POST', { notice: true, stepId: co.id, name: 'Kiran Rao', phone: '9600000001' });
+  await api(`/public/${f.slug}/abandon`, 'POST', { notice: true, stepId: co.id, name: 'Bought', phone: '9600000002' });
   await api(`/public/${f.slug}/order`, 'POST', { stepId: co.id, email: 'bought@x.in', name: 'Bought', phone: '9600000002' });
   const m = await waitFor(() => sentTo('919600000001', 'fh_abandoned_checkout')[0]);
   assert.ok(m, 'reminder sent');

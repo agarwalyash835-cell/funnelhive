@@ -90,7 +90,7 @@ function ProductEditor({ id }) {
   const save = async () => {
     setBusy(true);
     try {
-      const x = await api(`/products/${id}`, 'PUT', { name: p.name, description: p.description, note: p.note, cover: p.cover, links: p.links, lessons: p.lessons, accessDays: p.accessDays, downloadLimit: p.downloadLimit });
+      const x = await api(`/products/${id}`, 'PUT', { name: p.name, description: p.description, note: p.note, cover: p.cover, links: p.links, lessons: p.lessons, accessDays: p.accessDays, downloadLimit: p.downloadLimit, hsn: p.hsn || '', gstRate: p.gstRate ?? '', origin: p.origin || '' });
       const next = { ...x, usage: p.usage };
       setP(next); setSaved(JSON.stringify(next)); toast('Product saved');
     } catch (e) { toast(e.message); }
@@ -355,6 +355,17 @@ function SettingsTab({ p, set, onDelete }) {
               <option value={0}>Lifetime</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={180}>6 months</option><option value={365}>1 year</option><option value={730}>2 years</option>{![0, 30, 90, 180, 365, 730].includes(p.accessDays) && <option value="custom">{p.accessDays} days</option>}
             </select><small className="hint">Counted from each buyer’s purchase. Changes apply to new buyers.</small></label>
             <label className="fld"><span>Downloads per file</span><input type="number" min="0" max="1000" value={p.downloadLimit} onChange={(e) => set({ downloadLimit: Number(e.target.value) || 0 })} /><small className="hint">0 = unlimited. Stops one buyer from passing files around; streaming lesson videos doesn’t count.</small></label>
+          </div>
+        </Panel>
+        <Panel title="GST on invoices">
+          <div className="form2">
+            <label className="fld"><span>HSN / SAC code</span><input value={p.hsn || ''} inputMode="numeric" maxLength={8} onChange={(e) => set({ hsn: e.target.value.replace(/\D/g, '') })} placeholder="Invoice default" /><small className="hint">Courses/coaching: SAC 999293 or 998431 — ask your CA. Physical goods: the HSN on your purchase invoice.</small></label>
+            <label className="fld"><span>GST rate</span><select value={p.gstRate ?? ''} onChange={(e) => set({ gstRate: e.target.value === '' ? null : Number(e.target.value) })}><option value="">Invoice default</option>{[0, 0.25, 3, 5, 12, 18, 28, 40].map((r) => <option key={r} value={r}>{r}%</option>)}</select><small className="hint">Used on this product’s invoice lines. Empty = the rate in Settings → GST invoices.</small></label>
+          </div>
+        </Panel>
+        <Panel title="Physical goods">
+          <div className="form2">
+            <label className="fld"><span>Country of origin</span><input value={p.origin || ''} maxLength={60} onChange={(e) => set({ origin: e.target.value })} placeholder="Your default from Settings (else India)" /><small className="hint">Shown under the product at checkout when it ships (required for goods sold online in India). Leave empty for digital products.</small></label>
           </div>
         </Panel>
         <Panel title="Protection built in">

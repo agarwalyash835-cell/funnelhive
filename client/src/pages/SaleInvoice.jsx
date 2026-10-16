@@ -1,5 +1,5 @@
 // A GST invoice (or credit note) a seller issued to a buyer — opened from the buyer's email or library.
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { inWords } from './Invoice';
 
@@ -22,7 +22,9 @@ export default function SaleInvoice() {
   CUR = i.currency || 'INR';
   const s = i.seller || {}, b = i.billedTo || {};
   const credit = i.type === 'credit';
-  const cols = i.registered ? 3 : 1;
+  const cols = i.registered ? 4 : 1;
+  // tax per rate (invoices from before per-line rates: one rate for the whole invoice)
+  const rates = i.rates || [{ rate: i.rate, taxable: i.taxable, cgst: i.cgst, sgst: i.sgst, igst: i.igst }];
   return (
     <div className="inv-page">
       <div className="inv-tools no-print"><span /><button className="btn primary sm" onClick={() => window.print()}>Download PDF / Print</button></div>
@@ -36,14 +38,14 @@ export default function SaleInvoice() {
           <div><small>{credit ? 'Date' : 'Invoice date'}</small><b>{day(i.at)}</b>{i.registered && <><small>Place of supply</small><span>{i.placeOfSupply || '—'}</span></>}{i.paymentId && <><small>Payment</small><span className="mono">{i.paymentId}</span></>}</div>
         </section>
         <table className="inv-t">
-          <thead><tr><th>Description</th>{i.registered && <><th>SAC</th><th className="r">Taxable value</th></>}<th className="r">Amount</th></tr></thead>
-          <tbody>{i.items.map((l, k) => <tr key={k}><td>{l.name}</td>{i.registered && <><td>{l.sac}</td><td className="r">{money(l.taxable)}</td></>}<td className="r">{money(l.amount)}</td></tr>)}</tbody>
+          <thead><tr><th>Description</th>{i.registered && <><th>HSN/SAC</th><th className="r">GST</th><th className="r">Taxable value</th></>}<th className="r">Amount</th></tr></thead>
+          <tbody>{i.items.map((l, k) => <tr key={k}><td>{l.name}</td>{i.registered && <><td>{l.sac}</td><td className="r">{l.rate ?? i.rate}%</td><td className="r">{money(l.taxable)}</td></>}<td className="r">{money(l.amount)}</td></tr>)}</tbody>
           <tfoot>
             {i.registered && <tr><td colSpan={cols}>Taxable value</td><td className="r">{money(i.taxable)}</td></tr>}
-            {i.registered && (i.intra ? <>
-              <tr><td colSpan={cols}>CGST @ {i.rate / 2}%</td><td className="r">{money(i.cgst)}</td></tr>
-              <tr><td colSpan={cols}>SGST @ {i.rate / 2}%</td><td className="r">{money(i.sgst)}</td></tr>
-            </> : <tr><td colSpan={cols}>IGST @ {i.rate}%</td><td className="r">{money(i.igst)}</td></tr>)}
+            {i.registered && rates.map((r) => (i.intra ? <Fragment key={r.rate}>
+              <tr><td colSpan={cols}>CGST @ {r.rate / 2}%{rates.length > 1 ? ` on ${money(r.taxable)}` : ''}</td><td className="r">{money(r.cgst)}</td></tr>
+              <tr><td colSpan={cols}>SGST @ {r.rate / 2}%{rates.length > 1 ? ` on ${money(r.taxable)}` : ''}</td><td className="r">{money(r.sgst)}</td></tr>
+            </Fragment> : <tr key={r.rate}><td colSpan={cols}>IGST @ {r.rate}%{rates.length > 1 ? ` on ${money(r.taxable)}` : ''}</td><td className="r">{money(r.igst)}</td></tr>))}
             <tr className="tot"><td colSpan={cols}>{credit ? 'Total refunded' : 'Total paid'}</td><td className="r">{money(i.total)}</td></tr>
           </tfoot>
         </table>

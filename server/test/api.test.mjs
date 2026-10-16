@@ -121,7 +121,7 @@ test('public runtime: leads, events, abandoned carts recovered by purchase', asy
   const co = pub.steps.find((s) => s.type === 'checkout');
   await api(`/public/${funnel.slug}/event`, 'POST', { stepId: pub.steps[0].id, type: 'view', source: 'instagram', visitor: 'v1' });
   await api(`/public/${funnel.slug}/lead`, 'POST', { stepId: pub.steps[0].id, email: 'lead@x.dev' });
-  await api(`/public/${funnel.slug}/abandon`, 'POST', { stepId: co.id, email: 'ab@x.dev', name: 'Ab' });
+  await api(`/public/${funnel.slug}/abandon`, 'POST', { notice: true, stepId: co.id, email: 'ab@x.dev', name: 'Ab' });
   let d = (await api('/orders', 'GET', null, T)).data;
   assert.ok(d.abandoned.some((a) => a.email === 'ab@x.dev'));
   // the recovery link goes back to the checkout they left
@@ -188,7 +188,7 @@ test('preview mode never touches real orders, carts or coupon counts', async () 
   await api('/coupons', 'POST', { code: 'PV10', value: 10 }, token);
   const co = f.steps.find((s) => s.type === 'checkout'), up = f.steps.find((s) => s.type === 'upsell');
   const real = (await api(`/public/${f.slug}/order`, 'POST', { stepId: co.id, email: 'real@x.dev' })).data;
-  await api(`/public/${f.slug}/abandon`, 'POST', { stepId: co.id, email: 'cart@x.dev' });
+  await api(`/public/${f.slug}/abandon`, 'POST', { notice: true, stepId: co.id, email: 'cart@x.dev' });
   // preview: accept an upsell using the REAL order id, buy with the cart email and a coupon
   const pv = (await api(`/public/${f.slug}/order?preview=1`, 'POST', { stepId: up.id, orderId: real.orderId })).data;
   assert.ok(pv.orderId.startsWith('pv-'));

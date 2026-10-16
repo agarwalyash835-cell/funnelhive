@@ -18,7 +18,7 @@ const STEP_SECTIONS = {
   landing: [{ type: 'hero', props: {} }, { type: 'features', props: {} }, { type: 'testimonials', props: {} }, { type: 'cta', props: {} }],
   sales: [{ type: 'hero', props: {} }, { type: 'features', props: {} }, { type: 'pricing', props: {} }, { type: 'faq', props: {} }],
   optin: [{ type: 'hero', props: {} }, { type: 'optin', props: {} }],
-  checkout: [{ type: 'countdown', props: { label: 'Your price is locked for', minutes: 15 } }, { type: 'checkout', props: {} }],
+  checkout: [{ type: 'checkout', props: {} }], // no "price locked for 15 minutes" timer: that urgency isn't real
   upsell: [{ type: 'offer', props: {} }, { type: 'guarantee', props: {} }],
   downsell: [{ type: 'offer', props: { progress: 'One last chance' } }],
   thankyou: [{ type: 'thankyou', props: {} }],

@@ -1,6 +1,18 @@
 const tok = () => localStorage.getItem('ff_token');
 
+// Sessions slide: a token older than a day is swapped for a fresh one (the server signs idle devices out after 14 days)
+const issuedAt = (t) => { try { return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).iat * 1000; } catch { return 0; } };
+let refreshing = null;
+function refresh() {
+  const t = tok();
+  if (!t || refreshing || Date.now() - issuedAt(t) < 86400000 || localStorage.getItem('ff_admin_token')) return refreshing;
+  refreshing = fetch('/api/auth/refresh', { method: 'POST', headers: { Authorization: 'Bearer ' + t } })
+    .then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.token && tok() === t) setToken(d.token); }).catch(() => {}).finally(() => { refreshing = null; });
+  return refreshing;
+}
+
 export async function api(path, method = 'GET', body) {
+  await refresh();
   const res = await fetch('/api' + path, {
     method,
     headers: { 'Content-Type': 'application/json', ...(tok() ? { Authorization: 'Bearer ' + tok() } : {}) },
@@ -20,7 +32,12 @@ export async function api(path, method = 'GET', body) {
 }
 
 export const setToken = (t) => localStorage.setItem('ff_token', t);
-export const logout = () => { localStorage.removeItem('ff_token'); localStorage.removeItem('ff_admin_token'); location.href = '/login'; };
+// signs this device's session out on the server too
+export const logout = () => {
+  const t = tok();
+  if (t) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, keepalive: true }).catch(() => {});
+  localStorage.removeItem('ff_token'); localStorage.removeItem('ff_admin_token'); location.href = '/login';
+};
 export const loggedIn = () => !!tok();
 
 // "Log in as" a seller (admins, for support) and back

@@ -33,7 +33,7 @@ test('demo data: undeliverable addresses, never in a broadcast audience', async 
   const real = (await api('/funnels', 'GET', null, T)).data[0];
   // one real lead, then the demo data
   const pub = (await api(`/funnels/${real.id}`, 'PUT', { published: true }, T)).data;
-  await api(`/public/${pub.slug}/lead`, 'POST', { stepId: pub.steps[0].id, email: 'real.person@mail.test', name: 'Real Person' });
+  await api(`/public/${pub.slug}/lead`, 'POST', { stepId: pub.steps[0].id, email: 'real.person@mail.test', name: 'Real Person', consent: true });
   assert.equal((await api('/demo/seed', 'POST', {}, T)).status, 200);
   const contacts = (await api('/contacts', 'GET', null, T)).data;
   const list = contacts.contacts || contacts;

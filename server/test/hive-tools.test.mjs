@@ -52,7 +52,7 @@ test('calls and webinars with time zones', async () => {
 });
 
 test('contacts, tags and a broadcast that stays a draft', async () => {
-  await api(`/public/${f.slug}/lead`, 'POST', { stepId: f.steps[0].id, email: 'priya@x.in', name: 'Priya' });
+  await api(`/public/${f.slug}/lead`, 'POST', { stepId: f.steps[0].id, email: 'priya@x.in', name: 'Priya', consent: true });
   await api(`/public/${f.slug}/lead`, 'POST', { stepId: f.steps[0].id, email: 'ravi@x.in', name: 'Ravi' });
   const found = await call('find_contacts', { query: 'priya' });
   assert.equal(found.count, 1);

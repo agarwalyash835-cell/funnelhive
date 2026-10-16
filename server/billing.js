@@ -113,7 +113,9 @@ function taxSplit(total, sellerState) {
   const p = platform();
   if (!p.company.gstin) return { registered: false, taxable: total, rate: 0, cgst: 0, sgst: 0, igst: 0 };
   const taxable = r2(total / (1 + p.gstRate / 100)), tax = r2(total - taxable);
-  const intra = sellerState && sellerState === p.company.state;
+  // no state on record (subscribing asks for it; this is only older accounts): the place of supply is then the
+  // supplier's own location (IGST Act s.12(2)(b)), so CGST + SGST — never a silent IGST
+  const intra = !sellerState || sellerState === p.company.state;
   return { registered: true, taxable, rate: p.gstRate, cgst: intra ? r2(tax / 2) : 0, sgst: intra ? r2(tax - r2(tax / 2)) : 0, igst: intra ? 0 : tax };
 }
 export function pricing() {
@@ -121,7 +123,7 @@ export function pricing() {
   const out = {};
   for (const k of INTERVALS) {
     const total = chargeFor(k);
-    out[k] = { amount: total, perMonth: k.endsWith('yearly') ? Math.round(total / 12) : total, gstIncluded: true, ...taxSplit(total, p.company.state) };
+    out[k] = { amount: total, perMonth: k.endsWith('yearly') ? Math.round(total / 12) : total, gstIncluded: true, ...taxSplit(total, p.company.state), ...(total > AFA_LIMIT ? { afa: true } : {}) };
   }
   out.yearlySaves = out.monthly.amount * 12 - out.yearly.amount;
   out.agencyYearlySaves = out.agency_monthly.amount * 12 - out.agency_yearly.amount;
@@ -130,6 +132,11 @@ export function pricing() {
 }
 
 // ---------- invoices ----------
+// SAC on platform invoices (998314: IT design and development services); PLATFORM_SAC or platform settings override
+export const platformSac = () => String(process.env.PLATFORM_SAC || platform().sac || '').replace(/\D/g, '').slice(0, 8) || '998314';
+// RBI: an automatic debit above ₹15,000 needs the payer's approval each time (additional factor of authentication)
+export const AFA_LIMIT = 15000;
+export const afaNote = (amount) => (amount > AFA_LIMIT ? 'Each renewal above ₹15,000 needs your approval in your bank app' : '');
 function financialYear(t) {
   const d = new Date(t + TZ_OFFSET);
   const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1;
@@ -148,10 +155,37 @@ export function issueInvoice(u, { key, total, interval, from, to, paymentId, at 
     const d = u.billing?.details || {};
     return T.invoices.insert({
       id: uid(), userId: u.id, key, number: `${p.company.invoicePrefix || 'FH'}/${fy}/${String(seq.n).padStart(4, '0')}`, at, status: 'paid', paymentId: paymentId || null,
-      interval, period: { from, to }, total, ...taxSplit(total, d.state),
+      interval, period: { from, to }, total, ...taxSplit(total, d.state), sac: platformSac(),
       item: `${p.brand} subscription — ${planName(interval || 'monthly')} plan`,
       billedTo: { name: d.name || u.name, email: u.email, gstin: d.gstin || '', address: d.address || '', state: d.state || '', stateCode: STATES[d.state] || '' },
       company: { ...p.company, stateCode: STATES[p.company.state] || '' }, brand: p.brand,
+    });
+  });
+}
+
+// A refunded plan payment (Razorpay refund.processed / Stripe charge.refunded) → a credit note against its invoice,
+// in its own series (FH-CN/2026-27/0001). Amounts are stored negative so revenue totals net the refund out.
+// refunded: Stripe's running total for the payment (instead of this refund's amount)
+export function issueCreditNote({ paymentId, refundId, amount, refunded, at = Date.now() }) {
+  return tx(() => {
+    const inv = T.invoices.all({}).find((i) => i.paymentId && i.paymentId === paymentId && i.type !== 'credit');
+    if (!inv) return null;
+    const key = `cn:${refundId || paymentId}`;
+    const existing = T.invoices.all({ userId: inv.userId }).find((i) => i.key === key);
+    if (existing) return existing;
+    const credited = -T.invoices.all({ userId: inv.userId }).filter((i) => i.type === 'credit' && i.against === inv.number).reduce((s, i) => s + i.total, 0);
+    const total = r2(Math.min(refunded != null ? refunded - credited : amount, inv.total - credited));
+    if (!(total > 0)) return null;
+    const p = platform(), fy = financialYear(at);
+    const seq = T.platform.get(`seq:cn:${fy}`) || { id: `seq:cn:${fy}`, n: 0 };
+    seq.n++;
+    T.platform.put(seq);
+    const rate = inv.rate || 0, taxable = r2(total / (1 + rate / 100)), tax = r2(total - taxable), intra = inv.cgst > 0;
+    const { id, key: _k, number, at: _a, ...rest } = inv;
+    return T.invoices.insert({
+      ...rest, id: uid(), key, type: 'credit', against: inv.number, refundId: refundId || null, status: 'credited', at,
+      number: `${p.company.invoicePrefix || 'FH'}-CN/${fy}/${String(seq.n).padStart(4, '0')}`,
+      total: -total, taxable: -taxable, cgst: intra && inv.registered ? -r2(tax / 2) : 0, sgst: intra && inv.registered ? -r2(tax - r2(tax / 2)) : 0, igst: !intra && inv.registered ? -tax : 0,
     });
   });
 }
@@ -249,14 +283,15 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
       sub = await rzpCall(rzp, 'POST', '/subscriptions', {
         plan_id: await planId(rzp, interval), total_count: periodOf(interval) === 'yearly' ? 10 : 120, quantity: 1, customer_notify: 1,
         ...(startAt > Date.now() + DAY ? { start_at: Math.floor(startAt / 1000) } : {}),
-        notes: { userId: u.id, email: u.email, interval },
+        // above ₹15,000 the bank asks the payer to approve each debit (Razorpay sends the notification): never a silent auto-debit
+        notes: { userId: u.id, email: u.email, interval, ...(chargeFor(interval) > AFA_LIMIT ? { afa: 'each debit' } : {}) },
       });
     } catch (e) { console.error('Razorpay subscription failed', e.message); return res.status(502).json({ error: 'Couldn’t reach Razorpay — please try again in a minute.' }); }
     T.users.update(u.id, (x) => { x.billing ||= b; x.billing.pending = { id: sub.id, interval, amount: chargeFor(interval), at: Date.now() }; });
     const p = platform();
     res.json({
-      key: rzp.keyId, subscription_id: sub.id, name: p.brand, description: `${planName(interval)} plan · ₹${chargeFor(interval).toLocaleString('en-IN')}${startAt > Date.now() + DAY ? ` · first charge on ${new Date(startAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}`,
-      prefill: { name: b.details.name || u.name, email: u.email }, notes: { userId: u.id }, startsLater: startAt > Date.now() + DAY,
+      key: rzp.keyId, subscription_id: sub.id, name: p.brand, description: `${planName(interval)} plan · ₹${chargeFor(interval).toLocaleString('en-IN')}${startAt > Date.now() + DAY ? ` · first charge on ${new Date(startAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}${afaNote(chargeFor(interval)) ? ` · ${afaNote(chargeFor(interval))}` : ''}`,
+      afaNote: afaNote(chargeFor(interval)) || undefined, prefill: { name: b.details.name || u.name, email: u.email }, notes: { userId: u.id }, startsLater: startAt > Date.now() + DAY,
     });
   }));
 
@@ -310,10 +345,13 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
         if (ev.event === 'subscription.halted' && user) notify(user, 'halted');
       }
     }
+    // a plan payment refunded in the Razorpay dashboard: a credit note against its invoice
+    const rf = ev.payload?.refund?.entity;
+    if (ev.event === 'refund.processed' && rf?.payment_id) issueCreditNote({ paymentId: rf.payment_id, refundId: rf.id, amount: Number(rf.amount || 0) / 100 });
     res.json({ ok: true });
   });
 
-  registerIntlBilling(app, { auth, wrap, rateLimit, isTest: test, view, cancelRazorpay: (id) => { const r = platformRzp(); if (r) rzpCall(r, 'POST', `/subscriptions/${id}/cancel`, { cancel_at_cycle_end: 0 }).catch((e) => console.error('old Razorpay subscription cancel failed', e.message)); } });
+  registerIntlBilling(app, { auth, wrap, rateLimit, isTest: test, view, creditNote: issueCreditNote, cancelRazorpay: (id) => { const r = platformRzp(); if (r) rzpCall(r, 'POST', `/subscriptions/${id}/cancel`, { cancel_at_cycle_end: 0 }).catch((e) => console.error('old Razorpay subscription cancel failed', e.message)); } });
   if (JOBS && !test) { setTimeout(billingJob, 30000).unref(); setInterval(billingJob, 3600000).unref(); }
 }
 
