@@ -118,6 +118,9 @@ const track = (event, data = {}, id) => {
 let CURRENCY = 'INR'; // the funnel's currency, for pixel events
 const purchase = (r) => r && r.orderId && track('Purchase', { value: r.added ?? r.total, currency: CURRENCY }, r.txn || r.orderId);
 
+// what the server render (entry-server.jsx) doesn't know: off for the first, hydrating render
+const SSR_CTX = { gstInvoices: false, testCheckout: false, stripe: false, waRequired: false, delivery: null, webinar: null, privacy: null, social: null };
+
 export default function Public() {
   const params = useParams();
   // On a seller's own domain the page lives at "/" and "/<step>" — the funnel comes from the server render
@@ -131,6 +134,10 @@ export default function Public() {
   const embedded = typeof window !== 'undefined' && window.__FUNNEL__?.slug === slug ? window.__FUNNEL__ : null;
   const [f, setF] = useState(embedded);
   const [err, setErr] = useState('');
+  // hydrating the server HTML (main.jsx): the first render must match it, so visitor-specific bits
+  // (consent banner, test-checkout note, receipts…) join right after, on the next render
+  const [hydrating, setHydrating] = useState(() => typeof window !== 'undefined' && !!window.__FF_HYDRATING__);
+  useEffect(() => { if (hydrating) { window.__FF_HYDRATING__ = false; setHydrating(false); } }, []);
   const source = useMemo(() => trafficSource(qs), []);
   const attr = useMemo(() => captureAttr(qs), []);
   const visitor = useMemo(visitorId, []);
@@ -357,8 +364,8 @@ export default function Public() {
   return (
     <>
       {preview && <div className="previewbar">Preview mode — nothing is recorded{step.ab?.enabled && ` · showing variant ${variant}`}</div>}
-      <Page blocks={blocks} theme={f.theme} ctx={ctx} />
-      {needsConsent && !choice && !preview && (
+      <Page blocks={blocks} theme={f.theme} ctx={hydrating ? { ...ctx, ...SSR_CTX } : ctx} />
+      {needsConsent && !choice && !preview && !hydrating && (
         <div role="dialog" aria-label="Cookie consent" style={{ position: 'fixed', left: 12, right: 12, bottom: 12, zIndex: 9000, maxWidth: 560, margin: '0 auto', background: '#111827', color: '#f9fafb', borderRadius: 14, padding: '14px 16px', boxShadow: '0 12px 40px rgba(0,0,0,.35)', font: '14px/1.5 system-ui, sans-serif', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
           <span style={{ flex: '1 1 260px' }}>{tr(f.theme?.lang, 'We use cookies to measure our ads and improve this page.')} <a href={f.privacy.policy} target="_blank" rel="noreferrer" style={{ color: '#a5b4fc' }}>{tr(f.theme?.lang, 'Privacy Policy')}</a></span>
           <button onClick={() => decide('no')} style={{ background: 'transparent', color: '#f9fafb', border: '1px solid #4b5563', borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>{tr(f.theme?.lang, 'Reject')}</button>

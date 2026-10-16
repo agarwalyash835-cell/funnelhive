@@ -83,10 +83,10 @@ const SCHEMA = {
   users: { cols: { email: (u) => lower(u.email), plan: (u) => u.billing?.status || null, createdAt: 0 }, unique: [['email']], index: [['createdAt']] },
   funnels: { cols: { userId: 0, slug: 0, updatedAt: 0 }, unique: [['slug']], index: [['userId', 'updatedAt']] },
   revisions: { cols: { funnelId: 0, userId: 0, at: 0 }, index: [['funnelId', 'at']] },
-  leads: { cols: { userId: 0, funnelId: 0, ckey: (l) => contactKey(l.email, l.phone), visitor: 0, source: 0, at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor']] },
+  leads: { cols: { userId: 0, funnelId: 0, ckey: (l) => contactKey(l.email, l.phone), visitor: 0, source: 0, at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor'], ['userId', 'ckey', 'funnelId', 'at']] }, // the last: the paged contacts list, from the index alone
   // inr: the order's value in rupees (foreign-currency orders × their exchange rate; refunds already
   // come off total). paid / net: what reports count — real money only (see paidOrder)
-  orders: { cols: { userId: 0, funnelId: 0, ckey: (o) => contactKey(o.email), visitor: 0, source: 0, total: 0, inr: (o) => orderInr(o), paid: (o) => bool(paidOrder(o)), net: (o) => (paidOrder(o) ? orderInr(o) : 0), at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor'], ['funnelId', 'ckey']] },
+  orders: { cols: { userId: 0, funnelId: 0, ckey: (o) => contactKey(o.email), visitor: 0, source: 0, total: 0, inr: (o) => orderInr(o), paid: (o) => bool(paidOrder(o)), net: (o) => (paidOrder(o) ? orderInr(o) : 0), at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor'], ['funnelId', 'ckey'], ['userId', 'ckey', 'funnelId', 'at', 'total']] },
   abandoned: { cols: { userId: 0, funnelId: 0, ckey: (a) => contactKey(a.email, a.phone),visitor: 0, at: 0, recovered: (a) => bool(a.recovered), demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'ckey'], ['userId', 'ckey'], ['visitor']] },
   coupons: { cols: { userId: 0, code: 0 }, unique: [['userId', 'code']] },
   webhooks: { cols: { userId: 0, status: 0, nextAt: 0, at: 0 }, index: [['userId', 'at'], ['status', 'nextAt']] },
@@ -341,11 +341,29 @@ if (v0 < 2) sql.exec('PRAGMA user_version = 2');
 try { sql.exec('PRAGMA analysis_limit = 1000; PRAGMA optimize = 0x10002;'); } catch (e) { if (!/locked|busy/i.test(e.message)) throw e; }
 
 // ---------- maintenance ----------
-// Flush the write-ahead log on shutdown
+// Shutdown (docker stop, a deploy, Ctrl+C): stop taking new requests and let the ones in flight finish (index.js
+// registers that with onShutdown), keep background jobs from starting new work, then flush the write-ahead log.
 // (the cluster's primary process only runs upgrades; its app processes each handle their own shutdown)
-if (process.env.FF_PRIMARY !== '1') for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { flushEvents(); sql.exec('PRAGMA wal_checkpoint(TRUNCATE)'); sql.close(); } catch {} process.exit(0); });
+let stopping = false;
+export const shuttingDown = () => stopping;
+const drains = [];
+export const onShutdown = (fn) => { drains.push(fn); };
+// every repeating job (automations, broadcasts, webhooks, backups…) skips its turn once shutdown has begun
+const realSetInterval = globalThis.setInterval;
+globalThis.setInterval = (fn, ms, ...a) => realSetInterval((...x) => { if (!stopping) fn(...x); }, ms, ...a);
+export { realSetInterval };
+const closeDb = () => { try { flushEvents(); sql.exec('PRAGMA wal_checkpoint(TRUNCATE)'); sql.close(); } catch {} };
+export async function shutdown(code = 0) {
+  if (stopping) return;
+  stopping = true;
+  setTimeout(() => { closeDb(); process.exit(code); }, 9500).unref(); // never hang
+  await Promise.allSettled(drains.map((fn) => Promise.resolve().then(fn)));
+  closeDb();
+  process.exit(code);
+}
+if (process.env.FF_PRIMARY !== '1') for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => shutdown(0));
 
-// Daily backups (keeps the last 7). VACUUM INTO copies one consistent snapshot (writes carry on meanwhile) and runs
+// Hourly backups, one file per day (keeps the last 7 days). VACUUM INTO copies one consistent snapshot (writes carry on meanwhile) and runs
 // on its own thread with its own connection, so requests aren't held up even on a multi-gigabyte database.
 // (SQLite's page-by-page online backup restarts whenever another process writes, so on a busy server it never ends.)
 function snapshotTo(target) {
@@ -358,15 +376,32 @@ function snapshotTo(target) {
   });
 }
 const backupDir = path.join(dir, 'backups');
+// the last off-site copy's result, in a file so every app process (health checks, admin panel) sees it — not in the
+// database, so recording it doesn't count as a change for the next hourly run
+const offsiteFile = path.join(backupDir, '.offsite.json');
 let lastOffsite = null;
-export const offsiteStatus = () => lastOffsite;
+export const offsiteStatus = () => { try { return JSON.parse(fs.readFileSync(offsiteFile, 'utf8')); } catch { return lastOffsite; } };
+const todayFile = () => path.join(backupDir, `funnelhive-${new Date().toISOString().slice(0, 10)}.db`);
+// what the database files looked like when the last good snapshot started: same size and time → nothing written since
+export const dbFilesSig = () => [dbFile, `${dbFile}-wal`].map((f) => { try { const s = fs.statSync(f); return `${s.size}:${s.mtimeMs}`; } catch { return '-'; } }).join('|');
+let lastSig = null;
+// the hourly run is skipped when nothing changed since the last snapshot — unless today has no file yet (one per
+// day) or the last off-site copy failed
+export const backupDue = ({ sig, lastSig: prev, todayExists, offsiteOk }) => !prev || sig !== prev || !todayExists || offsiteOk === false;
+export async function scheduledBackup() {
+  if (stopping) return null;
+  const { s3Enabled } = await import('./storage.js');
+  if (!backupDue({ sig: dbFilesSig(), lastSig, todayExists: fs.existsSync(todayFile()), offsiteOk: s3Enabled() ? !!offsiteStatus()?.ok : null })) return 'unchanged';
+  return backupNow();
+}
 let backingUp = false;
 export async function backupNow() {
   if (backingUp) return null;
   backingUp = true;
   try {
     fs.mkdirSync(backupDir, { recursive: true });
-    const f = path.join(backupDir, `funnelhive-${new Date().toISOString().slice(0, 10)}.db`);
+    const f = todayFile();
+    const sig = dbFilesSig();
     // every run refreshes today's file (one per day, holding that day's latest state) — skipping it when the
     // file existed froze each day at its first backup and left the rest of the day unprotected
     {
@@ -385,6 +420,7 @@ export async function backupNow() {
           await putFile(`backups/${path.basename(enc)}`, enc, 'application/octet-stream');
           lastOffsite = { at: Date.now(), ok: true, file: path.basename(enc) };
         } catch (e) { lastOffsite = { at: Date.now(), ok: false, error: e.message }; console.error('Off-site backup failed', e.message); } finally { fs.rmSync(enc, { force: true }); }
+        try { fs.writeFileSync(offsiteFile, JSON.stringify(lastOffsite)); } catch {}
         // off-site, one file per day is kept for 90 days (Wasabi bills every file for 90 days anyway) — older
         // plain .db copies from before encryption included
         if (lastOffsite.ok) {
@@ -394,12 +430,14 @@ export async function backupNow() {
       }
     }
     fs.readdirSync(backupDir).filter((n) => n.endsWith('.db')).sort().slice(0, -7).forEach((n) => fs.rmSync(path.join(backupDir, n)));
+    lastSig = sig;
     return f;
   } catch (e) { console.error('Backup failed', e.message); return null; } finally { backingUp = false; }
 }
 export const backupFiles = () => { try { return fs.readdirSync(backupDir).filter((n) => n.endsWith('.db')).sort().reverse().map((n) => ({ name: n, bytes: fs.statSync(path.join(backupDir, n)).size })); } catch { return []; } };
 export const dbBytes = () => { try { return fs.statSync(dbFile).size + (fs.existsSync(`${dbFile}-wal`) ? fs.statSync(`${dbFile}-wal`).size : 0); } catch { return 0; } };
-if (JOBS && process.env.NODE_ENV !== 'test') { setTimeout(backupNow, 5000).unref(); setInterval(backupNow, 6 * 3600000).unref(); }
+// every hour (each run refreshes today's file; skipped when nothing was written since the last one)
+if (JOBS && process.env.NODE_ENV !== 'test') { setTimeout(backupNow, 5000).unref(); setInterval(scheduledBackup, 3600000).unref(); }
 
 // Keep the query planner's statistics fresh (cheap; SQLite only re-analyzes what changed a lot)
 if (JOBS) setInterval(() => { try { sql.exec('PRAGMA optimize'); } catch {} }, 3600000).unref();

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Mail, Phone, MessageCircle, StickyNote, PhoneCall, ShoppingBag, Eye, LogIn, UserPlus, TrendingUp, TrendingDown, PackagePlus, ShoppingCart,
   ArrowRightLeft, X, Plus, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, Upload, Download,
 } from 'lucide-react';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, Modal, toast, inr, num, ago, downloadCSV } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, toast, inr, num, ago, downloadCSV, confirmDialog, promptDialog } from '../ui';
 
 const LS = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 const when = (t) => new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -20,6 +20,7 @@ const label = (c) => c.name || c.email || c.phone || 'Unknown';
 const initial = (c) => label(c)[0]?.toUpperCase() || '?';
 const keyUrl = (k) => `/contacts/${encodeURIComponent(k)}`;
 const FIELD_TYPE_LABELS = [['text', 'Short text'], ['longtext', 'Long text'], ['number', 'Number'], ['date', 'Date'], ['select', 'Dropdown'], ['url', 'Link'], ['checkbox', 'Yes / no']];
+const PAGE = 100; // contacts per page of the list
 const fieldText = (f, v) => (v == null || v === '' ? '' : f.type === 'checkbox' ? (v ? 'Yes' : 'No') : f.type === 'date' ? new Date(v).toLocaleDateString('en-IN') : String(v));
 
 export default function Contacts() {
@@ -36,37 +37,69 @@ export default function Contacts() {
   const [picked, setPicked] = useState(() => new Set());
   const [autos, setAutos] = useState([]);
   useEffect(() => { api('/automations').then((d) => setAutos(d.automations.filter((a) => a.active))).catch(() => {}); }, []);
-  const load = () => Promise.all([api('/contacts'), api('/pipelines'), api('/crm/fields')]).then(([c, p, f]) => { setList(c); setPipes(p); setFields(f); });
+  // the server filters and pages the list (a page at a time; "Show more" fetches the next one)
+  const [page, setPage] = useState(null); // { nextCursor, total, kpis }
+  const [boardTick, setBoardTick] = useState(0); // the board reloads its columns when this changes
+  const [more, setMore] = useState(false);
+  const [dq, setDq] = useState('');
+  useEffect(() => { const t = setTimeout(() => setDq(q.trim()), 300); return () => clearTimeout(t); }, [q]);
+  const seq = useRef(0);
+  const filterQs = () => `${type !== 'all' ? `&type=${type}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}`;
+  const loadList = (keep = 0) => {
+    const n = ++seq.current;
+    return api(`/contacts?limit=${Math.min(1000, Math.max(PAGE, keep))}${filterQs()}`).then((d) => { if (n !== seq.current) return; setList(d.contacts); setPage(d); });
+  };
+  const load = () => Promise.all([loadList(list?.length || 0), api('/pipelines'), api('/crm/fields')]).then(([, p, f]) => { setPipes(p); setFields(f); setBoardTick((t) => t + 1); });
   useEffect(() => { load(); }, []);
+  const first = useRef(true);
+  useEffect(() => { if (first.current) { first.current = false; return; } setPicked(new Set()); loadList(); }, [type, dq]);
+  const showMore = async () => {
+    if (!page?.nextCursor || more) return;
+    setMore(true);
+    const n = seq.current;
+    try { const d = await api(`/contacts?limit=${PAGE}&cursor=${encodeURIComponent(page.nextCursor)}${filterQs()}`); if (n === seq.current) { setList((l) => [...l, ...d.contacts]); setPage((p) => ({ ...p, nextCursor: d.nextCursor })); } } catch (e) { toast(e.message); }
+    setMore(false);
+  };
   useEffect(() => { LS.set('ff_contacts_view', view); }, [view]);
   const pipe = pipes.find((p) => p.id === pid) || pipes[0];
   useEffect(() => { if (pipe) LS.set('ff_pipeline', pipe.id); }, [pipe?.id]);
 
-  const rows = (list || []).filter((c) => (type === 'all' || c.type === type) && `${c.name} ${c.email} ${c.phone} ${(c.tags || []).join(' ')}`.toLowerCase().includes(q.toLowerCase()));
-  const customers = (list || []).filter((c) => c.type === 'customer');
-  const ltv = customers.reduce((a, c) => a + c.ltv, 0);
+  const rows = list || [];
+  const total = page?.total ?? rows.length;
+  const kpis = page?.kpis || { total: 0, customers: 0, leads: 0, avgLtv: 0 };
   const stageOf = (c) => pipe?.stages.find((s) => s.id === c.stages?.[pipe.id]);
   const open = (k) => nav(keyUrl(k));
   const toggle = (k) => setPicked((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
-  const allPicked = rows.length > 0 && rows.every((c) => picked.has(c.key));
-  const pickAll = () => setPicked(allPicked ? new Set() : new Set(rows.map((c) => c.key)));
+  const allPicked = rows.length > 0 && rows.every((c) => picked.has(c.key)) && picked.size >= total;
+  // everyone this filter matches, not just the rows loaded so far
+  const pickAll = async () => {
+    if (allPicked) return setPicked(new Set());
+    if (total <= rows.length) return setPicked(new Set(rows.map((c) => c.key)));
+    try { setPicked(new Set((await api(`/contacts?keys=1${filterQs()}`)).keys)); } catch (e) { toast(e.message); }
+  };
   const bulk = async (action, value) => {
     const keys = [...picked];
     try {
       if (action === 'automation') { const r = await api(`/automations/${value}/enroll-bulk`, 'POST', { keys }); toast(`${r.added} added${r.skipped ? ` · ${r.skipped} already in it or skipped` : ''}`); }
       else if (action === 'stage') { const r = await api('/contacts/bulk', 'POST', { keys, stage: { pipelineId: pipe.id, stageId: value } }); toast(`${r.updated} moved`); }
-      else { const tag = prompt(action === 'addTag' ? 'Tag to add to the selected contacts' : 'Tag to remove from the selected contacts'); if (!tag) return; const r = await api('/contacts/bulk', 'POST', { keys, [action]: tag.trim() }); toast(`${r.updated} updated`); }
+      else { const tag = await promptDialog({ title: action === 'addTag' ? 'Add a tag' : 'Remove a tag', label: action === 'addTag' ? 'Tag to add to the selected contacts' : 'Tag to remove from the selected contacts', confirm: action === 'addTag' ? 'Add tag' : 'Remove tag' }); if (!tag) return; const r = await api('/contacts/bulk', 'POST', { keys, [action]: tag.trim() }); toast(`${r.updated} updated`); }
       setPicked(new Set()); load();
     } catch (e) { toast(e.message); }
   };
 
-  const moveTo = async (c, stageId) => {
-    if (!pipe || c.stages?.[pipe.id] === stageId) return;
-    setList((l) => l.map((x) => (x.key === c.key ? { ...x, stages: { ...x.stages, [pipe.id]: stageId } } : x)));
-    try { await api(`/contacts/${encodeURIComponent(c.key)}`, 'PATCH', { stage: { pipelineId: pipe.id, stageId } }); } catch (e) { toast(e.message); load(); }
+  // the whole filtered list, page by page — not just what is on screen
+  const [exporting, setExporting] = useState(false);
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const all = [];
+      let cursor = '';
+      do { const d = await api(`/contacts?limit=1000${filterQs()}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); all.push(...d.contacts); cursor = d.nextCursor; } while (cursor);
+      csvOf(all);
+    } catch (e) { toast(e.message); }
+    setExporting(false);
   };
-
-  const exportCsv = () => downloadCSV('contacts.csv', rows.map((c) => ({
+  const csvOf = (list) => downloadCSV('contacts.csv', list.map((c) => ({
     name: c.name, email: c.email, phone: c.phone, type: c.type, [`stage (${pipe?.name || 'pipeline'})`]: stageOf(c)?.name || '', tags: (c.tags || []).join(' | '),
     ...Object.fromEntries(fields.map((f) => [f.label, fieldText(f, c.custom?.[f.id])])),
     orders: c.orders, lifetime_value: c.ltv, source: c.source, answers: c.fields ? Object.entries(c.fields).map(([k, v]) => `${k}: ${v}`).join(' | ') : '',
@@ -76,17 +109,17 @@ export default function Contacts() {
   return (
     <Layout title="Contacts" subtitle="Every lead and customer — with their full journey." wide={view === 'board'} actions={<>
       <button className="btn ghost" onClick={() => setModal('fields')}><SlidersHorizontal size={16} /> Custom fields</button>
-      <button className="btn ghost" onClick={exportCsv} disabled={!rows.length}><Icon name="download" size={16} /> Export</button>
+      <button className="btn ghost" onClick={exportCsv} disabled={!rows.length || exporting}><Icon name="download" size={16} /> {exporting ? 'Exporting…' : 'Export'}</button>
       <button className="btn ghost" onClick={() => setModal('import')}><Upload size={16} /> Import CSV</button>
       <button className="btn primary" onClick={() => setModal('add')}><UserPlus size={16} /> Add contact</button>
     </>}>
       {!list ? <div className="skeleton" /> : (
         <>
           <div className="kpis k4">
-            <div className="kpi"><span className="kpi-l">Total contacts</span><b className="kpi-v">{num(list.length)}</b></div>
-            <div className="kpi"><span className="kpi-l">Customers</span><b className="kpi-v">{num(customers.length)}</b></div>
-            <div className="kpi"><span className="kpi-l">Leads (not yet bought)</span><b className="kpi-v">{num(list.length - customers.length)}</b></div>
-            <div className="kpi"><span className="kpi-l">Avg. lifetime value</span><b className="kpi-v">{inr(customers.length ? ltv / customers.length : 0)}</b></div>
+            <div className="kpi"><span className="kpi-l">Total contacts</span><b className="kpi-v">{num(kpis.total)}</b></div>
+            <div className="kpi"><span className="kpi-l">Customers</span><b className="kpi-v">{num(kpis.customers)}</b></div>
+            <div className="kpi"><span className="kpi-l">Leads (not yet bought)</span><b className="kpi-v">{num(kpis.leads)}</b></div>
+            <div className="kpi"><span className="kpi-l">Avg. lifetime value</span><b className="kpi-v">{inr(kpis.avgLtv)}</b></div>
           </div>
           <div className="crm-bar">
             <div className="seg">
@@ -101,7 +134,7 @@ export default function Contacts() {
             <div className="search"><Icon name="search" size={16} /><input placeholder="Search name, email, phone, tag…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           </div>
 
-          {view === 'board' && pipe ? <Board pipe={pipe} rows={rows} onOpen={open} onMove={moveTo} /> : (
+          {view === 'board' && pipe ? <Board pipe={pipe} filterQs={filterQs()} tick={boardTick} onOpen={open} onMoved={() => loadList(rows.length)} /> : (
             <Panel pad={false}>
               {!rows.length ? <Empty icon="users" title="No contacts yet" text="Leads from opt-in forms and customers from checkouts appear here automatically — or add one yourself." /> : (
                 <div className="tbl-wrap">
@@ -116,8 +149,8 @@ export default function Contacts() {
                     </div>
                   )}
                   <table className="tbl tbl-click">
-                    <thead><tr><th className="ck"><input type="checkbox" checked={allPicked} onChange={pickAll} title={`Select all ${rows.length} shown by this filter`} aria-label="Select all" /></th><th>Contact</th><th>Stage</th><th>Status</th><th className="r">Orders</th><th className="r">Lifetime value</th><th>Source</th><th>Form answers</th><th className="r">Last activity</th></tr></thead>
-                    <tbody>{rows.slice(0, 300).map((c) => {
+                    <thead><tr><th className="ck"><input type="checkbox" checked={allPicked} onChange={pickAll} title={`Select all ${total} shown by this filter`} aria-label="Select all" /></th><th>Contact</th><th>Stage</th><th>Status</th><th className="r">Orders</th><th className="r">Lifetime value</th><th>Source</th><th>Form answers</th><th className="r">Last activity</th></tr></thead>
+                    <tbody>{rows.map((c) => {
                       const st = stageOf(c);
                       return (
                         <tr key={c.key} tabIndex={0} onClick={() => open(c.key)} onKeyDown={(e) => e.key === 'Enter' && open(c.key)} className={`${key === c.key ? 'on' : ''} ${picked.has(c.key) ? 'picked' : ''}`}>
@@ -133,7 +166,7 @@ export default function Contacts() {
                       );
                     })}</tbody>
                   </table>
-                  {rows.length > 300 && <p className="hint center">Showing 300 of {num(rows.length)} — search to narrow down, or export for the full list.</p>}
+                  {page?.nextCursor && <div className="or-more"><button className="btn ghost sm" disabled={more} onClick={showMore}>{more ? 'Loading…' : `Show more (${num(total - rows.length)} more)`}</button></div>}
                 </div>
               )}
             </Panel>
@@ -150,11 +183,28 @@ export default function Contacts() {
 }
 
 // ---------------- kanban board ----------------
-function Board({ pipe, rows, onOpen, onMove }) {
+// each column is its own server query (first 200 cards, with the stage's count and value)
+const BOARD_CARDS = 200;
+function Board({ pipe, filterQs, tick, onOpen, onMoved }) {
   const [drag, setDrag] = useState(null);
+  const [cols, setCols] = useState({}); // stageId → { items, total, ltv }
   const boardRef = useRef();
   const suppress = useRef(false);
-  const byStage = useMemo(() => Object.fromEntries(pipe.stages.map((s) => [s.id, rows.filter((c) => c.stages?.[pipe.id] === s.id)])), [pipe, rows]);
+  const seq = useRef(0);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    const n = ++seq.current;
+    Promise.all(pipe.stages.map((s) => api(`/contacts?limit=${BOARD_CARDS}&pipeline=${encodeURIComponent(pipe.id)}&stage=${encodeURIComponent(s.id)}${filterQs}`).then((d) => [s.id, { items: d.contacts, total: d.total, ltv: d.totalLtv }])))
+      .then((list) => { if (n === seq.current) setCols(Object.fromEntries(list)); }).catch((e) => toast(e.message));
+  }, [pipe, filterQs, tick, retry]);
+  const onMove = async (c, stageId) => {
+    const from = c.stages?.[pipe.id];
+    if (from === stageId) return;
+    const moved = { ...c, stages: { ...c.stages, [pipe.id]: stageId } };
+    const shift = (col, add) => col && ({ items: add ? [moved, ...col.items] : col.items.filter((x) => x.key !== c.key), total: col.total + (add ? 1 : -1), ltv: col.ltv + (add ? c.ltv : -c.ltv) });
+    setCols((m) => ({ ...m, [from]: shift(m[from], false), [stageId]: shift(m[stageId], true) }));
+    try { await api(`/contacts/${encodeURIComponent(c.key)}`, 'PATCH', { stage: { pipelineId: pipe.id, stageId } }); onMoved?.(); } catch (e) { toast(e.message); setRetry((r) => r + 1); }
+  };
 
   // pointer drag: mouse moves 6px, touch presses and holds first (so the board still scrolls)
   const down = (e, c) => {
@@ -185,12 +235,13 @@ function Board({ pipe, rows, onOpen, onMove }) {
   return (
     <div className={`board ${drag ? 'dragging' : ''}`} ref={boardRef}>
       {pipe.stages.map((s) => {
-        const items = byStage[s.id] || [];
+        const col = cols[s.id] || { items: [], total: 0, ltv: 0 };
+        const items = col.items;
         return (
           <section key={s.id} className={`bcol ${drag?.over === s.id ? 'over' : ''}`} data-stage={s.id} style={{ '--sc': s.color }}>
-            <header><i /><b>{s.name}</b><span className="cnt">{items.length}</span><small>{inr(items.reduce((a, c) => a + c.ltv, 0))}</small></header>
+            <header><i /><b>{s.name}</b><span className="cnt">{col.total}</span><small>{inr(col.ltv)}</small></header>
             <div className="bcards">
-              {items.slice(0, 200).map((c) => (
+              {items.slice(0, BOARD_CARDS).map((c) => (
                 <article key={c.key} className={`bcard ${drag?.key === c.key ? 'ghosted' : ''}`} tabIndex={0}
                   onPointerDown={(e) => down(e, c)} onClick={() => { if (!suppress.current) onOpen(c.key); }} onKeyDown={(e) => e.key === 'Enter' && onOpen(c.key)}>
                   <div className="bc-top"><span className="who-av sm">{initial(c)}</span><b>{label(c)}</b>{c.type === 'customer' && <span className="pill ok">{inr(c.ltv)}</span>}</div>
@@ -198,7 +249,7 @@ function Board({ pipe, rows, onOpen, onMove }) {
                   <div className="bc-foot">{(c.tags || []).slice(0, 2).map((t) => <span key={t} className="tag">{t}</span>)}<span className="muted">{ago(c.lastSeen)}</span></div>
                 </article>
               ))}
-              {items.length > 200 && <p className="hint center">+{items.length - 200} more — use search</p>}
+              {col.total > Math.min(items.length, BOARD_CARDS) && <p className="hint center">+{col.total - Math.min(items.length, BOARD_CARDS)} more — use search</p>}
               {!items.length && <div className="bempty">Drop contacts here</div>}
             </div>
           </section>
@@ -235,7 +286,7 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
               <span className="who-av lg">{initial(c)}</span>
               <div className="cp-id"><h2>{label(c)}</h2><div><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type}</span>{c.unsubscribed && <span className="pill warn" title="Clicked unsubscribe — automated emails are skipped">unsubscribed</span>}<button className={`pill btnpill ${c.optIn ? 'ok' : ''}`} title={c.optIn ? 'Agreed to marketing — gets broadcasts. Click if they withdrew.' : 'No marketing consent on record — broadcasts skip them. Click only if they agreed.'} onClick={async () => { try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'PATCH', { optIn: !c.optIn }); refresh(); } catch (e) { toast(e.message); } }}>{c.optIn ? 'opted in' : 'not opted in'}</button>{(c.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}</div></div>
               <button className="icon-btn danger" title="Erase this contact’s data (privacy request)" onClick={async () => {
-                if (prompt(`Erase everything about ${label(c)}? Sign-ups, messages, bookings and product access are deleted; orders and invoices are kept for tax records without their name and contact details. This can’t be undone. Type ERASE to confirm.`) !== 'ERASE') return;
+                if ((await promptDialog({ title: `Erase everything about ${label(c)}?`, text: 'Sign-ups, messages, bookings and product access are deleted; orders and invoices are kept for tax records without their name and contact details. This can’t be undone.', label: 'Type ERASE to confirm', confirmWord: 'ERASE', confirm: 'Erase', danger: true })) !== 'ERASE') return;
                 try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'DELETE'); toast('Contact erased'); onChanged?.(); onClose(); } catch (x) { toast(x.message); }
               }}><Trash2 size={17} /></button>
               <button className="icon-btn" title="Download their data (a privacy access request)" onClick={async () => {
@@ -353,7 +404,7 @@ function Composer({ c, ckey, onDone }) {
 
 function Timeline({ items, ckey, onChanged }) {
   if (!items.length) return <Empty icon="clock" title="Nothing yet" text="Visits, sign-ups, purchases and messages will appear here." />;
-  const del = async (a) => { if (!confirm('Delete this entry?')) return; await api(`/contacts/${encodeURIComponent(ckey)}/activity/${a.id}`, 'DELETE'); onChanged(); };
+  const del = async (a) => { if (!(await confirmDialog({ title: 'Delete this entry?', confirm: 'Delete', danger: true }))) return; await api(`/contacts/${encodeURIComponent(ckey)}/activity/${a.id}`, 'DELETE'); onChanged(); };
   let lastDay = '';
   return (
     <ol className="tl">
@@ -608,7 +659,7 @@ function PipelinesEditor({ pipes, current, onClose, onSaved }) {
   const updStage = (i, k, val) => upd((x) => ({ ...x, stages: x.stages.map((s, j) => (j === i ? { ...s, [k]: val } : k === 'won' && val ? { ...s, won: false } : s)) }));
   const mv = (i, d) => upd((x) => { const st = [...x.stages]; [st[i], st[i + d]] = [st[i + d], st[i]]; return { ...x, stages: st }; });
   const create = async () => {
-    const name = prompt('Name the new pipeline', 'Webinar follow-up');
+    const name = await promptDialog({ title: 'New pipeline', label: 'Name the new pipeline', value: 'Webinar follow-up', confirm: 'Create' });
     if (!name) return;
     try { const np = await api('/pipelines', 'POST', { name }); setDrafts((d) => ({ ...d, [np.id]: np })); setPid(np.id); } catch (e) { toast(e.message); }
   };
@@ -617,7 +668,7 @@ function PipelinesEditor({ pipes, current, onClose, onSaved }) {
     try { await api(`/pipelines/${pid}`, 'PUT', { name: p.name, stages: p.stages }); toast('Pipeline saved'); onSaved(pid); } catch (e) { toast(e.message); setBusy(false); }
   };
   const remove = async () => {
-    if (!confirm(`Delete the “${p.name}” pipeline? Contacts are not deleted.`)) return;
+    if (!(await confirmDialog({ title: `Delete the “${p.name}” pipeline?`, text: 'Contacts are not deleted.', confirm: 'Delete pipeline', danger: true }))) return;
     try { await api(`/pipelines/${pid}`, 'DELETE'); toast('Pipeline deleted'); onSaved(null); } catch (e) { toast(e.message); }
   };
   if (!p) return null;

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
-import { Layout, Panel, Empty, Modal, toast, ago, num, useWaTemplates, WaTemplateSelect, WaTemplateInfo } from '../ui';
+import { Layout, Panel, Empty, Modal, toast, ago, num, useWaTemplates, WaTemplateSelect, WaTemplateInfo, confirmDialog, promptDialog } from '../ui';
 
 const BRANCH_KEYS = { condition: ['yes', 'no'], split: ['a', 'b'] };
 const BRANCH_TITLE = { yes: '✓ Yes', no: '✕ No', a: 'Path A', b: 'Path B' };
@@ -105,7 +105,7 @@ function List() {
   const toggle = async (a) => { try { await api(`/automations/${a.id}`, 'PUT', { active: !a.active }); load(); toast(a.active ? 'Automation paused' : 'Automation is live'); } catch (e) { toast(e.message); nav(`/automations/${a.id}`); } };
   const stripIds = (list) => list.map(({ id: _, ...s }) => { for (const b of BRANCH_KEYS[s.type] || []) s[b] = stripIds(s[b]); return s; });
   const dup = (a) => create({ name: `${a.name} copy`, trigger: a.trigger, steps: stripIds(a.steps), stopOnPurchase: a.stopOnPurchase, allowRepeat: a.allowRepeat });
-  const del = async (a) => { if (!confirm(`Delete “${a.name}”? Contacts in it stop receiving its messages.`)) return; await api(`/automations/${a.id}`, 'DELETE'); load(); };
+  const del = async (a) => { if (!await confirmDialog({ title: `Delete “${a.name}”?`, text: 'Contacts in it stop receiving its messages.', confirm: 'Delete', danger: true })) return; await api(`/automations/${a.id}`, 'DELETE'); load(); };
   return (
     <Layout title="Automations" subtitle="Follow up automatically — emails, WhatsApp, tags and pipeline moves." actions={<button className="btn primary" onClick={() => setPick(true)}><Plus size={16} /> New automation</button>}>
       {!d ? <div className="skeleton" /> : (
@@ -128,7 +128,7 @@ function List() {
                     <div className="au-chain">{a.steps.slice(0, 8).map((s) => { const I = STEP[s.type]?.icon || Zap; return <span key={s.id} title={s.type === 'condition' ? `If / else (${s.yes.length} yes · ${s.no.length} no steps)` : s.type === 'split' ? `A/B split ${s.percent}/${100 - s.percent}` : STEP[s.type]?.label} style={{ '--sc': STEP[s.type]?.color }}><I size={13} /></span>; })}{a.steps.length > 8 && <small>+{a.steps.length - 8}</small>}</div>
                     <footer>
                       <span><b>{num(a.running)}</b> in progress</span><span><b>{num(a.stats?.completed || 0)}</b> completed</span>
-                      <span className="au-acts"><button className="icon-btn" title="Duplicate" onClick={() => dup(a)}><Copy size={15} /></button><button className="icon-btn danger" title="Delete" onClick={() => del(a)}><Trash2 size={15} /></button></span>
+                      <span className="au-acts"><button className="icon-btn" title="Duplicate" aria-label="Duplicate" onClick={() => dup(a)}><Copy size={15} /></button><button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => del(a)}><Trash2 size={15} /></button></span>
                     </footer>
                   </article>
                 );
@@ -213,7 +213,7 @@ function Builder({ id }) {
   };
   const testStep = async (s) => {
     let to = '';
-    if (s.type === 'whatsapp') { to = prompt('Send the test to which WhatsApp number?', ''); if (!to) return; }
+    if (s.type === 'whatsapp') { to = await promptDialog({ title: 'Send a test', text: 'Send the test to which WhatsApp number?', type: 'tel', placeholder: '+91 98765 43210', confirm: 'Send test' }); if (!to) return; }
     try { const r = await api(`/automations/${id}/test`, 'POST', { step: s, to }); toast(`Test sent to ${r.to}`); } catch (e) { toast(e.message); }
   };
   const insertVar = (v) => {
@@ -232,7 +232,7 @@ function Builder({ id }) {
   const stop = async (r) => { await api(`/automations/runs/${r.id}/stop`, 'POST'); load(); };
   const openHistory = async () => { setHistory('loading'); setHistory(await api(`/automations/${id}/versions`)); };
   const restore = async (v) => {
-    if (dirty && !confirm('You have unsaved changes — restoring replaces them. Continue?')) return;
+    if (dirty && !await confirmDialog({ title: 'Restore this version?', text: 'You have unsaved changes — restoring replaces them. Continue?', confirm: 'Restore' })) return;
     try {
       const r = await api(`/automations/${id}/versions/${v.id}/restore`, 'POST');
       setHistory(null); await load();
@@ -249,7 +249,7 @@ function Builder({ id }) {
     const k = `${path.join('.')}:${at}`;
     return (
       <div className="au-add">
-        <button className="au-plus" onClick={() => setAdding(adding === k ? null : k)} title="Add a step"><Plus size={14} /></button>
+        <button className="au-plus" onClick={() => setAdding(adding === k ? null : k)} title="Add a step" aria-label="Add a step"><Plus size={14} /></button>
         {adding === k && <div className="au-menu">{Object.entries(STEP).filter(([t]) => !BRANCH_KEYS[t] || depth < 3).map(([t, s]) => <button key={t} onClick={() => insert(path, at, t)}><span style={{ '--sc': s.color }}><s.icon size={14} /></span>{s.label}</button>)}</div>}
       </div>
     );
@@ -279,7 +279,7 @@ function Builder({ id }) {
         {r.field === 'amount' && <input type="number" placeholder="₹" value={r.value || ''} onChange={(e) => set({ value: e.target.value })} />}
         {(r.field === 'opened' || r.field === 'clicked') && <select value={r.stepId || ''} onChange={(e) => set({ stepId: e.target.value || undefined })}><option value="">any email in this automation</option>{emails.map((x) => <option key={x.id} value={x.id}>“{x.subject || 'untitled email'}”</option>)}</select>}
         {r.field === 'funnel' && <select value={r.funnelId || ''} onChange={(e) => set({ funnelId: e.target.value })}><option value="">Choose funnel…</option>{funnels.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>}
-        <button className="icon-btn xs danger" title="Remove rule" onClick={() => update(path, i, { rules: s.rules.filter((_, j) => j !== ri) })}><Trash2 size={13} /></button>
+        <button className="icon-btn xs danger" title="Remove rule" aria-label="Remove rule" onClick={() => update(path, i, { rules: s.rules.filter((_, j) => j !== ri) })}><Trash2 size={13} /></button>
       </div>
     );
   };
@@ -296,9 +296,9 @@ function Builder({ id }) {
           {stats && <small className="au-stat">{stats}</small>}
           <span className="au-tools">
             {['email', 'notify', 'whatsapp'].includes(s.type) && <button className="link-btn" onClick={() => testStep(s)} title="Send this message to yourself with sample data"><Send size={12} /> Test</button>}
-            <button className="icon-btn xs" disabled={i === 0} onClick={() => move(path, i, -1)} title="Move up"><ChevronUp size={14} /></button>
-            <button className="icon-btn xs" disabled={i === count - 1} onClick={() => move(path, i, 1)} title="Move down"><ChevronDown size={14} /></button>
-            <button className="icon-btn xs danger" onClick={() => { if (s.type !== 'condition' || !(s.yes.length + s.no.length) || confirm('Remove this If / else and every step inside it?')) remove(path, i); }} title="Remove step"><Trash2 size={13} /></button>
+            <button className="icon-btn xs" disabled={i === 0} onClick={() => move(path, i, -1)} title="Move up" aria-label="Move up"><ChevronUp size={14} /></button>
+            <button className="icon-btn xs" disabled={i === count - 1} onClick={() => move(path, i, 1)} title="Move down" aria-label="Move down"><ChevronDown size={14} /></button>
+            <button className="icon-btn xs danger" onClick={async () => { if (s.type !== 'condition' || !(s.yes.length + s.no.length) || await confirmDialog({ title: 'Remove this If / else and every step inside it?', confirm: 'Remove', danger: true })) remove(path, i); }} title="Remove step" aria-label="Remove step"><Trash2 size={13} /></button>
           </span>
         </div>
         <div className="au-nb">
@@ -373,7 +373,7 @@ function Builder({ id }) {
   );
 
   return (
-    <Layout title={<span className="au-title"><Link to="/automations" className="icon-btn" title="All automations"><ArrowLeft size={18} /></Link><input value={a.name} onChange={(e) => edit({ name: e.target.value })} aria-label="Automation name" /></span>}
+    <Layout title={<span className="au-title"><Link to="/automations" className="icon-btn" title="All automations" aria-label="All automations"><ArrowLeft size={18} /></Link><input value={a.name} onChange={(e) => edit({ name: e.target.value })} aria-label="Automation name" /></span>}
       subtitle={a.active ? '● Live — new contacts that match the trigger enter it automatically' : 'Paused — nothing is sent while it’s off'}
       actions={<>
         <button className="btn ghost" onClick={openHistory} title="Earlier versions"><History size={15} /> History</button>

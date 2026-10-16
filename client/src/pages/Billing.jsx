@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, loadRazorpay, fmtDate } from '../api';
-import { Layout, Panel, Icon, inr, num, toast } from '../ui';
+import { Layout, Panel, Icon, inr, num, toast, confirmDialog } from '../ui';
 import { stripeDialog, fmtMoney } from '../stripePay';
 
 // billing country: India pays in ₹ (Razorpay, GST invoice); everyone else by card in USD / EUR / GBP (export invoice)
@@ -82,7 +82,7 @@ export default function Billing() {
     } catch (x) { toast(x.message); setBusy(false); }
   };
   const cancel = async () => {
-    if (!confirm(`Cancel your subscription? You keep full access until ${fmtDate(a.currentPeriodEnd)}; nothing more will be charged.`)) return;
+    if (!await confirmDialog({ title: 'Cancel your subscription?', text: `You keep full access until ${fmtDate(a.currentPeriodEnd)}; nothing more will be charged.`, confirm: 'Cancel subscription', cancel: 'Keep it', danger: true })) return;
     try { setB(await api('/billing/cancel', 'POST')); toast('Subscription cancelled'); } catch (x) { toast(x.message); }
   };
   const pct = b.credits.limit ? Math.min(100, Math.round((b.credits.used / b.credits.limit) * 100)) : 0;

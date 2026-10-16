@@ -52,20 +52,29 @@ export const stageFor = (p, meta, isCustomer) => {
 // live funnels by id; a deleted funnel's leads and orders carry its name (funnelName) — see deleteFunnel
 const funnelNames = (userId) => {
   const m = Object.fromEntries(q("SELECT id, json_extract(data, '$.name') AS name FROM funnels WHERE userId = ?").all(userId).map((r) => [r.id, r.name]));
-  for (const r of q("SELECT DISTINCT funnelId, json_extract(data, '$.funnelName') AS name FROM orders WHERE userId = ? AND json_extract(data, '$.funnelName') IS NOT NULL UNION SELECT DISTINCT funnelId, json_extract(data, '$.funnelName') FROM leads WHERE userId = ? AND json_extract(data, '$.funnelName') IS NOT NULL").all(userId, userId)) m[r.funnelId] ||= `${r.name} (deleted)`;
+  // every funnel id their orders and leads have (from an index, no JSON read); the name only for ids that aren't live
+  const ids = new Set(['orders', 'leads'].flatMap((t) => q(`SELECT DISTINCT funnelId FROM ${t} WHERE userId = ?`).all(userId).map((r) => r.funnelId)));
+  for (const id of ids) {
+    if (m[id]) continue;
+    const r = q("SELECT MIN(name) AS name FROM (SELECT MIN(json_extract(data, '$.funnelName')) AS name FROM orders WHERE userId = $u AND funnelId IS $f UNION ALL SELECT MIN(json_extract(data, '$.funnelName')) FROM leads WHERE userId = $u AND funnelId IS $f)").get({ u: userId, f: id });
+    if (r?.name != null) m[id] = `${r.name} (deleted)`;
+  }
   return m;
 };
-function buildContacts(userId, onlyKey) {
-  const name = funnelNames(userId);
-  const where = onlyKey ? { userId, ckey: onlyKey } : { userId };
+// onlyKey: one key, or a list of keys (a page of the contacts list)
+function buildContacts(userId, onlyKey, name = funnelNames(userId)) {
+  const keys = onlyKey == null ? null : [].concat(onlyKey);
+  const where = keys ? { userId, ckey: keys } : { userId };
+  // a page of keys: looked up by key and put in time order here (ORDER BY at would walk every row by date)
+  const rowsOf = (t) => (keys?.length > 1 ? T[t].all(where).sort((a, b) => a.at - b.at) : T[t].iter(where, { order: 'at' }));
   const m = {};
   const get = (key) => (m[key] ||= { key, email: key.startsWith('phone:') ? '' : key, name: '', phone: '', type: 'lead', orders: 0, ltv: 0, funnels: new Set(), fids: new Set(), source: 'direct', firstSeen: Infinity, lastSeen: 0, refs: { leads: [], orders: [], abandoned: [] } });
   const touch = (c, x) => { c.firstSeen = Math.min(c.firstSeen, x.at); c.lastSeen = Math.max(c.lastSeen, x.at); c.funnels.add(name[x.funnelId]); c.fids.add(x.funnelId); c.name ||= x.name || ''; c.phone ||= x.phone || ''; if (x.source) c.source = x.source; };
-  for (const l of T.leads.iter(where, { order: 'at' })) if (name[l.funnelId] && (l.email || l.phone)) { const c = get(contactKey(l.email, l.phone)); touch(c, l); c.refs.leads.push(l); if (l.fields) c.fields = { ...(c.fields || {}), ...l.fields }; }
-  for (const o of T.orders.iter(where, { order: 'at' })) if (name[o.funnelId] && o.email) { const c = get(contactKey(o.email)); touch(c, o); c.type = 'customer'; c.orders++; c.ltv += o.total; c.refs.orders.push(o); }
-  for (const a of T.abandoned.iter(where, { order: 'at' })) if (name[a.funnelId] && a.email && m[contactKey(a.email)]) m[contactKey(a.email)].refs.abandoned.push(a);
+  for (const l of rowsOf('leads')) if (name[l.funnelId] && (l.email || l.phone)) { const c = get(contactKey(l.email, l.phone)); touch(c, l); c.refs.leads.push(l); if (l.fields) c.fields = { ...(c.fields || {}), ...l.fields }; }
+  for (const o of rowsOf('orders')) if (name[o.funnelId] && o.email) { const c = get(contactKey(o.email)); touch(c, o); c.type = 'customer'; c.orders++; c.ltv += o.total; c.refs.orders.push(o); }
+  for (const a of rowsOf('abandoned')) if (name[a.funnelId] && a.email && m[contactKey(a.email)]) m[contactKey(a.email)].refs.abandoned.push(a);
   // the seller's own additions and edits
-  for (const meta of onlyKey ? [metaFor(userId, onlyKey)].filter(Boolean) : T.crm.iter({ userId })) {
+  for (const meta of keys ? (keys.length === 1 ? [metaFor(userId, keys[0])].filter(Boolean) : T.crm.all({ userId, key: keys })) : T.crm.iter({ userId })) {
     if (!m[meta.key] && !meta.manual) continue;
     meta.activities ||= [];
     const c = m[meta.key] || get(meta.key);
@@ -89,6 +98,73 @@ const listItem = (c, pipelines) => ({
 export function contactList(userId) {
   const pipelines = pipelinesFor(userId);
   return Object.values(buildContacts(userId).contacts).map((c) => ({ ...listItem(c, pipelines), funnelIds: [...c.fids] }));
+}
+
+// ---------- the contacts list, a page at a time ----------
+// SQLite sums every contact up (json_extract + GROUP BY ckey) with the same rules as buildContacts — only
+// the columns needed to search, filter, sort and count — so nothing is loaded and parsed in JS. The page
+// itself (100 or so contacts) is then built by buildContacts, so each row is exactly what it always was.
+// first non-empty value in time order: "at" is padded so MIN of at||value picks the earliest
+const firstOf = (v, at) => `substr(MIN(CASE WHEN ${v} <> '' THEN printf('%015d', ${at}) || ${v} END), 16)`;
+// Leads, orders and CRM records in one GROUP BY. Counts, value and last activity come from indexed columns;
+// text = also name / email / phone (to search or sort by name), the only part that reads each lead's JSON.
+// Booking and quote orders have no funnel (funnelId null) but count when funnelNames gives them a name.
+const summary = (text) => `
+  f AS (SELECT value AS id FROM json_each($fids)),
+  r AS (SELECT ckey, at AS lat, NULL AS oat, 0 AS n, 0 AS ltv, ${text ? "json_extract(data, '$.name') AS lname, json_extract(data, '$.phone') AS lphone, NULL AS oname, NULL AS ophone," : ''} NULL AS meta
+      FROM leads WHERE userId = $uid AND ckey <> '' AND (funnelId IN (SELECT id FROM f) OR ($nofunnel AND funnelId IS NULL))
+    UNION ALL SELECT ckey, NULL, at, 1, total, ${text ? "NULL, NULL, json_extract(data, '$.name'), json_extract(data, '$.phone')," : ''} NULL
+      FROM orders WHERE userId = $uid AND ckey <> '' AND (funnelId IN (SELECT id FROM f) OR ($nofunnel AND funnelId IS NULL))
+    UNION ALL SELECT key, NULL, NULL, 0, 0, ${text ? 'NULL, NULL, NULL, NULL,' : ''} data FROM crm WHERE userId = $uid),
+  g AS (SELECT ckey, MAX(lat) AS lls, MAX(oat) AS ols, SUM(n) AS n, SUM(ltv) AS ltv, MAX(meta) AS meta${text ? `, ${firstOf('lname', 'lat')} AS lname, ${firstOf('lphone', 'lat')} AS lphone, ${firstOf('oname', 'oat')} AS oname, ${firstOf('ophone', 'oat')} AS ophone` : ''}
+    FROM r GROUP BY ckey),
+  c AS MATERIALIZED (SELECT ckey AS key, ${text ? `
+    COALESCE(NULLIF(json_extract(meta, '$.name'), ''), lname, oname, '') AS name,
+    COALESCE(NULLIF(json_extract(meta, '$.email'), ''), CASE WHEN substr(ckey, 1, 6) = 'phone:' THEN '' ELSE ckey END) AS email,
+    COALESCE(NULLIF(json_extract(meta, '$.phone'), ''), lphone, ophone, '') AS phone,` : ''}
+    CASE WHEN n > 0 THEN 'customer' ELSE 'lead' END AS type, n AS orders, ltv,
+    MAX(IFNULL(lls, 0), IFNULL(ols, 0), IFNULL(json_extract(meta, '$.activities[#-1].at'), 0), CASE WHEN lls IS NULL AND ols IS NULL THEN IFNULL(json_extract(meta, '$.at'), 0) ELSE 0 END) AS lastSeen,
+    json_extract(meta, '$.tags') AS tags, json_extract(meta, '$.stages') AS stages
+    FROM g WHERE lls IS NOT NULL OR ols IS NOT NULL OR json_extract(meta, '$.manual'))`;
+const SORTS = { recent: ['lastSeen', 'DESC'], ltv: ['ltv', 'DESC'], name: ["lower(name)", 'ASC'] };
+export const CONTACTS_PAGE_MAX = 1000;
+const cursorOut = (v, key) => Buffer.from(JSON.stringify([v, key])).toString('base64url');
+const cursorIn = (s) => { try { const c = JSON.parse(Buffer.from(String(s), 'base64url').toString()); return Array.isArray(c) && c.length === 2 && typeof c[1] === 'string' ? c : null; } catch { return null; } };
+
+// opts: { limit, cursor, q, type: lead|customer, tag, pipeline, stage, sort: recent|ltv|name, keysOnly }
+// → { contacts, nextCursor, total, totalLtv, kpis: { total, customers, leads, avgLtv } }
+export function contactPage(userId, opts = {}) {
+  const name = funnelNames(userId);
+  const pipelines = pipelinesFor(userId);
+  const limit = opts.keysOnly ? 5000 : Math.max(1, Math.min(CONTACTS_PAGE_MAX, Number(opts.limit) || 100));
+  const [col, dir] = SORTS[opts.sort] || SORTS.recent;
+  const args = { uid: userId, fids: JSON.stringify(Object.keys(name).filter((id) => name[id])), nofunnel: name.null ? 1 : 0, limit: limit + 1 };
+  const where = [];
+  if (opts.type === 'lead' || opts.type === 'customer') { where.push('type = $type'); args.type = opts.type; }
+  const text = String(opts.q || '').trim().toLowerCase();
+  // the same text the page always searched: name, email, phone and tags
+  if (text) { where.push("instr(lower(name || ' ' || email || ' ' || phone || ' ' || IFNULL((SELECT group_concat(value, ' ') FROM json_each(c.tags)), '')), $q) > 0"); args.q = text; }
+  if (opts.tag) { where.push('EXISTS (SELECT 1 FROM json_each(c.tags) WHERE lower(value) = $tag)'); args.tag = String(opts.tag).trim().toLowerCase(); }
+  const p = opts.stage && pipelines.find((x) => x.id === opts.pipeline);
+  if (opts.stage && !p) return { contacts: [], nextCursor: null, total: 0, totalLtv: 0, kpis: { total: 0, customers: 0, leads: 0, avgLtv: 0 } };
+  if (p) {
+    // stageFor in SQL: their stage if it still exists, else customers in the "won" stage and everyone else in the first
+    where.push(`(CASE WHEN json_extract(stages, $spath) IN (SELECT value FROM json_each($sids)) THEN json_extract(stages, $spath) WHEN type = 'customer' AND $won IS NOT NULL THEN $won ELSE $first END) = $stage`);
+    Object.assign(args, { spath: `$."${String(p.id).replace(/["\\]/g, '')}"`, sids: JSON.stringify(p.stages.map((s) => s.id)), won: p.stages.find((s) => s.won)?.id ?? null, first: p.stages[0]?.id ?? null, stage: String(opts.stage) });
+  }
+  const cur = opts.cursor && cursorIn(opts.cursor);
+  const after = cur ? `(${col} ${dir === 'DESC' ? '<' : '>'} $cv OR (${col} = $cv AND key ${dir === 'DESC' ? '<' : '>'} $ck))` : '1';
+  if (cur) Object.assign(args, { cv: cur[0], ck: cur[1] });
+  const rows = q(`WITH ${summary(text || col !== 'lastSeen' && col !== 'ltv')}, hits AS MATERIALIZED (SELECT * FROM c${where.length ? ` WHERE ${where.join(' AND ')}` : ''})
+    SELECT 0 AS kind, NULL AS key, NULL AS sv, (SELECT COUNT(*) FROM c) AS a, (SELECT COUNT(*) FROM c WHERE type = 'customer') AS b, (SELECT TOTAL(ltv) FROM c WHERE type = 'customer') AS d, (SELECT COUNT(*) FROM hits) AS e, (SELECT TOTAL(ltv) FROM hits) AS g
+    UNION ALL SELECT * FROM (SELECT 1, key, ${col}, NULL, NULL, NULL, NULL, NULL FROM hits WHERE ${after} ORDER BY ${col} ${dir}, key ${dir} LIMIT $limit)`).all(args);
+  const k = rows[0], page = rows.slice(1);
+  const more = page.length > limit;
+  if (more) page.pop();
+  const out = { nextCursor: more ? cursorOut(page.at(-1).sv, page.at(-1).key) : null, total: k.e, totalLtv: k.g, kpis: { total: k.a, customers: k.b, leads: k.a - k.b, avgLtv: k.b ? k.d / k.b : 0 } };
+  if (opts.keysOnly) return { ...out, keys: page.map((r) => r.key) };
+  const built = page.length ? buildContacts(userId, page.map((r) => r.key), name).contacts : {};
+  return { ...out, contacts: page.map((r) => built[r.key]).filter(Boolean).map((c) => listItem(c, pipelines)) };
 }
 
 const ITEM_TITLE = { main: 'Bought', bump: 'Added order bump', upsell: 'Accepted upsell', downsell: 'Accepted downsell', crosssell: 'Bought add-on' };
@@ -211,7 +287,15 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     return { c, funnelName };
   };
 
+  // ?limit=&cursor=&q=&type=&tag=&pipeline=&stage=&sort= → one page plus the totals (the Contacts page);
+  // keys=1 → just the keys of every match (up to 5000, for "select all"). Without any of these: the whole
+  // list as a plain array, as before (older callers and the tests)
+  const PAGED = ['limit', 'cursor', 'q', 'type', 'tag', 'stage', 'sort', 'keys'];
   app.get('/api/contacts', auth, (req, res) => {
+    if (PAGED.some((k) => req.query[k] != null)) {
+      const s = (k) => (typeof req.query[k] === 'string' ? req.query[k].slice(0, 200) : '');
+      return res.json(contactPage(req.user.id, { limit: s('limit'), cursor: s('cursor'), q: s('q'), type: s('type'), tag: s('tag'), pipeline: s('pipeline'), stage: s('stage'), sort: s('sort'), keysOnly: s('keys') === '1' }));
+    }
     const pipelines = pipelinesFor(req.user.id);
     const { contacts } = buildContacts(req.user.id);
     res.json(Object.values(contacts).map((c) => listItem(c, pipelines)).sort((a, b) => b.lastSeen - a.lastSeen));

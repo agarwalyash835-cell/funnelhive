@@ -32,8 +32,44 @@ Everything needed is in this folder. `server/.env` already holds your kie.ai key
 
 The app uses every CPU core (up to 4) automatically. For 1000 active sellers start with 4 vCPU / 8 GB (we measured 390 requests/second with zero errors on a 4-core machine); 2 vCPU / 4 GB is fine for the first few hundred.
 
-Update later: copy the new files over, then run the same `docker compose … up -d --build` again. Data (database,
-uploads, daily backups) lives in the `funnelhive-data` Docker volume and survives updates.
+Data (database, uploads, backups) lives in the `funnelhive-data` Docker volume and survives updates.
+
+### Updating (with automatic rollback)
+
+From your PC, send the new code and run `server/scripts/deploy.sh` **on the server** with a version label (the git
+short sha):
+```bash
+SHA=$(git rev-parse --short HEAD)
+git archive --format=tar.gz -o /tmp/fh.tgz HEAD
+scp /tmp/fh.tgz root@SERVER_IP:/tmp/fh.tgz
+ssh root@SERVER_IP "cd /opt/FunnelHive && tar xzf /tmp/fh.tgz && bash server/scripts/deploy.sh $SHA"
+```
+`deploy.sh <sha>` builds the image `funnelhive:<sha>` while the running app keeps serving, makes it
+`funnelhive:current` (the one it replaces becomes `funnelhive:previous`), recreates only the app container (Caddy
+keeps running and retries for up to 30 s during the few-second swap, so visitors wait instead of seeing a 502) and
+waits for `/api/health`. If the new version isn't healthy within 90 s it switches back to the previous image by
+itself and prints the new version's last log lines.
+- `bash server/scripts/deploy.sh rollback` — go back to the previous version by hand (run it again to undo).
+- `bash server/scripts/deploy.sh status` — which images are current / previous, and the app's health.
+
+A plain `docker compose --profile https up -d --build` still works (it builds and runs `funnelhive:current`), it
+just has no rollback. On `docker stop` / a deploy the app stops taking new requests, lets the ones in flight finish
+(up to ~10 s) and flushes the database before it exits.
+
+### Monitoring and backups
+- **Uptime monitor** (e.g. UptimeRobot, free): watch `https://app.yourbrand.in/api/health` (app + database +
+  background jobs + disk), `/api/health/backups` (503 when no fresh local / off-site backup, or the weekly restore
+  drill failed) and `/api/health/disk` (503 when the data disk has less than 5% or 1 GB free).
+- **Error reports (Sentry, free plan):** sign up at sentry.io → *Create project* → **Node.js** → open *Settings →
+  Client Keys (DSN)* and copy the DSN into `server/.env` as `SENTRY_DSN=https://…@o….ingest.sentry.io/…`, then
+  redeploy. Server errors, crashes and unhandled rejections are reported (stack, route, user id — never request
+  bodies, headers or cookies; emails / phone numbers / tokens are masked) and the browser app reports with the same
+  DSN (`SENTRY_DSN_PUBLIC` sends browser errors to a separate project instead).
+- **Backups** run every hour (skipped when nothing changed), one file per day: the last 7 days on the server
+  (`/data/backups`) and, with file storage set up, 90 days encrypted off-site. Once a week the newest off-site
+  backup is downloaded, decrypted and checked (integrity, tables, row counts) — the result shows in Admin → Overview.
+  `node server/scripts/restore-drill.mjs --bucket` runs the full drill by hand (it also boots the app on the copy).
+- Container logs rotate (5 × 10 MB per container), so they can't fill the disk.
 
 ## Option B — plain Node.js (no Docker)
 
@@ -65,7 +101,10 @@ it running with `pm2 start "npm start" --name funnelhive` or a systemd service.
      ```
      pages.yourbrand.in {
      	encode zstd gzip
-     	reverse_proxy funnelhive:4000
+     	reverse_proxy funnelhive:4000 {
+     		lb_try_duration 30s
+     		lb_try_interval 500ms
+     	}
      }
      ```
   3. `server/.env`: `PAGES_URL=https://pages.yourbrand.in`, then restart the app. Existing `/f/…` links on the app

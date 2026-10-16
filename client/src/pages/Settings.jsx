@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Layout, Panel, Icon, toast } from '../ui';
+import { Layout, Panel, Icon, toast, confirmDialog, promptDialog } from '../ui';
 import SecurityPanel from './SecurityPanel';
 import { TeamPanel } from './Team';
 import { PrivacyPanel } from './Privacy';
@@ -43,7 +43,7 @@ export default function Settings() {
   const toggle = async (c) => { const u = await api(`/coupons/${c.id}`, 'PUT', { active: !c.active }); setCoupons(coupons.map((x) => (x.id === c.id ? u : x))); };
   const delCoupon = async (c) => { await api(`/coupons/${c.id}`, 'DELETE'); setCoupons(coupons.filter((x) => x.id !== c.id)); };
   const testHook = async () => { if (!(await save())) return; setHook('Sending…'); const r = await api('/settings/test-webhook', 'POST'); setHook(r.skipped ? 'Add a URL first' : r.status >= 200 && r.status < 300 ? `✓ Delivered (HTTP ${r.status})` : `✕ Failed: ${r.error || `HTTP ${r.status}`} — we’ll retry automatically`); loadDeliveries(); };
-  const rotate = async () => { if (!confirm('Generate a new signing secret? Your receiver must be updated to the new one.')) return; const r = await api('/settings/webhook-secret', 'POST'); setS({ ...s, webhookSecret: r.webhookSecret }); setShowSecret(true); toast('New signing secret generated'); };
+  const rotate = async () => { if (!await confirmDialog({ title: 'Generate a new signing secret?', text: 'Your receiver must be updated to the new one.', confirm: 'Generate' })) return; const r = await api('/settings/webhook-secret', 'POST'); setS({ ...s, webhookSecret: r.webhookSecret }); setShowSecret(true); toast('New signing secret generated'); };
   const retry = async (d) => { await api(`/webhooks/deliveries/${d.id}/retry`, 'POST'); loadDeliveries(); };
 
   return (
@@ -90,8 +90,8 @@ export default function Settings() {
           <div className="secret">
             <label>Signing secret</label>
             <div className="row"><code className="secret-v">{showSecret ? s.webhookSecret : `whsec_${'•'.repeat(24)}`}</code>
-              <button className="icon-btn" title={showSecret ? 'Hide' : 'Show'} onClick={() => setShowSecret(!showSecret)}><Icon name="eye" size={15} /></button>
-              <button className="icon-btn" title="Copy" onClick={() => { navigator.clipboard?.writeText(s.webhookSecret); toast('Secret copied'); }}><Icon name="copy" size={15} /></button>
+              <button className="icon-btn" title={showSecret ? 'Hide' : 'Show'} aria-label={showSecret ? 'Hide' : 'Show'} onClick={() => setShowSecret(!showSecret)}><Icon name="eye" size={15} /></button>
+              <button className="icon-btn" title="Copy" aria-label="Copy" onClick={() => { navigator.clipboard?.writeText(s.webhookSecret); toast('Secret copied'); }}><Icon name="copy" size={15} /></button>
               <button className="btn ghost sm" onClick={rotate}>Rotate</button></div>
             <p className="hint">Verify each request: <code>HMAC-SHA256(secret, t + "." + rawBody)</code> must equal <code>v1</code> in the <code>X-FunnelHive-Signature</code> header (<code>t=…,v1=…</code>). Use <code>X-FunnelHive-Delivery</code> to ignore duplicates.</p>
           </div>
@@ -133,7 +133,7 @@ export default function Settings() {
           </form>
           {coupons.length ? (
             <table className="tbl compact"><thead><tr><th>Code</th><th>Discount</th><th>Rules</th><th className="r">Uses</th><th>Status</th><th /></tr></thead>
-              <tbody>{coupons.map((c) => <tr key={c.id}><td className="mono strong">{c.code}</td><td>{c.type === 'percent' ? `${c.value}% off` : `${sym(c)}${c.value} off`}</td><td className="muted sm">{couponRulesText(c, funnels)}</td><td className="r">{c.uses}{c.maxUses ? ` / ${c.maxUses}` : ''}</td><td><button className={`pill btnpill ${c.active ? 'ok' : ''}`} onClick={() => toggle(c)}>{c.active ? 'Active' : 'Paused'}</button></td><td className="r"><button className="icon-btn danger" onClick={() => delCoupon(c)}><Icon name="trash" size={15} /></button></td></tr>)}</tbody></table>
+              <tbody>{coupons.map((c) => <tr key={c.id}><td className="mono strong">{c.code}</td><td>{c.type === 'percent' ? `${c.value}% off` : `${sym(c)}${c.value} off`}</td><td className="muted sm">{couponRulesText(c, funnels)}</td><td className="r">{c.uses}{c.maxUses ? ` / ${c.maxUses}` : ''}</td><td><button className={`pill btnpill ${c.active ? 'ok' : ''}`} onClick={() => toggle(c)}>{c.active ? 'Active' : 'Paused'}</button></td><td className="r"><button className="icon-btn danger" aria-label="Delete coupon" onClick={() => delCoupon(c)}><Icon name="trash" size={15} /></button></td></tr>)}</tbody></table>
           ) : <p className="hint">Tip: your templates’ exit popups advertise <b>INDIA10</b> — create it here so it works at checkout.</p>}
         </Panel>
 
@@ -158,9 +158,9 @@ export default function Settings() {
           <div className="row">
             <button className="btn ghost" onClick={async () => { const r = await fetch('/api/account/export', { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token')}` } }); if (!r.ok) return toast('Export failed'); const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `account-export-${new Date().toISOString().slice(0, 10)}.json`; a.click(); }}><Icon name="download" size={15} /> Export my data</button>
             <button className="btn ghost danger" onClick={async () => {
-              const password = prompt('This permanently deletes your account and all its data. Enter your password to continue:');
+              const password = await promptDialog({ title: 'Delete your account', text: 'This permanently deletes your account and all its data. Enter your password to continue:', label: 'Password', type: 'password', confirm: 'Continue', danger: true });
               if (!password) return;
-              if (prompt('Type DELETE to confirm') !== 'DELETE') return toast('Not deleted');
+              if (await promptDialog({ title: 'Delete your account', confirmWord: 'DELETE', confirm: 'Delete my account', danger: true }) !== 'DELETE') return toast('Not deleted');
               try { await api('/account/delete', 'POST', { password, confirm: 'DELETE' }); localStorage.removeItem('ff_token'); location.href = '/login'; } catch (e) { toast(e.message); }
             }}><Icon name="trash" size={15} /> Delete my account</button>
           </div>
@@ -168,7 +168,7 @@ export default function Settings() {
 
         <Panel title="Demo data">
           <p className="muted sm">{me?.hasDemo ? 'Your account contains sample visits, leads and orders. Remove them before you go live — real data is never touched.' : 'No demo data in your account.'}</p>
-          <button className="btn ghost danger" disabled={!me?.hasDemo} onClick={async () => { if (!confirm('Remove all demo data?')) return; const r = await api('/demo', 'DELETE'); toast(`Removed ${r.removed.orders} demo orders and ${r.removed.events} visits`); setMe(await api('/me')); }}><Icon name="trash" size={15} /> Remove demo data</button>
+          <button className="btn ghost danger" disabled={!me?.hasDemo} onClick={async () => { if (!await confirmDialog({ title: 'Remove all demo data?', confirm: 'Remove', danger: true })) return; const r = await api('/demo', 'DELETE'); toast(`Removed ${r.removed.orders} demo orders and ${r.removed.events} visits`); setMe(await api('/me')); }}><Icon name="trash" size={15} /> Remove demo data</button>
         </Panel>
 
         <Panel title="AI">
@@ -207,8 +207,8 @@ function ServerTracking({ pixel, ga4 }) {
       {(!pixel || !ga4) && <p className="hint">{!pixel && 'Save your Meta Pixel ID above to connect the Conversions API. '}{!ga4 && 'Save your GA4 ID above to connect the Measurement Protocol.'}</p>}
       <div className="row">
         <button className="btn primary" disabled={!pixel && !ga4} onClick={() => save({ ...(f.metaToken ? { metaToken: f.metaToken } : {}), ...(f.ga4Secret ? { ga4Secret: f.ga4Secret } : {}), metaTestCode: f.metaTestCode })}>Save server-side tracking</button>
-        {st.metaToken && <button className="btn ghost sm" onClick={() => confirm('Disconnect the Meta Conversions API?') && save({ metaToken: '' })}>Disconnect Meta</button>}
-        {st.ga4Secret && <button className="btn ghost sm" onClick={() => confirm('Disconnect GA4 Measurement Protocol?') && save({ ga4Secret: '' })}>Disconnect GA4</button>}
+        {st.metaToken && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Disconnect the Meta Conversions API?', confirm: 'Disconnect', danger: true })) && save({ metaToken: '' })}>Disconnect Meta</button>}
+        {st.ga4Secret && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Disconnect GA4 Measurement Protocol?', confirm: 'Disconnect', danger: true })) && save({ ga4Secret: '' })}>Disconnect GA4</button>}
       </div>
       {log.length > 0 && (
         <table className="tbl compact">

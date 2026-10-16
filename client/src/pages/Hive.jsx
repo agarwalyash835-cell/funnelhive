@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Sparkles, Send, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil } from 'lucide-react';
 import { api } from '../api';
-import { Layout, toast, ago } from '../ui';
+import { Layout, toast, ago, confirmDialog } from '../ui';
 import { Page } from '../blocks';
 
 const SUGGESTIONS = [
@@ -74,7 +74,7 @@ export default function Hive() {
     const t = await api(`/hive/threads/${id}`);
     setMsgs(t.messages); setFunnelId(t.funnelId);
   };
-  const removeThread = async (id) => { if (!confirm('Delete this chat? Funnels it built are kept.')) return; await api(`/hive/threads/${id}`, 'DELETE'); if (id === tid) openThread(null); loadThreads(); };
+  const removeThread = async (id) => { if (!await confirmDialog({ title: 'Delete this chat?', text: 'Funnels it built are kept.', confirm: 'Delete', danger: true })) return; await api(`/hive/threads/${id}`, 'DELETE'); if (id === tid) openThread(null); loadThreads(); };
 
   const send = async (text = input) => {
     const message = text.trim();
@@ -132,7 +132,7 @@ export default function Hive() {
             {threads.map((t) => (
               <div key={t.id} className={`hv-t ${t.id === tid ? 'on' : ''}`} onClick={() => openThread(t.id)}>
                 <MessageSquare size={14} /><span title={t.title}>{t.title}</span><small>{ago(t.updatedAt)}</small>
-                <button className="icon-btn xs" title="Delete chat" onClick={(e) => { e.stopPropagation(); removeThread(t.id); }}><Trash2 size={12} /></button>
+                <button className="icon-btn xs" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); removeThread(t.id); }}><Trash2 size={12} /></button>
               </div>
             ))}
             {!threads.length && <p className="hint">Your chats appear here.</p>}
@@ -141,7 +141,7 @@ export default function Hive() {
 
         <section className="hv-chat">
           <div className="hv-chat-h">
-            <button className="icon-btn" title={side ? 'Hide chats' : 'Show chats'} onClick={() => setSide(!side)}><PanelLeft size={17} /></button>
+            <button className="icon-btn" title={side ? 'Hide chats' : 'Show chats'} aria-label={side ? 'Hide chats' : 'Show chats'} onClick={() => setSide(!side)}><PanelLeft size={17} /></button>
             <b>{threads.find((t) => t.id === tid)?.title || 'New chat'}</b>
             <span className="muted sm">{status?.provider}</span>
           </div>
@@ -187,8 +187,8 @@ export default function Hive() {
             {funnel ? <>
               <div className="hv-steps">{funnel.steps.map((s) => <button key={s.id} className={s.id === step?.id ? 'on' : ''} onClick={() => setStepId(s.id)}>{s.name}</button>)}</div>
               <div className="seg sm">
-                <button className={device === 'desktop' ? 'on' : ''} onClick={() => setDevice('desktop')} title="Desktop"><Monitor size={14} /></button>
-                <button className={device === 'mobile' ? 'on' : ''} onClick={() => setDevice('mobile')} title="Phone"><Smartphone size={14} /></button>
+                <button className={device === 'desktop' ? 'on' : ''} onClick={() => setDevice('desktop')} title="Desktop" aria-label="Desktop"><Monitor size={14} /></button>
+                <button className={device === 'mobile' ? 'on' : ''} onClick={() => setDevice('mobile')} title="Phone" aria-label="Phone"><Smartphone size={14} /></button>
               </div>
               <Link className="btn ghost sm" to={`/funnels/${funnel.id}`}><Pencil size={13} /> Edit</Link>
               <a className="btn ghost sm" href={`/f/${funnel.slug}${step ? `/${step.slug}` : ''}${funnel.published ? '' : `?preview=1&pv=${funnel.previewKey || ''}`}`} target="_blank" rel="noreferrer"><ExternalLink size={13} /> {funnel.published ? 'Live' : 'Preview'}</a>

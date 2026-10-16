@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { viewerTz, zoneLabel } from '../tzfmt';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { alertDialog } from '../ui';
 
 // in the registrant's own time zone
 const fmt = (t) => { const z = viewerTz(); return `${new Date(t).toLocaleString('en-IN', { timeZone: z, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', hour12: true })} ${zoneLabel(z, t)}`; };
@@ -25,7 +26,7 @@ export default function WebinarJoin() {
     const r = await fetch(`/api/webinar-reg/${id}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t }) });
     const d = await r.json().catch(() => ({}));
     setBusy(false);
-    if (d.url) location.href = d.url; else alert(d.error || 'Couldn’t open the room — please try again');
+    if (d.url) location.href = d.url; else alertDialog({ text: d.error || 'Couldn’t open the room — please try again', buyer: true });
   };
   if (err) return <div className="lib"><div className="lib-msg"><div className="lib-ic">🎟️</div><h1>Link not valid</h1><p>{err}</p></div></div>;
   if (!w) return <div className="lib"><div className="lib-load" /></div>;

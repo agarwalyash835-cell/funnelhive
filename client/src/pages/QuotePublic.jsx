@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { loadRazorpay } from '../api';
 import { stripeDialog, fmtMoney } from '../stripePay';
+import { alertDialog, promptDialog } from '../ui';
 
 const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -28,13 +29,13 @@ export default function QuotePublic() {
   const pay = async () => {
     setBusy(true);
     const st = await post('pay');
-    if (st.error) { setBusy(false); return alert(st.error); }
+    if (st.error) { setBusy(false); return alertDialog({ text: st.error, buyer: true }); }
     let r;
     if (st.provider === 'stripe') {
       const back = new URL(location.href); back.searchParams.set('ff_pay', st.payment);
       try { const x = await stripeDialog({ ...st, button: `Pay ${fmtMoney(st.amount, st.currency)}` }, back.toString()); r = x.error ? x : await post('stripe/verify', { payment: st.payment }); } catch (e) { r = { error: e.message }; }
     } else {
-      try { await loadRazorpay(); } catch (e) { setBusy(false); return alert(e.message); }
+      try { await loadRazorpay(); } catch (e) { setBusy(false); return alertDialog({ text: e.message, buyer: true }); }
       r = await new Promise((resolve) => {
         const rz = new window.Razorpay({ key: st.key, order_id: st.order_id, amount: st.amount, currency: st.currency, name: st.name, description: st.description, prefill: st.prefill, retry: { enabled: true },
           handler: async (resp) => resolve(await post('verify', { payment: st.payment, ...resp })),
@@ -43,14 +44,14 @@ export default function QuotePublic() {
       });
     }
     setBusy(false);
-    if (r?.error) alert(r.error);
+    if (r?.error) alertDialog({ text: r.error, buyer: true });
     else if (r?.ok) { setDone(r); load(); }
   };
   const decline = async () => {
-    const reason = prompt('Sorry this one isn’t right. Anything you’d like to tell them? (optional)', '');
+    const reason = await promptDialog({ title: 'Decline this quote', text: 'Sorry this one isn’t right. Anything you’d like to tell them? (optional)', confirm: 'Decline', buyer: true });
     if (reason === null) return;
     const r = await post('decline', { reason });
-    if (r.error) alert(r.error); else setQ(r);
+    if (r.error) alertDialog({ text: r.error, buyer: true }); else setQ(r);
   };
 
   if (err) return <div className="lib"><div className="lib-msg"><div className="lib-ic">📄</div><h1>Quote not found</h1><p>{err}</p></div></div>;

@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { viewerTz, dayKey, fmtTime, zoneLabel } from '../tzfmt';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { alertDialog, confirmDialog } from '../ui';
 
 // times are shown in the buyer's own time zone
 const day = (t, z) => new Date(t).toLocaleDateString('en-IN', { timeZone: z, weekday: 'long', day: 'numeric', month: 'long' });
@@ -28,7 +29,7 @@ export default function BookingManage() {
     const r = await fetch(`/api/booking/${id}/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t, ...body }) });
     const d = await r.json().catch(() => ({}));
     setBusy(false);
-    if (!r.ok) return alert(d.error || 'That didn’t work — please try again');
+    if (!r.ok) return alertDialog({ text: d.error || 'That didn’t work — please try again', buyer: true });
     if (path === 'reschedule' && d.manage) location.href = d.manage; else { setMode(null); load(); }
   };
   if (err) return <div className="lib"><div className="lib-msg"><div className="lib-ic">📅</div><h1>Booking not found</h1><p>{err}</p></div></div>;
@@ -54,7 +55,7 @@ export default function BookingManage() {
             <p><b>Pick a new time</b> <span className="lib-mute">(your time · {zoneLabel(off)})</span></p>
             {!b.slots.length ? <p className="lib-mute">No other times are free right now.</p> : <>
               <div className="bk-days">{days.slice(0, 21).map((d) => { const s = b.slots.find((x) => key(x, off) === d); return <button key={d} className={d === pickDay ? 'on' : ''} onClick={() => setPickDay(d)}>{short(s, off).split(' ').map((x, i) => <span key={i}>{x}</span>)}</button>; })}</div>
-              <div className="bk-slots">{b.slots.filter((s) => key(s, off) === pickDay).map((s) => <button key={s} disabled={busy} onClick={() => confirm(`Move your call to ${day(s, off)}, ${time(s, off)}?`) && post('reschedule', { start: s })}>{time(s, off)}</button>)}</div>
+              <div className="bk-slots">{b.slots.filter((s) => key(s, off) === pickDay).map((s) => <button key={s} disabled={busy} onClick={async () => (await confirmDialog({ title: `Move your call to ${day(s, off)}, ${time(s, off)}?`, confirm: 'Move my call', buyer: true })) && post('reschedule', { start: s })}>{time(s, off)}</button>)}</div>
             </>}
             <button className="lib-back" onClick={() => setMode(null)}>← Back</button>
           </div>

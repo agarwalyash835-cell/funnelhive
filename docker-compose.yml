@@ -1,9 +1,20 @@
 # docker compose up -d   →   http://localhost:4000
+# Deploys with rollback: server/scripts/deploy.sh (builds funnelhive:<version>, keeps the previous one — see DEPLOY.md).
+# A plain `docker compose --profile https up -d --build` still works: it builds and runs funnelhive:current.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"   # logs rotate: at most 5 × 10 MB per container, so they can't fill the disk
+    max-file: "5"
+
 services:
   funnelhive:
     build: .
-    image: funnelhive:latest
+    image: funnelhive:${FH_TAG:-current}
     restart: unless-stopped
+    # docker stop / a deploy sends SIGTERM: requests in flight finish and the database is flushed (up to ~10 s)
+    stop_grace_period: 20s
+    logging: *logging
     ports:
       - "127.0.0.1:4000:4000"   # only via Caddy (HTTPS) from outside; localhost:4000 still works on the server
     env_file:
@@ -23,6 +34,7 @@ services:
     profiles: ["https"]
     restart: unless-stopped
     depends_on: [funnelhive]
+    logging: *logging
     ports:
       - "80:80"
       - "443:443"

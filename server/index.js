@@ -17,6 +17,7 @@ import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, bum
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm } from './crm.js';
+import { orderPage } from './orderlist.js';
 import { initMessaging, registerChannels, sendEmail } from './messaging.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, registerRazorpaySettings } from './razorpay.js';
 import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit, pagesBase, sitemapUrls, sitemapXml, robotsTxt, noindexStep } from './domains.js';
@@ -53,7 +54,7 @@ import { sellerTz, offsetAt, validTz, COMMON_TZ, zoned } from './tz.js';
 import { dropRollups, trimRollups } from './rollup.js';
 import { registerWebinars, registrationFor, previewSession } from './webinars.js';
 import { notify, money, registerNotifications, unreadCount } from './notify.js';
-import { checkoutPhone, phoneTail, ordersByPhone } from './db.js';
+import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 
 const SECRET = loadSecret(DATA_DIR);
@@ -821,20 +822,23 @@ registerProducts(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl })
 registerTracking(app, { auth, wrap });
 registerSales(app, { auth, wrap, secret: SECRET, appUrl });
 
-const ORDERS_MAX = 5000; // newest first; CSV export covers the same list
+// ?limit=&cursor=&tab=&q=&funnel=&status=&days=&id= — filters, search and totals run over every order
+// (orderlist.js); "Show more" passes the cursor back. Without ?limit up to ORDERS_MAX of each, as before.
 app.get('/api/orders', auth, (req, res) => {
   const fs_ = T.funnels.all({ userId: req.user.id });
   const name = Object.fromEntries(fs_.map((f) => [f.id, f.name]));
   const byId = Object.fromEntries(fs_.map((f) => [f.id, f]));
+  const s = (k) => (typeof req.query[k] === 'string' ? req.query[k].slice(0, 200) : '');
+  const out = orderPage(req.user.id, name, { limit: s('limit'), cursor: s('cursor'), tab: s('tab'), q: s('q'), funnel: s('funnel'), status: s('status'), days: s('days'), id: s('id') });
   const invoices = {};
   const bases = {}; // one domain lookup per funnel, not per invoice
   const baseOf = (fid) => (bases[fid] ??= linkBase(fid, process.env.APP_URL || appUrl(req)));
-  for (const i of T.sinvoices.all({ userId: req.user.id }, { order: 'at' })) (invoices[i.orderId] ||= []).push({ id: i.id, number: i.number, type: i.type, total: i.total, url: invoiceUrl(baseOf(i.funnelId), i) });
-  res.json({
-    payments: !!rzpCreds(req.user),
-    orders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: ORDERS_MAX }).map((o) => ({ ...o, funnel: name[o.funnelId] || (!o.funnelId ? o.funnelName || 'Direct' : `${o.funnelName || 'Deleted funnel'} (deleted)`), invoices: invoices[o.id] || [] })),
-    abandoned: T.abandoned.all({ userId: req.user.id, recovered: 0 }, { order: 'at', desc: true, limit: ORDERS_MAX }).filter((a) => name[a.funnelId]).map((a) => { const f = byId[a.funnelId], st = f.steps?.find((s) => s.id === a.stepId); return { ...a, funnel: name[a.funnelId], link: f.published ? funnelUrl(f, process.env.APP_URL || appUrl(req), st?.slug) : null }; }),
-  });
+  // the invoices of the orders on this page only
+  const ids = (out.orders || []).map((o) => o.id);
+  for (let i = 0; i < ids.length; i += 500) for (const inv of T.sinvoices.all({ orderId: ids.slice(i, i + 500) }, { order: 'at' })) if (inv.userId === req.user.id) (invoices[inv.orderId] ||= []).push({ id: inv.id, number: inv.number, type: inv.type, total: inv.total, url: invoiceUrl(baseOf(inv.funnelId), inv) });
+  if (out.orders) out.orders = out.orders.map((o) => ({ ...o, invoices: invoices[o.id] || [] }));
+  if (out.abandoned) out.abandoned = out.abandoned.map((a) => { const f = byId[a.funnelId], st = f.steps?.find((x) => x.id === a.stepId); return { ...a, link: f.published ? funnelUrl(f, process.env.APP_URL || appUrl(req), st?.slug) : null }; });
+  res.json({ payments: !!rzpCreds(req.user), ...out });
 });
 
 // the seller's own note and tags on an order
@@ -853,7 +857,8 @@ app.put('/api/orders/:id', auth, (req, res) => {
 app.get('/api/site', (req, res) => {
   const p = platform(), pr = pricing();
   const wl = brandForHost(req.hostname); // an agency's own app domain: their brand on the login page
-  res.json({ ...(wl ? { whiteLabel: wl } : {}), pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, turnstileSiteKey: turnstileSiteKey(), trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: publicCompany() });
+  // sentryDsn: the public DSN (safe to show — it only lets anyone send reports) for the browser's error reports
+  res.json({ ...(wl ? { whiteLabel: wl } : {}), sentryDsn: /^https:\/\/[^\s"'<>]+$/.test(process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN || '') ? process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN : null, pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, turnstileSiteKey: turnstileSiteKey(), trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: publicCompany() });
 });
 
 // ---------- templates ----------
@@ -1653,6 +1658,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
   const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(new RegExp('[\\u2028\\u2029]', 'g'), '');
   return indexHtml
     .replace('<title>FunnelHive</title>', '')
+    .replace(/<link id="ff-app-font"[^>]*>/, '') // the dashboard's Inter: a live page loads only its theme's fonts (above)
     .replace('<!--ff-head-->', head)
     .replace('<!--ff-ssr-->', `${body}<script>window.__FUNNEL__=${json}</script>`);
 }
@@ -1673,4 +1679,11 @@ app.use((err, req, res, next) => {
   if (status >= 500) { console.error(err); reportError(err, { route: `${req.method} ${req.route?.path || req.path}`, userId: req.user?.id }); }
   res.status(status).json({ error: status >= 500 ? 'Something went wrong — please try again' : err.type === 'entity.parse.failed' ? 'The request body isn’t valid JSON' : err.message || 'Bad request' });
 });
-app.listen(port, () => { if (!worker || worker === '0') console.log(`FunnelHive API on :${port} (AI ${aiEnabled() ? 'on' : 'off — offline assistant'}${ssr ? ', server rendering on' : ''}${worker ? `, ${process.env.WEB_CONCURRENCY} processes` : ''})`); });
+// shutdown (db.js): no new connections; requests in flight get up to 8 s to finish, idle keep-alive connections close
+onShutdown(() => new Promise((resolve) => {
+  const idle = realSetInterval(() => server.closeIdleConnections(), 200);
+  const done = () => { clearInterval(idle); resolve(); };
+  server.close(done);
+  setTimeout(() => { server.closeAllConnections(); done(); }, 8000).unref();
+}));
+const server = app.listen(port, () => { if (!worker || worker === '0') console.log(`FunnelHive API on :${port} (AI ${aiEnabled() ? 'on' : 'off — offline assistant'}${ssr ? ', server rendering on' : ''}${worker ? `, ${process.env.WEB_CONCURRENCY} processes` : ''})`); });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, toast, ago } from '../ui';
+import { Layout, Panel, Icon, toast, ago, confirmDialog } from '../ui';
 
 const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
 
@@ -15,14 +15,14 @@ export function ApiKeysPanel() {
   useEffect(() => { load(); }, []);
   if (d === false) return null;
   const create = async () => { try { setFresh(await api('/keys', 'POST', { name, scope })); load(); } catch (e) { toast(e.message); } };
-  const revoke = async (k) => { if (!confirm(`Revoke “${k.name}”? Apps using it stop working immediately.`)) return; await api(`/keys/${k.id}`, 'DELETE'); load(); };
+  const revoke = async (k) => { if (!await confirmDialog({ title: `Revoke “${k.name}”?`, text: 'Apps using it stop working immediately.', confirm: 'Revoke', danger: true })) return; await api(`/keys/${k.id}`, 'DELETE'); load(); };
   return (
     <Panel title="API & integrations" actions={<Link className="btn ghost sm" to="/developers"><Icon name="external" size={13} /> API reference</Link>}>
       <p className="muted sm">Connect FunnelHive to 5,000+ apps with <b>Zapier</b>, <b>Pabbly Connect</b>, <b>Make</b> or <b>n8n</b> — new leads, orders and bookings start your workflows, and other apps can add contacts, tags and orders here. Or use the REST API from your own code.</p>
       {fresh && (
         <div className="mcp-fresh">
           <b>Copy your key now — it won’t be shown again</b>
-          <div className="row"><code className="secret-v">{fresh.token}</code><button className="icon-btn" title="Copy" onClick={() => copy(fresh.token)}><Icon name="copy" size={15} /></button></div>
+          <div className="row"><code className="secret-v">{fresh.token}</code><button className="icon-btn" title="Copy" aria-label="Copy" onClick={() => copy(fresh.token)}><Icon name="copy" size={15} /></button></div>
           <p className="hint">Send it as <code>Authorization: Bearer {fresh.token.slice(0, 14)}…</code> or <code>X-API-Key</code>.</p>
         </div>
       )}
@@ -31,12 +31,12 @@ export function ApiKeysPanel() {
         <button className="btn primary" onClick={create}><Icon name="plus" size={15} /> Create API key</button></div>
       {d?.keys?.length > 0 && (
         <table className="tbl compact"><thead><tr><th>Name</th><th>Key</th><th>Access</th><th>Last used</th><th /></tr></thead>
-          <tbody>{d.keys.map((k) => <tr key={k.id}><td>{k.name}</td><td className="mono">{k.prefix}…</td><td>{k.scope === 'read' ? 'Read-only' : 'Full'}</td><td className="muted sm">{k.lastUsedAt ? ago(k.lastUsedAt) : 'never'}</td><td className="r"><button className="icon-btn danger" title="Revoke" onClick={() => revoke(k)}><Icon name="trash" size={15} /></button></td></tr>)}</tbody></table>
+          <tbody>{d.keys.map((k) => <tr key={k.id}><td>{k.name}</td><td className="mono">{k.prefix}…</td><td>{k.scope === 'read' ? 'Read-only' : 'Full'}</td><td className="muted sm">{k.lastUsedAt ? ago(k.lastUsedAt) : 'never'}</td><td className="r"><button className="icon-btn danger" title="Revoke" aria-label="Revoke" onClick={() => revoke(k)}><Icon name="trash" size={15} /></button></td></tr>)}</tbody></table>
       )}
       {d?.hooks?.length > 0 && (
         <>
           <p className="hint"><b>Active subscriptions</b> (created by connected apps):</p>
-          <table className="tbl compact"><tbody>{d.hooks.map((h) => <tr key={h.id}><td className="mono sm">{h.event}</td><td className="muted sm" style={{ wordBreak: 'break-all' }}>{h.url}</td><td className="r"><button className="icon-btn" title="Remove" onClick={async () => { await api(`/v1/hooks/${h.id}`, 'DELETE'); load(); }}><Icon name="x" size={14} /></button></td></tr>)}</tbody></table>
+          <table className="tbl compact"><tbody>{d.hooks.map((h) => <tr key={h.id}><td className="mono sm">{h.event}</td><td className="muted sm" style={{ wordBreak: 'break-all' }}>{h.url}</td><td className="r"><button className="icon-btn" title="Remove" aria-label="Remove" onClick={async () => { await api(`/v1/hooks/${h.id}`, 'DELETE'); load(); }}><Icon name="x" size={14} /></button></td></tr>)}</tbody></table>
         </>
       )}
       <p className="hint">Keys can do what an admin team member can — never billing, your account, the team or other keys. 120 requests a minute per key.</p>

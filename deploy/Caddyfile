@@ -17,7 +17,11 @@
 # The app itself
 {$APP_DOMAIN:localhost} {
 	encode zstd gzip
-	reverse_proxy funnelhive:4000
+	reverse_proxy funnelhive:4000 {
+		# while the app container is swapped during a deploy (a few seconds), keep retrying instead of a 502
+		lb_try_duration 30s
+		lb_try_interval 500ms
+	}
 }
 
 # Any other host name: sellers' custom domains (certificate issued on first visit)
@@ -26,5 +30,9 @@ https:// {
 		on_demand
 	}
 	encode zstd gzip
-	reverse_proxy funnelhive:4000
+	reverse_proxy funnelhive:4000 {
+		# while the app container is swapped during a deploy (a few seconds), keep retrying instead of a 502
+		lb_try_duration 30s
+		lb_try_interval 500ms
+	}
 }

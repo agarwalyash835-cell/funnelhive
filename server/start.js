@@ -25,14 +25,18 @@ if (cluster.isPrimary && n > 1) {
   cluster.on('exit', (w, code, signal) => {
     const slot = index.get(w.id);
     index.delete(w.id);
-    if (stopping) return;
+    // shutting down: done once every app process has finished its requests and closed the database
+    if (stopping) { if (Object.values(cluster.workers).every((x) => x.isDead())) process.exit(0); return; }
     console.error(`App process ${slot} exited (${signal || code}) — restarting`);
     setTimeout(() => fork(slot), 1000);
   });
+  // docker stop / a deploy: each app process stops taking requests and finishes the ones in flight (db.js); any
+  // still running after 10 s is stopped hard (docker-compose gives the container 20 s)
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => {
+    if (stopping) return;
     stopping = true;
     for (const w of Object.values(cluster.workers)) w.process.kill(sig);
-    setTimeout(() => process.exit(0), 5000).unref();
+    setTimeout(() => { for (const w of Object.values(cluster.workers)) w.process.kill('SIGKILL'); process.exit(0); }, 10000).unref();
   });
 } else {
   await import('./index.js');

@@ -39,7 +39,7 @@ export async function startServer(env = {}, opts = {}) {
     await new Promise((r) => child.exitCode !== null ? r() : child.once('exit', r));
     if (!keep) for (let i = 0; i < 10; i++) { try { fs.rmSync(dataDir, { recursive: true, force: true }); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
   };
-  return { base, api, stop, dataDir, log: () => log };
+  return { base, api, stop, dataDir, log: () => log, child };
 }
 
 export async function register(api, email = `u${Date.now()}${Math.random().toString(36).slice(2, 6)}@test.dev`, { legal = true } = {}) {

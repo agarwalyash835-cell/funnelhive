@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, toast, num, ago, useWaTemplates, WaTemplateSelect, WaTemplateInfo } from '../ui';
+import { Layout, Panel, Icon, Empty, toast, num, ago, useWaTemplates, WaTemplateSelect, WaTemplateInfo, confirmDialog } from '../ui';
 
 const STATUS = { draft: ['Draft', ''], scheduled: ['Scheduled', 'info'], sending: ['Sending…', 'warn'], sent: ['Sent', 'ok'], cancelled: ['Cancelled', 'bad'] };
 const VARS = ['first_name', 'name', 'email', 'phone', 'business'];
@@ -85,7 +85,7 @@ function Editor({ b, meta, funnels, onBack, onChange }) {
   const run = async (fn) => { setBusy(true); try { await fn(); } catch (e) { toast(e.message); } setBusy(false); };
   const send = (at) => run(async () => {
     if (!(await save(true))) return;
-    if (!confirm(at ? `Schedule for ${when(at)}? It goes to everyone in the audience at that time.` : `Send to ${num(aud?.reach || 0)} contacts now?`)) return;
+    if (!await confirmDialog(at ? { title: `Schedule for ${when(at)}?`, text: 'It goes to everyone in the audience at that time.', confirm: 'Schedule' } : { title: `Send to ${num(aud?.reach || 0)} contacts now?`, confirm: 'Send now' })) return;
     await api(`/broadcasts/${b.id}/send`, 'POST', at ? { at } : {});
     toast(at ? 'Scheduled' : 'Sending — it goes out in the background'); await onChange();
   });
@@ -100,9 +100,9 @@ function Editor({ b, meta, funnels, onBack, onChange }) {
         <div className="row">
           <span className={`pill ${STATUS[b.status]?.[1] || ''}`}>{STATUS[b.status]?.[0]}{b.status === 'scheduled' ? ` · ${when(b.scheduledAt)}` : ''}</span>
           {b.status === 'scheduled' && <button className="btn ghost sm" disabled={busy} onClick={() => run(async () => { await api(`/broadcasts/${b.id}/cancel`, 'POST'); await onChange(); })}>Unschedule</button>}
-          {b.status === 'sending' && <button className="btn ghost sm" disabled={busy} onClick={() => run(async () => { if (confirm('Stop sending? Messages already sent can’t be recalled.')) { await api(`/broadcasts/${b.id}/cancel`, 'POST'); await onChange(); } })}>Stop</button>}
+          {b.status === 'sending' && <button className="btn ghost sm" disabled={busy} onClick={() => run(async () => { if (await confirmDialog({ title: 'Stop sending?', text: 'Messages already sent can’t be recalled.', confirm: 'Stop sending', cancel: 'Keep sending', danger: true })) { await api(`/broadcasts/${b.id}/cancel`, 'POST'); await onChange(); } })}>Stop</button>}
           <button className="btn ghost sm" onClick={() => run(async () => { await api(`/broadcasts/${b.id}/duplicate`, 'POST'); await onChange(); onBack(); toast('Copied as a new draft'); })}>Duplicate</button>
-          {b.status !== 'sending' && <button className="icon-btn" title="Delete" onClick={() => run(async () => { if (confirm('Delete this broadcast and its report?')) { await api(`/broadcasts/${b.id}`, 'DELETE'); await onChange(); onBack(); } })}><Icon name="trash" size={15} /></button>}
+          {b.status !== 'sending' && <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => run(async () => { if (await confirmDialog({ title: 'Delete this broadcast and its report?', confirm: 'Delete', danger: true })) { await api(`/broadcasts/${b.id}`, 'DELETE'); await onChange(); onBack(); } })}><Icon name="trash" size={15} /></button>}
         </div>
       </div>
 

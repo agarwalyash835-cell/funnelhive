@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, setToken, loggedIn } from '../api';
-import { Layout, Panel, Icon, Empty, Modal, toast, num, inr, ago } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, toast, num, inr, ago, confirmDialog, promptDialog } from '../ui';
 import { AuthShell } from './Auth';
 import { shareLink } from './Team';
 
@@ -42,9 +42,9 @@ export default function Agency() {
                     <td>{c.email ? <span className="pill ok">{c.email}</span> : c.invited ? <span className="pill warn">invited</span> : <button className="link-btn" onClick={() => setInvite(c)}>Invite client</button>}</td>
                     <td className="r"><div className="row end">
                       <button className="btn primary sm" onClick={() => open(c.id)}>Open</button>
-                      <button className="icon-btn" title="Copy the client report link" onClick={() => copy(`${location.origin}${c.report}`)}><Icon name="chart" size={15} /></button>
-                      {c.email && <button className="icon-btn" title="Hand the account over (they pay for it themselves)" onClick={() => confirm(`Hand ${c.business} over? It leaves your Agency plan and starts its own trial; you stay on its team as an admin.`) && act(() => api(`/agency/clients/${c.id}/detach`, 'POST'), 'Handed over')}><Icon name="external" size={15} /></button>}
-                      <button className="icon-btn danger" title="Delete the client account" onClick={() => prompt(`Delete ${c.business} and all its funnels, contacts and orders? Type DELETE to confirm.`) === 'DELETE' && act(() => api(`/agency/clients/${c.id}`, 'DELETE', { confirm: 'DELETE' }), 'Deleted')}><Icon name="trash" size={15} /></button>
+                      <button className="icon-btn" title="Copy the client report link" aria-label="Copy the client report link" onClick={() => copy(`${location.origin}${c.report}`)}><Icon name="chart" size={15} /></button>
+                      {c.email && <button className="icon-btn" title="Hand the account over (they pay for it themselves)" aria-label="Hand the account over (they pay for it themselves)" onClick={async () => (await confirmDialog({ title: `Hand ${c.business} over?`, text: 'It leaves your Agency plan and starts its own trial; you stay on its team as an admin.', confirm: 'Hand over' })) && act(() => api(`/agency/clients/${c.id}/detach`, 'POST'), 'Handed over')}><Icon name="external" size={15} /></button>}
+                      <button className="icon-btn danger" title="Delete the client account" aria-label="Delete the client account" onClick={async () => (await promptDialog({ title: `Delete ${c.business} and all its funnels, contacts and orders?`, confirmWord: 'DELETE', confirm: 'Delete', danger: true })) === 'DELETE' && act(() => api(`/agency/clients/${c.id}`, 'DELETE', { confirm: 'DELETE' }), 'Deleted')}><Icon name="trash" size={15} /></button>
                     </div></td>
                   </tr>
                 ))}</tbody>
@@ -55,7 +55,7 @@ export default function Agency() {
           <p className="hint">Copy funnels to a client from the Funnels page (⋯ → Copy to client). Funnels you build for others can also be shared as a link or a file.</p>
         </>
       )}
-      {add && <AddClient onClose={() => setAdd(false)} onDone={(r) => { setAdd(false); load(); if (confirm('Client account ready. Open it now?')) open(r.id); }} />}
+      {add && <AddClient onClose={() => setAdd(false)} onDone={async (r) => { setAdd(false); load(); if (await confirmDialog({ title: 'Client account ready', text: 'Open it now?', confirm: 'Open it', cancel: 'Later' })) open(r.id); }} />}
       {invite && <InviteClient c={invite} onClose={() => setInvite(null)} onDone={() => { setInvite(null); load(); }} />}
     </Layout>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Icon, Empty, CreateFunnel, inr, num, toast , Modal , pagesOrigin } from '../ui';
+import { Layout, Icon, Empty, CreateFunnel, inr, num, toast , Modal , pagesOrigin, confirmDialog } from '../ui';
 import { Page } from '../blocks';
 import { StepIcon } from '../blockIcons';
 
@@ -23,7 +23,7 @@ export default function Funnels() {
     inp.click();
   };
   const dup = async (id) => { await api(`/funnels/${id}/duplicate`, 'POST'); toast('Funnel duplicated'); load(); };
-  const del = async (f) => { if (confirm(`Delete “${f.name}” and all its data? This cannot be undone.`)) { await api(`/funnels/${f.id}`, 'DELETE'); toast('Funnel deleted'); load(); } };
+  const del = async (f) => { if (await confirmDialog({ title: `Delete “${f.name}” and all its data?`, text: 'This cannot be undone.', confirm: 'Delete', danger: true })) { await api(`/funnels/${f.id}`, 'DELETE'); toast('Funnel deleted'); load(); } };
   const copyLink = (f) => { navigator.clipboard?.writeText(`${pagesOrigin()}/f/${f.slug}`); toast('Live link copied'); };
   const shown = (list || []).filter((f) => f.name.toLowerCase().includes(q.toLowerCase()));
 
@@ -59,14 +59,14 @@ export default function Funnels() {
                 </div>
                 <div className="factions">
                   <button className="btn primary sm" onClick={() => nav(`/funnels/${f.id}`)}><Icon name="edit" size={15} /> Edit</button>
-                  <Link className="icon-btn" title="Analytics" to={`/funnels/${f.id}/analytics`}><Icon name="chart" size={16} /></Link>
-                  <Link className="icon-btn" title="Preview" to={`/f/${f.slug}?preview=1&pv=${f.previewKey || ''}`}><Icon name="eye" size={16} /></Link>
-                  {f.published && <button className="icon-btn" title="Copy live link" onClick={() => copyLink(f)}><Icon name="link" size={16} /></button>}
-                  <button className="icon-btn" title="Duplicate" onClick={() => dup(f.id)}><Icon name="copy" size={16} /></button>
-                  <button className="icon-btn" title="Copy to a client account" onClick={() => setMoveF(f)}><Icon name="layers" size={16} /></button>
-                  <button className="icon-btn" title="Share as a link (others import a copy)" onClick={() => share(f)}><Icon name="send" size={16} /></button>
-                  <button className="icon-btn" title="Export as a file" onClick={() => exportF(f)}><Icon name="download" size={16} /></button>
-                  <button className="icon-btn danger" title="Delete" onClick={() => del(f)}><Icon name="trash" size={16} /></button>
+                  <Link className="icon-btn" title="Analytics" aria-label="Analytics" to={`/funnels/${f.id}/analytics`}><Icon name="chart" size={16} /></Link>
+                  <Link className="icon-btn" title="Preview" aria-label="Preview" to={`/f/${f.slug}?preview=1&pv=${f.previewKey || ''}`}><Icon name="eye" size={16} /></Link>
+                  {f.published && <button className="icon-btn" title="Copy live link" aria-label="Copy live link" onClick={() => copyLink(f)}><Icon name="link" size={16} /></button>}
+                  <button className="icon-btn" title="Duplicate" aria-label="Duplicate" onClick={() => dup(f.id)}><Icon name="copy" size={16} /></button>
+                  <button className="icon-btn" title="Copy to a client account" aria-label="Copy to a client account" onClick={() => setMoveF(f)}><Icon name="layers" size={16} /></button>
+                  <button className="icon-btn" title="Share as a link (others import a copy)" aria-label="Share as a link (others import a copy)" onClick={() => share(f)}><Icon name="send" size={16} /></button>
+                  <button className="icon-btn" title="Export as a file" aria-label="Export as a file" onClick={() => exportF(f)}><Icon name="download" size={16} /></button>
+                  <button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => del(f)}><Icon name="trash" size={16} /></button>
                 </div>
               </div>
             </article>

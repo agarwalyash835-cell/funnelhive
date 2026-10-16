@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Copy, RefreshCw, Trash2, Plus, ExternalLink } from 'lucide-react';
 import { api } from '../api';
-import { Panel, toast } from '../ui';
+import { Panel, toast, confirmDialog } from '../ui';
 
 const SMTP_PRESETS = [
   ['custom', 'Other / custom', '', 465],
@@ -31,7 +31,7 @@ export function EmailPanel({ me }) {
     setBusy('');
   };
   const test = async () => { setBusy('test'); try { const r = await api('/channels/email/test', 'POST', { to: testTo }); toast(`Test email sent to ${r.to} — check your inbox (and spam)`); } catch (e) { toast(e.message); } setBusy(''); };
-  const clear = async () => { if (!confirm('Remove your SMTP settings?')) return; const c = await api('/channels/email', 'PUT', { clear: true }); setCh(c); setV({ ...c.email, pass: '' }); };
+  const clear = async () => { if (!await confirmDialog({ title: 'Remove your SMTP settings?', confirm: 'Remove', danger: true })) return; const c = await api('/channels/email', 'PUT', { clear: true }); setCh(c); setV({ ...c.email, pass: '' }); };
   return (
     <Panel title="Email sending (SMTP)" actions={<span className={`pill ${ch.email.configured ? 'ok' : 'warn'}`}>{ch.email.configured ? `Connected · ${ch.email.via}` : 'Not set up'}</span>}>
       <p className="muted sm">Emails to your contacts — automations, cart reminders, one-to-one emails — are sent from your own mailbox or email service.</p>
@@ -79,7 +79,7 @@ function MetaWhatsApp({ ch, setCh }) {
   const metaOn = !!(ch.whatsapp.phoneNumberId && ch.whatsapp.hasToken);
   const save = async () => { setBusy('save'); try { const c = await api('/channels/whatsapp', 'PUT', v); setCh(c); setV((x) => ({ ...x, token: '' })); toast('WhatsApp connected'); } catch (e) { toast(e.message); } setBusy(''); };
   const test = async () => { setBusy('test'); try { await api('/channels/whatsapp/test', 'POST', { to, template: tpl, language: tpl === 'hello_world' ? 'en_US' : 'en' }); toast('Test message sent'); } catch (e) { toast(e.message); } setBusy(''); };
-  const clear = async () => { if (!confirm('Disconnect WhatsApp?')) return; const c = await api('/channels/whatsapp', 'PUT', { clear: true }); setCh(c); setV({ phoneNumberId: '', businessId: '', token: '' }); };
+  const clear = async () => { if (!await confirmDialog({ title: 'Disconnect WhatsApp?', confirm: 'Disconnect', danger: true })) return; const c = await api('/channels/whatsapp', 'PUT', { clear: true }); setCh(c); setV({ phoneNumberId: '', businessId: '', token: '' }); };
   const useMeta = async () => { try { await api('/channels/whatsapp/hive', 'PUT', { provider: 'meta' }); setCh(await api('/channels')); toast('WhatsApp now sends through Meta directly'); } catch (e) { toast(e.message); } };
   return (
     <>
@@ -128,7 +128,7 @@ function HiveWhatsApp({ onChange }) {
   };
   const save = (body, ok, name = 'save') => run(name, () => api('/channels/whatsapp/hive', 'PUT', body), ok);
   const saveKey = () => run('key', async () => { const r = await api('/channels/whatsapp/hive', 'PUT', { apiKey: key.trim() }); setKey(''); return r; }, 'Key verified and saved');
-  const clear = () => { if (confirm('Disconnect Hive WhatsApp? Messages stop going out through it.')) save({ clear: true }, 'Hive WhatsApp disconnected'); };
+  const clear = async () => { if (await confirmDialog({ title: 'Disconnect Hive WhatsApp?', text: 'Messages stop going out through it.', confirm: 'Disconnect', danger: true })) save({ clear: true }, 'Hive WhatsApp disconnected'); };
   const approved = h.templates.filter((t) => t.status === 'APPROVED').length;
   const toSubmit = h.templates.filter((t) => !t.status || ['ERROR', 'REJECTED'].includes(t.status)).length;
   const allIn = h.templates.every((t) => IN.includes(t.status));
@@ -244,7 +244,7 @@ function OwnTemplates() {
     setBusy(false);
   };
   const remove = async (t) => {
-    if (!confirm(`Delete the template “${t.name}”? Automations and broadcasts using it stop sending, and Meta may not let you reuse the name for a while.`)) return;
+    if (!await confirmDialog({ title: `Delete the template “${t.name}”?`, text: 'Automations and broadcasts using it stop sending, and Meta may not let you reuse the name for a while.', confirm: 'Delete', danger: true })) return;
     try { await api(`/channels/whatsapp/hive/templates/custom/${t.name}`, 'DELETE'); toast('Template deleted'); load(); } catch (e) { toast(e.message); }
   };
   return (
@@ -257,7 +257,7 @@ function OwnTemplates() {
             <tr key={`${t.name}:${t.language}`}><td className="mono sm">{t.name}</td><td className="sm">{CATS[t.category]?.[0] || t.category}</td>
               <td><span className={`pill ${pl?.[0] || 'info'}`} title={t.reason || ''}>{pl?.[1] || t.status}</span>{t.reason && t.status !== 'APPROVED' && <small className="muted"> {t.reason}</small>}</td>
               <td className="sm" title={t.body}>{t.body.length > 80 ? `${t.body.slice(0, 80)}…` : t.body}</td>
-              <td className="r"><button className="icon-btn danger" title="Delete" onClick={() => remove(t)}><Trash2 size={15} /></button></td></tr>); })}</tbody></table>
+              <td className="r"><button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => remove(t)}><Trash2 size={15} /></button></td></tr>); })}</tbody></table>
       )}
       {!v ? <div className="row"><button className="btn ghost" onClick={() => setV(NEW_TPL)}><Plus size={15} /> New template</button></div> : <>
         <div className="form2">
@@ -289,7 +289,7 @@ export function DomainsPanel() {
   if (!d) return <Panel title="Custom domains"><div className="skeleton sm" /></Panel>;
   const add = async (e) => { e.preventDefault(); setBusy('add'); try { await api('/domains', 'POST', nd); setNd({ ...nd, domain: '' }); load(); toast('Domain added — now add the DNS records below'); } catch (x) { toast(x.message); } setBusy(''); };
   const verify = async (x) => { setBusy(x.id); try { const r = await api(`/domains/${x.id}/verify`, 'POST'); toast(r.status === 'active' ? `${r.domain} is connected` : r.error); load(); } catch (e) { toast(e.message); } setBusy(''); };
-  const remove = async (x) => { if (!confirm(`Disconnect ${x.domain}? Visitors there will no longer see your funnel.`)) return; await api(`/domains/${x.id}`, 'DELETE'); load(); };
+  const remove = async (x) => { if (!await confirmDialog({ title: `Disconnect ${x.domain}?`, text: 'Visitors there will no longer see your funnel.', confirm: 'Disconnect', danger: true })) return; await api(`/domains/${x.id}`, 'DELETE'); load(); };
   const point = async (x, funnelId) => { await api(`/domains/${x.id}`, 'PUT', { funnelId }); load(); toast('Domain now shows that funnel'); };
   const fname = (id) => funnels.find((f) => f.id === id)?.name || 'a deleted funnel';
   return (
@@ -305,13 +305,13 @@ export function DomainsPanel() {
           <div className="dom-h">
             <b>{x.domain}</b><span className={`pill ${STATUS[x.status][0]}`}>{STATUS[x.status][1]}</span>
             <select value={x.funnelId} onChange={(e) => point(x, e.target.value)} title="Funnel shown on this domain">{funnels.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}{!funnels.some((f) => f.id === x.funnelId) && <option value={x.funnelId}>{fname(x.funnelId)}</option>}</select>
-            {x.status === 'active' && <a className="icon-btn" href={`https://${x.domain}`} target="_blank" rel="noreferrer" title="Open"><ExternalLink size={15} /></a>}
-            <button className="icon-btn danger" onClick={() => remove(x)} title="Disconnect"><Trash2 size={15} /></button>
+            {x.status === 'active' && <a className="icon-btn" href={`https://${x.domain}`} target="_blank" rel="noreferrer" title="Open" aria-label="Open"><ExternalLink size={15} /></a>}
+            <button className="icon-btn danger" onClick={() => remove(x)} title="Disconnect" aria-label="Disconnect"><Trash2 size={15} /></button>
           </div>
           {x.status !== 'active' && <>
             <p className="hint">Add these records where you bought the domain (GoDaddy, Hostinger, BigRock, Namecheap, Cloudflare…). DNS changes can take a few minutes to a few hours; we re-check automatically.</p>
             <table className="tbl compact dns-t"><thead><tr><th>Type</th><th>Name / Host</th><th>Value / Points to</th><th /></tr></thead>
-              <tbody>{x.records.map((r) => <tr key={r.type + r.name}><td className="mono strong">{r.type}</td><td className="mono">{r.name}{r.optional && <small className="muted"> · {r.why}</small>}</td><td className="mono">{r.value}</td><td className="r"><button className="icon-btn xs" title="Copy" onClick={() => copy(r.value)}><Copy size={13} /></button></td></tr>)}</tbody></table>
+              <tbody>{x.records.map((r) => <tr key={r.type + r.name}><td className="mono strong">{r.type}</td><td className="mono">{r.name}{r.optional && <small className="muted"> · {r.why}</small>}</td><td className="mono">{r.value}</td><td className="r"><button className="icon-btn xs" title="Copy" aria-label="Copy" onClick={() => copy(r.value)}><Copy size={13} /></button></td></tr>)}</tbody></table>
             <div className="row"><button className="btn ghost" disabled={busy === x.id} onClick={() => verify(x)}><RefreshCw size={14} /> {busy === x.id ? 'Checking…' : 'Check now'}</button>{x.error && <span className="muted sm">{x.error}{x.checkedAt ? ` · checked ${new Date(x.checkedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}` : ''}</span>}</div>
           </>}
           {x.status === 'active' && <p className="hint">Live at <a href={`https://${x.domain}`} target="_blank" rel="noreferrer">https://{x.domain}</a> — showing “{fname(x.funnelId)}”. HTTPS certificates are issued automatically by the server’s Caddy proxy.</p>}
@@ -334,7 +334,7 @@ export function RazorpayPanel() {
     try { const r = await api('/channels/razorpay', 'PUT', v); setSt({ ...st, ...r }); setV({ keyId: r.keyId, keySecret: '', webhookSecret: '' }); toast(`Razorpay connected (${r.mode === 'live' ? 'LIVE — real payments' : 'test mode'})`); } catch (e) { toast(e.message); }
     setBusy(false);
   };
-  const clear = async () => { if (!confirm('Disconnect Razorpay? Checkouts go back to demo mode (no money collected).')) return; const r = await api('/channels/razorpay', 'PUT', { clear: true }); setSt({ ...st, ...r }); setV({ keyId: '', keySecret: '', webhookSecret: '' }); };
+  const clear = async () => { if (!await confirmDialog({ title: 'Disconnect Razorpay?', text: 'Checkouts go back to demo mode (no money collected).', confirm: 'Disconnect', danger: true })) return; const r = await api('/channels/razorpay', 'PUT', { clear: true }); setSt({ ...st, ...r }); setV({ keyId: '', keySecret: '', webhookSecret: '' }); };
   const hook = `${location.origin}${st.webhookUrl}`;
   return (
     <div className="rzp">
@@ -349,7 +349,7 @@ export function RazorpayPanel() {
       <div className="rzp-hook">
         <b>Webhook (backup for buyers who close the page right after paying)</b>
         <p className="hint">In Razorpay → Account &amp; Settings → Webhooks, add this URL with the events <code>payment.captured</code>, <code>order.paid</code>, <code>refund.processed</code> and (for payment plans &amp; memberships) all <code>subscription.*</code> events, choose a secret and paste the same secret above.</p>
-        <div className="row"><code className="secret-v">{hook}</code><button className="icon-btn" title="Copy" onClick={() => copy(hook)}><Copy size={15} /></button></div>
+        <div className="row"><code className="secret-v">{hook}</code><button className="icon-btn" title="Copy" aria-label="Copy" onClick={() => copy(hook)}><Copy size={15} /></button></div>
         {/^https?:\/\/(localhost|127\.)/.test(location.origin) && <p className="hint warn">This app is running on your computer — Razorpay can only reach the webhook once it’s hosted on a public address. Payments still work without it.</p>}
       </div>
       <p className="hint">Upsells and cross-sells open Razorpay again with the buyer’s details filled in — one tap with UPI or a saved card. Fully automatic card charging needs Razorpay’s recurring-payments approval.</p>
@@ -369,7 +369,7 @@ export function StripePanel() {
     try { const r = await api('/channels/stripe', 'PUT', v); setSt(r); setV({ publishableKey: r.publishableKey, secretKey: '', webhookSecret: '' }); toast(`Stripe connected (${r.mode === 'live' ? 'LIVE — real payments' : 'test mode'})`); } catch (e) { toast(e.message); }
     setBusy(false);
   };
-  const clear = async () => { if (!confirm('Disconnect Stripe? Checkouts in foreign currencies stop taking payments.')) return; setSt(await api('/channels/stripe', 'PUT', { clear: true })); setV({ publishableKey: '', secretKey: '', webhookSecret: '' }); };
+  const clear = async () => { if (!await confirmDialog({ title: 'Disconnect Stripe?', text: 'Checkouts in foreign currencies stop taking payments.', confirm: 'Disconnect', danger: true })) return; setSt(await api('/channels/stripe', 'PUT', { clear: true })); setV({ publishableKey: '', secretKey: '', webhookSecret: '' }); };
   const hook = `${location.origin}${st.webhookUrl}`;
   return (
     <div className="rzp">
@@ -384,7 +384,7 @@ export function StripePanel() {
       <div className="rzp-hook">
         <b>Webhook</b>
         <p className="hint">Stripe → Developers → Webhooks → Add endpoint with this URL and the events <code>payment_intent.succeeded</code>, <code>invoice.paid</code>, <code>invoice.payment_failed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code>; paste its signing secret above.</p>
-        <div className="row"><code className="secret-v">{hook}</code><button className="icon-btn" title="Copy" onClick={() => copy(hook)}><Copy size={15} /></button></div>
+        <div className="row"><code className="secret-v">{hook}</code><button className="icon-btn" title="Copy" aria-label="Copy" onClick={() => copy(hook)}><Copy size={15} /></button></div>
       </div>
       <p className="hint">Upsells charge the card saved at checkout in one click (cards that need 3-D Secure show the form again).</p>
     </div>
@@ -399,16 +399,16 @@ export function HiveMcpPanel() {
   const load = () => api('/hive/tokens').then(setList);
   useEffect(() => { load(); }, []);
   const create = async () => { try { const t = await api('/hive/tokens', 'POST', { name }); setFresh(t); load(); } catch (e) { toast(e.message); } };
-  const revoke = async (t) => { if (!confirm(`Revoke “${t.name}”? Apps using it lose access immediately.`)) return; await api(`/hive/tokens/${t.id}`, 'DELETE'); load(); };
+  const revoke = async (t) => { if (!await confirmDialog({ title: `Revoke “${t.name}”?`, text: 'Apps using it lose access immediately.', confirm: 'Revoke', danger: true })) return; await api(`/hive/tokens/${t.id}`, 'DELETE'); load(); };
   const config = (tok) => JSON.stringify({ mcpServers: { funnelhive: { command: 'npx', args: ['-y', 'mcp-remote', url, '--header', `Authorization: Bearer ${tok}`] } } }, null, 2);
   return (
     <Panel title="Hive AI · MCP access">
       <p className="muted sm">Let other AI apps (Claude Desktop, Cursor, ChatGPT connectors…) build and edit your funnels, pages, coupons, pipelines and automations through the Model Context Protocol — the same tools Hive AI uses.</p>
-      <label className="full">MCP server URL<div className="row"><code className="secret-v">{url}</code><button className="icon-btn" title="Copy" onClick={() => copy(url)}><Copy size={15} /></button></div></label>
+      <label className="full">MCP server URL<div className="row"><code className="secret-v">{url}</code><button className="icon-btn" title="Copy" aria-label="Copy" onClick={() => copy(url)}><Copy size={15} /></button></div></label>
       {fresh && (
         <div className="mcp-fresh">
           <b>Copy your token now — it won’t be shown again</b>
-          <div className="row"><code className="secret-v">{fresh.token}</code><button className="icon-btn" title="Copy" onClick={() => copy(fresh.token)}><Copy size={15} /></button></div>
+          <div className="row"><code className="secret-v">{fresh.token}</code><button className="icon-btn" title="Copy" aria-label="Copy" onClick={() => copy(fresh.token)}><Copy size={15} /></button></div>
           <p className="hint">Claude Desktop → Settings → Developer → Edit config, add:</p>
           <pre className="mcp-cfg">{config(fresh.token)}</pre>
           <button className="btn ghost sm" onClick={() => copy(config(fresh.token))}><Copy size={13} /> Copy config</button>
@@ -418,7 +418,7 @@ export function HiveMcpPanel() {
       <div className="row"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Token name, e.g. Claude Desktop" style={{ maxWidth: 260 }} /><button className="btn primary" onClick={create}><Plus size={15} /> Create access token</button></div>
       {list?.length > 0 && (
         <table className="tbl compact"><thead><tr><th>Name</th><th>Token</th><th>Created</th><th>Last used</th><th /></tr></thead>
-          <tbody>{list.map((t) => <tr key={t.id}><td>{t.name}</td><td className="mono">{t.prefix}…</td><td className="muted sm">{new Date(t.at).toLocaleDateString('en-IN')}</td><td className="muted sm">{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString('en-IN') : 'never'}</td><td className="r"><button className="icon-btn danger" title="Revoke" onClick={() => revoke(t)}><Trash2 size={15} /></button></td></tr>)}</tbody></table>
+          <tbody>{list.map((t) => <tr key={t.id}><td>{t.name}</td><td className="mono">{t.prefix}…</td><td className="muted sm">{new Date(t.at).toLocaleDateString('en-IN')}</td><td className="muted sm">{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString('en-IN') : 'never'}</td><td className="r"><button className="icon-btn danger" title="Revoke" aria-label="Revoke" onClick={() => revoke(t)}><Trash2 size={15} /></button></td></tr>)}</tbody></table>
       )}
       <p className="hint">Anyone with a token can change your funnels — keep tokens private and revoke ones you no longer use.</p>
     </Panel>

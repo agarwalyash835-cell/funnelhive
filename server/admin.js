@@ -66,7 +66,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         automations: sum('SELECT COUNT(*) AS v FROM automations WHERE active = 1').v,
       },
       system: {
-        uptimeSec: Math.round((now - startedAt) / 1000), processes: Number(process.env.WEB_CONCURRENCY) || 1, dbBytes: dbBytes(), backups: backupFiles().slice(0, 7),
+        uptimeSec: Math.round((now - startedAt) / 1000), processes: Number(process.env.WEB_CONCURRENCY) || 1, dbBytes: dbBytes(), backups: backupFiles().slice(0, 7), offsite: offsiteStatus(), restoreDrill: T.platform.get('restoreDrill') || null,
         memoryMb: Math.round(process.memoryUsage().rss / 1e6), loadavg: os.loadavg().map((x) => +x.toFixed(2)), node: process.version,
         paymentsReady: !!(platformRzp() || platformStripe()), paymentsMode: platformRzp()?.mode || platformStripe()?.mode || null,
         payments: [platformRzp() && `Razorpay (${platformRzp().mode})`, platformStripe() && `Stripe (${platformStripe().mode})`].filter(Boolean), emailReady: !!(process.env.SMTP_HOST || process.env.RESEND_API_KEY),

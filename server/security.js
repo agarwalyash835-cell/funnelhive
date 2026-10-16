@@ -125,7 +125,7 @@ export function csp(kind = 'app', { nonce, frameAncestors = "'self'" } = {}) {
     'font-src': app ? ["'self'", 'data:', 'https://fonts.gstatic.com'] : ["'self'", 'data:', 'https:'],
     'img-src': ["'self'", 'data:', 'blob:', 'https:'],
     'media-src': ["'self'", 'data:', 'blob:', 'https:'],
-    'connect-src': app ? ["'self'", 'https://*.razorpay.com', 'https://*.stripe.com', ...SIGNIN] : ["'self'", 'https:', ...(kind === 'embed' ? ['wss:'] : [])],
+    'connect-src': app ? ["'self'", 'https://*.razorpay.com', 'https://*.stripe.com', ...SIGNIN, 'https://*.ingest.sentry.io', 'https://*.ingest.de.sentry.io'] : ["'self'", 'https:', ...(kind === 'embed' ? ['wss:'] : [])],
     // video blocks take any https address (YouTube, Vimeo, Loom, Drive…); checkouts open their own frames
     'frame-src': ["'self'", 'https:', 'data:', 'blob:'],
     'worker-src': ["'self'", 'blob:'],

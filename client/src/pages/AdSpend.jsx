@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Panel, toast, ago } from '../ui';
+import { Panel, toast, ago, confirmDialog } from '../ui';
 
 // Settings → Ad spend: Meta synced daily, Google Ads (and others) by CSV — for ROAS next to every campaign
 export function AdSpendPanel() {
@@ -29,7 +29,7 @@ export function AdSpendPanel() {
           <label>Access token <small className="muted">· with ads_read</small><input type="password" value={v.token} onChange={(e) => setV({ ...v, token: e.target.value })} placeholder={d.meta.connected ? '•••••••• (saved)' : 'From Business Settings → System users'} autoComplete="new-password" /></label>
         </div>
         <div className="row"><button className="btn primary" disabled={busy || !v.account} onClick={connect}>{busy ? 'Connecting…' : d.meta.connected ? 'Save & sync' : 'Connect'}</button>
-          {d.meta.connected && <><button className="btn ghost" onClick={async () => { try { const r = await api('/adspend/meta/sync', 'POST', { days: 30 }); toast(`Synced ${r.rows} rows`); load(); } catch (e) { toast(e.message); } }}>Sync now</button><button className="btn ghost danger" onClick={async () => { if (confirm('Disconnect Meta and remove its spend?')) { await api('/adspend/meta', 'PUT', { clear: true }); load(); } }}>Disconnect</button></>}</div>
+          {d.meta.connected && <><button className="btn ghost" onClick={async () => { try { const r = await api('/adspend/meta/sync', 'POST', { days: 30 }); toast(`Synced ${r.rows} rows`); load(); } catch (e) { toast(e.message); } }}>Sync now</button><button className="btn ghost danger" onClick={async () => { if (await confirmDialog({ title: 'Disconnect Meta and remove its spend?', confirm: 'Disconnect', danger: true })) { await api('/adspend/meta', 'PUT', { clear: true }); load(); } }}>Disconnect</button></>}</div>
         <p className="hint">Synced every day (the last 7 days are refreshed, so late-arriving spend is corrected).</p>
       </div>
       <div className="rzp">

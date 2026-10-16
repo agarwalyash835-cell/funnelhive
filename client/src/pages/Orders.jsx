@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, Modal, inr, num, ago, downloadCSV, toast } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, inr, num, ago, downloadCSV, toast, confirmDialog } from '../ui';
 
 const STATUS = { refunded: ['Refunded', 'bad'], partially_refunded: ['Part refunded', 'warn'], cod: ['COD · unpaid', 'warn'], cancelled: ['Cancelled', 'bad'] };
 const PLAN = { active: ['', 'ok'], authenticated: ['starting', ''], created: ['starting', ''], pending: ['payment due', 'warn'], halted: ['payment failed', 'bad'], cancelled: ['cancelled', 'bad'], completed: ['paid in full', 'ok'], expired: ['ended', ''], demo: ['demo', ''] };
@@ -13,15 +13,11 @@ const planLabel = (pl, o) => (pl.type === 'installments' ? `${Math.min(pl.paid |
 const campaignOf = (o) => [o.attr?.utm_campaign, o.attr?.utm_content].filter(Boolean).join(' · ');
 // no real money moved: Razorpay/Stripe test keys, or a checkout placed while no payment provider was connected
 const isTest = (o) => o.mode === 'test' || (!o.provider && !o.demo && o.paymentMethod !== 'cod' && o.total > 0 && !['cod', 'cancelled'].includes(o.status));
-// money that actually came in, in ₹: paid orders after refunds — a refund already comes off total (server/sales.js) — COD counts once collected
-const netOf = (o) => (isTest(o) || ['cod', 'cancelled'].includes(o.status) ? 0 : (o.total || 0) * (o.fx || 1));
-const realPaid = (o) => !isTest(o) && !['cod', 'cancelled'].includes(o.status);
 const thisYear = new Date().getFullYear();
 const shortDate = (t) => new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', ...(new Date(t).getFullYear() !== thisYear ? { year: 'numeric' } : {}) });
 const fullDate = (t) => new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 const RANGES = [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last 12 months'], [0, 'All time']];
 const FILTERS = [['all', 'All orders'], ['paid', 'Paid'], ['cod', 'COD to collect'], ['ship', 'To ship'], ['refunded', 'Refunded'], ['plan', 'Memberships & instalments'], ['test', 'Test orders']];
-const statusMatch = (o, s) => s === 'all' || (s === 'paid' ? realPaid(o) && !['refunded'].includes(o.status) : s === 'cod' ? o.status === 'cod' : s === 'ship' ? o.fulfilment?.status === 'pending' && !['cancelled', 'refunded'].includes(o.status) : s === 'refunded' ? ['refunded', 'partially_refunded'].includes(o.status) : s === 'plan' ? !!o.plan : isTest(o));
 const PAGE = 100;
 
 export default function Orders() {
@@ -31,48 +27,98 @@ export default function Orders() {
   const [days, setDays] = useState(0);
   const [funnel, setFunnel] = useState('');
   const [status, setStatus] = useState('all');
-  const [limit, setLimit] = useState(PAGE);
   const [open, setOpen] = useState(null);
   const [refund, setRefund] = useState(null);
   const [ship, setShip] = useState(null);
-  const load = () => api('/orders').then((r) => { setD(r); setOpen((o) => (o ? r.orders.find((x) => x.id === o.id) || null : null)); });
-  useEffect(() => { load(); }, []);
-  useEffect(() => { setLimit(PAGE); }, [q, days, funnel, status, tab]);
-  const since = days ? Date.now() - days * 864e5 : 0;
-  const match = (o) => o.at >= since && (!funnel || o.funnel === funnel) && `${o.name} ${o.email} ${o.phone || ''} ${o.funnel} ${o.id} ${campaignOf(o)} ${(o.tags || []).join(' ')} ${o.note || ''}`.toLowerCase().includes(q.toLowerCase());
-  const all = d?.orders || [];
-  const inView = all.filter(match);
-  const orders = inView.filter((o) => statusMatch(o, status));
-  const abandoned = (d?.abandoned || []).filter(match);
-  const funnels = [...new Set(all.map((o) => o.funnel))].sort();
-  // the numbers follow the period and funnel chosen; test orders never count as revenue
-  const paid = inView.filter(realPaid);
-  const revenue = inView.reduce((a, o) => a + netOf(o), 0);
-  const gross = paid.reduce((a, o) => a + (o.total || 0) * (o.fx || 1), 0);
-  const refunded = inView.filter((o) => !isTest(o)).reduce((a, o) => a + (o.refunded || 0) * (o.fx || 1), 0);
-  const codDue = inView.filter((o) => o.status === 'cod').reduce((a, o) => a + o.total * (o.fx || 1), 0);
-  const tests = inView.filter(isTest).length;
-  const toShip = all.filter((o) => statusMatch(o, 'ship'));
+  // the server filters, searches, pages and totals (server/orderlist.js); "Show more" fetches the next page
+  const [orders, setOrders] = useState([]);
+  const [abandoned, setAbandoned] = useState([]);
+  const [more, setMore] = useState(false);
+  const [dq, setDq] = useState('');
+  useEffect(() => { const t = setTimeout(() => setDq(q.trim()), 300); return () => clearTimeout(t); }, [q]);
+  const seq = useRef(0);
+  const filterQs = `${days ? `&days=${days}` : ''}${funnel ? `&funnel=${encodeURIComponent(funnel)}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}`;
+  const qs = `${filterQs}${status !== 'all' ? `&status=${status}` : ''}`;
+  const openRef = useRef(null);
+  openRef.current = open;
+  // after a change, as many rows stay loaded as were on screen; a new filter starts from the first page
+  const load = (keep = true) => {
+    const n = ++seq.current;
+    return api(`/orders?limit=${keep ? Math.min(1000, Math.max(PAGE, orders.length, abandoned.length)) : PAGE}${qs}`).then((r) => {
+      if (n !== seq.current) return;
+      setD(r); setOrders(r.orders); setAbandoned(r.abandoned);
+      // the order open in the panel: fresh from this page, or fetched on its own when it's further down
+      const o = openRef.current;
+      if (!o) return;
+      const hit = r.orders.find((x) => x.id === o.id);
+      if (hit) setOpen(hit);
+      else api(`/orders?limit=1&id=${encodeURIComponent(o.id)}`).then((x) => setOpen((cur) => (cur?.id === o.id ? x.orders[0] || null : cur))).catch(() => {});
+    });
+  };
+  useEffect(() => { load(false); }, [qs]);
+  const showMore = async () => {
+    const cursor = tab === 'orders' ? d?.nextCursor : d?.abandonedCursor;
+    if (!cursor || more) return;
+    setMore(true);
+    const n = seq.current;
+    try {
+      const r = await api(`/orders?limit=${PAGE * 2}&tab=${tab}&cursor=${encodeURIComponent(cursor)}${qs}`);
+      if (n === seq.current) {
+        if (tab === 'orders') { setOrders((l) => [...l, ...r.orders]); setD((x) => ({ ...x, nextCursor: r.nextCursor })); }
+        else { setAbandoned((l) => [...l, ...r.abandoned]); setD((x) => ({ ...x, abandonedCursor: r.abandonedCursor })); }
+      }
+    } catch (e) { toast(e.message); }
+    setMore(false);
+  };
+  // every matching row, page by page (CSV exports cover the whole list, not just what's on screen)
+  const fetchAll = async (query, key, cursorKey) => {
+    const all = [];
+    let cursor = '';
+    do { const r = await api(`/orders?limit=1000&tab=${key === 'abandoned' ? 'abandoned' : 'orders'}${query}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); all.push(...r[key]); cursor = r[cursorKey]; } while (cursor);
+    return all;
+  };
+  const funnels = d?.funnels || [];
+  // the numbers follow the period, funnel and search chosen; test orders never count as revenue
+  const k = d?.kpis || {};
+  const paidCount = k.paid || 0, revenue = k.revenue || 0, refunded = k.refunded || 0, codDue = k.codDue || 0, tests = k.tests || 0;
+  const ordersTotal = d?.total ?? orders.length, abandonedTotal = d?.abandonedTotal ?? abandoned.length;
+  const toShipCount = k.toShip || 0;
+  const filtered = !!(days || funnel || status !== 'all' || dq);
   const planCancel = async (o) => {
-    if (!confirm(o.plan.type === 'recurring' ? 'Cancel this membership? The buyer keeps access until the end of the period they paid for.' : 'Stop the remaining instalments? Nothing more is charged; the buyer keeps access.')) return;
+    if (!(await confirmDialog(o.plan.type === 'recurring' ? { title: 'Cancel this membership?', text: 'The buyer keeps access until the end of the period they paid for.', confirm: 'Cancel membership', cancel: 'Keep it', danger: true } : { title: 'Stop the remaining instalments?', text: 'Nothing more is charged; the buyer keeps access.', confirm: 'Stop instalments', cancel: 'Keep them', danger: true }))) return;
     try { await api(`/orders/${o.id}/plan/cancel`, 'POST', {}); toast('Cancelled'); load(); } catch (e) { toast(e.message); }
   };
   const codAct = async (o, action) => {
-    if (action === 'cancel' && !confirm(`Cancel COD order #${o.id}? The buyer’s access (if any) is removed.`)) return;
+    if (action === 'cancel' && !(await confirmDialog({ title: `Cancel COD order #${o.id}?`, text: 'The buyer’s access (if any) is removed.', confirm: 'Cancel order', cancel: 'Keep it', danger: true }))) return;
     try { await api(`/orders/${o.id}/cod`, 'POST', { action }); toast(action === 'paid' ? 'Marked paid — invoice and delivery sent' : 'Order cancelled'); load(); } catch (e) { toast(e.message); }
   };
   // a courier-ready sheet (Shiprocket / Delhivery bulk upload columns) of everything waiting to ship
-  const exportShipping = () => {
+  const exportShipping = async () => {
+    let toShip;
+    try { toShip = await fetchAll('&status=ship', 'orders', 'nextCursor'); } catch (e) { return toast(e.message); }
     if (!toShip.length) return toast('Nothing waiting to ship');
     downloadCSV('to-ship.csv', toShip.map((o) => ({ order_id: o.id, order_date: new Date(o.at).toISOString().slice(0, 10), customer_name: o.name, phone: o.phone, email: o.email, address_line1: o.address?.line1, address_line2: o.address?.line2 || '', city: o.address?.city, state: o.address?.state || '', pincode: o.address?.pincode, products: o.items.filter((i) => !['shipping', 'cod_fee'].includes(i.kind)).map((i) => i.name).join(' | '), payment_method: o.status === 'cod' ? 'COD' : 'Prepaid', cod_amount: o.status === 'cod' ? o.total : 0, order_total: o.total })));
   };
   const recoverMsg = (a) => `Hi ${a.name?.split(' ')[0] || 'there'} 👋 You were one step away from getting ${a.funnel}.${a.link ? ` You can finish your order here: ${a.link}` : ' Reply here and we’ll help you finish your order.'}`;
-  const exportCsv = () => tab === 'orders'
-    ? downloadCSV('orders.csv', orders.map((o) => ({ id: o.id, date: new Date(o.at).toISOString(), name: o.name, email: o.email, phone: o.phone, funnel: o.funnel, items: o.items.map((i) => `${i.name} (${i.kind})${i.refunded ? ' [refunded]' : ''}`).join(' | '), coupon: o.coupon || '', discount: o.discount || 0, currency: o.currency || 'INR', total: o.total, refunded: o.refunded || 0, status: o.status, test: isTest(o) ? 'yes' : '', tags: (o.tags || []).join(' | '), note: o.note || '', source: o.source, utm_source: o.attr?.utm_source || '', utm_medium: o.attr?.utm_medium || '', utm_campaign: o.attr?.utm_campaign || '', utm_content: o.attr?.utm_content || '', utm_term: o.attr?.utm_term || '', click_id: o.attr?.fbclid ? 'fbclid' : o.attr?.gclid ? 'gclid' : '', gclid: o.attr?.gclid || '', invoices: (o.invoices || []).map((i) => i.number).join(' | '), payment: o.provider ? `${o.provider} (${o.mode})` : 'none' })))
-    : downloadCSV('abandoned-carts.csv', abandoned.map((a) => ({ date: new Date(a.at).toISOString(), name: a.name, email: a.email, phone: a.phone, funnel: a.funnel, link: a.link || '', utm_campaign: a.attr?.utm_campaign || '' })));
+  const exportCsv = async () => {
+    let rows;
+    try { rows = tab === 'orders' ? await fetchAll(qs, 'orders', 'nextCursor') : await fetchAll(filterQs, 'abandoned', 'abandonedCursor'); } catch (e) { return toast(e.message); }
+    csvOf(rows);
+  };
+  const csvOf = (list) => tab === 'orders'
+    ? downloadCSV('orders.csv', list.map((o) => ({ id: o.id, date: new Date(o.at).toISOString(), name: o.name, email: o.email, phone: o.phone, funnel: o.funnel, items: o.items.map((i) => `${i.name} (${i.kind})${i.refunded ? ' [refunded]' : ''}`).join(' | '), coupon: o.coupon || '', discount: o.discount || 0, currency: o.currency || 'INR', total: o.total, refunded: o.refunded || 0, status: o.status, test: isTest(o) ? 'yes' : '', tags: (o.tags || []).join(' | '), note: o.note || '', source: o.source, utm_source: o.attr?.utm_source || '', utm_medium: o.attr?.utm_medium || '', utm_campaign: o.attr?.utm_campaign || '', utm_content: o.attr?.utm_content || '', utm_term: o.attr?.utm_term || '', click_id: o.attr?.fbclid ? 'fbclid' : o.attr?.gclid ? 'gclid' : '', gclid: o.attr?.gclid || '', invoices: (o.invoices || []).map((i) => i.number).join(' | '), payment: o.provider ? `${o.provider} (${o.mode})` : 'none' })))
+    : downloadCSV('abandoned-carts.csv', list.map((a) => ({ date: new Date(a.at).toISOString(), name: a.name, email: a.email, phone: a.phone, funnel: a.funnel, link: a.link || '', utm_campaign: a.attr?.utm_campaign || '' })));
   // GST register for filing (GSTR-1): every invoice and credit note
   const exportInvoices = async () => {
-    const list = await api('/sales-invoices');
+    // the server sends up to 10,000 at a time, newest first: older ones are fetched until none are left
+    const list = [], seen = new Set();
+    for (let to = 0, n = 0; n < 100; n++) {
+      const got = await api(`/sales-invoices${to ? `?to=${to}` : ''}`);
+      const fresh = got.filter((i) => !seen.has(i.id));
+      fresh.forEach((i) => { seen.add(i.id); list.push(i); });
+      if (got.length < 10000 || !fresh.length) break;
+      to = got.at(-1).at + 1; // the same moment again (deduplicated), so none is skipped
+    }
     if (!list.length) return toast('No invoices yet — turn on GST invoices in Settings');
     // one row per invoice line: each line has its own HSN/SAC and rate
     downloadCSV('gst-invoices.csv', list.flatMap((i) => i.items.map((l) => ({ number: i.number, type: i.type === 'credit' ? 'Credit note' : 'Invoice', against: i.against || '', date: new Date(i.at).toISOString().slice(0, 10), buyer: i.billedTo.name, buyer_email: i.billedTo.email, buyer_gstin: i.billedTo.gstin, place_of_supply: i.placeOfSupply, state_code: i.billedTo.stateCode || '', item: l.name, hsn: l.sac || '', taxable: l.taxable, rate: l.rate ?? i.rate, cgst: l.cgst, sgst: l.sgst, igst: l.igst, total: l.amount, invoice_total: i.total, payment: i.paymentId || '', order: i.orderId }))));
@@ -91,7 +137,7 @@ export default function Orders() {
 
   return (
     <Layout title="Orders" subtitle="Sales, one-click upsells, refunds and abandoned checkouts." actions={<>
-      {toShip.length > 0 && <button className="btn ghost" onClick={exportShipping}><Icon name="box" size={16} /> To ship ({num(toShip.length)})</button>}
+      {toShipCount > 0 && <button className="btn ghost" onClick={exportShipping}><Icon name="box" size={16} /> To ship ({num(toShipCount)})</button>}
       <button className="btn ghost" onClick={exportInvoices}><Icon name="receipt" size={16} /> GST invoices</button>
       <button className="btn ghost" onClick={exportCsv}><Icon name="download" size={16} /> Export CSV</button>
     </>}>
@@ -105,18 +151,18 @@ export default function Orders() {
           </div>
           <div className="kpis k4">
             <div className="kpi"><span className="kpi-l">Revenue · after refunds</span><b className="kpi-v">{inr(revenue)}</b>{refunded > 0 && <small>{inr(refunded)} refunded</small>}{codDue > 0 && <small>+ {inr(codDue)} COD to collect</small>}</div>
-            <div className="kpi"><span className="kpi-l">Paid orders</span><b className="kpi-v">{num(paid.length)}</b>{tests > 0 && <small>+ {num(tests)} test, not counted</small>}</div>
-            <div className="kpi"><span className="kpi-l">Avg. order value</span><b className="kpi-v">{inr(paid.length ? gross / paid.length : 0)}</b></div>
-            <div className="kpi warn"><span className="kpi-l">Abandoned checkouts</span><b className="kpi-v">{num(abandoned.length)}</b><small>recover them via WhatsApp ↓</small></div>
+            <div className="kpi"><span className="kpi-l">Paid orders</span><b className="kpi-v">{num(paidCount)}</b>{tests > 0 && <small>+ {num(tests)} test, not counted</small>}</div>
+            <div className="kpi"><span className="kpi-l">Avg. order value</span><b className="kpi-v">{inr(k.aov || 0)}</b></div>
+            <div className="kpi warn"><span className="kpi-l">Abandoned checkouts</span><b className="kpi-v">{num(abandonedTotal)}</b><small>recover them via WhatsApp ↓</small></div>
           </div>
           <Panel pad={false} title={<div className="seg">
-            <button className={tab === 'orders' ? 'on' : ''} onClick={() => setTab('orders')}>Orders ({num(orders.length)})</button>
-            <button className={tab === 'abandoned' ? 'on' : ''} onClick={() => setTab('abandoned')}>Abandoned ({num(abandoned.length)})</button>
+            <button className={tab === 'orders' ? 'on' : ''} onClick={() => setTab('orders')}>Orders ({num(ordersTotal)})</button>
+            <button className={tab === 'abandoned' ? 'on' : ''} onClick={() => setTab('abandoned')}>Abandoned ({num(abandonedTotal)})</button>
           </div>} actions={<div className="search"><Icon name="search" size={16} /><input placeholder="Search name, email, tag, campaign…" value={q} onChange={(e) => setQ(e.target.value)} /></div>}>
-            {tab === 'orders' ? (!orders.length ? <Empty icon="cart" title={all.length ? 'No orders match' : 'No orders yet'} text={all.length ? 'Try another period, funnel or status.' : 'Orders from your checkouts and one-click upsells land here.'} /> : (
+            {tab === 'orders' ? (!orders.length ? <Empty icon="cart" title={filtered ? 'No orders match' : 'No orders yet'} text={filtered ? 'Try another period, funnel or status.' : 'Orders from your checkouts and one-click upsells land here.'} /> : (
               <div className="tbl-wrap"><table className="tbl">
                 <thead><tr><th>Order</th><th>Customer</th><th>Funnel</th><th>Items</th><th className="r">Total</th><th>Source</th><th className="r">Date</th><th /></tr></thead>
-                <tbody>{orders.slice(0, limit).map((o) => (
+                <tbody>{orders.map((o) => (
                   <tr key={o.id} className="click" onClick={() => setOpen(o)}>
                     <td className="mono">#{o.id}{STATUS[o.status] && <span className={`pill ${STATUS[o.status][1]}`}>{STATUS[o.status][0]}</span>}{(o.tags || []).map((t) => <span key={t} className="pill or-tag">{t}</span>)}</td>
                     <td><b>{o.name || '—'}</b><small className="sub-t">{o.email}</small>{o.address && <small className="sub-t addr" title={addrText(o.address)}>📍 {o.address.city} {o.address.pincode}</small>}</td><td>{o.funnel}</td>
@@ -129,12 +175,12 @@ export default function Orders() {
                   </tr>
                 ))}</tbody>
               </table>
-              {orders.length > limit && <div className="or-more"><button className="btn ghost sm" onClick={() => setLimit(limit + PAGE * 2)}>Show more ({num(orders.length - limit)} older)</button></div>}
+              {d.nextCursor && <div className="or-more"><button className="btn ghost sm" disabled={more} onClick={showMore}>{more ? 'Loading…' : `Show more (${num(ordersTotal - orders.length)} older)`}</button></div>}
               </div>
             )) : (!abandoned.length ? <Empty icon="check" title="No abandoned checkouts" text="When someone enters their email or WhatsApp number at checkout but doesn’t pay, they show up here so you can follow up." /> : (
               <div className="tbl-wrap"><table className="tbl">
                 <thead><tr><th>Contact</th><th>Funnel</th><th className="r">When</th><th className="r">Recover</th></tr></thead>
-                <tbody>{abandoned.slice(0, limit).map((a) => (
+                <tbody>{abandoned.map((a) => (
                   <tr key={a.id}><td><b>{a.name || '—'}</b><small className="sub-t">{[a.email, a.phone].filter(Boolean).join(' · ')}</small></td><td>{a.funnel}</td><td className="r muted" title={fullDate(a.at)}>{ago(a.at)}</td>
                     <td className="r"><div className="row end">
                       {a.phone && <a className="btn soft sm" href={`https://wa.me/${a.phone.replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}?text=${encodeURIComponent(recoverMsg(a))}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>}
@@ -143,7 +189,7 @@ export default function Orders() {
                     </div></td></tr>
                 ))}</tbody>
               </table>
-              {abandoned.length > limit && <div className="or-more"><button className="btn ghost sm" onClick={() => setLimit(limit + PAGE * 2)}>Show more</button></div>}
+              {d.abandonedCursor && <div className="or-more"><button className="btn ghost sm" disabled={more} onClick={showMore}>{more ? 'Loading…' : 'Show more'}</button></div>}
               </div>
             ))}
           </Panel>
@@ -228,7 +274,7 @@ function ShipModal({ o, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const go = async (status) => {
     if (status === 'shipped' && !v.tracking.trim()) return toast('Add the tracking (AWB) number');
-    if (status === 'returned' && !confirm(o.status === 'cod' ? 'Mark as returned? The unpaid COD order is cancelled.' : 'Mark as returned? Refund the buyer from Orders if needed.')) return;
+    if (status === 'returned' && !(await confirmDialog({ title: 'Mark as returned?', text: o.status === 'cod' ? 'The unpaid COD order is cancelled.' : 'Refund the buyer from Orders if needed.', confirm: 'Mark returned' }))) return;
     setBusy(true);
     try { await api(`/orders/${o.id}/fulfil`, 'POST', { status, ...v }); toast(status === 'shipped' ? 'Marked shipped — the buyer got the tracking link' : status === 'delivered' ? (o.status === 'cod' ? 'Delivered — cash collected, invoice sent' : 'Marked delivered') : 'Updated'); onDone(); } catch (e) { toast(e.message); }
     setBusy(false);

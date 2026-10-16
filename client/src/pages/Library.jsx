@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { videoSource } from '../blocks';
+import { alertDialog, confirmDialog } from '../ui';
 
 const bytes = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n || 0} B`);
 const day = (t) => new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -129,11 +130,11 @@ const PLAN_STATUS = { active: 'Active', authenticated: 'Starting', created: 'Sta
 function Plans({ token, plans, onChange }) {
   const [busy, setBusy] = useState(null);
   const cancel = async (p) => {
-    if (!confirm(`Cancel your ${p.product} membership? You keep access until the end of the period you’ve paid for.`)) return;
+    if (!await confirmDialog({ title: `Cancel your ${p.product} membership?`, text: 'You keep access until the end of the period you’ve paid for.', confirm: 'Cancel membership', cancel: 'Keep it', danger: true, buyer: true })) return;
     setBusy(p.orderId);
     const r = await fetch(`/api/access/${encodeURIComponent(token)}/plan/${p.orderId}/cancel`, { method: 'POST' }).then((x) => x.json()).catch(() => ({ error: 'Couldn’t reach the server' }));
     setBusy(null);
-    if (r.error) alert(r.error); else onChange();
+    if (r.error) alertDialog({ text: r.error, buyer: true }); else onChange();
   };
   // a failed payment: off to Razorpay / Stripe to pay it or change the card; we come back with ?fixed=
   const fix = async (p) => {
@@ -141,7 +142,7 @@ function Plans({ token, plans, onChange }) {
     const r = await fetch(`/api/access/${encodeURIComponent(token)}/plan/${p.orderId}/fix`, { method: 'POST' }).then((x) => x.json()).catch(() => ({ error: 'Couldn’t reach the server' }));
     if (r.url) { sessionStorage.setItem('fh-plan-fix', p.orderId); window.location.href = r.url; return; }
     setBusy(null);
-    alert(r.error || 'Couldn’t open the payment page');
+    alertDialog({ text: r.error || 'Couldn’t open the payment page', buyer: true });
   };
   // back from paying (Stripe returns with ?fixed=, Razorpay's page leaves us to the back button): read the plan again
   useEffect(() => {

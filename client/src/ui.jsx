@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
 import { api, logout, stopImpersonating, fmtDate } from './api';
@@ -268,7 +269,7 @@ function Bell({ me }) {
   const all = () => { setItems((l) => l?.map((x) => ({ ...x, read: true }))); read({ all: true }); };
   return (
     <div className="bell-wrap" ref={ref}>
-      <button type="button" className="icon-btn bell" onClick={() => setOpen(!open)} aria-haspopup="dialog" aria-expanded={open} title={unread ? `${unread} new notification${unread > 1 ? 's' : ''}` : 'Notifications'}>
+      <button type="button" className="icon-btn bell" onClick={() => setOpen(!open)} aria-haspopup="dialog" aria-expanded={open} title={unread ? `${unread} new notification${unread > 1 ? 's' : ''}` : 'Notifications'} aria-label={unread ? `${unread} new notification${unread > 1 ? 's' : ''}` : 'Notifications'}>
         <Icon name="bell" />{unread > 0 && <span className="bell-n">{unread > 99 ? '99+' : unread}</span>}
       </button>
       {open && (
@@ -310,7 +311,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
       <main className="main">
         <header className="topbar">
-          <button className="icon-btn burger" onClick={() => setOpen(true)}><Icon name="menu" /></button>
+          <button className="icon-btn burger" aria-label="Open menu" onClick={() => setOpen(true)}><Icon name="menu" /></button>
           <div className="tb-title">{title && <h1>{title}</h1>}{subtitle && <p>{subtitle}</p>}</div>
           <div className="tb-actions">{actions}</div>
           {me && <Bell me={me} />}
@@ -359,21 +360,100 @@ export const Empty = ({ icon = 'sparkles', title, text, children }) => (
   <div className="empty"><span className="empty-ic"><Icon name={icon} size={26} /></span><h3>{title}</h3>{text && <p>{text}</p>}{children}</div>
 );
 
-export function Modal({ title, onClose, children, width = 640 }) {
+// Open dialogs, topmost last — only the top one answers Esc and keeps Tab inside it
+const layers = [];
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+function useDialogFocus(ref, onClose) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  const [opener] = useState(() => (typeof document !== 'undefined' ? document.activeElement : null)); // read before autoFocus moves it
   useEffect(() => {
-    const k = (e) => e.key === 'Escape' && onClose();
+    const me = {}, box = ref.current;
+    layers.push(me);
+    if (!box.contains(document.activeElement)) box.focus(); // children with autoFocus keep it
+    const k = (e) => {
+      if (layers[layers.length - 1] !== me) return;
+      if (e.key === 'Escape') { e.preventDefault(); close.current(); return; }
+      if (e.key !== 'Tab') return;
+      const f = [...box.querySelectorAll(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement);
+      if (!f.length) { e.preventDefault(); return; }
+      const first = f[0], last = f[f.length - 1], at = document.activeElement;
+      if (!box.contains(at)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && (at === first || at === box)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener('keydown', k);
+      layers.splice(layers.indexOf(me), 1);
+      if (opener?.isConnected && opener.focus) opener.focus(); // back to the button that opened it
+    };
+  }, []);
+}
+
+export function Modal({ title, onClose, children, width = 640 }) {
+  const ref = useRef(null), id = useId();
+  useDialogFocus(ref, onClose);
   return (
     <div className="m-scrim" onMouseDown={onClose}>
-      <div className="m-box" style={{ maxWidth: width }} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="m-head"><h3>{title}</h3><button className="icon-btn" onClick={onClose}><Icon name="x" /></button></div>
+      <div className="m-box" ref={ref} role="dialog" aria-modal="true" aria-labelledby={`${id}-t`} tabIndex={-1} style={{ maxWidth: width }} onMouseDown={(e) => e.stopPropagation()}>
+        <div className="m-head"><h3 id={`${id}-t`}>{title}</h3><button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="x" /></button></div>
         {children}
       </div>
     </div>
   );
 }
+
+// ---------- confirm / prompt / alert (in place of the browser's own boxes) ----------
+// Each call mounts its own small React root, so it works on buyer pages without the app layout too.
+// buyer: true styles it like the buyer pages (library, bookings, quotes) and takes their accent colour.
+function Dialog({ kind, title, text, label, placeholder, type = 'text', value = '', confirm, cancel = 'Cancel', danger, confirmWord, readOnly, buyer, done }) {
+  const [v, setV] = useState(value ?? '');
+  const ref = useRef(null), id = useId();
+  const ok = kind !== 'prompt' || !confirmWord || v.trim() === confirmWord;
+  const no = () => done(kind === 'prompt' ? null : kind === 'confirm' ? false : undefined);
+  const yes = () => ok && done(kind === 'prompt' ? (confirmWord ? v.trim() : v) : kind === 'confirm' ? true : undefined);
+  useDialogFocus(ref, no);
+  const acc = buyer ? getComputedStyle(document.querySelector('.lib') || document.body).getPropertyValue('--acc').trim() : '';
+  const b = (cls) => (buyer ? `lib-btn ${cls === 'ghost' ? 'ghost' : ''}` : `btn ${cls}`);
+  return (
+    <div className={`dlg-scrim${buyer ? ' buyer' : ''}`} style={acc ? { '--acc': acc } : undefined} onMouseDown={no}>
+      <div className="dlg" ref={ref} role={kind === 'alert' ? 'alertdialog' : 'dialog'} aria-modal="true" aria-labelledby={`${id}-${title ? 't' : 'd'}`} aria-describedby={title && text ? `${id}-d` : undefined} tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
+        {title && <h3 id={`${id}-t`}>{title}</h3>}
+        {text && <p id={`${id}-d`} className="dlg-text">{text}</p>}
+        {kind === 'prompt' && (
+          <label className="dlg-field">
+            {(label || confirmWord) && <span>{label || <>Type <b>{confirmWord}</b> to confirm</>}</span>}
+            <input autoFocus type={type} value={v} placeholder={placeholder} readOnly={readOnly} onFocus={readOnly ? (e) => e.target.select() : undefined} autoComplete={type === 'password' ? 'current-password' : 'off'} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); yes(); } }} />
+          </label>
+        )}
+        <div className="dlg-foot">
+          {kind !== 'alert' && cancel && <button type="button" className={b('ghost')} onClick={no}>{cancel}</button>}
+          <button type="button" autoFocus={kind !== 'prompt'} className={`${b('primary')}${danger ? ' dlg-danger' : ''}`} disabled={!ok} onClick={yes}>{confirm || (kind === 'alert' ? 'OK' : kind === 'prompt' ? 'Continue' : 'Confirm')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function openDialog(kind, opts) {
+  const o = typeof opts === 'string' ? { text: opts } : opts || {};
+  return new Promise((resolve) => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    let settled = false;
+    // Unmount first (focus goes back to the opener), then answer — so a follow-up dialog opens from the right place
+    const done = (v) => { if (settled) return; settled = true; setTimeout(() => { root.unmount(); el.remove(); resolve(v); }); };
+    root.render(<Dialog kind={kind} {...o} done={done} />);
+  });
+}
+// confirmDialog({ title, text, confirm: 'Delete', danger: true }) → true / false
+export const confirmDialog = (o) => openDialog('confirm', o);
+// promptDialog({ title, text, label, placeholder, value, type: 'text' | 'password', confirmWord, readOnly }) → the text, or null if cancelled
+// (confirmWord keeps the button off until it's typed; readOnly shows a value to copy; cancel: null hides Cancel)
+export const promptDialog = (o) => openDialog('prompt', o);
+// alertDialog({ title, text }) → resolves when closed
+export const alertDialog = (o) => openDialog('alert', o);
 
 let toastSet;
 export function Toaster() {

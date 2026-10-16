@@ -9,6 +9,8 @@
 // Or enter the same details in Admin → File storage (kept encrypted); server env vars win.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 // the admin panel's storage account (set by platform.js); used when the server env doesn't name one
 let fromSettings = () => null;
@@ -66,6 +68,11 @@ export const deleteObject = (key) => request('DELETE', key);
 export const copyObject = (from, to) => request('PUT', to, { headers: { 'x-amz-copy-source': pathOf(env(), from) } });
 export const headObject = async (key) => { try { await request('HEAD', key); return true; } catch { return false; } };
 export async function getObject(key) { return Buffer.from(await (await request('GET', key)).arrayBuffer()); }
+// straight to a file on disk (a backup can be bigger than the memory we'd like to hold it in)
+export async function getFile(key, file) {
+  const r = await request('GET', key);
+  await pipeline(Readable.fromWeb(r.body), fs.createWriteStream(file));
+}
 
 // a link anyone can use for a few minutes (private product files)
 export function presign(key, { expires = 300, filename } = {}) {

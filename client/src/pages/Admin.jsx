@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, fmtDate, impersonate } from '../api';
-import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV } from '../ui';
+import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV, confirmDialog, promptDialog } from '../ui';
 import { AreaChart } from '../charts';
 
 const TABS = [['overview', 'Overview'], ['sellers', 'Sellers'], ['invoices', 'Invoices'], ['settings', 'Plan & settings'], ['audit', 'Audit log']];
@@ -189,7 +189,7 @@ function SellerModal({ id, onClose, onChange }) {
   };
   // a one-time link (valid 1 hour) to send the seller yourself — how to help while email isn't set up
   const resetLink = async () => {
-    try { const r = await api(`/admin/users/${id}/reset-link`, 'POST'); await navigator.clipboard?.writeText(r.link).catch(() => {}); prompt('Password-reset link (copied; valid for 1 hour, works once). Send it to the seller yourself:', r.link); load(); } catch (e) { toast(e.message); }
+    try { const r = await api(`/admin/users/${id}/reset-link`, 'POST'); await navigator.clipboard?.writeText(r.link).catch(() => {}); load(); await promptDialog({ title: 'Password-reset link', text: 'Copied; valid for 1 hour, works once. Send it to the seller yourself:', value: r.link, readOnly: true, confirm: 'Done', cancel: null }); } catch (e) { toast(e.message); }
   };
   if (!u) return <Modal title="Seller" onClose={onClose}><div className="skeleton" /></Modal>;
   const c = u.counts;
@@ -200,7 +200,7 @@ function SellerModal({ id, onClose, onChange }) {
           <div><div className="row"><Pill s={u.access.status} />{u.admin && <span className="pill">admin</span>}{!u.emailVerified && <span className="pill warn">email not verified</span>}{u.twoFactor && <span className="pill ok">2-step on</span>}</div>
             <p className="muted sm">{u.email} · joined {fmtDate(u.createdAt)} · last seen {u.lastSeenAt ? ago(u.lastSeenAt) : 'never'}{u.settings.businessName ? ` · ${u.settings.businessName}` : ''}</p>
             <p className="sm">{u.billing?.status === 'trialing' ? `Trial ends ${fmtDate(u.billing.trialEndsAt)}` : u.billing?.interval ? `${u.billing.interval} plan · period ends ${fmtDate(u.billing.currentPeriodEnd)}${u.billing.cancelAtPeriodEnd ? ' · cancelled' : ''}` : ''}{u.billing?.subscriptionId && <span className="mono"> · {u.billing.subscriptionId}</span>}</p></div>
-          <button className="btn primary sm" onClick={() => { const reason = prompt('Why are you opening this account? (The seller is told, and it’s kept in the audit log.)', ''); if (reason?.trim()) act('impersonate', { reason }); }}><Icon name="eye" size={14} /> Log in as seller</button>
+          <button className="btn primary sm" onClick={async () => { const reason = await promptDialog({ title: 'Log in as seller', text: 'Why are you opening this account? (The seller is told, and it’s kept in the audit log.)', label: 'Reason', confirm: 'Log in' }); if (reason?.trim()) act('impersonate', { reason }); }}><Icon name="eye" size={14} /> Log in as seller</button>
         </div>
         <div className="mini-stats">
           {[['Funnels', `${c.funnels} (${c.published} live)`], ['Contacts', num(c.contacts)], ['Leads', num(c.leads)], ['Automations', c.automations], ['Domains', c.domains], ['Views 30d', num(c.views30)], ['Orders 30d', `${c.orders30.n} · ${inr(c.orders30.gmv)}`], ['AI credits', `${num(u.credits.used)} / ${u.credits.limit == null ? '∞' : num(u.credits.limit)}`], ['Funnel limit', `${u.usage.funnels} / ${num(u.limits.funnels)}`], ['Images', `${u.usage.storageMB} / ${num(u.limits.storageMB)} MB`]].map(([l, v]) => <div key={l}><small>{l}</small><b>{v}</b></div>)}
@@ -210,14 +210,14 @@ function SellerModal({ id, onClose, onChange }) {
           <div className="row"><input type="number" min="0" placeholder="Plan default" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 120 }} /><button className="btn ghost sm" onClick={() => act('set_credits', { limit }, 'AI credit limit saved')}>Set AI credits</button></div>
           <div className="row"><input type="number" min="0" placeholder={`Funnels (${u.limits.funnels})`} value={lim.funnels} onChange={(e) => setLim({ ...lim, funnels: e.target.value })} style={{ width: 130 }} /><input type="number" min="0" placeholder={`Images MB (${u.limits.storageMB})`} value={lim.storageMB} onChange={(e) => setLim({ ...lim, storageMB: e.target.value })} style={{ width: 150 }} /><input type="number" min="1" placeholder={`Client accounts (${u.limits.agencyClients})`} value={lim.agencyClients} onChange={(e) => setLim({ ...lim, agencyClients: e.target.value })} style={{ width: 170 }} /><button className="btn ghost sm" onClick={() => act('set_limits', lim, 'Limits saved')}>Set limits</button></div>
           <div className="row">
-            {u.access.status === 'comped' ? <button className="btn ghost sm" onClick={() => act('uncomp')}>End free access</button> : <button className="btn ghost sm" onClick={() => { const note = prompt('Reason for free access (e.g. partner, beta tester)?', ''); if (note !== null) act('comp', { note }, 'Free access granted'); }}>Give free access</button>}
-            {u.access.status === 'suspended' ? <button className="btn ghost sm" onClick={() => act('unsuspend')}>Unsuspend</button> : <button className="btn ghost sm danger" onClick={() => { const note = prompt('Reason for suspending (pages go offline and the seller is signed out)?', ''); if (note !== null) act('suspend', { note }, 'Seller suspended'); }}>Suspend</button>}
+            {u.access.status === 'comped' ? <button className="btn ghost sm" onClick={() => act('uncomp')}>End free access</button> : <button className="btn ghost sm" onClick={async () => { const note = await promptDialog({ title: 'Give free access', text: 'Reason for free access (e.g. partner, beta tester)?', label: 'Reason', confirm: 'Give free access' }); if (note !== null) act('comp', { note }, 'Free access granted'); }}>Give free access</button>}
+            {u.access.status === 'suspended' ? <button className="btn ghost sm" onClick={() => act('unsuspend')}>Unsuspend</button> : <button className="btn ghost sm danger" onClick={async () => { const note = await promptDialog({ title: 'Suspend seller', text: 'Reason for suspending (pages go offline and the seller is signed out)?', label: 'Reason', confirm: 'Suspend', danger: true }); if (note !== null) act('suspend', { note }, 'Seller suspended'); }}>Suspend</button>}
             {!u.emailVerified && <button className="btn ghost sm" onClick={() => act('verify_email')}>Mark email verified</button>}
-            {u.twoFactor && <button className="btn ghost sm" onClick={() => confirm('Turn off 2-step verification for this seller?') && act('reset_2fa')}>Reset 2-step</button>}
+            {u.twoFactor && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Turn off 2-step verification for this seller?', confirm: 'Turn off', danger: true })) && act('reset_2fa')}>Reset 2-step</button>}
             <button className="btn ghost sm" onClick={() => act('sign_out', {}, 'Signed out everywhere')}>Sign out everywhere</button>
             <button className="btn ghost sm" onClick={resetLink}>Create password-reset link</button>
-            {u.admin ? <button className="btn ghost sm" onClick={() => confirm('Remove admin access?') && act('remove_admin')}>Remove admin</button> : <button className="btn ghost sm" onClick={() => confirm(`Make ${u.email} a platform admin? They will see all sellers and revenue.`) && act('make_admin')}>Make admin</button>}
-            <button className="btn ghost sm danger" onClick={() => { const e = prompt(`This permanently deletes the seller and all their data (invoices are kept). Type their email to confirm:`); if (e) act('delete', { confirm: e }); }}><Icon name="trash" size={14} /> Delete</button>
+            {u.admin ? <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Remove admin access?', confirm: 'Remove', danger: true })) && act('remove_admin')}>Remove admin</button> : <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: `Make ${u.email} a platform admin?`, text: 'They will see all sellers and revenue.', confirm: 'Make admin' })) && act('make_admin')}>Make admin</button>}
+            <button className="btn ghost sm danger" onClick={async () => { const e = await promptDialog({ title: 'Delete seller', text: 'This permanently deletes the seller and all their data (invoices are kept). Type their email to confirm:', label: u.email, confirmWord: u.email, confirm: 'Delete', danger: true }); if (e) act('delete', { confirm: e }); }}><Icon name="trash" size={14} /> Delete</button>
           </div>
         </div>
         <div className="grid-1-1">
@@ -266,7 +266,7 @@ function StoragePanel({ s, save }) {
             <label>Public URL <small className="muted">· optional CDN for images</small><input value={v.publicUrl} onChange={(e) => setV({ ...v, publicUrl: e.target.value.trim() })} placeholder="leave empty — images are served through signed links" /></label>
           </div>
           <p className="hint">Saving writes a small test file to the bucket and deletes it, so wrong keys are caught here. The bucket can stay private. Files already on this server stay where they are.</p>
-          <div className="row"><button className="btn primary" disabled={busy || !v.bucket || !v.key} onClick={go}>{busy ? 'Checking the bucket…' : 'Save & test storage'}</button>{s.ready && <button className="btn ghost danger" onClick={() => confirm('Disconnect storage? New backups and uploads stay on this server only.') && save({ storage: { clear: true } })}>Disconnect</button>}</div>
+          <div className="row"><button className="btn primary" disabled={busy || !v.bucket || !v.key} onClick={go}>{busy ? 'Checking the bucket…' : 'Save & test storage'}</button>{s.ready && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Disconnect storage?', text: 'New backups and uploads stay on this server only.', confirm: 'Disconnect', danger: true })) && save({ storage: { clear: true } })}>Disconnect</button>}</div>
         </>
       )}
     </Panel>

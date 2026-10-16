@@ -5,7 +5,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { BLOCK_TYPES, BLOCK_GROUPS, BLOCK_ICONS, STYLES, ELEMENT_TYPES, STYLE_DEFAULTS, FORM_FIELD_TYPES, Page, newElement, freshIds, applyLayout, defaultSection, withCopy } from '../blocks';
 import { BlockIcon, ElementIcon, StepIcon } from '../blockIcons';
-import { Icon, toast, Modal, ago } from '../ui';
+import { Icon, toast, Modal, ago, confirmDialog, promptDialog } from '../ui';
 import { LANGS } from '../i18n';
 import { FONT_CHOICES } from '../fonts';
 
@@ -111,7 +111,7 @@ function ImageField({ label, value, onChange, hint }) {
   };
   return (
     <div className="fld"><label>{label}</label>
-      {value && <div className="img-prev"><img src={value} alt="" /><button className="icon-btn xs danger" title="Remove image" onClick={() => onChange('')}><Icon name="x" size={12} /></button></div>}
+      {value && <div className="img-prev"><img src={value} alt="" /><button className="icon-btn xs danger" title="Remove image" aria-label="Remove image" onClick={() => onChange('')}><Icon name="x" size={12} /></button></div>}
       <div className="upl" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files[0]); }}>
         <button className="btn ghost sm" onClick={() => ref.current.click()} disabled={busy}>{busy ? <span className="spin dark" /> : <Icon name="download" size={14} className="flip" />} {value ? 'Replace' : 'Upload image'}</button>
         <span className="hint">or drop a file · PNG, JPG, WebP · max 5 MB</span>
@@ -142,9 +142,10 @@ function GalleryField({ value, onChange }) {
           <div key={i} className="gal-ed-item">
             <img src={it.src} alt="" />
             <input placeholder="Caption (optional)" value={it.caption || ''} onChange={(e) => set(i, 'caption', e.target.value)} />
+            <input placeholder="Image description (for screen readers and SEO)" aria-label="Image description (for screen readers and SEO)" value={it.alt || ''} onChange={(e) => set(i, 'alt', e.target.value)} />
             <div className="row">
-              {i > 0 && <button className="icon-btn xs" title="Move left" onClick={() => { const a = [...items]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; onChange(a); }}>←</button>}
-              <button className="icon-btn xs danger" title="Remove" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
+              {i > 0 && <button className="icon-btn xs" title="Move left" aria-label="Move left" onClick={() => { const a = [...items]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; onChange(a); }}>←</button>}
+              <button className="icon-btn xs danger" title="Remove" aria-label="Remove" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
             </div>
           </div>
         ))}
@@ -166,8 +167,8 @@ function FormFieldsField({ value, onChange }) {
       {items.map((it, i) => (
         <div className="li" key={i}>
           <div className="li-h"><span>#{i + 1}</span><span className="row">
-            {i > 0 && <button className="icon-btn xs" onClick={() => { const a = [...items]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; onChange(a); }}>↑</button>}
-            <button className="icon-btn xs danger" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
+            {i > 0 && <button className="icon-btn xs" aria-label="Move up" onClick={() => { const a = [...items]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; onChange(a); }}>↑</button>}
+            <button className="icon-btn xs danger" aria-label="Remove" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
           </span></div>
           <input placeholder="Question / label" value={it.label || ''} onChange={(e) => set(i, 'label', e.target.value)} />
           <div className="row nowrap">
@@ -187,6 +188,7 @@ function FormFieldsField({ value, onChange }) {
 
 // Friendlier names where the prop name reads awkwardly
 const FIELD_LABELS = {
+  alt: 'image description',
   ctaText: 'button text', ctaAction: 'button action', ctaUrl: 'button link or section', ctaNewTab: 'open in a new tab',
   buttonAction: 'button action', buttonUrl: 'button link or section', buttonNewTab: 'open in a new tab',
   secondaryText: 'small link text', secondaryUrl: 'small link goes to',
@@ -250,8 +252,8 @@ function Field({ def, value, onChange }) {
         {items.map((it, i) => (
           <div className="li" key={i}>
             <div className="li-h"><span>#{i + 1}</span><span className="row">
-              {i > 0 && <button className="icon-btn xs" onClick={() => { const a = [...items]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; onChange(a); }}>↑</button>}
-              <button className="icon-btn xs danger" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
+              {i > 0 && <button className="icon-btn xs" aria-label="Move up" onClick={() => { const a = [...items]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; onChange(a); }}>↑</button>}
+              <button className="icon-btn xs danger" aria-label="Remove" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
             </span></div>
             {sub.map((k) => (k === 'productId' ? <ProductSelect key={k} compact value={it[k]} onChange={(v) => set(i, k, v)} /> : k === 'quote' || k === 'a' || k === 'text' && sub.length === 1
               ? <textarea key={k} rows={2} placeholder={k} value={it[k] || ''} onChange={(e) => set(i, k, e.target.value)} />
@@ -283,7 +285,7 @@ function StylePanel({ value, onChange }) {
     <details className="stylep" open={custom}>
       <summary><Icon name="palette" size={14} /> Section style {custom && <span className="pill ok">customised</span>}</summary>
       <div className="fld"><label>Background colour</label>
-        <div className="row"><input type="color" className="sw-in" value={st.bg || '#ffffff'} onChange={(e) => set('bg', e.target.value)} /><input value={st.bg} placeholder="Theme default" onChange={(e) => set('bg', e.target.value)} />{st.bg && <button className="icon-btn xs" title="Reset" onClick={() => set('bg', '')}><Icon name="x" size={12} /></button>}</div>
+        <div className="row"><input type="color" className="sw-in" value={st.bg || '#ffffff'} onChange={(e) => set('bg', e.target.value)} /><input value={st.bg} placeholder="Theme default" onChange={(e) => set('bg', e.target.value)} />{st.bg && <button className="icon-btn xs" title="Reset" aria-label="Reset" onClick={() => set('bg', '')}><Icon name="x" size={12} /></button>}</div>
       </div>
       <ImageField label="Background image" value={st.bgImage} onChange={(v) => set('bgImage', v)} />
       {st.bgImage && <div className="fld"><label>Darken image: {st.overlay}%</label><input type="range" min="0" max="80" step="5" value={st.overlay} onChange={(e) => set('overlay', Number(e.target.value))} /></div>}
@@ -371,7 +373,7 @@ function TrackingPanel({ f }) {
       ))}
       <div className="row">
         <button className="btn sm" disabled={busy || !info} onClick={save}>Save tracking</button>
-        {own && <button className="btn ghost sm" disabled={busy} onClick={() => confirm('Clear this funnel’s tracking and use your account settings?') && send({ fbPixel: '', ga4: '', googleAds: {}, metaToken: '' })}>Clear (use account settings)</button>}
+        {own && <button className="btn ghost sm" disabled={busy} onClick={async () => (await confirmDialog({ title: 'Clear this funnel’s tracking and use your account settings?', confirm: 'Clear' })) && send({ fbPixel: '', ga4: '', googleAds: {}, metaToken: '' })}>Clear (use account settings)</button>}
       </div>
     </details>
   );
@@ -700,11 +702,11 @@ export default function Editor() {
   const saveToLibrary = async (bid) => {
     const b = latestBlocks().find((x) => x.id === bid);
     if (!b) return;
-    const name = prompt('Name this section so you can find it later', `${BLOCK_TYPES[b.type]?.label || b.type} — ${f.name}`.slice(0, 80));
+    const name = await promptDialog({ title: 'Save to your library', text: 'Name this section so you can find it later', label: 'Name', value: `${BLOCK_TYPES[b.type]?.label || b.type} — ${f.name}`.slice(0, 80), confirm: 'Save' });
     if (name === null) return;
     try { const item = await api('/saved', 'POST', { name, block: { type: b.type, props: b.props } }); setSaved((x) => [item, ...x]); toast('Saved to your library'); } catch (e) { toast(e.message); }
   };
-  const deleteSaved = async (sid) => { if (!confirm('Remove this saved section from your library?')) return; await api(`/saved/${sid}`, 'DELETE'); setSaved((x) => x.filter((i) => i.id !== sid)); };
+  const deleteSaved = async (sid) => { if (!await confirmDialog({ title: 'Remove this saved section from your library?', confirm: 'Remove', danger: true })) return; await api(`/saved/${sid}`, 'DELETE'); setSaved((x) => x.filter((i) => i.id !== sid)); };
   const removeBlock = (bid) => { setBlocks(blocks.filter((b) => b.id !== bid)); if (sel === bid) { setSel(null); setSelEl(null); } };
   const dupBlock = (bid) => { const i = blocks.findIndex((b) => b.id === bid); const c = freshIds(blocks[i]); const nb = [...blocks]; nb.splice(i + 1, 0, c); setBlocks(nb); setSel(c.id); setSelEl(null); };
   const moveBlock = (from, to) => { const nb = [...blocks]; const [b] = nb.splice(from, 1); nb.splice(to > from ? to - 1 : to, 0, b); setBlocks(nb); };
@@ -721,7 +723,7 @@ export default function Editor() {
     selectStep(s.id); setStepMenu(false);
   };
   const dupStep = () => { const s = { ...clone(step), id: uid(), name: `${step.name} copy`, slug: `${step.slug}-copy` }; s.blocks = s.blocks.map(freshIds); const steps = [...f.steps]; steps.splice(f.steps.indexOf(step) + 1, 0, s); patch({ steps }); selectStep(s.id); };
-  const delStep = () => { if (f.steps.length < 2 || !confirm(`Delete the “${step.name}” step?`)) return; const steps = f.steps.filter((s) => s.id !== step.id); patch({ steps }); selectStep(steps[0].id); };
+  const delStep = async () => { if (f.steps.length < 2 || !await confirmDialog({ title: `Delete the “${step.name}” step?`, confirm: 'Delete', danger: true })) return; const steps = f.steps.filter((s) => s.id !== step.id); patch({ steps }); selectStep(steps[0].id); };
 
   // ---------- drop handling ----------
   dropHandler.current = (payload, d) => {
@@ -776,7 +778,7 @@ export default function Editor() {
 
   const openHistory = async () => { setHistory('loading'); setHistory(await api(`/funnels/${f.id}/revisions`)); };
   const restore = async (r) => {
-    if (!confirm(`Restore the version from ${new Date(r.at).toLocaleString('en-IN')}? Your current version is kept in history.`)) return;
+    if (!await confirmDialog({ title: `Restore the version from ${new Date(r.at).toLocaleString('en-IN')}?`, text: 'Your current version is kept in history.', confirm: 'Restore' })) return;
     if (status !== 'Saved' && !(await save(f))) return;
     const nf = await api(`/funnels/${f.id}/revisions/${r.id}/restore`, 'POST');
     hist.current.past.push(f); hist.current.future = [];
@@ -816,9 +818,9 @@ export default function Editor() {
       <div className="piece-bar" style={{ top, left: Math.max(8, Math.min(r.left, window.innerWidth - 330)) }} onMouseDown={(e) => e.preventDefault()} onClick={(e) => e.stopPropagation()}>
         {im && <>
           <span className="pb-l">Item {Number(im[2]) + 1}</span>
-          <button title="Move up" disabled={Number(im[2]) === 0} onClick={() => pieceOp('up')}><ChevronUp size={15} /></button>
-          <button title="Move down" disabled={Number(im[2]) >= listLen - 1} onClick={() => pieceOp('down')}><ChevronDown size={15} /></button>
-          <button title="Duplicate item" onClick={() => pieceOp('dup')}><CopyIcon size={14} /></button>
+          <button title="Move up" aria-label="Move up" disabled={Number(im[2]) === 0} onClick={() => pieceOp('up')}><ChevronUp size={15} /></button>
+          <button title="Move down" aria-label="Move down" disabled={Number(im[2]) >= listLen - 1} onClick={() => pieceOp('down')}><ChevronDown size={15} /></button>
+          <button title="Duplicate item" aria-label="Duplicate item" onClick={() => pieceOp('dup')}><CopyIcon size={14} /></button>
           <button className="danger" title="Remove item" onClick={() => pieceOp('del')}><Trash2 size={14} /> Remove item</button>
         </>}
         {piece.k && !(im && listLen <= 0) && <button className="danger" title="Remove this text" onClick={() => pieceOp('text')}><Trash2 size={14} /> {im ? 'Text' : 'Remove'}</button>}
@@ -852,23 +854,23 @@ export default function Editor() {
         </Modal>
       )}
       <header className="ed-top">
-        <Link to="/funnels" className="icon-btn" title="All funnels"><Icon name="chevron" className="flip" /></Link>
+        <Link to="/funnels" className="icon-btn" title="All funnels" aria-label="All funnels"><Icon name="chevron" className="flip" /></Link>
         <input className="ed-name" value={f.name} onChange={(e) => patch({ name: e.target.value }, true)} />
         <span className={`ed-status ${status === 'Saved' ? 'ok' : ''}`}>{status === 'Saved' ? <><Icon name="check" size={13} /> Saved</> : status}</span>
         <div className="ed-mid">
-          <button className="icon-btn" title="Undo (Ctrl+Z)" onClick={undo} disabled={!hist.current.past.length}><Icon name="undo" size={17} /></button>
-          <button className="icon-btn" title="Redo (Ctrl+Y)" onClick={redo} disabled={!hist.current.future.length}><Icon name="redo" size={17} /></button>
+          <button className="icon-btn" title="Undo (Ctrl+Z)" aria-label="Undo (Ctrl+Z)" onClick={undo} disabled={!hist.current.past.length}><Icon name="undo" size={17} /></button>
+          <button className="icon-btn" title="Redo (Ctrl+Y)" aria-label="Redo (Ctrl+Y)" onClick={redo} disabled={!hist.current.future.length}><Icon name="redo" size={17} /></button>
           <span className="sep" />
-          <div className="seg hide-m">{DEVICES.map(([k, ic]) => <button key={k} title={k} className={device === k ? 'on' : ''} onClick={() => setDevice(k)}><Icon name={ic} size={16} /></button>)}</div>
+          <div className="seg hide-m">{DEVICES.map(([k, ic]) => <button key={k} title={k} aria-label={k} className={device === k ? 'on' : ''} onClick={() => setDevice(k)}><Icon name={ic} size={16} /></button>)}</div>
           <div className="seg">
             <button className={view === 'canvas' ? 'on' : ''} onClick={() => setView('canvas')}><Icon name="layers" size={15} /> Page</button>
             <button className={view === 'flow' ? 'on' : ''} onClick={() => setView('flow')}><Icon name="flow" size={15} /> Flow</button>
           </div>
         </div>
-        <button className="btn ghost hide-m" title="Version history" onClick={openHistory}><Icon name="clock" size={16} /></button>
+        <button className="btn ghost hide-m" title="Version history" aria-label="Version history" onClick={openHistory}><Icon name="clock" size={16} /></button>
         <Link className="btn ghost hide-m" to={`/funnels/${f.id}/analytics`}><Icon name="chart" size={16} /></Link>
         <Link className="btn ghost" to={`/f/${f.slug}/${step.slug}?preview=1&pv=${f.previewKey || ''}`}><Icon name="eye" size={16} /> Preview</Link>
-        {f.published && <button className="btn ghost" title={liveUrl} onClick={() => { navigator.clipboard?.writeText(liveUrl); toast('Live link copied'); }}><Icon name="link" size={16} /></button>}
+        {f.published && <button className="btn ghost" title={liveUrl} aria-label={liveUrl} onClick={() => { navigator.clipboard?.writeText(liveUrl); toast('Live link copied'); }}><Icon name="link" size={16} /></button>}
         <button className={`btn ${f.published ? 'live' : 'primary'}`} onClick={publish}>{f.published ? <><span className="live-dot" /> Live</> : <><Icon name="send" size={15} /> Publish</>}</button>
       </header>
 
@@ -913,7 +915,7 @@ export default function Editor() {
                       {saved.map((it) => (
                         <div key={it.id} className="saved-item" onClick={() => { if (!dnd.suppressClick.current) { insertAt(it.block, insertIndex()); setMob('canvas'); } }} onPointerDown={(e) => { if (!e.target.closest('.saved-x')) dnd.start(e, { kind: 'new-block', block: it.block }, it.name); }}>
                           <span className="ti-box sm"><BlockIcon type={it.block.type} size={14} /></span><b title={it.name}>{it.name}</b>
-                          <button className="saved-x" title="Remove from library" onClick={(e) => { e.stopPropagation(); deleteSaved(it.id); }}><Icon name="x" size={12} /></button>
+                          <button className="saved-x" title="Remove from library" aria-label="Remove from library" onClick={(e) => { e.stopPropagation(); deleteSaved(it.id); }}><Icon name="x" size={12} /></button>
                         </div>
                       ))}
                     </div>
@@ -969,7 +971,7 @@ export default function Editor() {
                 </div>
                 <p className="hint">Fonts marked हिन्दी ✓ also display Hindi and Marathi text beautifully.</p>
                 <h5>Quick palettes</h5>
-                <div className="palettes">{PALETTES.map(([a, b]) => <button key={a + b} title={`${a} / ${b}`} style={{ background: `linear-gradient(135deg, ${a} 50%, ${b} 50%)` }} onClick={() => patch({ theme: { ...f.theme, primary: a, secondary: b } })} />)}</div>
+                <div className="palettes">{PALETTES.map(([a, b]) => <button key={a + b} title={`${a} / ${b}`} aria-label={`${a} / ${b}`} style={{ background: `linear-gradient(135deg, ${a} 50%, ${b} 50%)` }} onClick={() => patch({ theme: { ...f.theme, primary: a, secondary: b } })} />)}</div>
               </>
             )}
           </div>
@@ -1020,13 +1022,13 @@ export default function Editor() {
                       <div className="tools" onClick={(e) => e.stopPropagation()}>
                         <span className="handle" onPointerDown={(e) => dnd.start(e, { kind: 'move-block', id: b.id }, BLOCK_TYPES[b.type]?.label)} title="Drag to move"><Icon name="grip" size={13} /></span>
                         <span className="tl"><BlockIcon type={b.type} size={12} /> {BLOCK_TYPES[b.type]?.label || b.type}</span>
-                        <button disabled={i === 0} onClick={() => moveBlock(i, i - 1)} title="Move up">↑</button>
-                        <button disabled={i === blocks.length - 1} onClick={() => moveBlock(i, i + 2)} title="Move down">↓</button>
-                        <button onClick={() => { setSel(b.id); setSelEl(null); setRight('edit'); setMob('right'); }} title="Edit all settings"><Icon name="edit" size={13} /></button>
-                        <button onClick={() => dupBlock(b.id)} title="Duplicate"><Icon name="copy" size={13} /></button>
-                        <button onClick={() => copyBlock(b.id)} title="Copy (paste into any funnel)"><Icon name="clip" size={13} /></button>
-                        <button onClick={() => saveToLibrary(b.id)} title="Save to my library"><Icon name="bookmark" size={13} /></button>
-                        <button onClick={() => removeBlock(b.id)} title="Delete"><Icon name="trash" size={13} /></button>
+                        <button disabled={i === 0} onClick={() => moveBlock(i, i - 1)} title="Move up" aria-label="Move up">↑</button>
+                        <button disabled={i === blocks.length - 1} onClick={() => moveBlock(i, i + 2)} title="Move down" aria-label="Move down">↓</button>
+                        <button onClick={() => { setSel(b.id); setSelEl(null); setRight('edit'); setMob('right'); }} title="Edit all settings" aria-label="Edit all settings"><Icon name="edit" size={13} /></button>
+                        <button onClick={() => dupBlock(b.id)} title="Duplicate" aria-label="Duplicate"><Icon name="copy" size={13} /></button>
+                        <button onClick={() => copyBlock(b.id)} title="Copy (paste into any funnel)" aria-label="Copy (paste into any funnel)"><Icon name="clip" size={13} /></button>
+                        <button onClick={() => saveToLibrary(b.id)} title="Save to my library" aria-label="Save to my library"><Icon name="bookmark" size={13} /></button>
+                        <button onClick={() => removeBlock(b.id)} title="Delete" aria-label="Delete"><Icon name="trash" size={13} /></button>
                       </div>
                       <Page blocks={[b]} theme={f.theme} ctx={blockCtx(b)} />
                     </div>
@@ -1077,18 +1079,18 @@ export default function Editor() {
                 <>
                   <button className="crumb" onClick={() => setSelEl(null)}><Icon name="chevron" size={13} className="flip" /> {BLOCK_TYPES.section.label}</button>
                   <div className="insp-h"><span className="ti-box lg"><ElementIcon type={selElLoc.el.type} size={19} /></span><div><b>{ELEMENT_TYPES[selElLoc.el.type]?.label}</b><small>Column {selElLoc.c + 1} · changes save automatically</small></div>
-                    <button className="icon-btn" title="Move up" onClick={() => elAction('up', selBlock.id, selEl)}>↑</button>
-                    <button className="icon-btn" title="Move down" onClick={() => elAction('down', selBlock.id, selEl)}>↓</button>
-                    <button className="icon-btn" title="Duplicate" onClick={() => elAction('dup', selBlock.id, selEl)}><Icon name="copy" size={15} /></button>
-                    <button className="icon-btn danger" title="Delete" onClick={() => elAction('del', selBlock.id, selEl)}><Icon name="trash" size={15} /></button>
+                    <button className="icon-btn" title="Move up" aria-label="Move up" onClick={() => elAction('up', selBlock.id, selEl)}>↑</button>
+                    <button className="icon-btn" title="Move down" aria-label="Move down" onClick={() => elAction('down', selBlock.id, selEl)}>↓</button>
+                    <button className="icon-btn" title="Duplicate" aria-label="Duplicate" onClick={() => elAction('dup', selBlock.id, selEl)}><Icon name="copy" size={15} /></button>
+                    <button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => elAction('del', selBlock.id, selEl)}><Icon name="trash" size={15} /></button>
                   </div>
                   {ELEMENT_TYPES[selElLoc.el.type]?.fields.map((d) => <Field key={selEl + d[0]} def={d} value={selElLoc.el.props[d[0]]} onChange={(v) => updateEl(selBlock.id, selEl, (e) => ({ ...e, props: { ...e.props, [d[0]]: v } }), true)} />)}
                 </>
               ) : selBlock ? (
                 <>
                   <div className="insp-h"><span className="ti-box lg"><BlockIcon type={selBlock.type} size={19} /></span><div><b>{BLOCK_TYPES[selBlock.type]?.label}</b><small>Changes save automatically</small></div>
-                    <button className="icon-btn" title="Duplicate" onClick={() => dupBlock(selBlock.id)}><Icon name="copy" size={15} /></button>
-                    <button className="icon-btn danger" title="Delete" onClick={() => removeBlock(selBlock.id)}><Icon name="trash" size={15} /></button>
+                    <button className="icon-btn" title="Duplicate" aria-label="Duplicate" onClick={() => dupBlock(selBlock.id)}><Icon name="copy" size={15} /></button>
+                    <button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => removeBlock(selBlock.id)}><Icon name="trash" size={15} /></button>
                   </div>
                   {REAL_ONLY.includes(selBlock.type) && <p className="hint">Shows only real numbers — fake urgency is not allowed under Indian e-commerce rules.</p>}
                   {BLOCK_TYPES[selBlock.type]?.fields.filter((d) => linkFieldShown(d[0], selBlock.props)).map((d) => <Field key={selBlock.id + d[0]} def={d} value={withCopy(selBlock.type, selBlock.props)[d[0]]} onChange={(v) => setProp(d[0], v)} />)}

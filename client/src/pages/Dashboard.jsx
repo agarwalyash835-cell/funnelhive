@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, DRAFT_EXAMPLES } from '../ui';
+import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, DRAFT_EXAMPLES, confirmDialog } from '../ui';
 import { Page } from '../blocks';
 import { AreaChart, Sparkline, HBars } from '../charts';
 
@@ -202,7 +202,7 @@ export default function Dashboard() {
   const load = () => { api(`/analytics/overview?days=${days}`).then(setData); api('/me').then(setMe); api('/funnels').then(setFunnels).catch(() => setFunnels([])); };
   useEffect(() => { load(); }, [days]);
   const removeDemo = async () => {
-    if (!confirm('Remove all demo visits, leads and orders? Your real data stays untouched.')) return;
+    if (!await confirmDialog({ title: 'Remove all demo visits, leads and orders?', text: 'Your real data stays untouched.', confirm: 'Remove', danger: true })) return;
     await api('/demo', 'DELETE'); toast('Demo data removed'); load();
   };
   const seed = async () => { setSeeding(true); await api('/demo/seed', 'POST'); setSeeding(false); toast('Demo data loaded — explore away!'); load(); };
@@ -262,7 +262,7 @@ export default function Dashboard() {
                   <tr key={f.id}>
                     <td><Link to={`/funnels/${f.id}`} className="strong">{f.name}</Link> <span className={`pill ${f.published ? 'ok' : ''}`}>{f.published ? 'Live' : 'Draft'}</span></td>
                     <td className="r">{num(f.visitors)}</td><td className="r">{num(f.orders)}</td><td className="r">{f.conversion}%</td><td className="r strong">{inr(f.revenue)}</td>
-                    <td className="r"><Link className="icon-btn" to={`/funnels/${f.id}/analytics`} title="Analytics"><Icon name="chart" size={16} /></Link></td>
+                    <td className="r"><Link className="icon-btn" to={`/funnels/${f.id}/analytics`} title="Analytics" aria-label="Analytics"><Icon name="chart" size={16} /></Link></td>
                   </tr>
                 ))}</tbody>
               </table>

@@ -2,13 +2,13 @@ import { Fragment, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { fmtWhenShort, zoneCity, allZones, zoneOption, viewerTz, dayKey, fmtTime, zoneLabel } from '../tzfmt';
-import { Layout, Panel, Icon, Empty, Modal, toast, num } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, toast, num, confirmDialog, promptDialog } from '../ui';
 
 const DAYS = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']];
 export const fmtWhen = (t, zone) => fmtWhenShort(t, zone ?? 330);
 const money = (iso, v) => { try { return new Intl.NumberFormat(iso === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency: iso || 'INR', minimumFractionDigits: 0 }).format(Number(v || 0)); } catch { return `${iso} ${v}`; } };
 const lengthLabel = (m) => (m % 60 === 0 ? `${m / 60} hr` : m > 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : `${m} min`);
-const copy = (text, what = 'Link') => navigator.clipboard?.writeText(text).then(() => toast(`${what} copied`), () => prompt('Copy this:', text));
+const copy = (text, what = 'Link') => navigator.clipboard?.writeText(text).then(() => toast(`${what} copied`), () => promptDialog({ title: 'Copy this', value: text, readOnly: true, confirm: 'Done', cancel: null }));
 const meetUrl = (handle, slug) => `${location.origin}/meet/${handle}${slug ? `/${slug}` : ''}`;
 
 export default function Bookings() {
@@ -118,7 +118,7 @@ function BookingList({ past, handle }) {
   const shown = (rows || []).filter((b) => (past ? b.status !== 'confirmed' || b.end < now : b.status === 'confirmed' && b.end >= now));
   if (past) shown.reverse();
   const cancel = async (b) => {
-    const reason = prompt(`Cancel the call with ${b.name || b.email} on ${fmtWhen(b.start, z)}? They’ll get an email${b.paid && !b.refunded ? ' and a full refund' : ''}. Reason (optional):`);
+    const reason = await promptDialog({ title: `Cancel the call with ${b.name || b.email} on ${fmtWhen(b.start, z)}?`, text: `They’ll get an email${b.paid && !b.refunded ? ' and a full refund' : ''}.`, label: 'Reason (optional)', confirm: 'Cancel the call', cancel: 'Keep it', danger: true });
     if (reason === null) return;
     try { await api(`/bookings/${b.id}/cancel`, 'POST', { reason }); toast('Booking cancelled — they’ve been emailed'); load(); } catch (e) { toast(e.message); }
   };
@@ -185,9 +185,9 @@ function BookingList({ past, handle }) {
                   <button className={b.outcome === 'no_show' ? 'on bad' : ''} onClick={() => outcome(b, 'no_show')}>No-show</button>
                 </div>}
                 {b.status === 'confirmed' && b.end >= now && b.calendar?.meetingLink && <a className="btn soft sm" href={b.calendar.meetingLink} target="_blank" rel="noreferrer">Join</a>}
-                {b.phone && <a className="icon-btn" title="WhatsApp" href={`https://wa.me/${b.phone.replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}`} target="_blank" rel="noreferrer"><Icon name="send" size={15} /></a>}
-                <a className="icon-btn" title="Email" href={`mailto:${b.email}`}><Icon name="mail" size={15} /></a>
-                {b.status === 'confirmed' && b.start > now && <button className="icon-btn danger" title="Cancel" onClick={() => cancel(b)}><Icon name="x" size={15} /></button>}
+                {b.phone && <a className="icon-btn" title="WhatsApp" aria-label="WhatsApp" href={`https://wa.me/${b.phone.replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}`} target="_blank" rel="noreferrer"><Icon name="send" size={15} /></a>}
+                <a className="icon-btn" title="Email" aria-label="Email" href={`mailto:${b.email}`}><Icon name="mail" size={15} /></a>
+                {b.status === 'confirmed' && b.start > now && <button className="icon-btn danger" title="Cancel" aria-label="Cancel" onClick={() => cancel(b)}><Icon name="x" size={15} /></button>}
               </div>
             </div>
           ))}</div>
@@ -232,7 +232,7 @@ function GoogleCalendar() {
         {g.connected ? (
           <>
             <div><b>Connected · {g.email}</b><small className="sub-t">Calls are added to your Google Calendar (with a Google Meet link when a calendar has no video link of its own).</small></div>
-            <button className="btn ghost sm" onClick={async () => { if (confirm('Disconnect Google Calendar?')) setG(await api('/google/calendar', 'DELETE')); }}>Disconnect</button>
+            <button className="btn ghost sm" onClick={async () => { if (await confirmDialog({ title: 'Disconnect Google Calendar?', confirm: 'Disconnect', danger: true })) setG(await api('/google/calendar', 'DELETE')); }}>Disconnect</button>
           </>
         ) : (
           <>
@@ -257,7 +257,7 @@ function CalendarEditor({ c, handle, onSaved, canDelete }) {
   // the main length is always offered; others are extra choices for the person booking
   const toggleLen = (m) => { if (m === v.duration) return; set({ durations: v.durations.includes(m) ? v.durations.filter((x) => x !== m) : [...v.durations, m].sort((a, b) => a - b) }); };
   const save = async () => { setBusy(true); try { const r = await api(`/calendars/${c.id}`, 'PUT', v); setV({ ...v, ...r }); toast('Call type saved'); onSaved(); } catch (e) { toast(e.message); } setBusy(false); };
-  const del = async () => { if (!confirm(`Delete “${c.name}”?`)) return; try { await api(`/calendars/${c.id}`, 'DELETE'); onSaved(); } catch (e) { toast(e.message); } };
+  const del = async () => { if (!await confirmDialog({ title: `Delete “${c.name}”?`, confirm: 'Delete', danger: true })) return; try { await api(`/calendars/${c.id}`, 'DELETE'); onSaved(); } catch (e) { toast(e.message); } };
   const link = handle && meetUrl(handle, c.slug);
   return (
     <>
@@ -296,7 +296,7 @@ function CalendarEditor({ c, handle, onSaved, canDelete }) {
             <input value={q.label} maxLength={200} placeholder="e.g. What’s your monthly revenue?" onChange={(e) => setQ(i, { label: e.target.value })} />
             <select value={q.type} onChange={(e) => setQ(i, { type: e.target.value })}><option value="text">Short answer</option><option value="long">Paragraph</option><option value="phone">Phone</option><option value="select">Dropdown</option></select>
             <label className="tog sm"><input type="checkbox" checked={!!q.required} onChange={(e) => setQ(i, { required: e.target.checked })} /><span />Required</label>
-            <button className="icon-btn xs" title="Remove" onClick={() => set({ questions: v.questions.filter((_, k) => k !== i) })}><Icon name="x" size={12} /></button>
+            <button className="icon-btn xs" title="Remove" aria-label="Remove" onClick={() => set({ questions: v.questions.filter((_, k) => k !== i) })}><Icon name="x" size={12} /></button>
             {q.type === 'select' && <input className="bq-opts" value={Array.isArray(q.options) ? q.options.join(', ') : q.options || ''} placeholder="Options, separated by commas" onChange={(e) => setQ(i, { options: e.target.value })} />}
           </div>
         ))}</div>
@@ -311,7 +311,7 @@ function CalendarEditor({ c, handle, onSaved, canDelete }) {
                 <div key={i} className="cal-win">
                   <input type="time" value={win[0]} onChange={(e) => setDay(d, w.map((x, k) => (k === i ? [e.target.value, x[1]] : x)))} /><span>–</span>
                   <input type="time" value={win[1]} onChange={(e) => setDay(d, w.map((x, k) => (k === i ? [x[0], e.target.value] : x)))} />
-                  <button className="icon-btn xs" title="Remove" onClick={() => setDay(d, w.filter((_, k) => k !== i))}><Icon name="x" size={12} /></button>
+                  <button className="icon-btn xs" title="Remove" aria-label="Remove" onClick={() => setDay(d, w.filter((_, k) => k !== i))}><Icon name="x" size={12} /></button>
                 </div>
               )) : <span className="muted sm">Unavailable</span>}
               {w.length > 0 && w.length < 4 && <button className="link-btn" onClick={() => setDay(d, [...w, ['16:00', '19:00']])}>+ add hours</button>}</div>

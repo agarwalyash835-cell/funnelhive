@@ -1,13 +1,13 @@
 // Quotes / proposals: write one, send the private link, the client pays (deposit and balance) — each payment is an order.
 import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
-import { Layout, Panel, Icon, Empty, Modal, toast } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, toast, confirmDialog, promptDialog } from '../ui';
 import { fmtMoney } from '../stripePay';
 
 const STATUS = { draft: ['Draft', ''], sent: ['Sent', 'info'], viewed: ['Viewed', 'info'], deposit_paid: ['Deposit paid', 'warn'], paid: ['Paid', 'ok'], declined: ['Declined', 'bad'], expired: ['Expired', 'bad'] };
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AUD', 'CAD', 'SGD', 'AED'];
 const blank = () => ({ client: { name: '', email: '', phone: '', company: '', gstin: '', state: '' }, title: '', intro: '', items: [{ name: '', detail: '', qty: 1, price: 0 }], currency: 'INR', deposit: 0, validDays: 14, terms: '' });
-const copy = (t) => navigator.clipboard?.writeText(t).then(() => toast('Link copied'), () => prompt('Copy the link:', t));
+const copy = (t) => navigator.clipboard?.writeText(t).then(() => toast('Link copied'), () => promptDialog({ title: 'Copy the link', value: t, readOnly: true, confirm: 'Done', cancel: null }));
 
 export default function Quotes() {
   const [list, setList] = useState(null);
@@ -35,12 +35,12 @@ export default function Quotes() {
                 <td><span className={`pill ${STATUS[q.status]?.[1] || ''}`}>{STATUS[q.status]?.[0] || q.status}</span></td>
                 <td>{fmtDate(q.at)}</td>
                 <td className="r nowrap">
-                  <button className="btn ghost sm" title="Copy the client’s link" onClick={() => copy(q.link)}><Icon name="link" size={14} /></button>
-                  <a className="btn ghost sm" title="See what your client sees" href={`${q.link}&preview=1`} target="_blank" rel="noreferrer"><Icon name="eye" size={14} /></a>
-                  {!q.paid && <button className="btn ghost sm" title="Edit" onClick={() => setEdit({ ...q, validDays: '' })}><Icon name="edit" size={14} /></button>}
-                  {!q.paid && q.client.email && <button className="btn ghost sm" title="Email the link to the client" onClick={() => act(`/quotes/${q.id}/send`, 'POST', {}, `Sent to ${q.client.email}`)}><Icon name="send" size={14} /></button>}
-                  <button className="btn ghost sm" title="Duplicate" onClick={() => act(`/quotes/${q.id}/duplicate`, 'POST', {}, 'Duplicated')}><Icon name="copy" size={14} /></button>
-                  {!q.paid && <button className="btn ghost sm danger" title="Delete" onClick={() => confirm(`Delete ${q.number}?`) && act(`/quotes/${q.id}`, 'DELETE', null, 'Deleted')}><Icon name="trash" size={14} /></button>}
+                  <button className="btn ghost sm" title="Copy the client’s link" aria-label="Copy the client’s link" onClick={() => copy(q.link)}><Icon name="link" size={14} /></button>
+                  <a className="btn ghost sm" title="See what your client sees" aria-label="See what your client sees" href={`${q.link}&preview=1`} target="_blank" rel="noreferrer"><Icon name="eye" size={14} /></a>
+                  {!q.paid && <button className="btn ghost sm" title="Edit" aria-label="Edit" onClick={() => setEdit({ ...q, validDays: '' })}><Icon name="edit" size={14} /></button>}
+                  {!q.paid && q.client.email && <button className="btn ghost sm" title="Email the link to the client" aria-label="Email the link to the client" onClick={() => act(`/quotes/${q.id}/send`, 'POST', {}, `Sent to ${q.client.email}`)}><Icon name="send" size={14} /></button>}
+                  <button className="btn ghost sm" title="Duplicate" aria-label="Duplicate" onClick={() => act(`/quotes/${q.id}/duplicate`, 'POST', {}, 'Duplicated')}><Icon name="copy" size={14} /></button>
+                  {!q.paid && <button className="btn ghost sm danger" title="Delete" aria-label="Delete" onClick={async () => (await confirmDialog({ title: `Delete ${q.number}?`, confirm: 'Delete', danger: true })) && act(`/quotes/${q.id}`, 'DELETE', null, 'Deleted')}><Icon name="trash" size={14} /></button>}
                 </td>
               </tr>
             ))}</tbody>

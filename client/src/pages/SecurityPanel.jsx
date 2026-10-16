@@ -37,7 +37,7 @@ export default function SecurityPanel({ me, onChange }) {
           <div className="tfa-setup">
             <ol>
               <li>Open your authenticator app and choose <b>Enter a setup key</b>.</li>
-              <li>Account: <code>{me?.email}</code> · Key: <code className="key">{setup.secret.match(/.{1,4}/g).join(' ')}</code> <button className="icon-btn xs" title="Copy key" onClick={() => { navigator.clipboard?.writeText(setup.secret); toast('Key copied'); }}><Icon name="copy" size={12} /></button></li>
+              <li>Account: <code>{me?.email}</code> · Key: <code className="key">{setup.secret.match(/.{1,4}/g).join(' ')}</code> <button className="icon-btn xs" title="Copy key" aria-label="Copy key" onClick={() => { navigator.clipboard?.writeText(setup.secret); toast('Key copied'); }}><Icon name="copy" size={12} /></button></li>
               <li>Enter the 6-digit code it shows:</li>
             </ol>
             <div className="row"><input className="code-in" inputMode="numeric" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} /><button className="btn primary" onClick={enable} disabled={code.length < 6}>Turn on</button></div>

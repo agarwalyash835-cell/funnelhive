@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, fmtDate } from '../api';
-import { Layout, Panel, Icon, Empty, Modal, toast, num, ago } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, toast, num, ago, confirmDialog } from '../ui';
 
 const KIND = { course: ['Course', 'play'], download: ['Download', 'download'], link: ['Link', 'link'], empty: ['Empty', 'box'] };
 export const bytes = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n || 0} B`);
@@ -36,7 +36,7 @@ function ProductList() {
             <div className="kpi"><span className="kpi-l">Storage used</span><b className="kpi-v">{bytes(d.storage.used)}</b><small>of {bytes(d.storage.max)}</small></div>
             <div className="kpi"><span className="kpi-l">Largest file</span><b className="kpi-v">{bytes(d.storage.fileMax)}</b><small>per upload</small></div>
           </div>
-          {d.products.length > 0 && <p className="hint pr-recover">Buyers who lose their email can get their library link again at <a href={d.recoverUrl} target="_blank" rel="noreferrer">{d.recoverUrl}</a> <button className="icon-btn xs" title="Copy" onClick={() => { navigator.clipboard?.writeText(d.recoverUrl); toast('Link copied'); }}><Icon name="copy" size={12} /></button> — put it on your website or WhatsApp auto-reply.</p>}
+          {d.products.length > 0 && <p className="hint pr-recover">Buyers who lose their email can get their library link again at <a href={d.recoverUrl} target="_blank" rel="noreferrer">{d.recoverUrl}</a> <button className="icon-btn xs" title="Copy" aria-label="Copy" onClick={() => { navigator.clipboard?.writeText(d.recoverUrl); toast('Link copied'); }}><Icon name="copy" size={12} /></button> — put it on your website or WhatsApp auto-reply.</p>}
           {!d.products.length ? (
             <Panel><Empty icon="box" title="No products yet" text="Upload an e-book, templates, a video course or add links — then pick the product on your checkout, order bump, upsell or a free opt-in. Buyers get instant access after paying.">
               <button className="btn primary" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Create your first product</button>
@@ -100,7 +100,7 @@ function ProductEditor({ id }) {
   const onFiles = (product) => { const next = { ...p, files: product.files, lessons: p.lessons.map((l) => ({ ...l, fileIds: l.fileIds.filter((fid) => product.files.some((f) => f.id === fid)), videoFileId: product.files.some((f) => f.id === l.videoFileId) ? l.videoFileId : '' })) }; setP(next); setSaved(JSON.stringify({ ...JSON.parse(saved), files: product.files })); };
   const del = async () => {
     try { await api(`/products/${id}`, 'DELETE'); nav('/products'); toast('Product deleted'); } catch (e) {
-      if (/buyer/.test(e.message) && confirm(`${e.message}\n\nDelete anyway?`)) { await api(`/products/${id}?confirm=1`, 'DELETE'); nav('/products'); toast('Product deleted'); } else if (!/buyer/.test(e.message)) toast(e.message);
+      if (/buyer/.test(e.message) && await confirmDialog({ title: 'Delete anyway?', text: e.message, confirm: 'Delete', danger: true })) { await api(`/products/${id}?confirm=1`, 'DELETE'); nav('/products'); toast('Product deleted'); } else if (!/buyer/.test(e.message)) toast(e.message);
     }
   };
   return (
@@ -206,7 +206,7 @@ function FilesPanel({ p, onFiles }) {
     }
   };
   const remove = async (f) => {
-    if (!confirm(`Delete ${f.name}? Buyers will no longer be able to download it.`)) return;
+    if (!await confirmDialog({ title: `Delete ${f.name}?`, text: 'Buyers will no longer be able to download it.', confirm: 'Delete', danger: true })) return;
     try { onFiles(await api(`/products/${p.id}/files/${f.id}`, 'DELETE')); } catch (e) { toast(e.message); }
   };
   const download = async (f) => {
@@ -224,7 +224,7 @@ function FilesPanel({ p, onFiles }) {
       {p.files.length > 0 && (
         <table className="tbl compact pr-files"><tbody>{p.files.map((f) => (
           <tr key={f.id}><td><Icon name={/^video/.test(f.type) ? 'play' : 'clip'} size={15} /> {f.name}</td><td className="muted sm">{bytes(f.size)}</td>
-            <td className="r"><button className="icon-btn" title="Download" onClick={() => download(f)}><Icon name="download" size={15} /></button><button className="icon-btn danger" title="Delete" onClick={() => remove(f)}><Icon name="trash" size={15} /></button></td></tr>
+            <td className="r"><button className="icon-btn" title="Download" aria-label="Download" onClick={() => download(f)}><Icon name="download" size={15} /></button><button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => remove(f)}><Icon name="trash" size={15} /></button></td></tr>
         ))}</tbody></table>
       )}
       {p.files.length > 0 && p.lessons.length > 0 && <p className="hint">Files used in a lesson appear inside that lesson; the rest are listed as downloads.</p>}
@@ -241,7 +241,7 @@ function LinksPanel({ p, set }) {
         <div key={i} className="pr-link">
           <input placeholder="Label, e.g. Join the private community" value={l.label} onChange={(e) => upd(i, 'label', e.target.value)} />
           <input placeholder="https://…" value={l.url} onChange={(e) => upd(i, 'url', e.target.value)} />
-          <button className="icon-btn danger" onClick={() => set({ links: links.filter((_, n) => n !== i) })}><Icon name="trash" size={15} /></button>
+          <button className="icon-btn danger" aria-label="Remove link" onClick={() => set({ links: links.filter((_, n) => n !== i) })}><Icon name="trash" size={15} /></button>
         </div>
       ))}
     </Panel>
@@ -264,9 +264,9 @@ function LessonsPanel({ p, set }) {
               <span className="num">{i + 1}</span>
               <div><b>{l.title || 'Untitled lesson'}</b><small className="muted">{[l.section, (l.videoUrl || l.videoFileId) && 'video', l.fileIds?.length && `${l.fileIds.length} file${l.fileIds.length > 1 ? 's' : ''}`, l.dripDays && `unlocks day ${l.dripDays}`].filter(Boolean).join(' · ')}</small></div>
               <span className="row" onClick={(e) => e.stopPropagation()}>
-                {i > 0 && <button className="icon-btn xs" onClick={() => move(i, -1)}>↑</button>}
-                {i < lessons.length - 1 && <button className="icon-btn xs" onClick={() => move(i, 1)}>↓</button>}
-                <button className="icon-btn xs danger" onClick={() => set({ lessons: lessons.filter((_, n) => n !== i) })}><Icon name="x" size={12} /></button>
+                {i > 0 && <button className="icon-btn xs" aria-label="Move up" onClick={() => move(i, -1)}>↑</button>}
+                {i < lessons.length - 1 && <button className="icon-btn xs" aria-label="Move down" onClick={() => move(i, 1)}>↓</button>}
+                <button className="icon-btn xs danger" aria-label="Remove lesson" onClick={() => set({ lessons: lessons.filter((_, n) => n !== i) })}><Icon name="x" size={12} /></button>
               </span>
             </div>
             {open === i && (
@@ -301,11 +301,11 @@ function BuyersTab({ p }) {
   };
   const act = async (a, what) => {
     try {
-      if (what === 'revoke') { if (!confirm(`Remove ${a.email}’s access to ${p.name}?`)) return; await api(`/access-admin/${a.id}/revoke`, 'POST'); }
+      if (what === 'revoke') { if (!await confirmDialog({ title: `Remove ${a.email}’s access to ${p.name}?`, confirm: 'Remove access', danger: true })) return; await api(`/access-admin/${a.id}/revoke`, 'POST'); }
       else if (what === 'restore') await api(`/access-admin/${a.id}/restore`, 'POST', {});
       else if (what === 'copy') { const r = await api(`/access-admin/${a.id}/link`, 'POST', {}); navigator.clipboard?.writeText(r.library); toast('Library link copied'); return; }
       else if (what === 'send') { const r = await api(`/access-admin/${a.id}/link`, 'POST', { send: true }); toast(r.emailed === 'sent' ? `Emailed ${a.email}` : 'Email isn’t set up — link copied instead'); if (r.emailed !== 'sent') navigator.clipboard?.writeText(r.library); return; }
-      else if (what === 'reset') { if (!confirm('Give this buyer a new library link? The old link (and any copies they shared) stops working.')) return; const r = await api(`/access-admin/${a.id}/link`, 'POST', { reset: true, send: true }); toast(r.emailed === 'sent' ? 'New link emailed' : 'New link copied'); navigator.clipboard?.writeText(r.library); return; }
+      else if (what === 'reset') { if (!await confirmDialog({ title: 'Give this buyer a new library link?', text: 'The old link (and any copies they shared) stops working.', confirm: 'New link' })) return; const r = await api(`/access-admin/${a.id}/link`, 'POST', { reset: true, send: true }); toast(r.emailed === 'sent' ? 'New link emailed' : 'New link copied'); navigator.clipboard?.writeText(r.library); return; }
       load();
     } catch (e) { toast(e.message); }
   };
@@ -332,10 +332,10 @@ function BuyersTab({ p }) {
                 <td className="r">{num(a.downloads)}</td>{p.lessons?.length > 0 && <td className="r">{a.lessonsDone}/{p.lessons.length}</td>}
                 <td className="muted sm">{a.emailed === 'sent' ? '✓ sent' : a.emailed === 'failed' ? <span className="pill bad">failed</span> : a.emailed === 'not-configured' ? 'email off' : '—'}</td>
                 <td className="r"><div className="row end">
-                  <button className="icon-btn" title="Copy library link" onClick={() => act(a, 'copy')}><Icon name="link" size={15} /></button>
-                  <button className="icon-btn" title="Email the library link again" onClick={() => act(a, 'send')}><Icon name="send" size={15} /></button>
-                  <button className="icon-btn" title="New link (stops a shared link)" onClick={() => act(a, 'reset')}><Icon name="undo" size={15} /></button>
-                  {a.revoked ? <button className="btn ghost sm" onClick={() => act(a, 'restore')}>Restore</button> : <button className="icon-btn danger" title="Remove access" onClick={() => act(a, 'revoke')}><Icon name="x" size={15} /></button>}
+                  <button className="icon-btn" title="Copy library link" aria-label="Copy library link" onClick={() => act(a, 'copy')}><Icon name="link" size={15} /></button>
+                  <button className="icon-btn" title="Email the library link again" aria-label="Email the library link again" onClick={() => act(a, 'send')}><Icon name="send" size={15} /></button>
+                  <button className="icon-btn" title="New link (stops a shared link)" aria-label="New link (stops a shared link)" onClick={() => act(a, 'reset')}><Icon name="undo" size={15} /></button>
+                  {a.revoked ? <button className="btn ghost sm" onClick={() => act(a, 'restore')}>Restore</button> : <button className="icon-btn danger" title="Remove access" aria-label="Remove access" onClick={() => act(a, 'revoke')}><Icon name="x" size={15} /></button>}
                 </div></td></tr>
             ))}</tbody>
           </table></div>
@@ -380,7 +380,7 @@ function SettingsTab({ p, set, onDelete }) {
       <aside className="pr-side">
         <Panel title="Danger zone">
           <p className="muted sm">Deleting this product removes its files and every buyer’s access. Invoices and orders are kept.</p>
-          <button className="btn ghost danger" onClick={() => { if (confirm(`Delete ${p.name}?`)) onDelete(); }}><Icon name="trash" size={15} /> Delete product</button>
+          <button className="btn ghost danger" onClick={async () => { if (await confirmDialog({ title: `Delete ${p.name}?`, confirm: 'Delete', danger: true })) onDelete(); }}><Icon name="trash" size={15} /> Delete product</button>
         </Panel>
       </aside>
     </div>
