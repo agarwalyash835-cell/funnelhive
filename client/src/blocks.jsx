@@ -27,11 +27,13 @@ export const STYLES = {
 
 const T = 'text', LONG = 'long', NUM = 'number', B = 'bool', L = 'list';
 const HL = 'Wrap words in *stars* to highlight them';
+// What a built-in button does; "Open a pop-up" opens one of this step's pop-ups (Step → Pop-ups)
+const BTN_ACTIONS = [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section'], ['popup', 'Open a pop-up']];
 
 // Field schema drives the editor's inspector: [key, kind, listSubKeys, hint]
 export const BLOCK_TYPES = {
   section: { label: 'Custom section', fields: [['layout', 'select', [['1', 'One column'], ['1-1', 'Two equal columns'], ['2-1', 'Wide + narrow'], ['1-2', 'Narrow + wide'], ['1-1-1', 'Three columns'], ['1-1-1-1', 'Four columns']]], ['valign', 'select', [['top', 'Align to top'], ['center', 'Align to middle']]], ['gap', 'select', [['sm', 'Tight spacing'], ['md', 'Normal spacing'], ['lg', 'Roomy spacing']]]], defaults: { layout: '1', valign: 'top', gap: 'md', columns: [{ id: 'c1', elements: [] }] } },
-  hero: { label: 'Hero', fields: [['badge', T], ['headline', LONG, null, HL], ['subheadline', LONG], ['ctaText', T], ['ctaAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['ctaUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['ctaNewTab', B, null, 'Open the link in a new tab'], ['secondaryText', T], ['secondaryUrl', T, null, 'Where the small link goes — a section id (default: how-it-works) or https://…'], ['socialText', T], ['rating', NUM], ['reviews', T], ['image', T, null, 'Optional image URL — replaces the product card'], ['alt', T, null, 'Image description (for screen readers and SEO)'], ['cardEmoji', T], ['cardTitle', T], ['cardPrice', T], ['cardMrp', T], ['cardPoints', L, ['text']], ['chip1', T], ['chip2', T], ['cardTag', T, null, 'Small label on the product card'], ['showCard', B, null, 'Show the product card (when there is no image)'], ['showTrust', B, null, 'Show the avatars & rating row'], ['videoUrl', T, null, 'Video layouts: YouTube, Vimeo, Loom, Google Drive or .mp4 link'], ['videoNote', T, null, 'Video layouts: label on the cover, e.g. “Watch the free 12-minute training”'], ['videoLength', T, null, 'Video layouts: length shown on the cover, e.g. 14:32. Card points written as “01:10 · Chapter” become chapters'], ['eventDate', T, null, 'Event layouts: when, e.g. “Every Sunday”'], ['eventTime', T, null, 'Event layouts: time, e.g. “7:00 PM IST”'], ['eventLength', T, null, 'Event layouts: e.g. “90 min · Live on Zoom”'], ['hostName', T, null, 'Event layouts: who hosts it'], ['hostRole', T, null, 'Event layouts: the host’s title']], defaults: { badge: '⭐ Rated 4.9 by 10,000+ customers', headline: 'Your big promise — *the result they want*', subheadline: 'One sentence that makes the reader want it.', ctaText: 'Get Started', secondaryText: 'See how it works', socialText: 'Loved by 10,000+ customers', rating: 4.9, reviews: '2,300', image: '', cardEmoji: '🚀', cardTitle: 'Your Product', cardPrice: '₹499', cardMrp: '₹1,999', cardPoints: [{ text: 'Key benefit one' }, { text: 'Key benefit two' }], chip1: '🔥 120 joined today', chip2: '🔒 Secure payment' } },
+  hero: { label: 'Hero', fields: [['badge', T], ['headline', LONG, null, HL], ['subheadline', LONG], ['ctaText', T], ['ctaAction', 'select', BTN_ACTIONS], ['ctaUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['ctaNewTab', B, null, 'Open the link in a new tab'], ['secondaryText', T], ['secondaryUrl', T, null, 'Where the small link goes — a section id (default: how-it-works) or https://…'], ['socialText', T], ['rating', NUM], ['reviews', T], ['image', T, null, 'Optional image URL — replaces the product card'], ['alt', T, null, 'Image description (for screen readers and SEO)'], ['cardEmoji', T], ['cardTitle', T], ['cardPrice', T], ['cardMrp', T], ['cardPoints', L, ['text']], ['chip1', T], ['chip2', T], ['cardTag', T, null, 'Small label on the product card'], ['showCard', B, null, 'Show the product card (when there is no image)'], ['showTrust', B, null, 'Show the avatars & rating row'], ['videoUrl', T, null, 'Video layouts: YouTube, Vimeo, Loom, Google Drive or .mp4 link'], ['videoNote', T, null, 'Video layouts: label on the cover, e.g. “Watch the free 12-minute training”'], ['videoLength', T, null, 'Video layouts: length shown on the cover, e.g. 14:32. Card points written as “01:10 · Chapter” become chapters'], ['eventDate', T, null, 'Event layouts: when, e.g. “Every Sunday”'], ['eventTime', T, null, 'Event layouts: time, e.g. “7:00 PM IST”'], ['eventLength', T, null, 'Event layouts: e.g. “90 min · Live on Zoom”'], ['hostName', T, null, 'Event layouts: who hosts it'], ['hostRole', T, null, 'Event layouts: the host’s title']], defaults: { badge: '⭐ Rated 4.9 by 10,000+ customers', headline: 'Your big promise — *the result they want*', subheadline: 'One sentence that makes the reader want it.', ctaText: 'Get Started', secondaryText: 'See how it works', socialText: 'Loved by 10,000+ customers', rating: 4.9, reviews: '2,300', image: '', cardEmoji: '🚀', cardTitle: 'Your Product', cardPrice: '₹499', cardMrp: '₹1,999', cardPoints: [{ text: 'Key benefit one' }, { text: 'Key benefit two' }], chip1: '🔥 120 joined today', chip2: '🔒 Secure payment' } },
   stats: { label: 'Stats strip', fields: [['items', L, ['value', 'label'], 'Use real numbers you can back up']], defaults: { items: [{ value: '[Add your real number]', label: 'customers' }, { value: '[Add your real number]', label: 'rating' }, { value: '[Add your real number]', label: 'cities' }] } },
   problem: { label: 'Pain points', fields: [['eyebrow', T], ['title', T], ['subtitle', T], ['items', L, ['text']], ['closing', T]], defaults: { eyebrow: 'Sound familiar?', title: 'You are not alone if…', subtitle: '', items: [{ text: 'Problem one' }, { text: 'Problem two' }, { text: 'Problem three' }], closing: 'There is a better way 👇' } },
   features: { label: 'Features', fields: [['eyebrow', T], ['title', T], ['subtitle', T], ['items', L, ['icon', 'title', 'text']]], defaults: { eyebrow: 'The solution', title: 'Why you will love it', subtitle: '', items: [{ icon: '⚡', title: 'Benefit one', text: 'Describe it.' }, { icon: '🎯', title: 'Benefit two', text: 'Describe it.' }] } },
@@ -54,9 +56,9 @@ export const BLOCK_TYPES = {
   checkout: { label: 'Checkout', fields: [['productId', 'product', null, 'Delivered to the buyer automatically after a verified payment'], ['productName', T], ['description', T], ['price', NUM], ['mrp', NUM], ['currency', 'select', [['₹', '₹ Indian rupee (Razorpay / Stripe)'], ['$', '$ US dollar (Stripe)'], ['€', '€ Euro (Stripe)'], ['£', '£ British pound (Stripe)'], ['A$', 'A$ Australian dollar (Stripe)'], ['C$', 'C$ Canadian dollar (Stripe)'], ['S$', 'S$ Singapore dollar (Stripe)'], ['AED', 'AED UAE dirham (Stripe)']]], ['bumpEnabled', B], ['bumpTitle', T], ['bumpDescription', T], ['bumpPrice', NUM], ['billing', 'select', [['', 'One-time payment'], ['monthly', 'Membership — billed every month'], ['yearly', 'Membership — billed every year']]], ['planEnabled', B, null, 'Also offer a monthly payment plan (EMI-style instalments)'], ['planCount', NUM, null, 'Number of monthly instalments (2–36)'], ['planPrice', NUM, null, 'Each instalment in ₹'], ['shipping', 'select', [['', 'Nothing to ship (digital / service)'], ['address', 'Ship it — ask for the delivery address']]], ['shippingFee', NUM, null, 'Delivery charge in ₹ (0 = free delivery)'], ['origin', T, null, 'Physical products: country of origin, shown under the product (required for goods sold online in India). Blank = your default in Settings (India)'], ['cod', B, null, 'Offer Cash on Delivery'], ['codFee', NUM, null, 'Extra ₹ for Cash on Delivery (0 = none)'], ['bumpProductId', 'product', null, 'Delivered when the buyer ticks the order bump'], ['buttonText', T], ['step1', T, null, 'Heading above the details'], ['step2', T, null, 'Heading above payment methods'], ['secureText', T], ['summaryTitle', T], ['perks', L, ['text']]], defaults: { productName: 'My Product', description: 'Instant access', price: 499, mrp: 1999, currency: '₹', bumpEnabled: true, bumpTitle: 'Add the bonus pack', bumpDescription: 'Extra templates and checklists.', bumpPrice: 99, buttonText: 'Pay Securely' } },
   offer: { label: 'Upsell / downsell offer', fields: [['productId', 'product', null, 'Delivered when the buyer accepts this offer'], ['progress', T], ['headline', LONG, null, HL], ['description', LONG], ['productName', T], ['emoji', T], ['price', NUM], ['mrp', NUM], ['currency', T], ['bullets', L, ['text']], ['minutes', NUM, null, 'Offer timer — 0 hides it'], ['acceptText', T], ['declineText', T], ['tag', T, null, 'Label on the product card'], ['oneClickText', T]], defaults: { progress: 'Step 2 of 3 · Customise your order', headline: 'Wait! Add the *VIP upgrade* to your order', description: 'One click adds it — no need to re-enter payment details.', productName: 'VIP Upgrade', emoji: '👑', price: 999, mrp: 2999, currency: '₹', bullets: [{ text: 'Personal 1-on-1 support' }, { text: 'Advanced resources' }], minutes: 10, acceptText: 'Yes! Add it to my order', declineText: 'No thanks' } },
   crosssell: { label: 'Cross-sells', fields: [['title', T], ['subtitle', T], ['eyebrow', T], ['items', L, ['emoji', 'name', 'desc', 'price', 'productId']], ['buttonText', T]], defaults: { title: 'Customers also bought', subtitle: 'Add these to your order with one click.', items: [{ emoji: '📚', name: 'Advanced Masterclass', desc: 'Go deeper with expert sessions.', price: 499 }, { emoji: '🧾', name: 'Templates Pack', desc: 'Ready-to-use resources.', price: 299 }], buttonText: 'Add to my order' } },
-  pricing: { label: 'Pricing box', fields: [['badge', T], ['title', T], ['mrp', NUM], ['price', NUM], ['currency', T], ['bullets', L, ['text']], ['buttonText', T], ['buttonAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T], ['priceNote', T, null, 'Line under the price'], ['payMethods', T, null, 'Payment badges, separated by ·']], defaults: { badge: 'Limited-time offer', title: 'Your Product', mrp: 1999, price: 499, currency: '₹', bullets: [{ text: 'Everything included' }], buttonText: 'Enroll Now', note: '🔒 Secure checkout' } },
+  pricing: { label: 'Pricing box', fields: [['badge', T], ['title', T], ['mrp', NUM], ['price', NUM], ['currency', T], ['bullets', L, ['text']], ['buttonText', T], ['buttonAction', 'select', BTN_ACTIONS], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T], ['priceNote', T, null, 'Line under the price'], ['payMethods', T, null, 'Payment badges, separated by ·']], defaults: { badge: 'Limited-time offer', title: 'Your Product', mrp: 1999, price: 499, currency: '₹', bullets: [{ text: 'Everything included' }], buttonText: 'Enroll Now', note: '🔒 Secure checkout' } },
   faq: { label: 'FAQ', fields: [['eyebrow', T], ['title', T], ['items', L, ['q', 'a']]], defaults: { eyebrow: 'FAQ', title: 'Questions? We have answers.', items: [{ q: 'Question?', a: 'Answer.' }] } },
-  cta: { label: 'Final call to action', fields: [['headline', T], ['subheadline', T], ['buttonText', T], ['buttonAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T]], defaults: { headline: 'Ready to start?', subheadline: '', buttonText: 'Get Started', note: '' } },
+  cta: { label: 'Final call to action', fields: [['headline', T], ['subheadline', T], ['buttonText', T], ['buttonAction', 'select', BTN_ACTIONS], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T]], defaults: { headline: 'Ready to start?', subheadline: '', buttonText: 'Get Started', note: '' } },
   booking: { label: 'Booking calendar', fields: [['calendarId', 'calendar', null, 'Which availability to book against (Bookings → Calendars)'], ['eyebrow', T], ['title', T], ['subtitle', T], ['buttonText', T], ['successTitle', T], ['successText', LONG], ['qualifiedOnly', B, null, 'In an application funnel, only applicants who qualified can book']], defaults: { calendarId: '', eyebrow: 'Book your call', title: 'Pick a time that suits you', subtitle: 'Times are shown in India time (IST).', buttonText: 'Confirm my call', successTitle: 'Your call is booked ✅', successText: 'The confirmation and joining link are in your email.', qualifiedOnly: true } },
   thankyou: { label: 'Thank you', fields: [['headline', T], ['body', LONG], ['steps', L, ['text']]], defaults: { headline: 'Thank you! 🎉', body: 'Check your email.', steps: [] } },
   // ---- FOMO blocks (each refreshes every 9–10 seconds) ----
@@ -66,7 +68,7 @@ export const BLOCK_TYPES = {
   stock: { label: 'FOMO: Seats / stock left', fields: [['label', T, null, '{n} is replaced by the real number left'], ['left', NUM, null, 'How many you really have — goes down by one with each real order. 0 hides the block'], ['total', NUM, null, 'Optional: how many you started with (shows a bar)']], defaults: { label: 'Only {n} left in stock', left: 0, total: 0 } },
   proof: { label: 'FOMO: Recent buyers popup', fields: [['intervalSec', NUM]], defaults: { intervalSec: 9 } },
   exitpopup: { label: 'FOMO: Exit-intent popup', fields: [['title', T], ['body', T], ['code', T], ['buttonText', T]], defaults: { title: 'Wait! Don’t go yet', body: 'Grab an extra 10% OFF on your order.', code: 'STAY10', buttonText: 'Claim my discount' } },
-  stickybar: { label: 'Sticky buy bar', fields: [['text', T], ['price', T], ['buttonText', T], ['buttonAction', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab']], defaults: { text: 'Offer ends soon', price: '₹499', buttonText: 'Buy Now' } },
+  stickybar: { label: 'Sticky buy bar', fields: [['text', T], ['price', T], ['buttonText', T], ['buttonAction', 'select', BTN_ACTIONS], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab']], defaults: { text: 'Offer ends soon', price: '₹499', buttonText: 'Buy Now' } },
   whatsapp: { label: 'WhatsApp chat button', fields: [['number', T, null, 'Leave 919999999999 to use the Support WhatsApp from Settings'], ['message', T], ['label', T]], defaults: { number: '919999999999', message: 'Hi! I have a question.', label: 'Chat with us' } },
 };
 
@@ -188,6 +190,7 @@ export function buttonLink(action, url, newTab) {
   const u = String(url || '').trim();
   if (action === 'url') { const h = safeHref(u); if (!h) return null; return h.startsWith('#') ? { scroll: cleanAnchor(h.slice(1)) } : { href: h, newTab: !!newTab }; }
   if (action === 'scroll' && u) { const id = cleanAnchor(u.replace(/^#/, '')); return id ? { scroll: id } : null; }
+  if (action === 'popup' && u) return { popup: u };
   return null;
 }
 const Btn = ({ children, big, block, onClick, type = 'button', disabled, ctx, k, link }) => {
@@ -201,6 +204,13 @@ const Btn = ({ children, big, block, onClick, type = 'button', disabled, ctx, k,
         onClick={(e) => { if (ctx && !ctx.live) e.preventDefault(); else ctx?.onLinkClick?.(link.href); }}>
         <span>{children}</span><span className="arr">→</span>
       </a>
+    );
+  }
+  if (link?.popup) {
+    return (
+      <button type="button" className={cls} aria-haspopup="dialog" onClick={() => ctx?.live && openPopup(link.popup)}>
+        <span>{children}</span><span className="arr">→</span>
+      </button>
     );
   }
   if (link?.scroll) {
@@ -862,7 +872,7 @@ function OptinForm({ p, ctx }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const pts = (p.points || []).filter((x) => x.text);
   return (
-    <Sec type="optin" id="optin" className="alt">
+    <Sec type="optin" id={ctx.inPopup ? undefined : 'optin'} className="alt">
       <div className={pts.length ? 'optin-grid' : 'optin-solo'}>
         {pts.length > 0 && (
           <div>
@@ -1336,7 +1346,7 @@ function FormBlock({ p, ctx }) {
     setBusy(false);
   };
   return (
-    <Sec type="form" id={ctx.editable ? undefined : 'form'} className="alt">
+    <Sec type="form" id={ctx.editable || ctx.inPopup ? undefined : 'form'} className="alt">
       <form className="pc formcard form-b" onSubmit={submit}>
         {p.title && <E ctx={ctx} k="title" v={p.title} as="h2" />}
         {p.subtitle && <E ctx={ctx} k="subtitle" v={p.subtitle} as="p" className="sub" />}
@@ -1344,7 +1354,7 @@ function FormBlock({ p, ctx }) {
           : done ? <div className="form-done">✅ <E ctx={ctx} k="successMessage" v={p.successMessage || tr(ctx.lang, 'Thank you! We’ll be in touch shortly.')} keep /></div> : (
           <>
             {fields.map((fd, i) => {
-              const id = `ff-${i}`;
+              const id = `ff-${ctx.popupId ? `${ctx.popupId}-` : ''}${i}`; // a form in a pop-up never shares ids with the page's
               const common = { id, required: !!fd.required, value: vals[i] ?? '', onChange: (e) => set(i, e.target.value) };
               if (fd.type === 'checkbox') return <label key={i} className="fcheck"><input type="checkbox" required={!!fd.required} checked={!!vals[i]} onChange={(e) => set(i, e.target.checked)} /> <span>{fd.label}{fd.required && ' *'}</span></label>;
               return (
@@ -1377,7 +1387,7 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 export const ELEMENT_TYPES = {
   heading: { label: 'Heading', icon: '🔤', fields: [['text', 'long', null, HL], ['level', 'select', [['h1', 'Large (H1)'], ['h2', 'Medium (H2)'], ['h3', 'Small (H3)']]], ['align', 'select', ALIGN]], defaults: { text: 'Your *headline* goes here', level: 'h2', align: 'left' } },
   text: { label: 'Text', icon: '📝', fields: [['text', 'long'], ['size', 'select', [['sm', 'Small'], ['md', 'Normal'], ['lg', 'Large']]], ['align', 'select', ALIGN]], defaults: { text: 'Write a sentence or two that makes your visitor want to keep reading.', size: 'md', align: 'left' } },
-  button: { label: 'Button', icon: '🔘', fields: [['label', 'text'], ['action', 'select', [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section']]], ['url', 'text', null, 'https://…, #section-id, tel:… or mailto:…'], ['variant', 'select', [['primary', 'Filled'], ['outline', 'Outline']]], ['align', 'select', ALIGN], ['full', 'bool']], defaults: { label: 'Get Started', action: 'next', url: '', variant: 'primary', align: 'left', full: false } },
+  button: { label: 'Button', icon: '🔘', fields: [['label', 'text'], ['action', 'select', BTN_ACTIONS], ['url', 'text', null, 'https://…, #section-id, tel:… or mailto:…'], ['variant', 'select', [['primary', 'Filled'], ['outline', 'Outline']]], ['align', 'select', ALIGN], ['full', 'bool']], defaults: { label: 'Get Started', action: 'next', url: '', variant: 'primary', align: 'left', full: false } },
   image: { label: 'Image', icon: '🖼️', fields: [['src', 'text'], ['alt', 'text', null, 'Describe the image — helps SEO and screen readers'], ['link', 'text', null, 'Optional: make the image a link'], ['rounded', 'bool'], ['shadow', 'bool']], defaults: { src: '', alt: '', link: '', rounded: true, shadow: true } },
   list: { label: 'Bullet list', icon: '✅', fields: [['items', 'list', ['text']], ['icon', 'select', [['check', '✓ Checkmarks'], ['dot', '• Dots'], ['num', '1. Numbers']]]], defaults: { items: [{ text: 'First benefit' }, { text: 'Second benefit' }, { text: 'Third benefit' }], icon: 'check' } },
   price: { label: 'Price', icon: '💰', fields: [['price', 'number'], ['mrp', 'number'], ['currency', 'text'], ['note', 'text']], defaults: { price: 499, mrp: 1999, currency: '₹', note: 'One-time payment · instant access' } },
@@ -1428,6 +1438,7 @@ function ElementContent({ el, ctx }) {
       let inner;
       if (ctx.editable) inner = <div className={cls} role="button"><span>{label}</span><span className="arr">→</span></div>;
       else if (p.action === 'url' && safeHref(p.url)) inner = <a className={cls} href={safeHref(p.url)} {...(/^https?:/.test(p.url) ? { target: '_blank', rel: 'noopener' } : {})}><span>{p.label}</span><span className="arr">→</span></a>;
+      else if (p.action === 'popup' && p.url) inner = <button type="button" className={cls} aria-haspopup="dialog" onClick={() => ctx.live && openPopup(p.url)}><span>{p.label}</span><span className="arr">→</span></button>;
       else if (p.action === 'scroll' && p.url) inner = <a className={cls} href={`#${cleanAnchor(String(p.url).replace(/^#/, ''))}`} onClick={(e) => { e.preventDefault(); smoothTo(cleanAnchor(String(p.url).replace(/^#/, ''))); }}><span>{p.label}</span><span className="arr">→</span></a>;
       else inner = <button type="button" className={cls} onClick={() => ctx.live && ctx.onNext?.()}><span>{p.label}</span><span className="arr">→</span></button>;
       return <div className={`el-btn al-${p.align || 'left'}`}>{inner}</div>;
@@ -1613,6 +1624,143 @@ function renderBlock(block, ctx) {
   }
 }
 
+// ---------- pop-ups: up to 3 per step, each a mini page made of the usual blocks ----------
+// (the server keeps the same limits and block list — see cleanPopups in server/index.js)
+export const POPUP_SIZES = [['center', 'Box in the centre'], ['corner', 'Slide-in, bottom corner'], ['full', 'Full screen'], ['bar', 'Bar at the top']];
+export const POPUP_TRIGGERS = [['exit', 'When the visitor is about to leave'], ['delay', 'After some seconds'], ['scroll', 'After scrolling part of the page'], ['click', 'Only when a button opens it'], ['load', 'As soon as the page opens']];
+export const POPUP_FREQ = [['session', 'Once per visit'], ['visitor', 'Once per visitor, ever'], ['always', 'Every time the page opens']];
+export const POPUP_BLOCKS = ['section', 'text', 'image', 'video', 'countdown', 'optin', 'form', 'cta', 'spacer', 'divider', 'guarantee', 'testimonials'];
+export const POPUP_MAX = 3, POPUP_MAX_BLOCKS = 20;
+// any button set to "Open a pop-up" calls this; the page's PopupHost listens
+export const openPopup = (id) => window.dispatchEvent(new CustomEvent('ff:popup', { detail: String(id) }));
+const MODAL = ['center', 'full']; // these block the page (focus trapped); a corner card or top bar doesn't
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])';
+
+// One pop-up on screen. Esc, the × and (for boxes) a click on the backdrop all close it — closing never costs the visitor anything
+export function PopupView({ popup, ctx, onClose }) {
+  const ref = useRef(null);
+  const size = POPUP_SIZES.some(([k]) => k === popup.size) ? popup.size : 'center';
+  const modal = MODAL.includes(size);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const back = document.activeElement, box = ref.current;
+    const overflow = document.body.style.overflow;
+    if (modal) { document.body.style.overflow = 'hidden'; box?.focus(); }
+    const key = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); closeRef.current(); return; }
+      if (e.key !== 'Tab' || !modal || !box) return;
+      const list = [...box.querySelectorAll(FOCUSABLE)].filter((n) => n.getClientRects().length);
+      if (!list.length) { e.preventDefault(); return; }
+      const first = list[0], last = list[list.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === box)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || !box.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('keydown', key); if (modal) { document.body.style.overflow = overflow; back?.focus?.(); } };
+  }, [modal]);
+  const box = (
+    <div ref={ref} className={`pop pop-${size}`} role="dialog" aria-modal={modal ? 'true' : undefined} aria-label={popup.name || 'Pop-up'} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+      <button type="button" className="pop-x" aria-label={tr(ctx.lang, 'Close')} title={tr(ctx.lang, 'Close')} onClick={onClose}>×</button>
+      <div className="pop-body">{(popup.blocks || []).map((b) => <Block key={b.id} block={b} ctx={ctx} />)}</div>
+    </div>
+  );
+  return modal ? <div className="pop-overlay" onClick={onClose}>{box}</div> : box;
+}
+
+// Arms each pop-up's trigger on the live page. Client-only (never in the server HTML), waits while the cookie
+// banner is up, never stacks two pop-ups, and stops showing them once this visitor has signed up
+const popKey = (p) => `ff_pop_${p.id}`;
+function PopupHost({ popups, ctx }) {
+  const [ready, setReady] = useState(false);
+  const [open, setOpen] = useState(null);
+  const [thanks, setThanks] = useState('');
+  const openRef = useRef(null);
+  const shown = useRef({});
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+  openRef.current = open;
+  useEffect(() => { setReady(true); }, []);
+  useEffect(() => { setOpen(null); shown.current = {}; }, [popups]);
+  useEffect(() => { if (!thanks) return; const t = setTimeout(() => setThanks(''), 7000); return () => clearTimeout(t); }, [thanks]);
+  const seen = (p) => {
+    const c = ctxRef.current;
+    if (c.preview) return false; // preview shows them every time
+    try {
+      if (c.leadKey && localStorage.getItem(c.leadKey)) return true; // already signed up
+      if (p.frequency === 'visitor') return !!localStorage.getItem(popKey(p));
+      if (p.frequency !== 'always') return !!sessionStorage.getItem(popKey(p));
+    } catch {}
+    return false;
+  };
+  const show = (p, clicked) => {
+    if (!clicked && (openRef.current || shown.current[p.id] || seen(p))) return;
+    shown.current[p.id] = true;
+    try { if (p.frequency === 'visitor') localStorage.setItem(popKey(p), '1'); else if (p.frequency !== 'always') sessionStorage.setItem(popKey(p), '1'); } catch {}
+    openRef.current = p.id;
+    setThanks(''); setOpen(p.id);
+    ctxRef.current.onPopupEvent?.('popup_view', p.id);
+  };
+  // a button set to "Open a pop-up": always opens, the visitor asked for it
+  useEffect(() => {
+    if (!ready) return;
+    const on = (e) => { const p = popups.find((x) => x.id === e.detail); if (p) show(p, true); };
+    window.addEventListener('ff:popup', on);
+    return () => window.removeEventListener('ff:popup', on);
+  }, [ready, popups]);
+  useEffect(() => {
+    if (!ready || ctx.holdPopups) return;
+    const auto = popups.filter((p) => p.trigger?.type !== 'click');
+    const timers = [];
+    const val = (p, d) => (Number.isFinite(Number(p.trigger?.value)) && p.trigger?.value !== '' ? Number(p.trigger.value) : d);
+    for (const p of auto) {
+      if (p.trigger?.type === 'load') timers.push(setTimeout(() => show(p), 500));
+      if (p.trigger?.type === 'delay') timers.push(setTimeout(() => show(p), Math.max(0, val(p, 10)) * 1000));
+    }
+    const scrolls = auto.filter((p) => p.trigger?.type === 'scroll');
+    const exits = auto.filter((p) => !p.trigger?.type || p.trigger.type === 'exit');
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    let prevY = window.scrollY, prevT = Date.now(), maxY = prevY, up = null;
+    const onScroll = () => {
+      const y = window.scrollY, now = Date.now();
+      const room = document.documentElement.scrollHeight - window.innerHeight;
+      const pct = room > 0 ? (y / room) * 100 : 100;
+      for (const p of scrolls) if (pct >= Math.min(100, Math.max(0, val(p, 50)))) show(p);
+      maxY = Math.max(maxY, y);
+      // phones have no mouse to leave with: a fast flick back up after reading a while counts as leaving
+      if (coarse && exits.length) {
+        if (y >= prevY) up = null;
+        else { up ||= { y: prevY, t: prevT }; const dist = up.y - y; if (maxY > 600 && dist > 150 && dist / Math.max(1, now - up.t) > 1.2) exits.forEach((p) => show(p)); }
+      }
+      prevY = y; prevT = now;
+    };
+    const onLeave = (e) => { if (e.clientY <= 0) exits.forEach((p) => show(p)); };
+    if (scrolls.length || (coarse && exits.length)) window.addEventListener('scroll', onScroll, { passive: true });
+    if (exits.length) document.addEventListener('mouseleave', onLeave);
+    return () => { timers.forEach(clearTimeout); window.removeEventListener('scroll', onScroll); document.removeEventListener('mouseleave', onLeave); };
+  }, [ready, popups, ctx.holdPopups]);
+  if (!ready) return null;
+  const cur = popups.find((p) => p.id === open);
+  const close = () => setOpen(null);
+  // forms inside a pop-up submit exactly like the page's; then the pop-up closes with a thank-you, or moves on
+  const pctx = cur && {
+    ...ctx, inPopup: true, popupId: cur.id,
+    onNext: () => { close(); ctx.onNext?.(); },
+    onOptin: async (data) => {
+      await ctx.onOptin(data, { popup: cur.id, next: cur.after === 'next' });
+      if (cur.after !== 'next') { close(); setThanks(cur.thanks || tr(ctx.lang, 'Thank you! Check your inbox.')); }
+    },
+    onForm: (data) => ctx.onForm(data, { popup: cur.id }),
+    onFormNext: () => { close(); ctx.onFormNext?.(); },
+  };
+  return (
+    <>
+      {cur && <PopupView key={cur.id} popup={cur} ctx={pctx} onClose={close} />}
+      {thanks && <div className="pop-thanks" role="status"><span>✅ {thanks}</span><button type="button" aria-label={tr(ctx.lang, 'Close')} onClick={() => setThanks('')}>×</button></div>}
+    </>
+  );
+}
+
 // The seller's legal name, address and policies on every live page (Consumer Protection (E-Commerce) Rules 2020).
 // Always shown — sellers can't remove it — but kept small.
 function SellerFooter({ s, lang }) {
@@ -1628,7 +1776,8 @@ function SellerFooter({ s, lang }) {
 export const RADIUS = { sharp: ['2px', '2px', '2px'], soft: ['14px', '10px', '10px'], round: ['24px', '16px', '14px'], pill: ['24px', '999px', '14px'] };
 export const TEXT_SIZES = { sm: '15.5px', md: '17px', lg: '18.5px' };
 const TEXT_SCALE = { sm: 0.94, md: 1.06, lg: 1.14 };
-export function Page({ blocks, theme, ctx }) {
+// popups: this step's pop-ups (live pages); popupPreview + onClosePreview: one pop-up shown as-is, without its trigger (editor)
+export function Page({ blocks, theme, ctx, popups, popupPreview, onClosePreview }) {
   const style = theme?.style || 'aurora';
   const hf = FONT_CHOICES[theme?.headingFont], bf = FONT_CHOICES[theme?.bodyFont], rad = RADIUS[theme?.radius];
   useEffect(() => { ensureFonts(theme || style); }, [style, theme?.headingFont, theme?.bodyFont]);
@@ -1644,6 +1793,8 @@ export function Page({ blocks, theme, ctx }) {
     <div className={`page s-${style}`} style={vars}>
       {blocks.map((b) => <Block key={b.id} block={b} ctx={ctx} />)}
       {ctx?.seller && ctx.live && !ctx.editable && <SellerFooter s={ctx.seller} lang={ctx.lang} />}
+      {popups?.length > 0 && ctx?.live && !ctx.editable && <PopupHost popups={popups} ctx={ctx} />}
+      {popupPreview && <PopupView popup={popupPreview} ctx={{ ...ctx, inPopup: true, popupId: popupPreview.id }} onClose={onClosePreview || (() => {})} />}
     </div>
   );
 }

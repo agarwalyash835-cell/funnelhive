@@ -23,6 +23,7 @@ const Editor = lazy(() => import('./pages/Editor'));
 const Analytics = lazy(() => import('./pages/Analytics'));
 const Contacts = lazy(() => import('./pages/Contacts'));
 const Orders = lazy(() => import('./pages/Orders'));
+const Reports = lazy(() => import('./pages/Reports'));
 const Products = lazy(() => import('./pages/Products'));
 const Library = lazy(() => import('./pages/Library'));
 const SaleInvoice = lazy(() => import('./pages/SaleInvoice'));
@@ -72,6 +73,13 @@ function Screens({ children, variant }) {
   return <ErrorBoundary variant={variant} resetKey={pathname}>{children}</ErrorBoundary>;
 }
 
+// The dashboard's language: switching it re-renders every screen (appI18n.js). Adds no DOM, so funnel pages hydrate as before.
+function LangRoot({ children }) {
+  const [n, setN] = React.useState(0);
+  React.useEffect(() => { const h = () => setN((x) => x + 1); window.addEventListener('ff:lang', h); return () => window.removeEventListener('ff:lang', h); }, []);
+  return <React.Fragment key={n}>{children}</React.Fragment>;
+}
+
 // A seller's own domain only ever shows their funnel
 const onDomain = typeof window !== 'undefined' && !!window.__FF_DOMAIN__;
 const onFunnel = onDomain || /^\/f\/[^/]/.test(location.pathname);
@@ -90,6 +98,7 @@ const app = onDomain ? (
     </Screens>
   </BrowserRouter>
 ) : (
+  <LangRoot>
   <BrowserRouter>
     <AppToaster />
     <Screens variant={onFunnel ? 'page' : 'app'}>
@@ -111,6 +120,7 @@ const app = onDomain ? (
         <Route path="/funnels/:id/analytics" element={P(Analytics)} />
         <Route path="/contacts/:key?" element={P(Contacts)} />
         <Route path="/orders" element={P(Orders)} />
+        <Route path="/reports" element={P(Reports)} />
         <Route path="/products/:id?" element={P(Products)} />
         <Route path="/access/:token?" element={L(Library)} />
         <Route path="/invoice/:id" element={L(SaleInvoice)} />
@@ -140,6 +150,7 @@ const app = onDomain ? (
       </Routes>
     </Screens>
   </BrowserRouter>
+  </LangRoot>
 );
 
 // A live funnel page arrives server-rendered: hydrate that HTML (no flash, no layout shift) when the browser's
@@ -159,6 +170,18 @@ function canHydrate(root) {
   const json = JSON.stringify(step.blocks || []);
   return !json.includes('"type":"countdown"') && !json.includes('"type":"offer"');
 }
+
+// After a deploy, an open tab still points at the old build's file names: when a page chunk fails to load,
+// reload once to pick up the new build (a short guard stops a reload loop if the server is really down)
+const reloadedAt = () => { try { return Number(sessionStorage.getItem('ff_chunk_reload') || 0); } catch { return 0; } };
+const reloadForNewBuild = (e) => {
+  if (Date.now() - reloadedAt() < 30000) return;
+  e?.preventDefault?.();
+  try { sessionStorage.setItem('ff_chunk_reload', String(Date.now())); } catch {}
+  location.reload();
+};
+window.addEventListener('vite:preloadError', reloadForNewBuild);
+window.addEventListener('unhandledrejection', (e) => { if (/Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(String(e.reason?.message || e.reason))) reloadForNewBuild(e); });
 
 const root = document.getElementById('root');
 if (canHydrate(root)) {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Layout, Panel, Icon, toast, confirmDialog, promptDialog } from '../ui';
+import { t } from '../appI18n';
 import SecurityPanel from './SecurityPanel';
 import { TeamPanel } from './Team';
 import { PrivacyPanel } from './Privacy';
@@ -36,9 +37,9 @@ export default function Settings() {
   const [showSecret, setShowSecret] = useState(false);
   const loadDeliveries = () => api('/webhooks/deliveries').then(setDeliveries);
   useEffect(() => { api('/settings').then(setS); api('/coupons').then(setCoupons); api('/me').then(setMe); api('/funnels').then(setFunnels).catch(() => {}); loadDeliveries(); }, []);
-  if (!s) return <Layout title="Settings"><div className="skeleton" /></Layout>;
+  if (!s) return <Layout title={t('Settings')}><div className="skeleton" /></Layout>;
   const set = (patch) => setS({ ...s, ...patch });
-  const save = async (patch = s) => { try { setS(await api('/settings', 'PUT', patch)); toast('Settings saved'); return true; } catch (e) { toast(e.message); return false; } };
+  const save = async (patch = s) => { try { setS(await api('/settings', 'PUT', patch)); toast(t('Settings saved')); return true; } catch (e) { toast(e.message); return false; } };
   const addCoupon = async (e) => { e.preventDefault(); try { const c = await api('/coupons', 'POST', nc); setCoupons([...coupons, c]); setNc(NC); setMore(false); toast(`Coupon ${c.code} created`); } catch (x) { toast(x.message); } };
   const toggle = async (c) => { const u = await api(`/coupons/${c.id}`, 'PUT', { active: !c.active }); setCoupons(coupons.map((x) => (x.id === c.id ? u : x))); };
   const delCoupon = async (c) => { await api(`/coupons/${c.id}`, 'DELETE'); setCoupons(coupons.filter((x) => x.id !== c.id)); };
@@ -47,24 +48,24 @@ export default function Settings() {
   const retry = async (d) => { await api(`/webhooks/deliveries/${d.id}/retry`, 'POST'); loadDeliveries(); };
 
   return (
-    <Layout title="Settings" subtitle="Payments, tracking, integrations and discounts.">
+    <Layout title={t('Settings')} subtitle={t('Payments, tracking, integrations and discounts.')}>
       <div className="settings">
-        <Panel title="Business profile">
+        <Panel title={t('Business profile')}>
           <div className="form2">
-            <label>Business name<input value={s.businessName} onChange={(e) => set({ businessName: e.target.value })} placeholder="e.g. Sharma Yoga Studio" /></label>
-            <label>Time zone <small className="muted">· booking hours, webinars, “wait until” and report days</small><select value={s.timezone || 'Asia/Kolkata'} onChange={(e) => set({ timezone: e.target.value })}>{allZones().map((z) => <option key={z} value={z}>{zoneOption(z)}</option>)}</select></label>
-            <label>Support WhatsApp <small className="muted">· powers the WhatsApp buttons on your funnels</small><input value={s.supportWhatsapp} onChange={(e) => set({ supportWhatsapp: e.target.value })} placeholder="+91 98765 43210" /></label>
+            <label>{t('Business name')}<input value={s.businessName} onChange={(e) => set({ businessName: e.target.value })} placeholder={t('e.g. Sharma Yoga Studio')} /></label>
+            <label>{t('Time zone')} <small className="muted">{t('· booking hours, webinars, “wait until” and report days')}</small><select value={s.timezone || 'Asia/Kolkata'} onChange={(e) => set({ timezone: e.target.value })}>{allZones().map((z) => <option key={z} value={z}>{zoneOption(z)}</option>)}</select></label>
+            <label>{t('Support WhatsApp')} <small className="muted">{t('· powers the WhatsApp buttons on your funnels')}</small><input value={s.supportWhatsapp} onChange={(e) => set({ supportWhatsapp: e.target.value })} placeholder="+91 98765 43210" /></label>
           </div>
-          <button className="btn primary" onClick={() => save()}>Save</button>
+          <button className="btn primary" onClick={() => save()}>{t('Save')}</button>
         </Panel>
 
-        <Panel title="Payments">
+        <Panel title={t('Payments')}>
           <RazorpayPanel />
           <StripePanel />
-          <p className="hint">Stripe, Cashfree and PhonePe aren’t connected yet — Razorpay covers UPI, cards, netbanking, wallets and EMI in India.</p>
+          <p className="hint">{t('Stripe, Cashfree and PhonePe aren’t connected yet — Razorpay covers UPI, cards, netbanking, wallets and EMI in India.')}</p>
         </Panel>
 
-        <Panel title="Tracking pixels">
+        <Panel title={t('Tracking pixels')}>
           <p className="muted sm">Fires PageView on every step, ViewContent on sales pages, Lead on opt-ins, InitiateCheckout and AddPaymentInfo at checkout, and Purchase on every sale — upsells and add-ons are reported with their own amount, each with a unique id so Meta and Google never count a sale twice. Pixels don’t load in preview. UTM tags and Meta/Google click ids are saved on every lead and order automatically.</p>
           <div className="form2">
             <label>Meta (Facebook) Pixel ID<input value={s.tracking.fbPixel} onChange={(e) => set({ tracking: { ...s.tracking, fbPixel: e.target.value } })} placeholder="123456789012345" /></label>
@@ -78,6 +79,7 @@ export default function Settings() {
           </div>
           <button className="btn primary" onClick={() => save()}>Save tracking</button>
           <ServerTracking pixel={s.tracking.fbPixel} ga4={s.tracking.ga4} />
+          <GoogleAdsOffline />
         </Panel>
 
         <InvoicingPanel s={s} setS={setS} />
@@ -220,6 +222,98 @@ function ServerTracking({ pixel, ga4 }) {
               <td className="r">{d.status !== 'sent' && <button className="btn ghost sm" onClick={async () => { await api(`/conversions/${d.id}/retry`, 'POST'); load(); }}>Retry</button>}</td></tr>
           ))}</tbody>
         </table>
+      )}
+    </div>
+  );
+}
+
+// Google Ads offline conversions: sales that close days after the ad click (after a call, a quote) are imported
+// into Google Ads from a secret feed it fetches on a schedule — or uploaded through the Google Ads API (beta)
+const GADS_KINDS = [['purchase', 'Paid sales', 'net value in ₹, refunds off; test orders and unpaid COD left out'], ['booking', 'Booked calls', 'no value'], ['lead', 'Qualified applications', 'application forms that pass your questions; no value']];
+function GoogleAdsOffline() {
+  const [st, setSt] = useState(null);
+  const [f, setF] = useState(null);
+  const [a, setA] = useState({ developerToken: '', clientSecret: '', refreshToken: '' });
+  const [busy, setBusy] = useState('');
+  const [open, setOpen] = useState(false);
+  const take = (x) => { setSt(x); setF({ names: { ...x.names }, include: { ...x.include }, hashed: x.hashed, api: { clientId: x.api.clientId, customerId: x.api.customerId, loginCustomerId: x.api.loginCustomerId, actions: { ...x.api.actions }, enabled: x.api.enabled } }); };
+  useEffect(() => { api('/channels/gads').then(take).catch(() => {}); }, []);
+  if (!st || !f) return null;
+  const save = async (patch, msg = 'Offline conversions saved') => { try { take(await api('/channels/gads', 'PUT', patch)); setA({ developerToken: '', clientSecret: '', refreshToken: '' }); toast(msg); return true; } catch (e) { toast(e.message); return false; } };
+  const rotate = async () => { if (!await confirmDialog({ title: 'Make a new feed address?', text: 'The old address stops working at once — update the schedule in Google Ads with the new one.', confirm: 'Make new address' })) return; take(await api('/channels/gads/rotate', 'POST')); toast('New address made'); };
+  const saveApi = () => save({ api: { ...f.api, ...Object.fromEntries(Object.entries(a).filter(([, v]) => v)) } }, 'Google Ads API details saved');
+  const testApi = async () => { setBusy('test'); try { const r = await api('/channels/gads/test', 'POST'); toast(r.ok ? `✓ Connected${r.actions?.length ? ` · ${r.actions.map((x) => x.name).join(', ')}` : ''}` : `✕ ${r.error}`); } catch (e) { toast(e.message); } setBusy(''); };
+  const upload = async () => { setBusy('up'); try { const r = await api('/channels/gads/upload', 'POST'); take(r.status); toast(r.busy ? 'An upload is already running' : `Uploaded ${r.sent}${r.failed ? ` · ${r.failed} failed` : ''}${r.error ? ` · ${r.error}` : ''}`); } catch (e) { toast(e.message); } setBusy(''); };
+  const setApi = (patch) => setF({ ...f, api: { ...f.api, ...patch } });
+  const ap = st.api;
+  return (
+    <div className="srv-track">
+      <h4>Google Ads offline conversions <span className={`pill ${st.eligible ? 'ok' : ''}`}>{st.eligible} in the last 90 days</span></h4>
+      <p className="muted sm">Many sales close after a call — the lead came from a Google ad, the payment days later. FunnelHive credits each sale to the ad click that brought the person in (from the sale itself, or their earlier lead or booking) so Google Ads can optimise for real revenue, not just form fills.</p>
+      <label className="full">Scheduled upload address <small className="muted">· secret — anyone with it can read these conversions</small>
+        <div className="row"><input readOnly value={st.feedUrl} onFocus={(e) => e.target.select()} />
+          <button className="icon-btn" title="Copy" aria-label="Copy the address" onClick={() => { navigator.clipboard?.writeText(st.feedUrl); toast('Address copied'); }}><Icon name="copy" size={15} /></button>
+          <a className="btn ghost sm" href={`${st.feedUrl}&download=1`}><Icon name="download" size={15} /> Download CSV</a>
+          <button className="btn ghost sm" onClick={rotate}>New address</button></div>
+      </label>
+      <div className="form2">
+        {GADS_KINDS.map(([k, l, hint]) => (
+          <div key={k}>
+            <label className="tog"><input type="checkbox" checked={!!f.include[k]} onChange={(e) => setF({ ...f, include: { ...f.include, [k]: e.target.checked } })} /><span />{l} <small className="muted">· {hint}</small></label>
+            <label>Conversion name in Google Ads<input value={f.names[k]} disabled={!f.include[k]} onChange={(e) => setF({ ...f, names: { ...f.names, [k]: e.target.value } })} /></label>
+          </div>
+        ))}
+      </div>
+      <label className="tog"><input type="checkbox" checked={!!f.hashed} onChange={(e) => setF({ ...f, hashed: e.target.checked })} /><span />Add hashed email and phone (enhanced conversions for leads) <small className="muted">· off by default; only for contacts who agreed on your form or whose consent you recorded — anyone who refused is never sent</small></label>
+      <div className="row"><button className="btn primary" onClick={() => save({ names: f.names, include: f.include, hashed: f.hashed })}>Save offline conversions</button></div>
+      {st.braidOnly > 0 && <p className="hint">{st.braidOnly} conversion(s) came from iOS clicks (gbraid / wbraid) — Google’s file import only takes gclid, so these are sent only by the API upload below.</p>}
+      {st.preview.length > 0 ? (
+        <table className="tbl compact">
+          <thead><tr><th>Conversion</th><th>Click id</th><th>Time</th><th className="r">Value</th><th>Id</th></tr></thead>
+          <tbody>{st.preview.map((r) => (
+            <tr key={r.key}><td>{r.name}{(r.hashedEmail || r.hashedPhone) && <small className="sub-t">+ hashed {[r.hashedEmail && 'email', r.hashedPhone && 'phone'].filter(Boolean).join(' & ')}</small>}</td>
+              <td className="mono sm">{r.gclid ? `${r.gclid.slice(0, 14)}…` : r.gbraid ? 'gbraid' : r.wbraid ? 'wbraid' : '—'}{r.clickFrom && <small className="sub-t">from an earlier lead/booking</small>}</td>
+              <td className="muted sm">{r.time}</td><td className="r">{r.value != null ? `₹${r.value.toLocaleString('en-IN')}` : '—'}</td><td className="mono sm">{r.id}</td></tr>
+          ))}</tbody>
+        </table>
+      ) : <p className="hint">Nothing to import yet: conversions appear here once a buyer who came through a Google ad (with a gclid) pays.</p>}
+      <details className="hint">
+        <summary>How to set it up in Google Ads</summary>
+        <ol>
+          <li>Google Ads → <b>Goals → Conversions → + New conversion action → Import</b>.</li>
+          <li>Choose <b>Other data sources or CRMs → Track conversions from clicks</b>, then Continue.</li>
+          <li>Name it exactly as above (e.g. <b>{f.names.purchase}</b>), category Purchase, value “Use different values for each conversion”, and save. Repeat for bookings / qualified leads if you turned them on.</li>
+          <li>Go to <b>Goals → Conversions → Uploads → Schedules → + New schedule</b>, source <b>HTTPS</b>, paste the address above, and run it daily.</li>
+          <li>Or upload once by hand: <b>Uploads → + → Upload a file</b> with the CSV from “Download CSV”.</li>
+          <li>If your website tag already reports purchases to Google Ads, make one of the two actions “secondary” so each sale counts once. Clicks must be from the last 90 days, and Google can take a few hours to show imported conversions.</li>
+        </ol>
+      </details>
+      <button className="link-btn" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Upload directly with the Google Ads API'} <span className="pill">beta</span></button>
+      {open && (
+        <div>
+          <p className="muted sm">Optional, for accounts with Google Ads API access (a developer token from Tools → API Center and an OAuth client). Uploads new conversions every hour, each once; rows Google rejects are retried up to 3 times and listed below. The feed above keeps working either way. Secrets are stored encrypted.</p>
+          <div className="form2">
+            <label>Developer token {ap.developerToken && <small className="ok-t">· saved</small>}<input type="password" value={a.developerToken} onChange={(e) => setA({ ...a, developerToken: e.target.value })} placeholder={ap.developerToken ? '•••••••• (saved — paste to replace)' : 'Tools → API Center'} /></label>
+            <label>OAuth client ID<input value={f.api.clientId} onChange={(e) => setApi({ clientId: e.target.value })} placeholder="1234-abc.apps.googleusercontent.com" /></label>
+            <label>OAuth client secret {ap.clientSecret && <small className="ok-t">· saved</small>}<input type="password" value={a.clientSecret} onChange={(e) => setA({ ...a, clientSecret: e.target.value })} placeholder={ap.clientSecret ? '•••••••• (saved)' : 'GOCSPX-…'} /></label>
+            <label>Refresh token {ap.refreshToken && <small className="ok-t">· saved</small>}<input type="password" value={a.refreshToken} onChange={(e) => setA({ ...a, refreshToken: e.target.value })} placeholder={ap.refreshToken ? '•••••••• (saved)' : '1//…'} /></label>
+            <label>Customer ID<input value={f.api.customerId} onChange={(e) => setApi({ customerId: e.target.value })} placeholder="123-456-7890" /></label>
+            <label>Manager (MCC) ID <small className="muted">· only if you sign in through one</small><input value={f.api.loginCustomerId} onChange={(e) => setApi({ loginCustomerId: e.target.value })} placeholder="optional" /></label>
+            {GADS_KINDS.map(([k, l]) => <label key={k}>{l}: conversion action id<input value={f.api.actions[k]} onChange={(e) => setApi({ actions: { ...f.api.actions, [k]: e.target.value } })} placeholder="ctId from the action’s address, or customers/…/conversionActions/…" /></label>)}
+          </div>
+          <label className="tog"><input type="checkbox" checked={!!f.api.enabled} onChange={(e) => setApi({ enabled: e.target.checked })} /><span />Upload automatically every hour</label>
+          <div className="row">
+            <button className="btn primary" onClick={saveApi}>Save API details</button>
+            <button className="btn ghost sm" disabled={!ap.ready || !!busy} onClick={testApi}>{busy === 'test' ? 'Testing…' : 'Test connection'}</button>
+            <button className="btn ghost sm" disabled={!ap.ready || !!busy} onClick={upload}>{busy === 'up' ? 'Uploading…' : 'Upload now'}</button>
+            {ap.ready && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Disconnect the Google Ads API?', confirm: 'Disconnect', danger: true })) && save({ api: null }, 'Google Ads API disconnected')}>Disconnect</button>}
+          </div>
+          {ap.lastRun && <p className="hint">Last upload {new Date(ap.lastRun).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}: {ap.lastResult?.sent || 0} sent, {ap.lastResult?.failed || 0} failed{ap.lastResult?.error ? ` · ${ap.lastResult.error}` : ''} · {ap.uploaded} uploaded in total.</p>}
+          {ap.failing.length > 0 && (
+            <table className="tbl compact"><thead><tr><th>Conversion</th><th className="r">Tries</th><th>Google said</th></tr></thead>
+              <tbody>{ap.failing.map((x) => <tr key={x.key}><td className="mono sm">{x.key}</td><td className="r">{x.tries}</td><td className="muted sm">{x.err}</td></tr>)}</tbody></table>
+          )}
+        </div>
       )}
     </div>
   );

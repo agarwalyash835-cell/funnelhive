@@ -41,7 +41,7 @@ function captureAttr(qs) {
   let saved = null;
   try { saved = JSON.parse(store.get('ff_attr') || 'null'); } catch {}
   if (saved && Date.now() - (saved.at || 0) > ATTR_DAYS * 864e5) saved = null;
-  const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid'];
+  const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'gbraid', 'wbraid']; // gbraid / wbraid: Google's click ids from iPhones
   const fromUrl = Object.fromEntries(keys.map((k) => [k, qs.get(k)]).filter(([, v]) => v));
   const ref = document.referrer && !document.referrer.startsWith(location.origin) ? (() => { try { return new URL(document.referrer).hostname; } catch { return ''; } })() : '';
   if (Object.keys(fromUrl).length || (!saved && ref)) {
@@ -214,6 +214,10 @@ export default function Public() {
     if (!f || !step) return { live: false };
     const go = (i) => { const n = f.steps[i]; if (n) nav(onDomain ? `/${n.slug}` : `/f/${slug}/${n.slug}${preview}`); };
     const convert = () => post(`/api/public/${slug}/event${preview}`, { stepId: step.id, type: 'convert', variant, source, visitor });
+    // pop-ups: a view / sign-up per pop-up (Analytics), and no more pop-ups once this visitor signed up
+    const leadKey = `ff_lead_${slug}${preview ? '_preview' : ''}`;
+    const popupEvent = (type, popupId) => post(`/api/public/${slug}/event${preview}`, { stepId: step.id, type, popupId, source, visitor });
+    const popupLead = (opts) => { if (!opts?.popup) return; store.set(leadKey, '1'); popupEvent('popup_convert', opts.popup); };
     const key = `ff_order_${slug}${preview ? "_preview" : ""}`; // preview never reuses a real order id
     // the buyer's receipt / invoice links, shown on the thank-you page
     const dkey = `ff_delivery_${slug}${preview ? '_preview' : ''}`;
@@ -248,33 +252,39 @@ export default function Public() {
       });
     };
     return {
-      live: true, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, stripe: !!f.stripe, waRequired: !!f.waRequired, delivery, webinar: sessions, privacy: f.privacy || null, seller: f.seller || null, social,
+      live: true, preview: !!preview, leadKey, holdPopups: needsConsent && !choice && !preview, onPopupEvent: popupEvent, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, stripe: !!f.stripe, waRequired: !!f.waRequired, delivery, webinar: sessions, privacy: f.privacy || null, seller: f.seller || null, social,
       onNext: async () => {
         if (blocks.some((b) => b.type === 'optin')) return document.getElementById('optin')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         if (blocks.some((b) => b.type === 'checkout')) return document.querySelector('.co-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await convert(); go(idx + 1);
       },
-      onOptin: async (data) => {
+      // opts (opt-ins inside a pop-up): { popup: its id, next: go on to the next step afterwards }
+      onOptin: async (data, opts) => {
         const id = eventId('lead');
-        const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, source, visitor, attr, tk: ids(), eventId: id });
+        const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id });
         if (r?.error) throw new Error(r.error);
         store.set('ff_email', data.email, sessionStorage);
         if (data.name) store.set('ff_name', data.name, sessionStorage);
         if (data.phone) store.set('ff_phone', data.phone, sessionStorage);
         remember(r);
         track('Lead', {}, r?.eventId || id);
+        store.set(leadKey, '1');
+        popupLead(opts);
+        if (opts?.popup && !opts.next) return; // the pop-up thanks them; they stay on this page
         await convert(); go(idx + 1);
       },
       onAbandon: (data) => post(`${base}/abandon${preview}`, { notice: true, ...data, stepId: step.id, visitor, attr }), // the checkout shows the reminder notice
-      onForm: async (data) => {
+      onForm: async (data, opts) => {
         const id = eventId('lead');
-        const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, source, visitor, attr, tk: ids(), eventId: id });
+        const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id });
         if (r.error) throw new Error(r.error);
         if (data.email) store.set('ff_email', data.email, sessionStorage);
         if (data.name) store.set('ff_name', data.name, sessionStorage);
         if (data.phone) store.set('ff_phone', data.phone, sessionStorage);
         remember(r);
         if (r.qualified !== false) track('Lead', {}, r.eventId || id);
+        store.set(leadKey, '1');
+        popupLead(opts);
         await convert();
       },
       onFormNext: () => go(idx + 1),
@@ -364,7 +374,7 @@ export default function Public() {
   return (
     <>
       {preview && <div className="previewbar">Preview mode — nothing is recorded{step.ab?.enabled && ` · showing variant ${variant}`}</div>}
-      <Page blocks={blocks} theme={f.theme} ctx={hydrating ? { ...ctx, ...SSR_CTX } : ctx} />
+      <Page blocks={blocks} theme={f.theme} ctx={hydrating ? { ...ctx, ...SSR_CTX } : ctx} popups={hydrating ? undefined : step.popups} />
       {needsConsent && !choice && !preview && !hydrating && (
         <div role="dialog" aria-label="Cookie consent" style={{ position: 'fixed', left: 12, right: 12, bottom: 12, zIndex: 9000, maxWidth: 560, margin: '0 auto', background: '#111827', color: '#f9fafb', borderRadius: 14, padding: '14px 16px', boxShadow: '0 12px 40px rgba(0,0,0,.35)', font: '14px/1.5 system-ui, sans-serif', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
           <span style={{ flex: '1 1 260px' }}>{tr(f.theme?.lang, 'We use cookies to measure our ads and improve this page.')} <a href={f.privacy.policy} target="_blank" rel="noreferrer" style={{ color: '#a5b4fc' }}>{tr(f.theme?.lang, 'Privacy Policy')}</a></span>

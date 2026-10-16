@@ -2045,3 +2045,21 @@ button.me > svg { flex: none; color: var(--c-muted); }
 /* keyboard focus: a visible ring on anything you can tab to */
 :where(button, a, summary, [tabindex]):focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+
+/* ---------- reports ---------- */
+.rp-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.rp-kpis .kpi-f small { white-space: normal; line-height: 1.35; }
+.rp-funnel { height: 34px; max-width: 220px; }
+.rp-custom { margin-bottom: 16px; }
+.rp-custom label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--c-muted); }
+.rp-custom input { height: 32px; }
+.rp-heat th[scope="row"] { white-space: nowrap; font-weight: 600; text-align: left; }
+.rp-heat td.rp-cell { background: color-mix(in srgb, var(--c-accent-2) var(--rp-a, 0%), var(--c-surface)); color: var(--c-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rp-heat td.rp-none { background: var(--c-surface-2); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (max-width: 1280px) { .rp-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .rp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-periods { flex-wrap: wrap; }
+  .rp-funnel { max-width: 100%; width: 100%; }
+}

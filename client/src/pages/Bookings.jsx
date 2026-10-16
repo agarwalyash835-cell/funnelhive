@@ -3,12 +3,13 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { fmtWhenShort, zoneCity, allZones, zoneOption, viewerTz, dayKey, fmtTime, zoneLabel } from '../tzfmt';
 import { Layout, Panel, Icon, Empty, Modal, toast, num, confirmDialog, promptDialog } from '../ui';
+import { t, tx } from '../appI18n';
 
 const DAYS = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']];
 export const fmtWhen = (t, zone) => fmtWhenShort(t, zone ?? 330);
 const money = (iso, v) => { try { return new Intl.NumberFormat(iso === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency: iso || 'INR', minimumFractionDigits: 0 }).format(Number(v || 0)); } catch { return `${iso} ${v}`; } };
-const lengthLabel = (m) => (m % 60 === 0 ? `${m / 60} hr` : m > 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : `${m} min`);
-const copy = (text, what = 'Link') => navigator.clipboard?.writeText(text).then(() => toast(`${what} copied`), () => promptDialog({ title: 'Copy this', value: text, readOnly: true, confirm: 'Done', cancel: null }));
+const lengthLabel = (m) => (m % 60 === 0 ? t('{n} hr', { n: m / 60 }) : m > 60 ? t('{h} hr {m} min', { h: Math.floor(m / 60), m: m % 60 }) : t('{n} min', { n: m }));
+const copy = (text, what = 'Link') => navigator.clipboard?.writeText(text).then(() => toast(t('{what} copied', { what: t(what) })), () => promptDialog({ title: t('Copy this'), value: text, readOnly: true, confirm: t('Done'), cancel: null }));
 const meetUrl = (handle, slug) => `${location.origin}/meet/${handle}${slug ? `/${slug}` : ''}`;
 
 export default function Bookings() {
@@ -22,13 +23,13 @@ export default function Bookings() {
   useEffect(() => {
     const g = qs.get('gcal');
     if (!g) return;
-    toast({ connected: 'Google Calendar connected', cancelled: 'Google Calendar wasn’t connected', expired: 'That took too long — please try connecting again', failed: 'Couldn’t connect Google Calendar — please try again' }[g] || g);
+    toast(t({ connected: 'Google Calendar connected', cancelled: 'Google Calendar wasn’t connected', expired: 'That took too long — please try connecting again', failed: 'Couldn’t connect Google Calendar — please try again' }[g]) || g);
     setQs({ tab: 'calendars' });
   }, []);
   return (
-    <Layout title="Bookings" subtitle="Your booking page, your call types, and every call booked.">
+    <Layout title={t('Bookings')} subtitle={t('Your booking page, your call types, and every call booked.')}>
       {handle && cals && <BookingPage handle={handle} setHandle={setHandle} cals={cals} onEdit={(id) => setQs({ tab: 'calendars', cal: id })} />}
-      <div className="seg pr-tabs">{[['upcoming', 'Upcoming calls'], ['past', 'Past & cancelled'], ['calendars', 'Call types & hours']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setQs({ tab: k })}>{l}</button>)}</div>
+      <div className="seg pr-tabs">{[['upcoming', 'Upcoming calls'], ['past', 'Past & cancelled'], ['calendars', 'Call types & hours']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setQs({ tab: k })}>{t(l)}</button>)}</div>
       {tab === 'calendars' ? <Calendars handle={handle} initial={qs.get('cal')} onChange={loadCals} /> : <BookingList past={tab === 'past'} handle={handle} />}
     </Layout>
   );
@@ -43,15 +44,15 @@ function BookingPage({ handle, setHandle, cals, onEdit }) {
     <section className="bp">
       <div className="bp-link">
         <div className="bp-l">
-          <span className="bp-k">Your booking page</span>
+          <span className="bp-k">{t('Your booking page')}</span>
           <a className="bp-url" href={url} target="_blank" rel="noreferrer">{url.replace(/^https?:\/\//, '')}</a>
-          <small>Share it anywhere — Instagram bio, WhatsApp, email signature. Visitors see your free times in their own time zone.</small>
+          <small>{t('Share it anywhere — Instagram bio, WhatsApp, email signature. Visitors see your free times in their own time zone.')}</small>
         </div>
         <div className="row">
-          <button className="btn primary sm" onClick={() => copy(url)}><Icon name="copy" size={14} /> Copy link</button>
-          <a className="btn ghost sm" href={url} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Open</a>
-          <button className="btn ghost sm" onClick={() => setEmbed({ name: 'your booking page', url })}>Embed</button>
-          <button className="btn ghost sm" onClick={() => setEdit(true)}><Icon name="edit" size={14} /> Change address</button>
+          <button className="btn primary sm" onClick={() => copy(url)}><Icon name="copy" size={14} /> {t('Copy link')}</button>
+          <a className="btn ghost sm" href={url} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> {t('Open')}</a>
+          <button className="btn ghost sm" onClick={() => setEmbed({ name: 'your booking page', url })}>{t('Embed')}</button>
+          <button className="btn ghost sm" onClick={() => setEdit(true)}><Icon name="edit" size={14} /> {t('Change address')}</button>
         </div>
       </div>
       <div className="bp-types">
@@ -59,12 +60,12 @@ function BookingPage({ handle, setHandle, cals, onEdit }) {
           const link = meetUrl(handle, c.slug);
           return (
             <div key={c.id} className="bp-type">
-              <div className="bp-th"><b>{c.name}</b>{c.listed === false && <span className="pill" title="Not shown on your booking page — only people with the link can book">hidden</span>}</div>
-              <span className="bp-meta">{(c.durations || [c.duration]).map(lengthLabel).join(' / ')} · {c.price > 0 ? money(c.currency, c.price) : 'Free'}</span>
+              <div className="bp-th"><b>{c.name}</b>{c.listed === false && <span className="pill" title={t('Not shown on your booking page — only people with the link can book')}>{t('hidden')}</span>}</div>
+              <span className="bp-meta">{(c.durations || [c.duration]).map(lengthLabel).join(' / ')} · {c.price > 0 ? money(c.currency, c.price) : t('Free')}</span>
               <div className="bp-acts">
-                <button className="link-btn" onClick={() => copy(link)}><Icon name="link" size={13} /> Copy link</button>
-                <button className="link-btn" onClick={() => setEmbed({ name: c.name, url: link })}>Embed</button>
-                <button className="link-btn" onClick={() => onEdit(c.id)}>Edit</button>
+                <button className="link-btn" onClick={() => copy(link)}><Icon name="link" size={13} /> {t('Copy link')}</button>
+                <button className="link-btn" onClick={() => setEmbed({ name: c.name, url: link })}>{t('Embed')}</button>
+                <button className="link-btn" onClick={() => onEdit(c.id)}>{t('Edit')}</button>
               </div>
             </div>
           );
@@ -81,15 +82,15 @@ function HandleModal({ handle, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const save = async (e) => {
     e.preventDefault(); setBusy(true);
-    try { const r = await api('/booking-page', 'PUT', { handle: v }); toast('Booking page address saved'); onSaved(r.handle); } catch (x) { toast(x.message); }
+    try { const r = await api('/booking-page', 'PUT', { handle: v }); toast(t('Booking page address saved')); onSaved(r.handle); } catch (x) { toast(x.message); }
     setBusy(false);
   };
   return (
-    <Modal title="Your booking page address" onClose={onClose} width={520}>
+    <Modal title={t('Your booking page address')} onClose={onClose} width={520}>
       <form onSubmit={save} className="m-body stack">
-        <label className="fld"><span>Address</span><div className="bp-addr"><span>{location.host}/meet/</span><input value={v} autoFocus maxLength={30} onChange={(e) => setV(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} /></div></label>
-        <p className="hint">Old links stop working once you change it.</p>
-        <div className="row end"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || v.length < 3}>{busy ? 'Saving…' : 'Save'}</button></div>
+        <label className="fld"><span>{t('Address')}</span><div className="bp-addr"><span>{location.host}/meet/</span><input value={v} autoFocus maxLength={30} onChange={(e) => setV(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} /></div></label>
+        <p className="hint">{t('Old links stop working once you change it.')}</p>
+        <div className="row end"><button type="button" className="btn ghost" onClick={onClose}>{t('Cancel')}</button><button className="btn primary" disabled={busy || v.length < 3}>{busy ? t('Saving…') : t('Save')}</button></div>
       </form>
     </Modal>
   );
@@ -99,10 +100,10 @@ function EmbedModal({ name, url, onClose }) {
   const inline = `<iframe src="${url}?embed=1" style="width:100%;min-height:720px;border:0" title="Book ${name.replace(/"/g, '')}"></iframe>`;
   const button = `<a href="${url}" target="_blank" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#1c1917;color:#fff;font:600 15px system-ui;text-decoration:none">Book a call</a>`;
   return (
-    <Modal title={`Add ${name} to your website`} onClose={onClose} width={620}>
+    <Modal title={t('Add {name} to your website', { name: name === 'your booking page' ? t('your booking page') : name })} onClose={onClose} width={620}>
       <div className="m-body stack">
-        <div><b>Inline calendar</b><p className="hint">Paste where the calendar should appear (WordPress “Custom HTML”, Webflow “Embed”, Wix “Embed code”).</p><textarea className="code-area bp-code" readOnly rows={3} value={inline} onFocus={(e) => e.target.select()} /><button className="btn ghost sm" onClick={() => copy(inline, 'Embed code')}><Icon name="copy" size={14} /> Copy</button></div>
-        <div><b>Button</b><p className="hint">A button that opens your booking page.</p><textarea className="code-area bp-code" readOnly rows={3} value={button} onFocus={(e) => e.target.select()} /><button className="btn ghost sm" onClick={() => copy(button, 'Button code')}><Icon name="copy" size={14} /> Copy</button></div>
+        <div><b>{t('Inline calendar')}</b><p className="hint">{t('Paste where the calendar should appear (WordPress “Custom HTML”, Webflow “Embed”, Wix “Embed code”).')}</p><textarea className="code-area bp-code" readOnly rows={3} value={inline} onFocus={(e) => e.target.select()} /><button className="btn ghost sm" onClick={() => copy(inline, 'Embed code')}><Icon name="copy" size={14} /> {t('Copy')}</button></div>
+        <div><b>{t('Button')}</b><p className="hint">{t('A button that opens your booking page.')}</p><textarea className="code-area bp-code" readOnly rows={3} value={button} onFocus={(e) => e.target.select()} /><button className="btn ghost sm" onClick={() => copy(button, 'Button code')}><Icon name="copy" size={14} /> {t('Copy')}</button></div>
       </div>
     </Modal>
   );
@@ -118,9 +119,9 @@ function BookingList({ past, handle }) {
   const shown = (rows || []).filter((b) => (past ? b.status !== 'confirmed' || b.end < now : b.status === 'confirmed' && b.end >= now));
   if (past) shown.reverse();
   const cancel = async (b) => {
-    const reason = await promptDialog({ title: `Cancel the call with ${b.name || b.email} on ${fmtWhen(b.start, z)}?`, text: `They’ll get an email${b.paid && !b.refunded ? ' and a full refund' : ''}.`, label: 'Reason (optional)', confirm: 'Cancel the call', cancel: 'Keep it', danger: true });
+    const reason = await promptDialog({ title: t('Cancel the call with {name} on {when}?', { name: b.name || b.email, when: fmtWhen(b.start, z) }), text: b.paid && !b.refunded ? t('They’ll get an email and a full refund.') : t('They’ll get an email.'), label: t('Reason (optional)'), confirm: t('Cancel the call'), cancel: t('Keep it'), danger: true });
     if (reason === null) return;
-    try { await api(`/bookings/${b.id}/cancel`, 'POST', { reason }); toast('Booking cancelled — they’ve been emailed'); load(); } catch (e) { toast(e.message); }
+    try { await api(`/bookings/${b.id}/cancel`, 'POST', { reason }); toast(t('Booking cancelled — they’ve been emailed')); load(); } catch (e) { toast(e.message); }
   };
   const outcome = async (b, o) => { try { const r = await api(`/bookings/${b.id}`, 'PUT', { outcome: b.outcome === o ? null : o }); setRows(rows.map((x) => (x.id === b.id ? { ...x, outcome: r.outcome } : x))); } catch (e) { toast(e.message); } };
   const today = dayKey(now, z), tomorrow = dayKey(now + 864e5, z);
@@ -129,33 +130,33 @@ function BookingList({ past, handle }) {
   // grouped by day, in your own time zone
   const groups = [];
   for (const b of shown) { const k = dayKey(b.start, z); const g = groups[groups.length - 1]; if (g?.k === k) g.list.push(b); else groups.push({ k, list: [b] }); }
-  const dayTitle = (k, t) => `${k === today ? 'Today · ' : k === tomorrow ? 'Tomorrow · ' : ''}${new Date(t).toLocaleDateString('en-IN', { timeZone: z, weekday: 'long', day: 'numeric', month: 'long' })}`;
+  const dayTitle = (k, ts) => `${k === today ? `${t('Today')} · ` : k === tomorrow ? `${t('Tomorrow')} · ` : ''}${new Date(ts).toLocaleDateString('en-IN', { timeZone: z, weekday: 'long', day: 'numeric', month: 'long' })}`;
   return (
     <>
       {rows && (past ? (
         <div className="kpis k4">
-          <div className="kpi"><span className="kpi-l">Calls held (90 days)</span><b className="kpi-v">{num(done.length)}</b></div>
-          <div className="kpi"><span className="kpi-l">Marked completed</span><b className="kpi-v">{num(done.filter((b) => b.outcome === 'completed').length)}</b></div>
-          <div className="kpi"><span className="kpi-l">No-shows</span><b className="kpi-v">{num(done.filter((b) => b.outcome === 'no_show').length)}</b></div>
-          <div className="kpi"><span className="kpi-l">Cancelled</span><b className="kpi-v">{num(rows.filter((b) => b.status === 'cancelled').length)}</b></div>
+          <div className="kpi"><span className="kpi-l">{t('Calls held (90 days)')}</span><b className="kpi-v">{num(done.length)}</b></div>
+          <div className="kpi"><span className="kpi-l">{t('Marked completed')}</span><b className="kpi-v">{num(done.filter((b) => b.outcome === 'completed').length)}</b></div>
+          <div className="kpi"><span className="kpi-l">{t('No-shows')}</span><b className="kpi-v">{num(done.filter((b) => b.outcome === 'no_show').length)}</b></div>
+          <div className="kpi"><span className="kpi-l">{t('Cancelled')}</span><b className="kpi-v">{num(rows.filter((b) => b.status === 'cancelled').length)}</b></div>
         </div>
       ) : (
         <div className="kpis k4">
-          <div className="kpi"><span className="kpi-l">Calls today</span><b className="kpi-v">{num(live.filter((b) => dayKey(b.start, z) === today).length)}</b></div>
-          <div className="kpi"><span className="kpi-l">Next 7 days</span><b className="kpi-v">{num(live.filter((b) => b.start >= now && b.start < now + 7 * 864e5).length)}</b></div>
-          <div className="kpi"><span className="kpi-l">Booked (90 days)</span><b className="kpi-v">{num(rows.filter((b) => b.status !== 'cancelled').length)}</b></div>
-          <div className="kpi"><span className="kpi-l">Cancelled</span><b className="kpi-v">{num(rows.filter((b) => b.status === 'cancelled').length)}</b></div>
+          <div className="kpi"><span className="kpi-l">{t('Calls today')}</span><b className="kpi-v">{num(live.filter((b) => dayKey(b.start, z) === today).length)}</b></div>
+          <div className="kpi"><span className="kpi-l">{t('Next 7 days')}</span><b className="kpi-v">{num(live.filter((b) => b.start >= now && b.start < now + 7 * 864e5).length)}</b></div>
+          <div className="kpi"><span className="kpi-l">{t('Booked (90 days)')}</span><b className="kpi-v">{num(rows.filter((b) => b.status !== 'cancelled').length)}</b></div>
+          <div className="kpi"><span className="kpi-l">{t('Cancelled')}</span><b className="kpi-v">{num(rows.filter((b) => b.status === 'cancelled').length)}</b></div>
         </div>
       ))}
       {!rows ? <div className="skeleton" /> : !shown.length ? (
         <Panel>
-          <Empty icon="clock" title={past ? 'Nothing here yet' : 'No upcoming calls'} text={past ? 'Finished, rescheduled and cancelled calls show up here — mark each one completed or no-show.' : 'Share your booking page link, or add a booking calendar to a funnel page. Calls land here, with confirmations and reminders sent for you.'}>
-            {!past && <div className="row center">{handle && <button className="btn primary" onClick={() => copy(meetUrl(handle))}><Icon name="copy" size={14} /> Copy booking link</button>}<Link className="btn ghost" to="/templates">Browse application funnels</Link></div>}
+          <Empty icon="clock" title={past ? t('Nothing here yet') : t('No upcoming calls')} text={past ? t('Finished, rescheduled and cancelled calls show up here — mark each one completed or no-show.') : t('Share your booking page link, or add a booking calendar to a funnel page. Calls land here, with confirmations and reminders sent for you.')}>
+            {!past && <div className="row center">{handle && <button className="btn primary" onClick={() => copy(meetUrl(handle))}><Icon name="copy" size={14} /> {t('Copy booking link')}</button>}<Link className="btn ghost" to="/templates">{t('Browse application funnels')}</Link></div>}
           </Empty>
         </Panel>
       ) : groups.map((g) => (
         <section key={g.k} className="bk-day">
-          <h3 className="bk-dh">{dayTitle(g.k, g.list[0].start)}<span>{g.list.length} call{g.list.length > 1 ? 's' : ''}</span></h3>
+          <h3 className="bk-dh">{dayTitle(g.k, g.list[0].start)}<span>{t(g.list.length > 1 ? '{n} calls' : '{n} call', { n: g.list.length })}</span></h3>
           <div className="bk-list">{g.list.map((b) => (
             <div key={b.id} className={`bk-row ${b.status !== 'confirmed' ? 'off' : ''}`}>
               <div className="bk-time"><b>{fmtTime(b.start, z)}</b><small>{fmtTime(b.end, z)} · {zoneLabel(z, b.start)}</small></div>

@@ -43,6 +43,7 @@ import { registerLegal, publicPrivacy, privacyOf, consentLine, legalMissing } fr
 import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
 import { registerAgency, logRequest, brandFor, brandForHost } from './agency.js';
 import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
+import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
 import { registerFulfilment, cleanAddress } from './fulfilment.js';
 import { registerBroadcasts } from './broadcasts.js';
@@ -410,6 +411,7 @@ app.get('/api/me', auth, (req, res) => {
     ...pubUser(req.actor || req.user), hasDemo: !!q('SELECT 1 FROM events WHERE userId = ? AND demo = 1 LIMIT 1').get(req.user.id) || T.orders.exists({ userId: req.user.id, demo: 1 }) || T.leads.exists({ userId: req.user.id, demo: 1 }),
     aiEnabled: aiEnabled(), aiProvider: aiProvider(), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
     billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && isAdmin(req.user), brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
+    uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
     impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
     workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role } : null,
     teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
@@ -434,6 +436,7 @@ app.get('/api/me', auth, (req, res) => {
 app.get('/api/settings', auth, (req, res) => { ensureSecret(req.user); res.json(req.user.settings); });
 // Only known settings are stored, and each is checked (the signing secret can only be rotated, never set)
 const SETTING_KEYS = ['businessName', 'currency', 'supportWhatsapp', 'webhookUrl', 'customDomain'];
+const UI_LANGS = ['en', 'hi'];
 app.put('/api/settings', auth, wrap(async (req, res) => {
   const s = req.user.settings;
   const body = req.body || {};
@@ -441,6 +444,15 @@ app.put('/api/settings', auth, wrap(async (req, res) => {
   for (const k of SETTING_KEYS) if (k in body) next[k] = String(body[k] ?? '').trim().slice(0, 300);
   // the business's time zone: booking hours, webinars, "wait until 10:00" and report days follow it
   if ('timezone' in body) { const tz = String(body.timezone || '').trim(); if (tz && !validTz(tz)) return res.status(400).json({ error: 'Unknown time zone' }); next.timezone = tz || 'Asia/Kolkata'; }
+  // the dashboard's language (English / Hindi) — a team member's choice is their own, not the owner's
+  if ('uiLang' in body) {
+    const l = String(body.uiLang ?? '');
+    if (!UI_LANGS.includes(l)) return res.status(400).json({ error: 'Language must be en or hi' });
+    if (req.actor) {
+      T.users.update(req.actor.id, (x) => { x.settings = { ...(x.settings || {}), uiLang: l }; });
+      if (Object.keys(body).length === 1) return res.json({ ...s, uiLang: l });
+    } else next.uiLang = l;
+  }
   if (body.payments && typeof body.payments === 'object') {
     next.payments = { ...s.payments };
     for (const k of ['provider', 'razorpayKey', 'stripeKey', 'cashfreeKey', 'phonepeKey', 'mode']) if (k in body.payments) next.payments[k] = String(body.payments[k] ?? '').trim().slice(0, 200);
@@ -630,6 +642,31 @@ function snapshot(f, label, force = false) {
   q(`DELETE FROM revisions WHERE id IN (SELECT id FROM revisions WHERE funnelId = ? ORDER BY at DESC LIMIT -1 OFFSET ${REV_KEEP})`).run(f.id);
 }
 
+// A step's pop-ups (client/src/blocks.jsx → POPUP_*): at most 3, each up to 20 blocks of the kinds a pop-up can hold.
+// Anything else is dropped, not refused, so an autosave never fails over it. Countdowns in pop-ups end at a fixed time.
+const POPUP_BLOCKS = new Set(['section', 'text', 'image', 'video', 'countdown', 'optin', 'form', 'cta', 'spacer', 'divider', 'guarantee', 'testimonials']);
+const oneOf = (v, list, d) => (list.includes(v) ? v : d);
+function cleanPopups(s) {
+  if (!('popups' in s)) return;
+  const seen = new Set();
+  const out = (Array.isArray(s.popups) ? s.popups : []).filter((p) => p && typeof p === 'object' && !Array.isArray(p)).slice(0, 3).map((p, i) => {
+    let id = typeof p.id === 'string' && /^[\w-]{1,40}$/.test(p.id) ? p.id : uid();
+    if (seen.has(id)) id = uid();
+    seen.add(id);
+    const type = oneOf(p.trigger?.type, ['exit', 'delay', 'scroll', 'click', 'load'], 'exit');
+    const n = Number(p.trigger?.value);
+    const value = type === 'delay' ? Math.min(600, Math.max(0, Number.isFinite(n) ? Math.round(n) : 10)) : type === 'scroll' ? Math.min(100, Math.max(0, Number.isFinite(n) ? Math.round(n) : 50)) : undefined;
+    const blocks = (Array.isArray(p.blocks) ? p.blocks : []).filter((b) => b && typeof b === 'object' && POPUP_BLOCKS.has(b.type) && typeof b.id === 'string' && b.props && typeof b.props === 'object' && !Array.isArray(b.props)).slice(0, 20)
+      .map((b) => (b.type === 'countdown' ? { ...b, props: { ...b.props, mode: 'fixed' } } : b));
+    return {
+      id, name: String(p.name || '').trim().slice(0, 60) || `Pop-up ${i + 1}`, size: oneOf(p.size, ['center', 'corner', 'full', 'bar'], 'center'),
+      trigger: { type, ...(value !== undefined ? { value } : {}) }, frequency: oneOf(p.frequency, ['session', 'visitor', 'always'], 'session'),
+      after: oneOf(p.after, ['message', 'next'], 'message'), ...(p.thanks ? { thanks: String(p.thanks).slice(0, 300) } : {}), blocks,
+    };
+  });
+  if (out.length) s.popups = out; else delete s.popups;
+}
+
 // Optimistic concurrency: clients send the version they edited; a stale version gets 409 + the latest copy
 app.put('/api/funnels/:id', auth, (req, res) => {
   const f = owned(req, res);
@@ -645,6 +682,7 @@ app.put('/api/funnels/:id', auth, (req, res) => {
   if (b.published === true && !f.published) { const miss = legalMissing(T.users.get(f.userId), f); if (miss.length) return res.status(400).json({ error: `Add your ${miss.join(', ')} in Settings → Business & legal before publishing`, missing: miss, settings: '/settings#legal' }); }
   // a step's "hide from search engines" is stored as a plain true, or not at all
   if ('steps' in b) for (const s of b.steps) if (s.seo && typeof s.seo === 'object') { if (s.seo.noindex) s.seo.noindex = true; else delete s.seo.noindex; }
+  if ('steps' in b) for (const s of b.steps) cleanPopups(s);
   if (req.body.baseVersion != null && Number(req.body.baseVersion) !== f.version) {
     return res.status(409).json({ error: 'This funnel was changed somewhere else (another tab, device or teammate).', funnel: withKey(f) });
   }
@@ -1027,6 +1065,7 @@ registerStripeSettings(app, { auth, wrap });
 registerLegal(app, { auth, appUrl });
 registerApi(app, { auth });
 registerAdSpend(app, { auth, wrap });
+registerReports(app, { auth });
 registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signFor: sign });
 registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
 registerFulfilment(app, { auth, appUrl });
@@ -1110,6 +1149,11 @@ app.post('/api/public/:slug/event', (req, res) => {
   if (!isPreview(req) && ['view', 'convert'].includes(type) && f.steps.some((s) => s.id === stepId)) {
     Events.add({ userId: f.userId, funnelId: f.id, stepId, type, variant: variant === 'B' ? 'B' : 'A', source: String(source || 'direct').slice(0, 40), visitor: typeof visitor === 'string' ? visitor.slice(0, 64) : null, at: Date.now() });
   }
+  // a pop-up shown / signed up through: the pop-up's id is kept in the variant column
+  const popupId = typeof req.body.popupId === 'string' ? req.body.popupId : '';
+  if (!isPreview(req) && ['popup_view', 'popup_convert'].includes(type) && f.steps.find((s) => s.id === stepId)?.popups?.some((p) => p.id === popupId)) {
+    Events.add({ userId: f.userId, funnelId: f.id, stepId, type, variant: popupId, source: String(source || 'direct').slice(0, 40), visitor: typeof visitor === 'string' ? visitor.slice(0, 64) : null, at: Date.now() });
+  }
   res.json({ ok: true });
 });
 
@@ -1131,8 +1175,11 @@ app.post('/api/public/:slug/lead', (req, res) => {
   }
   // applications: the step's form says which answers mean "not a fit" — checked here, not trusted from the browser
   const step = f.steps.find((s) => s.id === stepId);
+  // a sign-up from a pop-up: that pop-up's form decides the qualifying answers and the free product
+  const pop = typeof req.body.popupId === 'string' && step?.popups?.find((p) => p.id === req.body.popupId);
+  const formBlocks = pop ? pop.blocks : step ? allBlocks(step) : [];
   const low = (v) => String(v ?? '').trim().toLowerCase();
-  const rules = (step ? allBlocks(step) : []).filter((b) => b.type === 'form').flatMap((b) => (b.props.fields || []).filter((fd) => fd.reject).map((fd) => [fd.label, String(fd.reject).split(',').map(low).filter(Boolean)]));
+  const rules = formBlocks.filter((b) => b.type === 'form').flatMap((b) => (b.props.fields || []).filter((fd) => fd.reject).map((fd) => [fd.label, String(fd.reject).split(',').map(low).filter(Boolean)]));
   // an applicant who skips a qualifying question doesn't pass it
   const qualified = rules.length ? !rules.some(([label, bad]) => !low(fields[label]) || bad.includes(low(fields[label]))) : undefined;
   const attr = cleanAttr(req.body.attr);
@@ -1151,7 +1198,7 @@ app.post('/api/public/:slug/lead', (req, res) => {
     if (qualified !== false) webinar = registrationFor(f, step, allBlocks, req.body, { email: cleanEmail, name: lead.name, phone: cleanPhone, leadId: lead.id, base: appUrl(req) });
     const { userId, ...out } = lead;
     // a free product attached to this opt-in / form (lead magnet) — not for applicants who aren't a fit
-    const gift = (step ? allBlocks(step) : []).find((b) => (b.type === 'optin' || b.type === 'form') && b.props?.productId)?.props.productId;
+    const gift = formBlocks.find((b) => (b.type === 'optin' || b.type === 'form') && b.props?.productId)?.props.productId;
     if (gift && cleanEmail && qualified !== false) access = deliver({ f, owner: ownerOf(f), email: cleanEmail, name: lead.name, phone: cleanPhone, grants: [{ productId: gift }], leadId: lead.id, base: appUrl(req) });
     fireWebhook(f.userId, 'lead.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}) });
     fireAutomation(f.userId, 'lead', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { accessLink: access.library } : {}) });

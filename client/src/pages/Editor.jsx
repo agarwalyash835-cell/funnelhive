@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronUp, ChevronDown, Copy as CopyIcon, Trash2, EyeOff } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { BLOCK_TYPES, BLOCK_GROUPS, BLOCK_ICONS, STYLES, ELEMENT_TYPES, STYLE_DEFAULTS, FORM_FIELD_TYPES, Page, newElement, freshIds, applyLayout, defaultSection, withCopy } from '../blocks';
+import { BLOCK_TYPES, BLOCK_GROUPS, BLOCK_ICONS, STYLES, ELEMENT_TYPES, STYLE_DEFAULTS, FORM_FIELD_TYPES, Page, newElement, freshIds, applyLayout, defaultSection, withCopy, POPUP_SIZES, POPUP_TRIGGERS, POPUP_FREQ, POPUP_BLOCKS, POPUP_MAX, POPUP_MAX_BLOCKS } from '../blocks';
 import { BlockIcon, ElementIcon, StepIcon } from '../blockIcons';
 import { Icon, toast, Modal, ago, confirmDialog, promptDialog } from '../ui';
 import { LANGS } from '../i18n';
@@ -38,8 +38,22 @@ const linkFieldShown = (key, props = {}) => {
   const m = /^(cta|button)(Url|NewTab)$/.exec(key);
   if (!m) return true;
   const action = props[`${m[1]}Action`];
-  return m[2] === 'Url' ? action === 'url' || action === 'scroll' : action === 'url';
+  return m[2] === 'Url' ? action === 'url' || action === 'scroll' || action === 'popup' : action === 'url';
 };
+// a button set to "Open a pop-up": its link field becomes a choice of this step's pop-ups
+const isPopupLink = (key, props = {}) => (key === 'url' ? props.action : /^(cta|button)Url$/.test(key) ? props[`${key.slice(0, -3)}Action`] : null) === 'popup';
+function PopupPick({ popups = [], value, onChange }) {
+  return (
+    <div className="fld"><label>pop-up to open</label>
+      <select value={popups.some((p) => p.id === value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Choose a pop-up…</option>
+        {popups.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      {!popups.length && <span className="hint">This step has no pop-ups yet — add one in Step → Pop-ups.</span>}
+    </div>
+  );
+}
+const newPopup = (n) => ({ id: uid(), name: `Pop-up ${n}`, size: 'center', trigger: { type: 'exit' }, frequency: 'session', after: 'message', blocks: [mk('optin', { eyebrow: '', title: 'Get the free guide', subtitle: 'Enter your email and we’ll send it straight away.', askPhone: false, points: [] })] });
 
 const STEP_TYPES = {
   landing: { icon: '🏠', label: 'Landing page', blocks: () => [mk('hero'), mk('features'), mk('testimonials'), mk('cta')] },
@@ -481,6 +495,8 @@ export default function Editor() {
   const [sel, setSel] = useState(null);
   const [selEl, setSelEl] = useState(null);
   const [variant, setVariant] = useState('A');
+  const [popupId, setPopupId] = useState(null);   // editing one of the step's pop-ups instead of the page
+  const [popPreview, setPopPreview] = useState(null);
   const [device, setDevice] = useState('desktop');
   const [view, setView] = useState('canvas');
   const [left, setLeft] = useState('add');
@@ -586,11 +602,13 @@ export default function Editor() {
   const step = f.steps.find((s) => s.id === stepId) || f.steps[0];
   const abOn = !!step.ab?.enabled;
   const isB = abOn && variant === 'B';
-  const blocks = isB ? step.ab.blocks : step.blocks;
+  const popup = popupId ? (step.popups || []).find((p) => p.id === popupId) : null;
+  const blocks = popup ? popup.blocks : isB ? step.ab.blocks : step.blocks;
+  const setPopups = (fn, group) => patchStep((s) => ({ popups: fn(s.popups || []) }), group);
   const patch = (p, group) => commit({ ...fRef.current, ...p }, group);
   const patchStep = (p, group) => { const lf = fRef.current; commit({ ...lf, steps: lf.steps.map((s) => (s.id === step.id ? { ...s, ...(typeof p === 'function' ? p(s) : p) } : s)) }, group); };
-  const setBlocks = (nb, group) => patchStep((s) => (isB ? { ab: { ...s.ab, blocks: nb } } : { blocks: nb }), group);
-  const latestBlocks = () => { const s = fRef.current.steps.find((x) => x.id === step.id); return isB ? s.ab.blocks : s.blocks; };
+  const setBlocks = (nb, group) => patchStep((s) => (popup ? { popups: (s.popups || []).map((p) => (p.id === popup.id ? { ...p, blocks: nb.slice(0, POPUP_MAX_BLOCKS) } : p)) } : isB ? { ab: { ...s.ab, blocks: nb } } : { blocks: nb }), group);
+  const latestBlocks = () => { const s = fRef.current.steps.find((x) => x.id === step.id); return popup ? ((s.popups || []).find((p) => p.id === popup.id)?.blocks || []) : isB ? s.ab.blocks : s.blocks; };
   const selBlock = blocks.find((b) => b.id === sel);
   const updateBlock = (bid, fn, group) => setBlocks(latestBlocks().map((b) => (b.id === bid ? fn(b) : b)), group);
   const setProp = (k, v) => updateBlock(sel, (b) => ({ ...b, props: k === 'layout' && b.type === 'section' ? applyLayout(b.props, v) : { ...setPath(withCopy(b.type, b.props), k, v), ...(b.type === 'stock' && k === 'left' ? { setAt: Date.now() } : {}) } }), true); // stock: real orders after this count down
@@ -640,7 +658,10 @@ export default function Editor() {
   };
 
   const insertAt = (type, at) => {
+    if (popup && blocks.length >= POPUP_MAX_BLOCKS) return toast(`A pop-up holds up to ${POPUP_MAX_BLOCKS} sections`);
+    if (popup && !POPUP_BLOCKS.includes(typeof type === 'string' ? type : type?.type)) return toast('That section can’t go in a pop-up');
     const b = typeof type === 'string' ? mk(type) : freshIds(type);
+    if (popup && b.type === 'countdown') b.props.mode = 'fixed'; // pop-ups only count down to a real, fixed deadline
     const nb = [...blocks];
     nb.splice(at, 0, b);
     setBlocks(nb);
@@ -711,7 +732,8 @@ export default function Editor() {
   const dupBlock = (bid) => { const i = blocks.findIndex((b) => b.id === bid); const c = freshIds(blocks[i]); const nb = [...blocks]; nb.splice(i + 1, 0, c); setBlocks(nb); setSel(c.id); setSelEl(null); };
   const moveBlock = (from, to) => { const nb = [...blocks]; const [b] = nb.splice(from, 1); nb.splice(to > from ? to - 1 : to, 0, b); setBlocks(nb); };
 
-  const selectStep = (sid) => { setStepId(sid); setSel(null); setSelEl(null); setVariant('A'); setView('canvas'); setMob('canvas'); };
+  const editPopup = (pid) => { setPopupId(pid); setSel(null); setSelEl(null); setView('canvas'); setMob('canvas'); };
+  const selectStep = (sid) => { setStepId(sid); setPopupId(null); setSel(null); setSelEl(null); setVariant('A'); setView('canvas'); setMob('canvas'); };
   const addStep = (type) => {
     const t = STEP_TYPES[type];
     const s = { id: uid(), name: t.label, type, slug: slugify(type), blocks: t.blocks(f) };
@@ -833,6 +855,10 @@ export default function Editor() {
   return (
     <div className={`ed mob-${mob}`}>
       {pieceBar}
+      {popPreview && (step.popups || []).some((p) => p.id === popPreview) && createPortal(
+        <div className="pop-preview"><Page blocks={[]} theme={f.theme} ctx={{ live: false, lang: f.theme?.lang }} popupPreview={step.popups.find((p) => p.id === popPreview)} onClosePreview={() => setPopPreview(null)} /></div>,
+        document.body,
+      )}
       {f.published && legalMiss.length > 0 && (
         <div className="conflict"><Icon name="shield" size={16} /><span><b>This live funnel is missing your {legalMiss.join(', ')}.</b> Indian consumer law needs them on your pages.</span>
           <Link className="btn primary sm" to="/settings#legal">Add in Settings → Business & legal</Link></div>
@@ -931,7 +957,8 @@ export default function Editor() {
                     ))}
                   </div>
                 </div>
-                {BLOCK_GROUPS.map(([g, types]) => (
+                {popup && <p className="hint">Adding to the pop-up “{popup.name}” — only sections that fit in a pop-up are shown.</p>}
+                {BLOCK_GROUPS.map(([g, all]) => [g, popup ? all.filter((t) => POPUP_BLOCKS.includes(t)) : all]).filter(([, types]) => types.length).map(([g, types]) => (
                   <div key={g} className="pgroup">
                     <h5>{g === 'Essentials' ? 'Sections · full-width blocks' : g}</h5>
                     <div className="pgrid">
@@ -1004,14 +1031,20 @@ export default function Editor() {
           ) : (
             <>
               <div className="cv-bar" onClick={(e) => e.stopPropagation()}>
-                <span className="cv-step"><StepIcon type={step.type} size={14} /> {step.name}</span>
-                {abOn && <div className="seg sm ab"><button className={variant === 'A' ? 'on' : ''} onClick={() => { setVariant('A'); setSel(null); setSelEl(null); }}>Variant A</button><button className={variant === 'B' ? 'on' : ''} onClick={() => { setVariant('B'); setSel(null); setSelEl(null); }}>Variant B</button></div>}
+                {popup ? <>
+                  <button className="btn ghost sm" onClick={() => editPopup(null)}><Icon name="chevron" size={13} className="flip" /> Back to page</button>
+                  <span className="cv-step">Pop-up: <b>{popup.name}</b></span>
+                  <button className="btn soft sm" onClick={() => setPopPreview(popup.id)}><Icon name="eye" size={14} /> Preview pop-up</button>
+                  <button className="btn ghost sm" onClick={() => setRight('step')}><Icon name="settings" size={14} /> Pop-up settings</button>
+                </> : <span className="cv-step"><StepIcon type={step.type} size={14} /> {step.name}</span>}
+                {!popup && (step.popups || []).length > 0 && <div className="seg sm">{step.popups.map((p) => <button key={p.id} title={`Edit the pop-up “${p.name}”`} onClick={() => editPopup(p.id)}>{p.name}</button>)}</div>}
+                {abOn && !popup && <div className="seg sm ab"><button className={variant === 'A' ? 'on' : ''} onClick={() => { setVariant('A'); setSel(null); setSelEl(null); }}>Variant A</button><button className={variant === 'B' ? 'on' : ''} onClick={() => { setVariant('B'); setSel(null); setSelEl(null); }}>Variant B</button></div>}
                 <span className="muted sm">{blocks.length} sections</span>
               </div>
-              <div className={`frame ${dnd.dragging ? 'dragging-any' : ''}`} style={{ maxWidth: width }} data-drop="blocks" onFocusCapture={(e) => pickPiece(e.target)} onClickCapture={(e) => pickPiece(e.target)}>
+              <div className={`frame ${dnd.dragging ? 'dragging-any' : ''} ${popup ? `frame-pop pop-${popup.size}` : ''}`} style={{ maxWidth: popup ? `min(${width}, ${{ center: '600px', corner: '420px' }[popup.size] || '100%'})` : width }} data-drop="blocks" onFocusCapture={(e) => pickPiece(e.target)} onClickCapture={(e) => pickPiece(e.target)}>
                 {blocks.length === 0 && (
                   <div className={`cv-empty ${dnd.dragging ? 'drag' : ''}`}>
-                    <Icon name="layers" size={30} /><b>Drag sections or elements here</b><span>or ask the AI on the right to build this page</span>
+                    <Icon name="layers" size={30} /><b>Drag sections or elements here</b><span>{popup ? 'Opt-in forms, text, images, buttons, a countdown or a video work well in a pop-up' : 'or ask the AI on the right to build this page'}</span>
                   </div>
                 )}
                 {blocks.map((b, i) => (
@@ -1084,7 +1117,7 @@ export default function Editor() {
                     <button className="icon-btn" title="Duplicate" aria-label="Duplicate" onClick={() => elAction('dup', selBlock.id, selEl)}><Icon name="copy" size={15} /></button>
                     <button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => elAction('del', selBlock.id, selEl)}><Icon name="trash" size={15} /></button>
                   </div>
-                  {ELEMENT_TYPES[selElLoc.el.type]?.fields.map((d) => <Field key={selEl + d[0]} def={d} value={selElLoc.el.props[d[0]]} onChange={(v) => updateEl(selBlock.id, selEl, (e) => ({ ...e, props: { ...e.props, [d[0]]: v } }), true)} />)}
+                  {ELEMENT_TYPES[selElLoc.el.type]?.fields.map((d) => { const ch = (v) => updateEl(selBlock.id, selEl, (e) => ({ ...e, props: { ...e.props, [d[0]]: v } }), true); return isPopupLink(d[0], selElLoc.el.props) ? <PopupPick key={selEl + d[0]} popups={step.popups} value={selElLoc.el.props[d[0]]} onChange={ch} /> : <Field key={selEl + d[0]} def={d} value={selElLoc.el.props[d[0]]} onChange={ch} />; })}
                 </>
               ) : selBlock ? (
                 <>
@@ -1093,7 +1126,10 @@ export default function Editor() {
                     <button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => removeBlock(selBlock.id)}><Icon name="trash" size={15} /></button>
                   </div>
                   {REAL_ONLY.includes(selBlock.type) && <p className="hint">Shows only real numbers — fake urgency is not allowed under Indian e-commerce rules.</p>}
-                  {BLOCK_TYPES[selBlock.type]?.fields.filter((d) => linkFieldShown(d[0], selBlock.props)).map((d) => <Field key={selBlock.id + d[0]} def={d} value={withCopy(selBlock.type, selBlock.props)[d[0]]} onChange={(v) => setProp(d[0], v)} />)}
+                  {BLOCK_TYPES[selBlock.type]?.fields.filter((d) => linkFieldShown(d[0], selBlock.props) && !(popup && selBlock.type === 'countdown' && d[0] === 'mode')).map((d) => (isPopupLink(d[0], selBlock.props)
+                    ? <PopupPick key={selBlock.id + d[0]} popups={step.popups} value={selBlock.props[d[0]]} onChange={(v) => setProp(d[0], v)} />
+                    : <Field key={selBlock.id + d[0]} def={d} value={withCopy(selBlock.type, selBlock.props)[d[0]]} onChange={(v) => setProp(d[0], v)} />))}
+                  {popup && selBlock.type === 'optin' && <p className="hint">After someone signs up here, the pop-up {popup.after === 'next' ? 'closes and they go to the next step' : 'closes and thanks them'} — change it in Pop-up settings.</p>}
                   {!FLOATING.includes(selBlock.type) && <StylePanel key={`st-${selBlock.id}`} value={selBlock.props._style} onChange={(v) => updateBlock(selBlock.id, (b) => { const props = { ...b.props }; if (v) props._style = v; else delete props._style; return { ...b, props }; }, true)} />}
                   {selBlock.type === 'section' && (
                     <div className="sec-els">
@@ -1132,6 +1168,33 @@ export default function Editor() {
               {MID_FUNNEL.includes(step.type) || f.seo?.noindex
                 ? <label className="tog"><input type="checkbox" checked disabled /><span />Hidden from search engines<small className="hint"> · {f.seo?.noindex ? 'the whole funnel is hidden' : 'always, for this kind of page'}</small></label>
                 : <label className="tog"><input type="checkbox" checked={!!step.seo?.noindex} onChange={(e) => patchStep({ seo: { ...step.seo, noindex: e.target.checked } })} /><span />Hide this page from search engines</label>}
+              <h5>Pop-ups <small>· {(step.popups || []).length} of {POPUP_MAX}</small></h5>
+              <p className="hint">Each pop-up is built from sections like the page. Visitors can always close it, and nobody who has already signed up sees it again.</p>
+              {(step.popups || []).map((p, i) => {
+                const set = (k, v, group) => setPopups((list) => list.map((x) => (x.id === p.id ? { ...x, [k]: v } : x)), group);
+                const tt = p.trigger?.type || 'exit';
+                return (
+                  <div className={`li popi ${p.id === popupId ? 'on' : ''}`} key={p.id}>
+                    <div className="li-h"><span>#{i + 1}</span><span className="row">
+                      <button className="icon-btn xs" title="Preview" aria-label={`Preview ${p.name}`} onClick={() => setPopPreview(p.id)}><Icon name="eye" size={12} /></button>
+                      <button className="icon-btn xs danger" title="Delete pop-up" aria-label={`Delete ${p.name}`} onClick={async () => { if (!await confirmDialog({ title: `Delete the pop-up “${p.name}”?`, confirm: 'Delete', danger: true })) return; if (popupId === p.id) editPopup(null); setPopups((list) => list.filter((x) => x.id !== p.id)); }}><Icon name="trash" size={12} /></button>
+                    </span></div>
+                    <div className="fld"><label>Name</label><input value={p.name} maxLength={60} onChange={(e) => set('name', e.target.value, true)} /></div>
+                    <div className="fld"><label>Shape</label><select value={p.size || 'center'} onChange={(e) => set('size', e.target.value)}>{POPUP_SIZES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+                    <div className="fld"><label>Show it</label><select value={tt} onChange={(e) => set('trigger', { type: e.target.value, ...(e.target.value === 'delay' ? { value: 10 } : e.target.value === 'scroll' ? { value: 50 } : {}) })}>{POPUP_TRIGGERS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                      {tt === 'exit' && <span className="hint">Computers: when the mouse heads for the tab bar. Phones: a quick scroll back up after reading.</span>}
+                      {tt === 'click' && <span className="hint">Set any button’s action to “Open a pop-up” and pick this one.</span>}
+                    </div>
+                    {tt === 'delay' && <div className="fld"><label>Seconds after the page opens</label><input type="number" min="0" max="600" value={p.trigger?.value ?? 10} onChange={(e) => set('trigger', { type: 'delay', value: Number(e.target.value) }, true)} /></div>}
+                    {tt === 'scroll' && <div className="fld"><label>After scrolling this much of the page (%)</label><input type="number" min="0" max="100" value={p.trigger?.value ?? 50} onChange={(e) => set('trigger', { type: 'scroll', value: Number(e.target.value) }, true)} /></div>}
+                    <div className="fld"><label>How often</label><select value={p.frequency || 'session'} onChange={(e) => set('frequency', e.target.value)}>{POPUP_FREQ.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+                    <div className="fld"><label>After someone signs up in it</label><select value={p.after || 'message'} onChange={(e) => set('after', e.target.value)}><option value="message">Close it and say thank you</option><option value="next">Close it and go to the next step</option></select></div>
+                    {(p.after || 'message') === 'message' && <div className="fld"><label>Thank-you text</label><input value={p.thanks || ''} maxLength={300} placeholder="Thank you! Check your inbox." onChange={(e) => set('thanks', e.target.value, true)} /></div>}
+                    <button className={`btn ${p.id === popupId ? 'primary' : 'soft'} sm block`} onClick={() => editPopup(p.id === popupId ? null : p.id)}><Icon name="edit" size={14} /> {p.id === popupId ? 'Back to the page' : 'Design this pop-up'}</button>
+                  </div>
+                );
+              })}
+              {(step.popups || []).length < POPUP_MAX && <button className="btn ghost sm block" onClick={() => { const np = newPopup((step.popups || []).length + 1); setPopups((list) => [...list, np].slice(0, POPUP_MAX)); editPopup(np.id); }}><Icon name="plus" size={14} /> Add a pop-up</button>}
               <h5>A/B split test</h5>
               <label className="tog"><input type="checkbox" checked={abOn} onChange={(e) => { patchStep({ ab: e.target.checked ? { enabled: true, split: 50, blocks: step.ab?.blocks || step.blocks.map(freshIds) } : { ...step.ab, enabled: false } }); setVariant(e.target.checked ? 'B' : 'A'); }} /><span />Test two versions of this page</label>
               {abOn && (

@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import { T, q, uid, JOBS, contactKey } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
+import { registerGads } from './gads.js';
 
 const META = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com/v21.0').replace(/\/$/, '');
 const GA4 = () => process.env.GA4_MP_URL || 'https://www.google-analytics.com/mp/collect';
@@ -16,12 +17,14 @@ const BACKOFF = [0, 60e3, 300e3, 1800e3, 7200e3, 6 * 3600e3].map((ms) => ms * SC
 const KEEP = 300; // log entries kept per seller
 
 // ---------- attribution ----------
-export const ATTR_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'ref', 'landing'];
+// gbraid / wbraid: Google's click ids for iOS app / web-to-app clicks (used by the Google Ads API upload, gads.js)
+export const ATTR_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'gbraid', 'wbraid', 'ref', 'landing'];
+const LONG_ATTR = new Set(['fbclid', 'gclid', 'gbraid', 'wbraid']);
 export function cleanAttr(a) {
   if (!a || typeof a !== 'object') return undefined;
   const out = {};
   for (const k of ATTR_KEYS) {
-    const v = String(a[k] ?? '').trim().replace(/[\u0000-\u001f]/g, '').slice(0, k === 'fbclid' || k === 'gclid' ? 400 : 160);
+    const v = String(a[k] ?? '').trim().replace(/[\u0000-\u001f]/g, '').slice(0, LONG_ATTR.has(k) ? 400 : 160);
     if (v) out[k] = k.startsWith('utm_') ? v.toLowerCase() : v;
   }
   return Object.keys(out).length ? out : undefined;
@@ -197,6 +200,7 @@ if (JOBS) setInterval(() => { for (const id of T.conversions.ids({ status: 'pend
 
 // ---------- routes ----------
 export function registerTracking(app, { auth, wrap }) {
+  registerGads(app, { auth, wrap }); // Google Ads offline conversions (import feed + API upload)
   app.get('/api/channels/tracking', auth, (req, res) => res.json(capiStatus(req.user)));
   app.put('/api/channels/tracking', auth, wrap(async (req, res) => {
     const b = req.body || {};

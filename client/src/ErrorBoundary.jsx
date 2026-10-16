@@ -67,6 +67,11 @@ export default class ErrorBoundary extends Component {
   }
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, info) {
+    // a page chunk from the previous build (the app was updated while this tab was open): reload once
+    if (/Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(String(error?.message))) {
+      let last = 0; try { last = Number(sessionStorage.getItem('ff_chunk_reload') || 0); } catch {}
+      if (Date.now() - last > 30000) { try { sessionStorage.setItem('ff_chunk_reload', String(Date.now())); } catch {} location.reload(); return; }
+    }
     this.setState({ info });
     reportError(error, info);
   }

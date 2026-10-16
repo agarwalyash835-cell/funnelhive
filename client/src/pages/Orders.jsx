@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, inr, num, ago, downloadCSV, toast, confirmDialog } from '../ui';
+import { t, tx } from '../appI18n';
 
 const STATUS = { refunded: ['Refunded', 'bad'], partially_refunded: ['Part refunded', 'warn'], cod: ['COD · unpaid', 'warn'], cancelled: ['Cancelled', 'bad'] };
 const PLAN = { active: ['', 'ok'], authenticated: ['starting', ''], created: ['starting', ''], pending: ['payment due', 'warn'], halted: ['payment failed', 'bad'], cancelled: ['cancelled', 'bad'], completed: ['paid in full', 'ok'], expired: ['ended', ''], demo: ['demo', ''] };
@@ -9,7 +10,7 @@ const SHIP = { pending: ['To ship', ''], shipped: ['Shipped', 'info'], delivered
 const addrText = (a) => (a ? [a.line1, a.line2, `${a.city}${a.state ? `, ${a.state}` : ''} – ${a.pincode}`].filter(Boolean).join(', ') : '');
 const SYM = { USD: '$', EUR: '€', GBP: '£', AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ' };
 const money = (n, o) => (o?.currency && o.currency !== 'INR' ? `${SYM[o.currency] || `${o.currency} `}${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}` : inr(n));
-const planLabel = (pl, o) => (pl.type === 'installments' ? `${Math.min(pl.paid || 1, pl.count)}/${pl.count} instalments` : `${money(pl.amount, o)}/${pl.interval === 'yearly' ? 'yr' : 'mo'}`);
+const planLabel = (pl, o) => (pl.type === 'installments' ? t('{paid}/{count} instalments', { paid: Math.min(pl.paid || 1, pl.count), count: pl.count }) : t(pl.interval === 'yearly' ? '{amount}/yr' : '{amount}/mo', { amount: money(pl.amount, o) }));
 const campaignOf = (o) => [o.attr?.utm_campaign, o.attr?.utm_content].filter(Boolean).join(' · ');
 // no real money moved: Razorpay/Stripe test keys, or a checkout placed while no payment provider was connected
 const isTest = (o) => o.mode === 'test' || (!o.provider && !o.demo && o.paymentMethod !== 'cod' && o.total > 0 && !['cod', 'cancelled'].includes(o.status));
@@ -85,18 +86,18 @@ export default function Orders() {
   const toShipCount = k.toShip || 0;
   const filtered = !!(days || funnel || status !== 'all' || dq);
   const planCancel = async (o) => {
-    if (!(await confirmDialog(o.plan.type === 'recurring' ? { title: 'Cancel this membership?', text: 'The buyer keeps access until the end of the period they paid for.', confirm: 'Cancel membership', cancel: 'Keep it', danger: true } : { title: 'Stop the remaining instalments?', text: 'Nothing more is charged; the buyer keeps access.', confirm: 'Stop instalments', cancel: 'Keep them', danger: true }))) return;
-    try { await api(`/orders/${o.id}/plan/cancel`, 'POST', {}); toast('Cancelled'); load(); } catch (e) { toast(e.message); }
+    if (!(await confirmDialog(o.plan.type === 'recurring' ? { title: t('Cancel this membership?'), text: t('The buyer keeps access until the end of the period they paid for.'), confirm: t('Cancel membership'), cancel: t('Keep it'), danger: true } : { title: t('Stop the remaining instalments?'), text: t('Nothing more is charged; the buyer keeps access.'), confirm: t('Stop instalments'), cancel: t('Keep them'), danger: true }))) return;
+    try { await api(`/orders/${o.id}/plan/cancel`, 'POST', {}); toast(t('Cancelled')); load(); } catch (e) { toast(e.message); }
   };
   const codAct = async (o, action) => {
-    if (action === 'cancel' && !(await confirmDialog({ title: `Cancel COD order #${o.id}?`, text: 'The buyer’s access (if any) is removed.', confirm: 'Cancel order', cancel: 'Keep it', danger: true }))) return;
-    try { await api(`/orders/${o.id}/cod`, 'POST', { action }); toast(action === 'paid' ? 'Marked paid — invoice and delivery sent' : 'Order cancelled'); load(); } catch (e) { toast(e.message); }
+    if (action === 'cancel' && !(await confirmDialog({ title: t('Cancel COD order #{id}?', { id: o.id }), text: t('The buyer’s access (if any) is removed.'), confirm: t('Cancel order'), cancel: t('Keep it'), danger: true }))) return;
+    try { await api(`/orders/${o.id}/cod`, 'POST', { action }); toast(action === 'paid' ? t('Marked paid — invoice and delivery sent') : t('Order cancelled')); load(); } catch (e) { toast(e.message); }
   };
   // a courier-ready sheet (Shiprocket / Delhivery bulk upload columns) of everything waiting to ship
   const exportShipping = async () => {
     let toShip;
     try { toShip = await fetchAll('&status=ship', 'orders', 'nextCursor'); } catch (e) { return toast(e.message); }
-    if (!toShip.length) return toast('Nothing waiting to ship');
+    if (!toShip.length) return toast(t('Nothing waiting to ship'));
     downloadCSV('to-ship.csv', toShip.map((o) => ({ order_id: o.id, order_date: new Date(o.at).toISOString().slice(0, 10), customer_name: o.name, phone: o.phone, email: o.email, address_line1: o.address?.line1, address_line2: o.address?.line2 || '', city: o.address?.city, state: o.address?.state || '', pincode: o.address?.pincode, products: o.items.filter((i) => !['shipping', 'cod_fee'].includes(i.kind)).map((i) => i.name).join(' | '), payment_method: o.status === 'cod' ? 'COD' : 'Prepaid', cod_amount: o.status === 'cod' ? o.total : 0, order_total: o.total })));
   };
   const recoverMsg = (a) => `Hi ${a.name?.split(' ')[0] || 'there'} 👋 You were one step away from getting ${a.funnel}.${a.link ? ` You can finish your order here: ${a.link}` : ' Reply here and we’ll help you finish your order.'}`;
@@ -119,72 +120,72 @@ export default function Orders() {
       if (got.length < 10000 || !fresh.length) break;
       to = got.at(-1).at + 1; // the same moment again (deduplicated), so none is skipped
     }
-    if (!list.length) return toast('No invoices yet — turn on GST invoices in Settings');
+    if (!list.length) return toast(t('No invoices yet — turn on GST invoices in Settings'));
     // one row per invoice line: each line has its own HSN/SAC and rate
     downloadCSV('gst-invoices.csv', list.flatMap((i) => i.items.map((l) => ({ number: i.number, type: i.type === 'credit' ? 'Credit note' : 'Invoice', against: i.against || '', date: new Date(i.at).toISOString().slice(0, 10), buyer: i.billedTo.name, buyer_email: i.billedTo.email, buyer_gstin: i.billedTo.gstin, place_of_supply: i.placeOfSupply, state_code: i.billedTo.stateCode || '', item: l.name, hsn: l.sac || '', taxable: l.taxable, rate: l.rate ?? i.rate, cgst: l.cgst, sgst: l.sgst, igst: l.igst, total: l.amount, invoice_total: i.total, payment: i.paymentId || '', order: i.orderId }))));
   };
   const actions = (o) => (
     <div className="row end" onClick={(e) => e.stopPropagation()}>
-      {(o.invoices || []).map((i) => <a key={i.id} className="icon-btn" title={`${i.type === 'credit' ? 'Credit note' : 'Invoice'} ${i.number}`} href={i.url} target="_blank" rel="noreferrer"><Icon name="receipt" size={15} /></a>)}
-      {o.fulfilment && !['cancelled', 'refunded'].includes(o.status) && <button className="icon-btn" title="Shipping" onClick={() => setShip(o)}><Icon name="box" size={15} /></button>}
-      {o.plan?.subId && ['active', 'pending', 'halted', 'authenticated'].includes(o.plan.status) && !o.plan.cancelAtEnd && <button className="icon-btn" title={o.plan.type === 'recurring' ? 'Cancel membership (at the end of the paid period)' : 'Stop the remaining instalments'} onClick={() => planCancel(o)}><Icon name="x" size={15} /></button>}
-      {o.status === 'cod' && <button className="btn soft sm" title="Cash collected — issue the invoice and deliver" onClick={() => codAct(o, 'paid')}>Paid</button>}
-      {o.status === 'cod' && <button className="icon-btn" title="Cancel this COD order" onClick={() => codAct(o, 'cancel')}><Icon name="x" size={15} /></button>}
-      {!['refunded', 'cod', 'cancelled'].includes(o.status) && <button className="icon-btn" title="Refund" onClick={() => setRefund(o)}><Icon name="refund" size={15} /></button>}
+      {(o.invoices || []).map((i) => <a key={i.id} className="icon-btn" title={`${i.type === 'credit' ? t('Credit note') : t('Invoice')} ${i.number}`} href={i.url} target="_blank" rel="noreferrer"><Icon name="receipt" size={15} /></a>)}
+      {o.fulfilment && !['cancelled', 'refunded'].includes(o.status) && <button className="icon-btn" title={t('Shipping')} onClick={() => setShip(o)}><Icon name="box" size={15} /></button>}
+      {o.plan?.subId && ['active', 'pending', 'halted', 'authenticated'].includes(o.plan.status) && !o.plan.cancelAtEnd && <button className="icon-btn" title={o.plan.type === 'recurring' ? t('Cancel membership (at the end of the paid period)') : t('Stop the remaining instalments')} onClick={() => planCancel(o)}><Icon name="x" size={15} /></button>}
+      {o.status === 'cod' && <button className="btn soft sm" title={t('Cash collected — issue the invoice and deliver')} onClick={() => codAct(o, 'paid')}>{t('Paid')}</button>}
+      {o.status === 'cod' && <button className="icon-btn" title={t('Cancel this COD order')} onClick={() => codAct(o, 'cancel')}><Icon name="x" size={15} /></button>}
+      {!['refunded', 'cod', 'cancelled'].includes(o.status) && <button className="icon-btn" title={t('Refund')} onClick={() => setRefund(o)}><Icon name="refund" size={15} /></button>}
     </div>
   );
-  const payPill = (o) => (isTest(o) ? <span className="pill warn" title={o.mode === 'test' ? 'Paid with test keys — no real money' : 'Placed while no payment provider was connected — no money was collected'}>test</span> : o.provider && o.mode === 'live' && !['cod', 'cancelled'].includes(o.status) ? <span className="pill ok" title={`Paid through ${o.provider === 'stripe' ? 'Stripe' : 'Razorpay'}`}>paid</span> : null);
+  const payPill = (o) => (isTest(o) ? <span className="pill warn" title={o.mode === 'test' ? t('Paid with test keys — no real money') : t('Placed while no payment provider was connected — no money was collected')}>{t('test')}</span> : o.provider && o.mode === 'live' && !['cod', 'cancelled'].includes(o.status) ? <span className="pill ok" title={t('Paid through {provider}', { provider: o.provider === 'stripe' ? 'Stripe' : 'Razorpay' })}>{t('paid')}</span> : null);
 
   return (
-    <Layout title="Orders" subtitle="Sales, one-click upsells, refunds and abandoned checkouts." actions={<>
-      {toShipCount > 0 && <button className="btn ghost" onClick={exportShipping}><Icon name="box" size={16} /> To ship ({num(toShipCount)})</button>}
-      <button className="btn ghost" onClick={exportInvoices}><Icon name="receipt" size={16} /> GST invoices</button>
-      <button className="btn ghost" onClick={exportCsv}><Icon name="download" size={16} /> Export CSV</button>
+    <Layout title={t('Orders')} subtitle={t('Sales, one-click upsells, refunds and abandoned checkouts.')} actions={<>
+      {toShipCount > 0 && <button className="btn ghost" onClick={exportShipping}><Icon name="box" size={16} /> {t('To ship ({n})', { n: num(toShipCount) })}</button>}
+      <button className="btn ghost" onClick={exportInvoices}><Icon name="receipt" size={16} /> {t('GST invoices')}</button>
+      <button className="btn ghost" onClick={exportCsv}><Icon name="download" size={16} /> {t('Export CSV')}</button>
     </>}>
       {!d ? <div className="skeleton" /> : (
         <>
           <div className="or-filters">
-            <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Period">{RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-            <select value={funnel} onChange={(e) => setFunnel(e.target.value)} aria-label="Funnel"><option value="">All funnels</option>{funnels.map((f) => <option key={f}>{f}</option>)}</select>
-            {tab === 'orders' && <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">{FILTERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>}
-            {(days || funnel || status !== 'all' || q) ? <button className="link-btn" onClick={() => { setDays(0); setFunnel(''); setStatus('all'); setQ(''); }}>Clear filters</button> : null}
+            <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label={t('Period')}>{RANGES.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}</select>
+            <select value={funnel} onChange={(e) => setFunnel(e.target.value)} aria-label={t('Funnel')}><option value="">{t('All funnels')}</option>{funnels.map((f) => <option key={f}>{f}</option>)}</select>
+            {tab === 'orders' && <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t('Status')}>{FILTERS.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}</select>}
+            {(days || funnel || status !== 'all' || q) ? <button className="link-btn" onClick={() => { setDays(0); setFunnel(''); setStatus('all'); setQ(''); }}>{t('Clear filters')}</button> : null}
           </div>
           <div className="kpis k4">
-            <div className="kpi"><span className="kpi-l">Revenue · after refunds</span><b className="kpi-v">{inr(revenue)}</b>{refunded > 0 && <small>{inr(refunded)} refunded</small>}{codDue > 0 && <small>+ {inr(codDue)} COD to collect</small>}</div>
-            <div className="kpi"><span className="kpi-l">Paid orders</span><b className="kpi-v">{num(paidCount)}</b>{tests > 0 && <small>+ {num(tests)} test, not counted</small>}</div>
-            <div className="kpi"><span className="kpi-l">Avg. order value</span><b className="kpi-v">{inr(k.aov || 0)}</b></div>
-            <div className="kpi warn"><span className="kpi-l">Abandoned checkouts</span><b className="kpi-v">{num(abandonedTotal)}</b><small>recover them via WhatsApp ↓</small></div>
+            <div className="kpi"><span className="kpi-l">{t('Revenue · after refunds')}</span><b className="kpi-v">{inr(revenue)}</b>{refunded > 0 && <small>{t('{amount} refunded', { amount: inr(refunded) })}</small>}{codDue > 0 && <small>{t('+ {amount} COD to collect', { amount: inr(codDue) })}</small>}</div>
+            <div className="kpi"><span className="kpi-l">{t('Paid orders')}</span><b className="kpi-v">{num(paidCount)}</b>{tests > 0 && <small>{t('+ {n} test, not counted', { n: num(tests) })}</small>}</div>
+            <div className="kpi"><span className="kpi-l">{t('Avg. order value')}</span><b className="kpi-v">{inr(k.aov || 0)}</b></div>
+            <div className="kpi warn"><span className="kpi-l">{t('Abandoned checkouts')}</span><b className="kpi-v">{num(abandonedTotal)}</b><small>{t('recover them via WhatsApp ↓')}</small></div>
           </div>
           <Panel pad={false} title={<div className="seg">
-            <button className={tab === 'orders' ? 'on' : ''} onClick={() => setTab('orders')}>Orders ({num(ordersTotal)})</button>
-            <button className={tab === 'abandoned' ? 'on' : ''} onClick={() => setTab('abandoned')}>Abandoned ({num(abandonedTotal)})</button>
-          </div>} actions={<div className="search"><Icon name="search" size={16} /><input placeholder="Search name, email, tag, campaign…" value={q} onChange={(e) => setQ(e.target.value)} /></div>}>
-            {tab === 'orders' ? (!orders.length ? <Empty icon="cart" title={filtered ? 'No orders match' : 'No orders yet'} text={filtered ? 'Try another period, funnel or status.' : 'Orders from your checkouts and one-click upsells land here.'} /> : (
+            <button className={tab === 'orders' ? 'on' : ''} onClick={() => setTab('orders')}>{t('Orders ({n})', { n: num(ordersTotal) })}</button>
+            <button className={tab === 'abandoned' ? 'on' : ''} onClick={() => setTab('abandoned')}>{t('Abandoned ({n})', { n: num(abandonedTotal) })}</button>
+          </div>} actions={<div className="search"><Icon name="search" size={16} /><input placeholder={t('Search name, email, tag, campaign…')} value={q} onChange={(e) => setQ(e.target.value)} /></div>}>
+            {tab === 'orders' ? (!orders.length ? <Empty icon="cart" title={filtered ? t('No orders match') : t('No orders yet')} text={filtered ? t('Try another period, funnel or status.') : t('Orders from your checkouts and one-click upsells land here.')} /> : (
               <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>Order</th><th>Customer</th><th>Funnel</th><th>Items</th><th className="r">Total</th><th>Source</th><th className="r">Date</th><th /></tr></thead>
+                <thead><tr><th>{t('Order')}</th><th>{t('Customer')}</th><th>{t('Funnel')}</th><th>{t('Items')}</th><th className="r">{t('Total')}</th><th>{t('Source')}</th><th className="r">{t('Date')}</th><th /></tr></thead>
                 <tbody>{orders.map((o) => (
                   <tr key={o.id} className="click" onClick={() => setOpen(o)}>
-                    <td className="mono">#{o.id}{STATUS[o.status] && <span className={`pill ${STATUS[o.status][1]}`}>{STATUS[o.status][0]}</span>}{(o.tags || []).map((t) => <span key={t} className="pill or-tag">{t}</span>)}</td>
+                    <td className="mono">#{o.id}{STATUS[o.status] && <span className={`pill ${STATUS[o.status][1]}`}>{t(STATUS[o.status][0])}</span>}{(o.tags || []).map((t) => <span key={t} className="pill or-tag">{t}</span>)}</td>
                     <td><b>{o.name || '—'}</b><small className="sub-t">{o.email}</small>{o.address && <small className="sub-t addr" title={addrText(o.address)}>📍 {o.address.city} {o.address.pincode}</small>}</td><td>{o.funnel}</td>
-                    <td className="items">{o.fulfilment && SHIP[o.fulfilment.status] && <span className={`pill ${SHIP[o.fulfilment.status][1]}`} title={[o.fulfilment.courier, o.fulfilment.tracking].filter(Boolean).join(' · ')}>{SHIP[o.fulfilment.status][0]}</span>}{o.items.map((i, k) => <span key={k} className={`it k-${i.kind} ${i.refunded ? 'refunded' : ''}`} title={`${i.name} · ${money(i.price, o)}${i.refunded ? ' · refunded' : ''}`}>{i.productId && '📦 '}{i.kind === 'main' ? i.name : i.kind}</span>)}{o.coupon && <span className="it">🏷 {o.coupon}</span>}{o.plan && <span className={`pill ${PLAN[o.plan.status]?.[1] || ''}`}>🔁 {planLabel(o.plan, o)}{PLAN[o.plan.status]?.[0] ? ` · ${PLAN[o.plan.status][0]}` : ''}{o.plan.cancelAtEnd ? ' · ending' : ''}</span>}
-                      {o.undelivered && <span className="it warn" title="Products are delivered only after a real payment (Razorpay or Stripe)">not delivered</span>}{o.note && <span className="it" title={o.note}>📝 note</span>}</td>
-                    <td className="r strong">{money(o.total, o)}{o.currency && o.currency !== 'INR' && <small className="sub-t" title="Counted in your revenue at this rate">≈ {inr(o.total * (o.fx || 1))}</small>}{o.refunded > 0 && <small className="sub-t">{money(o.refunded, o)} refunded</small>}{payPill(o)}</td>
+                    <td className="items">{o.fulfilment && SHIP[o.fulfilment.status] && <span className={`pill ${SHIP[o.fulfilment.status][1]}`} title={[o.fulfilment.courier, o.fulfilment.tracking].filter(Boolean).join(' · ')}>{t(SHIP[o.fulfilment.status][0])}</span>}{o.items.map((i, k) => <span key={k} className={`it k-${i.kind} ${i.refunded ? 'refunded' : ''}`} title={`${i.name} · ${money(i.price, o)}${i.refunded ? ` · ${t('refunded')}` : ''}`}>{i.productId && '📦 '}{i.kind === 'main' ? i.name : i.kind}</span>)}{o.coupon && <span className="it">🏷 {o.coupon}</span>}{o.plan && <span className={`pill ${PLAN[o.plan.status]?.[1] || ''}`}>🔁 {planLabel(o.plan, o)}{PLAN[o.plan.status]?.[0] ? ` · ${t(PLAN[o.plan.status][0])}` : ''}{o.plan.cancelAtEnd ? ` · ${t('ending')}` : ''}</span>}
+                      {o.undelivered && <span className="it warn" title={t('Products are delivered only after a real payment (Razorpay or Stripe)')}>{t('not delivered')}</span>}{o.note && <span className="it" title={o.note}>📝 {t('note')}</span>}</td>
+                    <td className="r strong">{money(o.total, o)}{o.currency && o.currency !== 'INR' && <small className="sub-t" title={t('Counted in your revenue at this rate')}>≈ {inr(o.total * (o.fx || 1))}</small>}{o.refunded > 0 && <small className="sub-t">{t('{amount} refunded', { amount: money(o.refunded, o) })}</small>}{payPill(o)}</td>
                     <td><span className="src">{o.attr?.utm_source || o.source}</span>{campaignOf(o) && <small className="sub-t" title={[o.attr?.utm_medium, o.attr?.utm_term].filter(Boolean).join(' · ')}>{campaignOf(o)}</small>}</td>
                     <td className="r muted" title={fullDate(o.at)}>{shortDate(o.at)}</td>
                     <td className="r">{actions(o)}</td>
                   </tr>
                 ))}</tbody>
               </table>
-              {d.nextCursor && <div className="or-more"><button className="btn ghost sm" disabled={more} onClick={showMore}>{more ? 'Loading…' : `Show more (${num(ordersTotal - orders.length)} older)`}</button></div>}
+              {d.nextCursor && <div className="or-more"><button className="btn ghost sm" disabled={more} onClick={showMore}>{more ? t('Loading…') : t('Show more ({n} older)', { n: num(ordersTotal - orders.length) })}</button></div>}
               </div>
-            )) : (!abandoned.length ? <Empty icon="check" title="No abandoned checkouts" text="When someone enters their email or WhatsApp number at checkout but doesn’t pay, they show up here so you can follow up." /> : (
+            )) : (!abandoned.length ? <Empty icon="check" title={t('No abandoned checkouts')} text={t('When someone enters their email or WhatsApp number at checkout but doesn’t pay, they show up here so you can follow up.')} /> : (
               <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>Contact</th><th>Funnel</th><th className="r">When</th><th className="r">Recover</th></tr></thead>
+                <thead><tr><th>{t('Contact')}</th><th>{t('Funnel')}</th><th className="r">{t('When')}</th><th className="r">{t('Recover')}</th></tr></thead>
                 <tbody>{abandoned.map((a) => (
                   <tr key={a.id}><td><b>{a.name || '—'}</b><small className="sub-t">{[a.email, a.phone].filter(Boolean).join(' · ')}</small></td><td>{a.funnel}</td><td className="r muted" title={fullDate(a.at)}>{ago(a.at)}</td>
                     <td className="r"><div className="row end">
                       {a.phone && <a className="btn soft sm" href={`https://wa.me/${a.phone.replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}?text=${encodeURIComponent(recoverMsg(a))}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>}
-                      {a.email && <a className="icon-btn" title="Email" href={`mailto:${a.email}?subject=${encodeURIComponent(`Your order — ${a.funnel}`)}&body=${encodeURIComponent(recoverMsg(a))}`}><Icon name="mail" size={15} /></a>}
+                      {a.email && <a className="icon-btn" title={t('Email')} href={`mailto:${a.email}?subject=${encodeURIComponent(`Your order — ${a.funnel}`)}&body=${encodeURIComponent(recoverMsg(a))}`}><Icon name="mail" size={15} /></a>}
                       <button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(recoverMsg(a)); toast('Recovery message copied'); }}><Icon name="copy" size={14} /> Copy message</button>
                     </div></td></tr>
                 ))}</tbody>

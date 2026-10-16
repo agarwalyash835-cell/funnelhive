@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
 import { api, logout, stopImpersonating, fmtDate } from './api';
+import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
 
 const P = {
   home: 'M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z',
@@ -63,12 +64,12 @@ export const Icon = ({ name, size = 18, stroke = 2, className = '' }) => (
 
 export const inr = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 export const num = (n) => Math.round(Number(n) || 0).toLocaleString('en-IN');
-export const ago = (t) => {
-  const s = Math.round((Date.now() - t) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+export const ago = (at) => {
+  const s = Math.round((Date.now() - at) / 1000);
+  if (s < 60) return t('just now');
+  if (s < 3600) return t('{n}m ago', { n: Math.floor(s / 60) });
+  if (s < 86400) return t('{n}h ago', { n: Math.floor(s / 3600) });
+  return t('{n}d ago', { n: Math.floor(s / 86400) });
 };
 
 const cell = (v) => (typeof v === 'string' && /^[=+\-@\t\r]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v) ? `'${v}` : v);
@@ -101,6 +102,7 @@ const PAGES = {
   '/funnels': ['funnel', 'Funnels', 'Build, publish and test your sales funnels'],
   '/hive': ['sparkles', 'Hive AI', 'Ask AI to build, write and analyse for you'],
   '/orders': ['cart', 'Orders', 'Sales, refunds, shipping and abandoned checkouts'],
+  '/reports': ['chart', 'Reports', 'Revenue, refunds, cohorts and lifetime value'],
   '/products': ['box', 'Products', 'Courses, downloads and memberships buyers get access to'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
   '/contacts': ['users', 'Contacts', 'Everyone who signed up or bought, with your pipeline'],
@@ -114,8 +116,8 @@ const PAGES = {
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
-const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/products', '/quotes']], ['Audience', ['/contacts', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
-const CORE = ['/', '/funnels', '/hive', '/orders', '/contacts'];
+const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/products', '/quotes']], ['Audience', ['/contacts', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
+const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/contacts'];
 const OPTIONAL = GROUPS.flatMap(([, l]) => l).filter((to) => !CORE.includes(to));
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
@@ -130,7 +132,7 @@ const allowed = (to, me) => {
 };
 // a tool is in the menu when it's an everyday page, you use it, you pinned it, or you're on it — unless you hid it
 const inMenu = (to, me, p, here) => !p.hidden.includes(to) && (CORE.includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || here === to);
-const badgeOf = (to, me) => (to === '/orders' && me?.nav?.ship ? [me.nav.ship, `${me.nav.ship} to ship`] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, `${me.nav.calls} call${me.nav.calls > 1 ? 's' : ''} in the next 24 hours`] : null);
+const badgeOf = (to, me) => (to === '/orders' && me?.nav?.ship ? [me.nav.ship, t('{n} to ship', { n: me.nav.ship })] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, t(me.nav.calls > 1 ? '{n} calls in the next 24 hours' : '{n} call in the next 24 hours', { n: me.nav.calls })] : null);
 
 function SideNav({ me, onGo }) {
   const [p, setP] = useState(navPrefs);
@@ -142,7 +144,7 @@ function SideNav({ me, onGo }) {
   const waiting = OPTIONAL.filter((to) => !inMenu(to, me, p, here));
   const link = (to) => {
     const [ic, label] = PAGES[to], b = badgeOf(to, me);
-    return <NavLink key={to} to={to} end={to === '/'} onClick={onGo}><Icon name={ic} />{label}{b && <span className="nav-badge" title={b[1]}>{b[0]}</span>}</NavLink>;
+    return <NavLink key={to} to={to} end={to === '/'} onClick={onGo}><Icon name={ic} /><span className="nav-l">{t(label)}</span>{b && <span className="nav-badge" title={b[1]}>{b[0]}</span>}</NavLink>;
   };
   return (
     <nav>
@@ -153,22 +155,22 @@ function SideNav({ me, onGo }) {
         const shut = p.closed.includes(g) && !items.includes(here);
         return (
           <div key={g} className="nav-g">
-            <button type="button" className="nav-gh" aria-expanded={!shut} onClick={() => toggleGroup(g)}>{g}<Icon name="chevron" size={12} className={shut ? 'nav-chev' : 'nav-chev open'} /></button>
+            <button type="button" className="nav-gh" aria-expanded={!shut} onClick={() => toggleGroup(g)}>{t(g)}<Icon name="chevron" size={12} className={shut ? 'nav-chev' : 'nav-chev open'} /></button>
             {!shut && items.map(link)}
           </div>
         );
       })}
       <div className="nav-more">
-        <button type="button" className={`nav-more-b ${more ? 'on' : ''}`} onClick={() => setMore(!more)} aria-expanded={more}><Icon name="plus" />More tools{waiting.length > 0 && <span className="nav-n">{waiting.length}</span>}</button>
+        <button type="button" className={`nav-more-b ${more ? 'on' : ''}`} onClick={() => setMore(!more)} aria-expanded={more}><Icon name="plus" />{t('More tools')}{waiting.length > 0 && <span className="nav-n">{waiting.length}</span>}</button>
         {more && (
-          <div className="nav-pop" role="dialog" aria-label="More tools">
-            <p className="nav-pop-h">Tools join your menu once you start using them. Tick one to keep it there.</p>
+          <div className="nav-pop" role="dialog" aria-label={t('More tools')}>
+            <p className="nav-pop-h">{t('Tools join your menu once you start using them. Tick one to keep it there.')}</p>
             {OPTIONAL.map((to) => {
               const [ic, label, desc] = PAGES[to], on = inMenu(to, me, p, null);
               return (
                 <div key={to} className="nav-tool">
-                  <Link to={to} onClick={() => { setMore(false); onGo?.(); }}><Icon name={ic} size={16} /><span><b>{label}</b><small>{desc}</small></span></Link>
-                  <label className="nav-pin" title={on ? 'Remove from the menu' : 'Keep in the menu'}><input type="checkbox" checked={on} onChange={(e) => setShown(to, e.target.checked)} />In menu</label>
+                  <Link to={to} onClick={() => { setMore(false); onGo?.(); }}><Icon name={ic} size={16} /><span><b>{t(label)}</b><small>{t(desc)}</small></span></Link>
+                  <label className="nav-pin" title={t(on ? 'Remove from the menu' : 'Keep in the menu')}><input type="checkbox" checked={on} onChange={(e) => setShown(to, e.target.checked)} />{t('In menu')}</label>
                 </div>
               );
             })}
@@ -188,14 +190,14 @@ function ProfileMenu({ me, onGo }) {
     <div className="me-wrap" ref={ref}>
       {open && (
         <div className="me-menu" role="menu">
-          {ACCOUNT.filter((to) => allowed(to, me)).map((to) => <Link key={to} role="menuitem" to={to} onClick={go}><Icon name={PAGES[to][0]} size={15} />{PAGES[to][1]}</Link>)}
+          {ACCOUNT.filter((to) => allowed(to, me)).map((to) => <Link key={to} role="menuitem" to={to} onClick={go}><Icon name={PAGES[to][0]} size={15} />{t(PAGES[to][1])}</Link>)}
           <hr />
-          <button type="button" role="menuitem" onClick={() => { toggleLook(); setOpen(false); }}><Icon name="palette" size={15} />{currentLook() === 'glass' ? 'Switch to the standard look' : 'Switch to Liquid Glass'}</button>
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('ff:jump')); }}><Icon name="search" size={15} />Jump to…<kbd>Ctrl K</kbd></button>
-          <button type="button" role="menuitem" onClick={logout}><Icon name="logout" size={15} />Log out</button>
+          <button type="button" role="menuitem" onClick={() => { toggleLook(); setOpen(false); }}><Icon name="palette" size={15} />{t(currentLook() === 'glass' ? 'Switch to the standard look' : 'Switch to Liquid Glass')}</button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('ff:jump')); }}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
+          <button type="button" role="menuitem" onClick={logout}><Icon name="logout" size={15} />{t('Log out')}</button>
         </div>
       )}
-      <button type="button" className="me" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} title="Settings, billing and your account">
+      <button type="button" className="me" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} title={t('Settings, billing and your account')}>
         <span className="me-av">{(me?.name || '?')[0]?.toUpperCase()}</span>
         <div><b>{me?.name}</b><small>{me?.email}</small></div>
         <Icon name="settings" size={16} />
@@ -220,8 +222,8 @@ function Jump({ me }) {
   useEffect(() => { if (open) { setQ(''); setSel(0); if (!funnels) api('/funnels').then(setFunnels).catch(() => setFunnels([])); } }, [open]);
   if (!open) return null;
   const s = q.trim().toLowerCase();
-  const pages = Object.entries(PAGES).filter(([to]) => !ACCOUNT.includes(to) || allowed(to, me)).map(([to, [ic, label, desc]]) => ({ to, ic, label, desc }));
-  const fl = (funnels || []).map((f) => ({ to: `/funnels/${f.id}`, ic: 'funnel', label: f.name, desc: f.published ? 'Funnel · live' : 'Funnel · draft' }));
+  const pages = Object.entries(PAGES).filter(([to]) => !ACCOUNT.includes(to) || allowed(to, me)).map(([to, [ic, label, desc]]) => ({ to, ic, label: t(label), desc: t(desc) }));
+  const fl = (funnels || []).map((f) => ({ to: `/funnels/${f.id}`, ic: 'funnel', label: f.name, desc: t(f.published ? 'Funnel · live' : 'Funnel · draft') }));
   const hits = [...pages, ...fl].filter((x) => !s || `${x.label} ${x.desc}`.toLowerCase().includes(s)).slice(0, 9);
   const go = (x) => { if (!x) return; setOpen(false); nav(x.to); };
   const key = (e) => {
@@ -232,9 +234,9 @@ function Jump({ me }) {
   };
   return (
     <div className="m-scrim jump-scrim" onMouseDown={() => setOpen(false)}>
-      <div className="jump" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="Jump to">
-        <div className="jump-in"><Icon name="search" size={17} /><input autoFocus value={q} placeholder="Jump to a page or funnel…" onChange={(e) => { setQ(e.target.value); setSel(0); }} onKeyDown={key} /><kbd>Esc</kbd></div>
-        <div className="jump-list">{hits.length ? hits.map((x, i) => <button type="button" key={x.to} className={i === sel ? 'on' : ''} onMouseEnter={() => setSel(i)} onClick={() => go(x)}><Icon name={x.ic} size={16} /><span><b>{x.label}</b><small>{x.desc}</small></span></button>) : <p className="muted sm">Nothing matches “{q}”.</p>}</div>
+      <div className="jump" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={t('Jump to')}>
+        <div className="jump-in"><Icon name="search" size={17} /><input autoFocus value={q} placeholder={t('Jump to a page or funnel…')} onChange={(e) => { setQ(e.target.value); setSel(0); }} onKeyDown={key} /><kbd>Esc</kbd></div>
+        <div className="jump-list">{hits.length ? hits.map((x, i) => <button type="button" key={x.to} className={i === sel ? 'on' : ''} onMouseEnter={() => setSel(i)} onClick={() => go(x)}><Icon name={x.ic} size={16} /><span><b>{x.label}</b><small>{x.desc}</small></span></button>) : <p className="muted sm">{t('Nothing matches “{q}”.', { q })}</p>}</div>
       </div>
     </div>
   );
@@ -269,14 +271,14 @@ function Bell({ me }) {
   const all = () => { setItems((l) => l?.map((x) => ({ ...x, read: true }))); read({ all: true }); };
   return (
     <div className="bell-wrap" ref={ref}>
-      <button type="button" className="icon-btn bell" onClick={() => setOpen(!open)} aria-haspopup="dialog" aria-expanded={open} title={unread ? `${unread} new notification${unread > 1 ? 's' : ''}` : 'Notifications'} aria-label={unread ? `${unread} new notification${unread > 1 ? 's' : ''}` : 'Notifications'}>
+      <button type="button" className="icon-btn bell" onClick={() => setOpen(!open)} aria-haspopup="dialog" aria-expanded={open} title={unread ? t(unread > 1 ? '{n} new notifications' : '{n} new notification', { n: unread }) : t('Notifications')} aria-label={unread ? t(unread > 1 ? '{n} new notifications' : '{n} new notification', { n: unread }) : t('Notifications')}>
         <Icon name="bell" />{unread > 0 && <span className="bell-n">{unread > 99 ? '99+' : unread}</span>}
       </button>
       {open && (
-        <div className="bell-pop" role="dialog" aria-label="Notifications">
-          <div className="bell-h"><b>Notifications</b>{unread > 0 && <button type="button" onClick={all}>Mark all read</button>}</div>
+        <div className="bell-pop" role="dialog" aria-label={t('Notifications')}>
+          <div className="bell-h"><b>{t('Notifications')}</b>{unread > 0 && <button type="button" onClick={all}>{t('Mark all read')}</button>}</div>
           <div className="bell-list">
-            {!items ? <p className="muted sm">Loading…</p> : !items.length ? <p className="muted sm">Nothing yet. New orders, leads and bookings show up here.</p> : items.map((n) => (
+            {!items ? <p className="muted sm">{t('Loading…')}</p> : !items.length ? <p className="muted sm">{t('Nothing yet. New orders, leads and bookings show up here.')}</p> : items.map((n) => (
               <button type="button" key={n.id} className={`bell-item ${n.read ? '' : 'new'} k-${n.kind}`} onClick={() => go(n)}>
                 <span className="bell-ic"><Icon name={NOTE_ICON[n.kind] || 'bolt'} size={15} /></span>
                 <span className="bell-t"><b>{n.title}</b>{n.body && <small>{n.body}</small>}<em>{ago(n.at)}</em></span>
@@ -293,33 +295,34 @@ export function Layout({ title, subtitle, actions, children, wide }) {
   const [me, setMe] = useState(null);
   const [open, setOpen] = useState(false);
   const [paywall, setPaywall] = useState(null);
-  useEffect(() => { api('/me').then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; }).catch(() => {}); }, []);
+  useEffect(() => { api('/me').then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); }).catch(() => {}); }, []);
+  useEffect(() => { applyUiLang(); }, []);
   useEffect(() => { const h = (e) => setPaywall(e.detail || {}); window.addEventListener('ff:paywall', h); return () => window.removeEventListener('ff:paywall', h); }, []);
   return (
     <div className="app">
       <aside className={`side ${open ? 'open' : ''}`}>
         <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}{me?.brand || BRAND}</div>
-        <button type="button" className="side-jump" onClick={() => window.dispatchEvent(new Event('ff:jump'))}><Icon name="search" size={15} />Jump to…<kbd>Ctrl K</kbd></button>
+        <button type="button" className="side-jump" onClick={() => window.dispatchEvent(new Event('ff:jump'))}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
         <SideNav me={me} onGo={() => setOpen(false)} />
         <div className="side-foot">
           <WorkspaceSwitch me={me} />
-          {me?.billing?.status === 'trialing' && !me.workspace && !me.billing.agencyManaged && <Link to="/billing" className="trial-chip"><Icon name="clock" size={14} />{me.billing.daysLeft} day{me.billing.daysLeft === 1 ? '' : 's'} left in trial<b>Upgrade</b></Link>}
-          <div className={`ai-status ${me?.aiEnabled ? 'on' : ''}`}><Icon name="sparkles" size={14} />{me?.aiEnabled ? `AI · ${me.credits?.limit == null ? 'unlimited' : `${Math.max(0, me.credits.limit - me.credits.used)} credits left`}` : 'Offline AI assistant'}</div>
+          {me?.billing?.status === 'trialing' && !me.workspace && !me.billing.agencyManaged && <Link to="/billing" className="trial-chip"><Icon name="clock" size={14} />{t(me.billing.daysLeft === 1 ? '{n} day left in trial' : '{n} days left in trial', { n: me.billing.daysLeft })}<b>{t('Upgrade')}</b></Link>}
+          <div className={`ai-status ${me?.aiEnabled ? 'on' : ''}`}><Icon name="sparkles" size={14} />{me?.aiEnabled ? (me.credits?.limit == null ? t('AI · unlimited') : t('AI · {n} credits left', { n: Math.max(0, me.credits.limit - me.credits.used) })) : t('Offline AI assistant')}</div>
           <ProfileMenu me={me} onGo={() => setOpen(false)} />
         </div>
       </aside>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
       <main className="main">
         <header className="topbar">
-          <button className="icon-btn burger" aria-label="Open menu" onClick={() => setOpen(true)}><Icon name="menu" /></button>
+          <button className="icon-btn burger" aria-label={t('Open menu')} onClick={() => setOpen(true)}><Icon name="menu" /></button>
           <div className="tb-title">{title && <h1>{title}</h1>}{subtitle && <p>{subtitle}</p>}</div>
           <div className="tb-actions">{actions}</div>
           {me && <Bell me={me} />}
         </header>
-        {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} />You’re working in the <b>{me.workspace.name}</b> workspace as {({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role]}.</div>}
-        {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} />You’re signed in as <b>{me.email}</b> (support view).<button onClick={stopImpersonating}>Back to admin</button></div>}
+        {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} /><span>{tx('You’re working in the {name} workspace as {role}.', { name: <b>{me.workspace.name}</b>, role: t(({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role] || '') })}</span></div>}
+        {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('You’re signed in as {email} (support view).', { email: <b>{me.email}</b> })}</span><button onClick={stopImpersonating}>{t('Back to admin')}</button></div>}
         {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}
-        {me?.billing && !me.billing.ok && <div className="app-banner bad"><Icon name="clock" size={15} />{me.billing.reason || 'Your account is read-only.'}{me.billing.status !== 'suspended' && <span>{me.billing.pagesLive ? ` Your live pages stay up until ${fmtDate(me.billing.pagesOfflineAt)}.` : ' Your live pages are offline.'}</span>}{me.billing.status !== 'suspended' && <Link to="/billing">Choose a plan</Link>}</div>}
+        {me?.billing && !me.billing.ok && <div className="app-banner bad"><Icon name="clock" size={15} />{me.billing.reason || t('Your account is read-only.')}{me.billing.status !== 'suspended' && <span>{me.billing.pagesLive ? t(' Your live pages stay up until {date}.', { date: fmtDate(me.billing.pagesOfflineAt) }) : t(' Your live pages are offline.')}</span>}{me.billing.status !== 'suspended' && <Link to="/billing">{t('Choose a plan')}</Link>}</div>}
         {me && !me.emailVerified && <VerifyBanner me={me} />}
         <div className={`content ${wide ? 'wide' : ''}`}>{typeof children === 'function' ? children(me) : children}</div>
       </main>
@@ -332,12 +335,12 @@ export function Layout({ title, subtitle, actions, children, wide }) {
 function Paywall({ info, onClose }) {
   const nav = useNavigate();
   return (
-    <Modal title={info.credits ? 'AI credits used up' : 'Choose a plan to continue'} onClose={onClose} width={460}>
+    <Modal title={t(info.credits ? 'AI credits used up' : 'Choose a plan to continue')} onClose={onClose} width={460}>
       <div className="paywall">
         <span className="empty-ic"><Icon name={info.credits ? 'sparkles' : 'card'} size={26} /></span>
         <p>{info.error}</p>
-        {info.credits ? <p className="muted sm">You can keep editing by hand — everything except AI works as usual.</p> : <p className="muted sm">Everything you’ve built is safe. Subscribe to keep editing, publishing and running automations.</p>}
-        <div className="row center">{!info.credits && <button className="btn primary" onClick={() => { onClose(); nav('/billing'); }}>See plans</button>}<button className="btn ghost" onClick={onClose}>Close</button></div>
+        {info.credits ? <p className="muted sm">{t('You can keep editing by hand — everything except AI works as usual.')}</p> : <p className="muted sm">{t('Everything you’ve built is safe. Subscribe to keep editing, publishing and running automations.')}</p>}
+        <div className="row center">{!info.credits && <button className="btn primary" onClick={() => { onClose(); nav('/billing'); }}>{t('See plans')}</button>}<button className="btn ghost" onClick={onClose}>{t('Close')}</button></div>
       </div>
     </Modal>
   );
@@ -345,8 +348,8 @@ function Paywall({ info, onClose }) {
 
 function VerifyBanner({ me }) {
   const [sent, setSent] = useState('');
-  const resend = async () => { const r = await api('/auth/resend-verification', 'POST'); setSent(r.emailConfigured ? 'Sent! Check your inbox.' : 'Email isn’t configured on this server — the link was printed in the server console.'); };
-  return <div className="verify-banner"><Icon name="send" size={15} />Please verify <b>{me.email}</b> so you can recover your account.{sent ? <span>{sent}</span> : <button onClick={resend}>Resend link</button>}</div>;
+  const resend = async () => { const r = await api('/auth/resend-verification', 'POST'); setSent(t(r.emailConfigured ? 'Sent! Check your inbox.' : 'Email isn’t configured on this server — the link was printed in the server console.')); };
+  return <div className="verify-banner"><Icon name="send" size={15} /><span>{tx('Please verify {email} so you can recover your account.', { email: <b>{me.email}</b> })}</span>{sent ? <span>{sent}</span> : <button onClick={resend}>{t('Resend link')}</button>}</div>;
 }
 
 export const Panel = ({ title, actions, children, className = '', pad = true }) => (
@@ -397,7 +400,7 @@ export function Modal({ title, onClose, children, width = 640 }) {
   return (
     <div className="m-scrim" onMouseDown={onClose}>
       <div className="m-box" ref={ref} role="dialog" aria-modal="true" aria-labelledby={`${id}-t`} tabIndex={-1} style={{ maxWidth: width }} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="m-head"><h3 id={`${id}-t`}>{title}</h3><button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="x" /></button></div>
+        <div className="m-head"><h3 id={`${id}-t`}>{title}</h3><button className="icon-btn" aria-label={t('Close')} onClick={onClose}><Icon name="x" /></button></div>
         {children}
       </div>
     </div>
@@ -407,7 +410,10 @@ export function Modal({ title, onClose, children, width = 640 }) {
 // ---------- confirm / prompt / alert (in place of the browser's own boxes) ----------
 // Each call mounts its own small React root, so it works on buyer pages without the app layout too.
 // buyer: true styles it like the buyer pages (library, bookings, quotes) and takes their accent colour.
-function Dialog({ kind, title, text, label, placeholder, type = 'text', value = '', confirm, cancel = 'Cancel', danger, confirmWord, readOnly, buyer, done }) {
+function Dialog({ kind, title, text, label, placeholder, type = 'text', value = '', confirm, cancel, danger, confirmWord, readOnly, buyer, done }) {
+  // buyer pages follow their own language — the dashboard's language only changes the seller's own dialogs
+  const L = buyer ? (s) => s : t;
+  if (cancel === undefined) cancel = L('Cancel');
   const [v, setV] = useState(value ?? '');
   const ref = useRef(null), id = useId();
   const ok = kind !== 'prompt' || !confirmWord || v.trim() === confirmWord;
@@ -423,13 +429,13 @@ function Dialog({ kind, title, text, label, placeholder, type = 'text', value = 
         {text && <p id={`${id}-d`} className="dlg-text">{text}</p>}
         {kind === 'prompt' && (
           <label className="dlg-field">
-            {(label || confirmWord) && <span>{label || <>Type <b>{confirmWord}</b> to confirm</>}</span>}
+            {(label || confirmWord) && <span>{label || (buyer ? <>Type <b>{confirmWord}</b> to confirm</> : tx('Type {word} to confirm', { word: <b>{confirmWord}</b> }))}</span>}
             <input autoFocus type={type} value={v} placeholder={placeholder} readOnly={readOnly} onFocus={readOnly ? (e) => e.target.select() : undefined} autoComplete={type === 'password' ? 'current-password' : 'off'} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); yes(); } }} />
           </label>
         )}
         <div className="dlg-foot">
           {kind !== 'alert' && cancel && <button type="button" className={b('ghost')} onClick={no}>{cancel}</button>}
-          <button type="button" autoFocus={kind !== 'prompt'} className={`${b('primary')}${danger ? ' dlg-danger' : ''}`} disabled={!ok} onClick={yes}>{confirm || (kind === 'alert' ? 'OK' : kind === 'prompt' ? 'Continue' : 'Confirm')}</button>
+          <button type="button" autoFocus={kind !== 'prompt'} className={`${b('primary')}${danger ? ' dlg-danger' : ''}`} disabled={!ok} onClick={yes}>{confirm || L(kind === 'alert' ? 'OK' : kind === 'prompt' ? 'Continue' : 'Confirm')}</button>
         </div>
       </div>
     </div>
@@ -466,7 +472,7 @@ export const toast = (m) => toastSet && toastSet(m);
 
 export const RANGES = [[7, '7 days'], [30, '30 days'], [90, '90 days']];
 export const RangePicker = ({ value, onChange }) => (
-  <div className="seg">{RANGES.map(([d, l]) => <button key={d} className={value === d ? 'on' : ''} onClick={() => onChange(d)}>{l}</button>)}</div>
+  <div className="seg">{RANGES.map(([d, l]) => <button key={d} className={value === d ? 'on' : ''} onClick={() => onChange(d)}>{t(l)}</button>)}</div>
 );
 
 // ---------- Create funnel (AI / template / blank) ----------
@@ -485,11 +491,11 @@ export function useFunnelDraft() {
     setBusy(true); setErr('');
     try {
       const r = await api('/ai/generate', 'POST', { prompt, lang });
-      if (r.usedAI && r.quality) toast(r.quality.finalIssues === 0 ? `Quality check passed — ${r.steps.length} pages ready` : 'Funnel ready — review the highlighted sections');
+      if (r.usedAI && r.quality) toast(r.quality.finalIssues === 0 ? t('Quality check passed — {n} pages ready', { n: r.steps.length }) : t('Funnel ready — review the highlighted sections'));
       nav(`/funnels/${r.id}`);
     } catch (x) { setErr(x.message); setBusy(false); }
   };
-  return { busy, err, secs, stage, progress, start };
+  return { busy, err, secs, stage: t(stage), progress, start };
 }
 export const DRAFT_EXAMPLES = EXAMPLES;
 
@@ -503,23 +509,23 @@ export function CreateFunnel({ onClose, aiEnabled }) {
   const gen = (e) => { e?.preventDefault(); start(prompt, lang); };
   const blank = async () => nav(`/funnels/${(await api('/funnels', 'POST', { name: 'Untitled funnel' })).id}`);
   return (
-    <Modal title="Create a new funnel" onClose={onClose} width={720}>
+    <Modal title={t('Create a new funnel')} onClose={onClose} width={720}>
       <form className="create-ai" onSubmit={gen}>
-        <div className="ca-badge"><Icon name="sparkles" size={14} /> AI funnel builder</div>
-        <h2>Describe your business in one line</h2>
-        <p className="muted">We’ll build the landing page, checkout, upsell, downsell, cross-sells and thank-you page — with copy, FOMO and pricing.</p>
-        <textarea ref={ref} rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="e.g. Online yoga classes for working women, ₹499" />
-        <label className="lang-pick">Page language <select value={lang} onChange={(e) => setLang(e.target.value)}><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></label>
+        <div className="ca-badge"><Icon name="sparkles" size={14} /> {t('AI funnel builder')}</div>
+        <h2>{t('Describe your business in one line')}</h2>
+        <p className="muted">{t('We’ll build the landing page, checkout, upsell, downsell, cross-sells and thank-you page — with copy, FOMO and pricing.')}</p>
+        <textarea ref={ref} rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t('e.g. Online yoga classes for working women, ₹499')} />
+        <label className="lang-pick">{t('Page language')} <select value={lang} onChange={(e) => setLang(e.target.value)}><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></label>
         <div className="sugg">{EXAMPLES.map((x) => <button type="button" key={x} onClick={() => setPrompt(x)}>{x}</button>)}</div>
         {err && <div className="err">{err}</div>}
-        <button className="btn primary lg" disabled={busy || prompt.length < 5}>{busy ? <><span className="spin" /> {stage}… <small className="gen-secs">{secs}s</small></> : <><Icon name="wand" /> Generate my funnel</>}</button>
+        <button className="btn primary lg" disabled={busy || prompt.length < 5}>{busy ? <><span className="spin" /> {stage}… <small className="gen-secs">{secs}s</small></> : <><Icon name="wand" /> {t('Generate my funnel')}</>}</button>
         {busy && <div className="gen-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>}
-        {busy && <p className="hint">Hive AI writes every page, then checks each one against our template quality bar — about a minute. Keep this window open.</p>}
-        {!aiEnabled && <p className="hint">Running offline: we’ll match your description to the best of our 100+ expert templates. Add a KIE_API_KEY on the server for fully custom AI copy.</p>}
+        {busy && <p className="hint">{t('Hive AI writes every page, then checks each one against our template quality bar — about a minute. Keep this window open.')}</p>}
+        {!aiEnabled && <p className="hint">{t('Running offline: we’ll match your description to the best of our 100+ expert templates. Add a KIE_API_KEY on the server for fully custom AI copy.')}</p>}
       </form>
       <div className="create-alt">
-        <button onClick={() => nav('/templates')}><Icon name="layout" /><div><b>Pick a template</b><small>100+ proven designs: sales, VSL & webinar funnels</small></div></button>
-        <button onClick={blank}><Icon name="plus" /><div><b>Start from scratch</b><small>Blank page with drag & drop</small></div></button>
+        <button onClick={() => nav('/templates')}><Icon name="layout" /><div><b>{t('Pick a template')}</b><small>{t('100+ proven designs: sales, VSL & webinar funnels')}</small></div></button>
+        <button onClick={blank}><Icon name="plus" /><div><b>{t('Start from scratch')}</b><small>{t('Blank page with drag & drop')}</small></div></button>
       </div>
     </Modal>
   );
@@ -545,16 +551,16 @@ export function WaTemplateSelect({ list, value, onPick, inputProps }) {
   return (
     <>
       <select value={other ? '__other' : known ? value : ''} onChange={(e) => { const name = e.target.value; setOther(name === '__other'); if (name !== '__other') onPick(list.find((t) => t.name === name) || null); }}>
-        <option value="">{list.length ? 'Choose an approved template…' : 'No approved templates yet'}</option>
+        <option value="">{t(list.length ? 'Choose an approved template…' : 'No approved templates yet')}</option>
         {list.map((t) => <option key={`${t.name}:${t.language}`} value={t.name}>{t.name}{t.category ? ` · ${t.category.toLowerCase()}` : ''}</option>)}
-        <option value="__other">Other (type a name)</option>
+        <option value="__other">{t('Other (type a name)')}</option>
       </select>
       {other && <input {...inputProps} />}
     </>
   );
 }
 // how many variables the chosen template takes, with its wording
-export function WaTemplateInfo({ t }) {
-  if (!t) return null;
-  return <p className="hint" style={{ whiteSpace: 'pre-wrap' }}>{t.vars ? `This template has ${t.vars} variable${t.vars > 1 ? 's' : ''}: fill them in order.` : 'This template has no variables — leave the variables empty.'}{'\n'}<span className="muted">{t.body}</span></p>;
+export function WaTemplateInfo({ t: tpl }) {
+  if (!tpl) return null;
+  return <p className="hint" style={{ whiteSpace: 'pre-wrap' }}>{tpl.vars ? t(tpl.vars > 1 ? 'This template has {n} variables: fill them in order.' : 'This template has {n} variable: fill them in order.', { n: tpl.vars }) : t('This template has no variables — leave the variables empty.')}{'\n'}<span className="muted">{tpl.body}</span></p>;
 }
