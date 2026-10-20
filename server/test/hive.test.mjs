@@ -28,6 +28,7 @@ function brain(body) {
     if (calls.at(-1) === 'update_section') return call('create_automation', { name: 'Welcome', trigger: { type: 'lead' }, steps: [{ type: 'wait', amount: 1, unit: 'hours' }, { type: 'email', subject: 'Welcome {{first_name}}', body: 'Hi!' }], activate: true });
     return say('Your funnel is ready:\n- 5 pages\n- new headline\n- welcome automation is on');
   }
+  if (/go live with/i.test(user)) return calls.length ? say('Press Confirm to make it live.') : call('publish_funnel', { funnelId: user.split(' ').pop() });
   if (/missing/i.test(user)) return calls.length ? say('That page does not exist.') : call('get_page', { funnelId: 'nope', stepId: 'x' });
   return say('Hello! Tell me what you sell and I will build your funnel.');
 }
@@ -52,24 +53,44 @@ test('Hive builds a funnel end to end by chatting: funnel → edit → automatio
   const { status, events } = await chat({ message: 'Build me a funnel for my yoga studio' });
   assert.equal(status, 200);
   const tools = events.filter((e) => e.type === 'tool' && e.status !== 'running');
-  assert.deepEqual(tools.map((e) => [e.name, e.status]), [['create_funnel', 'done'], ['get_page', 'done'], ['update_section', 'done'], ['create_automation', 'done']]);
+  // switching on an automation (it messages real contacts) waits for the seller's Confirm
+  assert.deepEqual(tools.map((e) => [e.name, e.status]), [['create_funnel', 'done'], ['get_page', 'done'], ['update_section', 'done'], ['create_automation', 'confirm']]);
   const reply = events.find((e) => e.type === 'reply');
-  assert.match(reply.text, /welcome automation is on/);
   assert.ok(reply.funnelId, 'the preview follows the funnel being built');
   const f = (await api(`/funnels/${reply.funnelId}`, 'GET', null, T)).data;
   assert.equal(f.steps.length, 5);
   assert.equal(f.steps[0].blocks.find((b) => b.type === 'hero').props.headline, 'Hive built this *in one chat*');
-  const autos = (await api('/automations', 'GET', null, T)).data.automations;
-  assert.ok(autos.some((a) => a.name === 'Welcome' && a.active), 'automation created and switched on');
+  assert.ok(!(await api('/automations', 'GET', null, T)).data.automations.some((a) => a.name === 'Welcome'), 'nothing switched on yet');
   const threads = (await api('/hive/threads', 'GET', null, T)).data;
   assert.equal(threads.length, 1);
+  const pendingId = reply.tools.find((x) => x.name === 'create_automation').pending;
+  const ok = await api(`/hive/threads/${threads[0].id}/confirm`, 'POST', { pendingId }, T);
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal((await api(`/hive/threads/${threads[0].id}/confirm`, 'POST', { pendingId }, T)).status, 404, 'a second click does nothing');
+  const autos = (await api('/automations', 'GET', null, T)).data.automations;
+  assert.ok(autos.some((a) => a.name === 'Welcome' && a.active), 'automation created and switched on after Confirm');
   const t = (await api(`/hive/threads/${threads[0].id}`, 'GET', null, T)).data;
-  assert.deepEqual(t.messages.map((m) => m.role), ['user', 'assistant']);
+  assert.deepEqual(t.messages.map((m) => m.role), ['user', 'assistant', 'assistant']);
   assert.equal(t.messages[1].tools.length, 4);
+  assert.equal(t.messages[1].tools[3].resolved, 'done');
   // follow-up in the same thread
   const again = await chat({ threadId: threads[0].id, message: 'make a coupon' });
   assert.match(again.events.find((e) => e.type === 'reply').text, /HIVE20/);
   assert.ok((await api('/coupons', 'GET', null, T)).data.some((c) => c.code === 'HIVE20'));
+});
+
+test('a broadcast or publish the model asks for never runs without the seller’s Confirm; Cancel drops it', async () => {
+  const fid = (await api('/funnels', 'GET', null, T)).data[0].id;
+  const { events } = await chat({ message: `go live with ${fid}` });
+  const tool = events.find((e) => e.type === 'tool' && e.name === 'publish_funnel' && e.status !== 'running');
+  assert.equal(tool.status, 'confirm');
+  assert.equal((await api(`/funnels/${fid}`, 'GET', null, T)).data.published, false, 'still offline');
+  const tid = events.find((e) => e.type === 'thread').threadId;
+  const r = (await api(`/hive/threads/${tid}/confirm`, 'POST', { pendingId: tool.pending, ok: false }, T)).data;
+  assert.equal(r.cancelled, true);
+  assert.equal((await api(`/funnels/${fid}`, 'GET', null, T)).data.published, false, 'cancelled: still offline');
+  const other = (await register(api)).token;
+  assert.equal((await api(`/hive/threads/${tid}/confirm`, 'POST', { pendingId: tool.pending }, other)).status, 404, 'nobody else can confirm it');
 });
 
 test('tool errors are reported to the model and the user, not thrown', async () => {

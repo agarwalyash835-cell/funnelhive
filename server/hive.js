@@ -428,6 +428,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: () => 'Updated your business settings',
   },
 ];
+const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
 const clip = (v) => { const s = JSON.stringify(v); return s.length > RESULT_MAX ? `${s.slice(0, RESULT_MAX)}…(truncated)` : s; };
 
@@ -439,6 +440,20 @@ export async function runTool(ctx, name, args) {
   if (missing.length) throw new Error(`Missing ${missing.join(', ')} — required by ${name}`);
   return t.run(ctx, args);
 }
+
+// Actions that reach customers, take pages live/offline, delete work or change account settings never run on the
+// model's word alone in the in-app chat: they wait for the seller to press Confirm (text on a page or in a contact's
+// name could otherwise talk the model into them). MCP clients ask their user before every tool call themselves.
+const webhookIn = (steps) => /"type":\s*"webhook"/.test(JSON.stringify(steps || []));
+const NEEDS_OK = {
+  send_broadcast: (a) => (a.at ? `Schedule this broadcast for ${a.at}` : 'Send this broadcast now'),
+  publish_funnel: (a) => (a.published === false ? 'Take this funnel offline' : 'Publish this funnel (make it live)'),
+  remove_step: () => 'Delete a page from this funnel',
+  update_business: (a) => `Change business settings (${Object.keys(a).join(', ') || 'none'})`,
+  create_automation: (a) => (webhookIn(a.steps) ? `Create automation “${a.name}” — it sends contact data to a webhook` : a.activate ? `Create automation “${a.name}” and switch it on` : null),
+  update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
+};
+export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
 // ---------- the in-app agent ----------
 const SYSTEM = `You are Hive AI, the builder inside FunnelHive — like Lovable, but for sales funnels. Sellers chat with you and you BUILD: funnels end to end (sales pages, video sales letters with qualifying applications, webinar registration + replay funnels, checkout, upsells, downsells, thank-you pages), page sections, design, coupons, pipelines and automations, using your tools. Act, don't just describe.
@@ -484,6 +499,17 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
       const t = byName[c.name];
       emit({ type: 'tool', status: 'running', id: c.call_id, name: c.name, label: t?.description.split(/[.:\n]/)[0] || c.name });
       let out, ok = true, summary;
+      const ask = ctx.pending && needsOk(c.name, args);
+      if (ask) {
+        const p = { id: uid(), name: c.name, args, label: ask, at: Date.now() };
+        ctx.pending.push(p);
+        out = { waitingForUser: true, note: 'NOT done yet: the seller must press Confirm under your reply. Tell them in one line what will happen and ask them to confirm. Do not call this tool again for it.' };
+        summary = `Needs your OK: ${ask}`;
+        done.push({ name: c.name, ok, summary, pending: p.id });
+        emit({ type: 'tool', status: 'confirm', id: c.call_id, name: c.name, summary, pending: p.id });
+        input.push({ type: 'function_call_output', call_id: c.call_id, output: clip(out) });
+        continue;
+      }
       try {
         out = await runTool(ctx, c.name, args);
         summary = t.summary ? t.summary(out, args) : `Ran ${c.name}`;
@@ -538,9 +564,11 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     t.messages.push({ role: 'user', text: message, at: Date.now() });
     T.hive.put(t);
     try {
-      const out = await hiveTurn({ ctx: ctxFor(req.user, appUrl(req), req.actor), history, message, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal });
+      const ctx = { ...ctxFor(req.user, appUrl(req), req.actor), pending: [] };
+      const out = await hiveTurn({ ctx, history, message, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal });
       t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now() });
       if (out.funnelId) t.funnelId = out.funnelId;
+      if (ctx.pending.length) t.pending = [...(t.pending || []).filter((p) => Date.now() - p.at < PENDING_TTL), ...ctx.pending].slice(-20);
       emit({ type: 'reply', text: out.text, tools: out.tools, funnelId: t.funnelId });
     } catch (e) {
       const msg = ac.signal.aborted ? 'Stopped.' : `Something went wrong: ${e.message}`;
@@ -553,6 +581,32 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       if (T.hive.get(t.id)) T.hive.put(t); // unless the chat was deleted meanwhile
       res.end();
     }
+  });
+
+  // the seller pressed Confirm (or Cancel) on an action Hive proposed
+  app.post('/api/hive/threads/:tid/confirm', auth, limiter, async (req, res) => {
+    const t0 = ownThread(req, req.params.tid);
+    if (!t0) return res.status(404).json({ error: 'Chat not found' });
+    const pid = String(req.body.pendingId || ''), cancel = req.body.ok === false;
+    let p = null;
+    T.hive.update(t0.id, (t) => { const i = (t.pending || []).findIndex((x) => x.id === pid); if (i >= 0) [p] = t.pending.splice(i, 1); }); // claimed once, even on a double click
+    if (!p || Date.now() - p.at > PENDING_TTL) return res.status(404).json({ error: 'This action was already handled or has expired — ask Hive again' });
+    let ok = true, summary, funnelId = null;
+    if (cancel) summary = `Cancelled: ${p.label}`;
+    else {
+      const tool = byName[p.name];
+      try {
+        const out = await runTool(ctxFor(req.user, appUrl(req), req.actor), p.name, p.args);
+        summary = tool.summary ? tool.summary(out, p.args) : `Done: ${p.label}`;
+        funnelId = tool.touchesResult ? out?.id : tool.touches ? p.args[tool.touches] : null;
+      } catch (e) { ok = false; summary = `${p.label} failed: ${e.message}`; }
+    }
+    T.hive.update(t0.id, (t) => {
+      for (const m of t.messages) for (const x of m.tools || []) if (x.pending === pid) { x.resolved = cancel ? 'cancelled' : ok ? 'done' : 'error'; x.summary = summary; x.ok = ok; }
+      t.messages.push({ role: 'assistant', text: summary, ...(ok ? {} : { error: true }), at: Date.now() }); // so Hive knows in the next turn
+      t.updatedAt = Date.now();
+    });
+    res.json({ ok, cancelled: cancel, summary, funnelId });
   });
 
   // ---- personal access tokens for MCP clients ----

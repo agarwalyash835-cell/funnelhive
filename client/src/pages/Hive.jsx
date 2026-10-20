@@ -31,11 +31,19 @@ function Rich({ text }) {
   return <div className="rich">{out}</div>;
 }
 
-const ToolChips = ({ tools }) => (tools?.length ? (
+// an action Hive proposed that waits for the seller (sending, publishing, deleting…): Confirm / Cancel
+const waiting = (t) => t.pending && !t.resolved;
+const ToolChips = ({ tools, onDecide, deciding }) => (tools?.length ? (
   <ul className="hv-tools">{tools.map((t, i) => (
-    <li key={t.id || i} className={t.status || (t.ok === false ? 'error' : 'done')}>
-      {t.status === 'running' ? <Loader2 size={13} className="spin-i" /> : t.ok === false || t.status === 'error' ? <X size={13} /> : <Check size={13} />}
+    <li key={t.id || i} className={waiting(t) ? 'confirm' : t.resolved === 'cancelled' ? 'cancelled' : t.status === 'confirm' ? 'confirm' : t.status || (t.ok === false ? 'error' : 'done')}>
+      {t.status === 'running' ? <Loader2 size={13} className="spin-i" /> : t.ok === false || t.status === 'error' || t.resolved === 'cancelled' ? <X size={13} /> : waiting(t) ? <Square size={13} /> : <Check size={13} />}
       <span>{t.summary || t.label || t.name}</span>
+      {waiting(t) && onDecide && (
+        <span className="hv-ok">
+          <button className="btn sm primary" disabled={deciding === t.pending} onClick={() => onDecide(t.pending, true)}>Confirm</button>
+          <button className="btn sm" disabled={deciding === t.pending} onClick={() => onDecide(t.pending, false)}>Cancel</button>
+        </span>
+      )}
     </li>
   ))}</ul>
 ) : null);
@@ -55,6 +63,7 @@ export default function Hive() {
   const [side, setSide] = useState(true);
   const [mob, setMob] = useState('chat');
   const abort = useRef(null);
+  const [deciding, setDeciding] = useState(null);
   const endRef = useRef(null);
   const boxRef = useRef(null);
 
@@ -73,6 +82,17 @@ export default function Hive() {
     if (!id) { setMsgs([]); setFunnelId(null); return; }
     const t = await api(`/hive/threads/${id}`);
     setMsgs(t.messages); setFunnelId(t.funnelId);
+  };
+  // the seller confirms (or cancels) an action Hive proposed
+  const decide = async (pendingId, ok) => {
+    if (deciding) return;
+    setDeciding(pendingId);
+    try {
+      const r = await api(`/hive/threads/${tid}/confirm`, 'POST', { pendingId, ok });
+      setMsgs((m) => [...m.map((x) => (x.tools ? { ...x, tools: x.tools.map((t) => (t.pending === pendingId ? { ...t, resolved: r.cancelled ? 'cancelled' : r.ok ? 'done' : 'error', summary: r.summary, ok: r.ok } : t)) } : x)), { role: 'assistant', text: r.summary, error: !r.ok, at: Date.now() }]);
+      if (r.funnelId && r.funnelId !== funnelId) setFunnelId(r.funnelId); else loadFunnel(funnelId);
+    } catch (e) { toast(e.message); }
+    setDeciding(null);
   };
   const removeThread = async (id) => { if (!await confirmDialog({ title: 'Delete this chat?', text: 'Funnels it built are kept.', confirm: 'Delete', danger: true })) return; await api(`/hive/threads/${id}`, 'DELETE'); if (id === tid) openThread(null); loadThreads(); };
 
@@ -158,7 +178,7 @@ export default function Hive() {
             {msgs.map((m, i) => (
               <div key={i} className={`hv-msg ${m.role} ${m.error ? 'err' : ''}`}>
                 {m.role === 'assistant' && <span className="hv-av"><Sparkles size={14} /></span>}
-                <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} /><Rich text={m.text} /></> : m.text}</div>
+                <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} /></> : m.text}</div>
               </div>
             ))}
             {live && (
