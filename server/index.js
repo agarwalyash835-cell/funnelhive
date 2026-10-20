@@ -252,8 +252,13 @@ app.post('/api/auth/google', authLimiter, wrap(async (req, res) => {
     if (bad) return res.status(bad.status).json({ error: bad.error });
     user = { id: uid(), email: g.email, name: g.name, hash: bcrypt.hashSync(randomToken(), 10), passwordSet: false, googleId: g.sub, settings: { ...DEFAULT_SETTINGS }, emailVerified: true, pv: 0, createdAt: Date.now(), billing: newBilling() };
     try { T.users.insert(user); } catch { user = T.users.find({ email: g.email }); }
-  } else if (!user.googleId || !user.emailVerified) {
-    user = T.users.update(user.id, (u) => { u.googleId ||= g.sub; u.emailVerified = true; });
+  } else if (!user.emailVerified) {
+    // Google just proved this person owns the email, which nobody had proven before: whoever registered it first
+    // (possibly not them) loses their way in — password replaced, every session signed out, their 2FA removed
+    user = T.users.update(user.id, (u) => { u.googleId = g.sub; u.emailVerified = true; u.hash = bcrypt.hashSync(randomToken(), 10); u.passwordSet = false; u.pv = (u.pv || 0) + 1; delete u.totpEnabled; delete u.totpSecret; });
+    revokeOthers(user.id);
+  } else if (!user.googleId) {
+    user = T.users.update(user.id, (u) => { u.googleId = g.sub; });
   }
   if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
   res.json({ token: signIn(req, user), user: pubUser(user) });

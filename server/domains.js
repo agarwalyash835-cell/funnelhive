@@ -12,6 +12,8 @@ const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch 
 export const cnameTarget = () => (process.env.CNAME_TARGET || hostOf(process.env.APP_URL || '')).toLowerCase().replace(/\.$/, '');
 const serverIp = () => (process.env.SERVER_IP || '').trim();
 const appHosts = () => new Set(['localhost', '127.0.0.1', '::1', hostOf(process.env.APP_URL || ''), hostOf(process.env.PAGES_URL || ''), cnameTarget(), ...(process.env.APP_HOSTS || '').split(',')].map((s) => s.trim().toLowerCase()).filter(Boolean));
+// the platform's own addresses and anything under or above them (app.x.tech, pages.x.tech, x.tech) — never a seller's or agency's
+export const isPlatformHost = (d) => [...appHosts()].some((h) => h && !['localhost', '127.0.0.1', '::1'].includes(h) && (d === h || d.endsWith(`.${h}`) || h.endsWith(`.${d}`)));
 const fakeDns = () => process.env.DOMAINS_FAKE_DNS === '1'; // tests only
 // tests only: a file listing domains whose DNS "stops working"
 const fakeDown = (domain) => { try { return fs.readFileSync(process.env.DOMAINS_FAKE_DOWN, 'utf8').split(/\s+/).includes(domain); } catch { return false; } };

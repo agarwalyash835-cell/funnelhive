@@ -46,6 +46,11 @@ test('Continue with Google: creates the account, signs in again, links existing 
   const pw = await api('/auth/register', 'POST', { email: 'both@test.dev', password: 'secret123' });
   const g = await api('/auth/google', 'POST', { credential: idToken({ email: 'both@test.dev', sub: 'g-9' }) });
   assert.equal(g.data.user.id, pw.data.user.id);
+  // that email was never verified, so whoever registered it might not own it: once Google proves the real owner,
+  // the earlier password and sessions stop working
+  assert.equal((await api('/me', 'GET', null, pw.data.token)).status, 401, 'the earlier session is signed out');
+  assert.equal((await api('/auth/login', 'POST', { email: 'both@test.dev', password: 'secret123' })).status, 401, 'the earlier password no longer works');
+  assert.equal((await api('/me', 'GET', null, g.data.token)).status, 200, 'the Google sign-in works');
 });
 
 test('Google tokens that are forged, for another app, expired or unverified are refused', async () => {

@@ -38,6 +38,8 @@ test('client accounts: trial allows 2; the agency works inside them; access foll
 
 test('white-label: brand shows for the agency, its clients and on its own app domain', async () => {
   assert.equal((await api('/agency/white-label', 'PUT', { brand: 'GrowthOS', logo: 'javascript:1' }, A)).status, 400);
+  // the platform's own login page (and its parent domain / siblings) can never be rebranded by an agency
+  for (const domain of ['app.example.in', 'example.in', 'evil.app.example.in']) assert.equal((await api('/agency/white-label', 'PUT', { brand: 'X', domain }, A)).status, 400, domain);
   const r = (await api('/agency/white-label', 'PUT', { brand: 'GrowthOS', primary: '#ff5500', supportEmail: 'help@growth.in', domain: 'https://app.growth.in/' }, A)).data;
   assert.equal(r.whiteLabel.domain, 'app.growth.in');
   assert.equal((await api('/me', 'GET', null, A)).data.brand, 'GrowthOS');

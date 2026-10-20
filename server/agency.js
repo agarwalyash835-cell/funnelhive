@@ -16,6 +16,7 @@ import { copyProduct } from './products.js';
 import { funnelLimitError } from './limits.js';
 import { randomToken, hashToken } from './security.js';
 import { sendMail, appUrl, mailEnabled } from './mail.js';
+import { isPlatformHost } from './domains.js';
 
 const DAY = 86400000;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -144,7 +145,9 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter the client’s email address' });
     if (email !== c.email && T.users.exists({ email })) return res.status(409).json({ error: 'That email already has an account — invite it from the client account’s Team settings instead' });
     const token = `${c.id}.${randomToken()}`;
-    T.users.update(c.id, (x) => { x.email = email; x.resetHash = hashToken(token); x.resetExp = Date.now() + 7 * DAY; x.invitedAt = Date.now(); });
+    // the new email isn't proven until the client opens the link sent to it (the reset marks it verified): until
+    // then it can't pick up admin rights or be linked by a Google sign-in as if the agency owned that inbox
+    T.users.update(c.id, (x) => { x.email = email; x.emailVerified = false; x.resetHash = hashToken(token); x.resetExp = Date.now() + 7 * DAY; x.invitedAt = Date.now(); });
     const b = brandFor(req.user)?.brand || platform().brand;
     await sendMail({ to: email, subject: `Your ${b} account is ready`, text: `Hi,\n\n${req.user.settings?.whiteLabel?.brand || req.user.settings?.businessName || req.user.name} has set up your ${b} account for ${c.settings?.businessName || ''}.\n\nChoose your password to log in (link valid for 7 days):\n${process.env.APP_URL || appUrl(req)}/reset?token=${token}\n` }).catch(() => {});
     res.json({ ok: true, ...(process.env.NODE_ENV === 'test' ? { token } : {}), ...(mailEnabled() ? {} : { link: `${process.env.APP_URL || appUrl(req)}/reset?token=${token}` }) });
@@ -171,6 +174,9 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     if (w.logo && !/^(https:\/\/|\/uploads\/)[^\s"'<>]+$/.test(w.logo)) return res.status(400).json({ error: 'The logo must be an https:// image link or an uploaded image' });
     if (w.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(w.supportEmail)) return res.status(400).json({ error: 'Enter a valid support email' });
     if (w.domain && !DOMAIN_RE.test(w.domain)) return res.status(400).json({ error: 'Enter a domain like app.youragency.com' });
+    // the platform's own login page can't be rebranded, and a domain already serving a seller's funnel isn't free
+    if (w.domain && isPlatformHost(w.domain)) return res.status(400).json({ error: 'Use your own domain, like app.youragency.com' });
+    if (w.domain && T.domains.exists({ domain: w.domain })) return res.status(409).json({ error: 'That domain is connected to a funnel — use another subdomain for your app' });
     if (w.domain) { const other = brandForHost(w.domain); if (other && q("SELECT id FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ?").get(w.domain)?.id !== req.user.id) return res.status(409).json({ error: 'That domain is used by another account' }); }
     const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, whiteLabel: w }; });
     res.json({ whiteLabel: u.settings.whiteLabel, dns: w.domain ? { type: 'CNAME', name: w.domain, value: new URL(process.env.APP_URL || 'https://app.example.com').hostname } : null });
