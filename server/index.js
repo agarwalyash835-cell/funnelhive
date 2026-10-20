@@ -323,7 +323,7 @@ const notSupport = (req, res, next) => (req.impersonator ? res.status(403).json(
 
 app.post('/api/auth/change-password', auth, notSupport, authLimiter, (req, res) => {
   const { current, password } = req.body;
-  if (!bcrypt.compareSync(String(current || ''), req.user.hash)) return res.status(401).json({ error: 'Current password is incorrect' });
+  if (!bcrypt.compareSync(String(current || ''), req.user.hash)) return res.status(403).json({ error: 'Current password is incorrect' });
   const weak = weakPassword(password);
   if (weak) return res.status(400).json({ error: `New password: ${weak.charAt(0).toLowerCase()}${weak.slice(1)}` });
   req.user.hash = bcrypt.hashSync(password, 10);

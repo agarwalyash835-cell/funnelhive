@@ -57,7 +57,7 @@ export function registerAccount(app, { auth, rateLimit, isTest }) {
     res.json(exportAccount(req.user.id));
   });
   app.post('/api/account/delete', auth, limiter, (req, res) => {
-    if (req.user.passwordSet !== false && !bcrypt.compareSync(String(req.body.password || ''), req.user.hash)) return res.status(401).json({ error: 'Your password is incorrect' });
+    if (req.user.passwordSet !== false && !bcrypt.compareSync(String(req.body.password || ''), req.user.hash)) return res.status(403).json({ error: 'Your password is incorrect' });
     if (req.body.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
     if (req.user.billing?.subscriptionId && ['active', 'past_due'].includes(req.user.billing.status) && !req.user.billing.cancelAtPeriodEnd) return res.status(400).json({ error: 'Cancel your subscription first (Billing), then delete the account.' });
     deleteAccount(req.user.id);

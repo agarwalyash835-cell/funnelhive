@@ -115,6 +115,7 @@ test('passwords: 8+ characters and not a common one (new passwords only)', async
   for (const password of ['short1', 'password', '12345678', 'qwerty123', 'Password1'])
     assert.equal((await api('/auth/register', 'POST', { email: `w${Math.random()}@test.dev`.replace('0.', ''), password }, null)).status, 400, password);
   const { token } = await register(api);
+  assert.equal((await api('/auth/change-password', 'POST', { current: 'wrong-one', password: 'Mango-Lassi-42' }, token)).status, 403, 'a typo in the current password doesn’t sign the seller out');
   assert.equal((await api('/auth/change-password', 'POST', { current: 'secret123', password: 'iloveyou' }, token)).status, 400);
   const ok = await api('/auth/change-password', 'POST', { current: 'secret123', password: 'Mango-Lassi-42' }, token);
   assert.equal(ok.status, 200);

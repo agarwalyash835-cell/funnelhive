@@ -206,7 +206,7 @@ test('sellers can export their data and delete their account', async () => {
   assert.equal(data.account.email, email);
   assert.equal(data.funnels.length, 1);
   assert.ok(!JSON.stringify(data).includes('"hash"'), 'no password hash in the export');
-  assert.equal((await api('/account/delete', 'POST', { password: 'wrong', confirm: 'DELETE' }, token)).status, 401);
+  assert.equal((await api('/account/delete', 'POST', { password: 'wrong', confirm: 'DELETE' }, token)).status, 403, 'a wrong password is not a signed-out session');
   assert.equal((await api('/account/delete', 'POST', { password: 'secret123', confirm: 'DELETE' }, token)).status, 200);
   assert.equal((await api('/me', 'GET', null, token)).status, 401);
   // a seller with a running subscription cancels it first
