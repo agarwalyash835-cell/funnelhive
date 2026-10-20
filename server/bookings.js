@@ -206,8 +206,26 @@ function confirmed(b, cal, base, rescheduled) {
 // ---------- paid calls ----------
 // The webhook or the browser reports the payment: confirm the held slot, record the sale, or refund if the slot is gone
 let recordSale = null;
+// The browser's verify and the provider's webhook can arrive together on different processes. The first claims the
+// payment inside a transaction; the other waits for its result instead of confirming (and charging for) it twice.
+// A claim older than 2 minutes counts as abandoned (that process died), so the payment can still be confirmed.
+const claimPayment = (id) => tx(() => {
+  const p = T.payments.get(id);
+  if (!p || p.status === 'paid' || (p.claimedAt && Date.now() - p.claimedAt < 120000)) return false;
+  p.claimedAt = Date.now(); T.payments.put(p);
+  return true;
+});
 export async function confirmPaidBooking(pay, paymentId, base) {
   if (pay.status === 'paid') return pay.result;
+  if (!claimPayment(pay.id)) {
+    for (let i = 0; i < 40; i++) {
+      const fresh = T.payments.get(pay.id);
+      if (fresh?.status === 'paid') { Object.assign(pay, fresh); return fresh.result; }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return { error: 'Your payment is still being confirmed — refresh this page in a moment.' };
+  }
+  Object.assign(pay, T.payments.get(pay.id));
   const b0 = T.bookings.get(pay.bookingId);
   const cal = b0 && T.calendars.get(b0.calendarId);
   if (!b0 || !cal) return { error: 'Booking not found' };

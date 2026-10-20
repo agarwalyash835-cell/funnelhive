@@ -114,9 +114,22 @@ export function issueInvoice(owner, order, lines, { paymentId = null, gst = null
 
 // ---------- refunds ----------
 // itemIndexes: which items of the order to refund (default: everything not refunded yet)
-export async function refundOrder(owner, order, { itemIndexes, reason = '', by = 'seller' } = {}) {
-  const idx = (itemIndexes?.length ? itemIndexes : order.items.map((_, i) => i)).map(Number).filter((i) => order.items[i] && !order.items[i].refunded);
-  if (!idx.length) return { error: 'Nothing left to refund on this order' };
+export async function refundOrder(owner, order0, { itemIndexes, reason = '', by = 'seller' } = {}) {
+  // claim the items first (re-read inside a transaction): a double click or a second tab can't refund them twice
+  // while the first refund is still waiting on Razorpay / Stripe; a claim older than 5 minutes counts as abandoned
+  const want = (itemIndexes?.length ? itemIndexes : order0.items.map((_, i) => i)).map(Number);
+  let idx = [];
+  const order = tx(() => {
+    const o = T.orders.get(order0.id) || order0;
+    idx = want.filter((i) => o.items[i] && !o.items[i].refunded && !(o.items[i].refundingAt && Date.now() - o.items[i].refundingAt < 300000));
+    if (idx.length) { for (const i of idx) o.items[i].refundingAt = Date.now(); T.orders.put(o); }
+    return o;
+  });
+  if (!idx.length) return { error: want.some((i) => order.items[i]?.refundingAt && !order.items[i]?.refunded) ? 'This refund is already being processed' : 'Nothing left to refund on this order' };
+  const release = (list) => T.orders.update(order.id, (o) => { for (const i of list) if (o.items[i]) delete o.items[i].refundingAt; });
+  try { return await refundClaimed(owner, order, idx, { reason, by }); } finally { release(idx); }
+}
+async function refundClaimed(owner, order, idx, { reason, by }) {
   const creds = rzpCreds(owner);
   const groups = new Map(); // payment id → item indexes
   for (const i of idx) { const pid = order.items[i].paymentId || ''; groups.set(pid, [...(groups.get(pid) || []), i]); }

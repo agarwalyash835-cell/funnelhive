@@ -102,8 +102,12 @@ test('one-click upsell charges the saved card off-session; refunds go back throu
   const o = await order(paid.orderId);
   assert.equal(o.total, 199 + Number(offer.price));
   assert.equal(Object.values(S.pis).filter((p) => p.off_session).length, 1);
-  const ref = (await api(`/orders/${paid.orderId}/refund`, 'POST', { items: [1], reason: 'changed mind' }, T)).data;
-  assert.ok(!ref.error, JSON.stringify(ref));
+  // two refund clicks at the same moment: only one reaches Stripe
+  const before = S.refunds.length;
+  const [r1, r2] = await Promise.all([1, 2].map(() => api(`/orders/${paid.orderId}/refund`, 'POST', { items: [1], reason: 'changed mind' }, T)));
+  const ok = [r1, r2].filter((x) => !x.data.error);
+  assert.equal(ok.length, 1, JSON.stringify([r1.data, r2.data]));
+  assert.equal(S.refunds.length - before, 1, 'one refund at Stripe');
   assert.equal(S.refunds.at(-1).amount, Number(offer.price) * 100);
 });
 

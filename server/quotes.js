@@ -71,7 +71,17 @@ function publicView(q) {
 }
 
 // a payment arrived (browser or webhook): record the sale once, invoice it, tell everyone
+// the browser and the webhook can confirm the same payment at once on different processes: re-read it inside one
+// transaction, so the deposit / payment is recorded once
 export function confirmQuotePayment(pay, paymentId, base) {
+  return tx(() => {
+    const fresh = T.payments.get(pay.id) || pay;
+    const r = confirmQuotePaymentOnce(fresh, paymentId, base);
+    Object.assign(pay, fresh);
+    return r;
+  });
+}
+function confirmQuotePaymentOnce(pay, paymentId, base) {
   if (pay.status === 'paid') return pay.result;
   const quote = T.quotes.get(pay.quoteId);
   if (!quote) return null;

@@ -65,6 +65,9 @@ if (process.env.NODE_ENV === 'production' && (!process.env.WORKER_INDEX || proce
   if (!process.env.PAGES_URL) console.warn('⚠ PAGES_URL is not set — funnel pages share the dashboard’s origin. Serve them from their own domain (see DEPLOY.md).');
 }
 const app = express();
+// routes match the exact case of their path: role and API-key checks test the path, so /api/Account/export must not
+// reach /api/account/export behind a check that only knows the lowercase spelling
+app.set('case sensitive routing', true);
 app.set('trust proxy', process.env.TRUST_PROXY ? (/^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY) : 'loopback, linklocal, uniquelocal');
 app.use(requestMetrics); // request counts and timings (observe.js)
 app.use(pagesSplit); // PAGES_URL: live pages and the dashboard on separate domains (domains.js)
@@ -134,7 +137,7 @@ const auth = (req, res, next) => {
     if (isApiKey(t)) {
       const k = keyUser(t);
       if (!k) return res.status(401).json({ error: 'Invalid API key' });
-      const path = req.originalUrl.split('?')[0];
+      const path = req.originalUrl.split('?')[0].toLowerCase();
       if (KEY_NEVER.test(path) || !allows(k.role, req.method, path)) return res.status(403).json({ error: k.role === 'viewer' ? 'This API key is read-only' : 'API keys can’t do that' });
       req.user = withDefaults(k.user); req.apiKey = k.key; req.role = k.role;
       const locked = lockedOut(req);
@@ -152,7 +155,8 @@ const auth = (req, res, next) => {
       const w = enterWorkspace(req.user, p.ws);
       if (!w) return res.status(401).json({ error: 'You no longer have access to that team', workspaceGone: true });
       req.actor = req.user; req.role = w.member.role; req.user = w.owner;
-      if (!OWN_SESSION.test(req.originalUrl.split('?')[0]) && !allows(req.role, req.method, req.originalUrl.split('?')[0])) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
+      const reqPath = req.originalUrl.split('?')[0].toLowerCase();
+      if (!OWN_SESSION.test(reqPath) && !allows(req.role, req.method, reqPath)) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
       if (Date.now() - (w.member.lastSeenAt || 0) > 10 * 60000) T.members.update(w.member.id, (m) => { m.lastSeenAt = Date.now(); });
     }
     withDefaults(req.user);
@@ -1423,14 +1427,20 @@ app.post('/api/public/:slug/cod', codLimiter, (req, res) => {
 function finalizePayment(pay, paymentId, base) {
   if (pay.kind === 'booking') { confirmPaidBooking(pay, paymentId, base); return pay.result || null; }
   if (pay.kind === 'quote') return confirmQuotePayment(pay, paymentId, base);
-  if (pay.status === 'paid') return pay.result;
-  const f = T.funnels.get(pay.funnelId);
-  if (!f) return null;
-  pay.status = 'paid'; pay.paymentId = paymentId; pay.paidAt = Date.now();
-  const charge = { ...pay.charge, couponObj: pay.charge.usedCoupon ? T.coupons.find({ userId: f.userId, code: pay.charge.usedCoupon }) : null };
-  pay.result = recordOrder(f, charge, pay.buyer, { orderId: pay.orderId, payment: { id: paymentId, provider: pay.provider || 'razorpay', mode: pay.mode, ...(pay.plan ? { subId: pay.stripeSub || pay.rzpOrderId } : {}), ...(pay.stripeCustomer ? { customer: pay.stripeCustomer } : {}) }, verified: true, base: base || pay.base });
-  T.payments.put(pay);
-  return pay.result;
+  // the browser's verify and the provider's webhook can arrive together on different processes: the payment is
+  // re-read and the order recorded inside one transaction, so only the first of them creates it
+  return tx(() => {
+    const fresh = T.payments.get(pay.id) || pay;
+    if (fresh.status === 'paid') { Object.assign(pay, fresh); return fresh.result; }
+    const f = T.funnels.get(fresh.funnelId);
+    if (!f) return null;
+    fresh.status = 'paid'; fresh.paymentId = paymentId; fresh.paidAt = Date.now();
+    const charge = { ...fresh.charge, couponObj: fresh.charge.usedCoupon ? T.coupons.find({ userId: f.userId, code: fresh.charge.usedCoupon }) : null };
+    fresh.result = recordOrder(f, charge, fresh.buyer, { orderId: fresh.orderId, payment: { id: paymentId, provider: fresh.provider || 'razorpay', mode: fresh.mode, ...(fresh.plan ? { subId: fresh.stripeSub || fresh.rzpOrderId } : {}), ...(fresh.stripeCustomer ? { customer: fresh.stripeCustomer } : {}) }, verified: true, base: base || fresh.base });
+    T.payments.put(fresh);
+    Object.assign(pay, fresh);
+    return fresh.result;
+  });
 }
 // 1. Start: decide the amount on the server and open a Razorpay order for it
 app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
@@ -1709,6 +1719,9 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
     .replace('<!--ff-head-->', head)
     .replace('<!--ff-ssr-->', `${body}<script>window.__FUNNEL__=${json}</script>`);
 }
+
+// an API path nobody answered is a JSON 404, never the app's HTML page
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 if (indexHtml) {
   // the build's files carry a content hash in their names (/assets/index-AbC123.js): cache them for a year;

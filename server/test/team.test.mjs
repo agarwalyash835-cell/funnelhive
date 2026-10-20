@@ -61,6 +61,9 @@ test('marketer: builds funnels and automations, can’t touch settings, money, t
   assert.equal((await api('/orders', 'GET', null, m.ws)).status, 200, 'can read orders');
   for (const [method, path, body] of [['PUT', '/settings', { businessName: 'Hacked' }], ['GET', '/settings'], ['PUT', '/channels/razorpay', {}], ['POST', '/orders/x/refund', {}], ['POST', '/team/invite', { email: 'z@x.in', role: 'admin' }], ['GET', '/billing'], ['POST', '/account/delete', {}], ['GET', '/account/export'], ['POST', '/auth/change-password', {}], ['POST', '/hive/tokens', {}], ['GET', '/admin/overview']]) {
     assert.equal((await api(path, method, body, m.ws)).status, 403, `${method} ${path}`);
+    // a different spelling of the same path must not slip past the role check
+    const odd = path.replace(/^\/(\w)/, (_, ch) => `/${ch.toUpperCase()}`);
+    assert.ok([403, 404].includes((await api(odd, method, body, m.ws)).status), `${method} ${odd}`);
   }
   assert.equal((await api('/me', 'GET', null, owner.token)).data.billing.status !== undefined, true);
 });

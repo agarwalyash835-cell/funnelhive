@@ -113,6 +113,18 @@ test('webhook backup: payment.captured completes an order whose browser never re
   assert.equal(late.orderId, orders[0].id);
 });
 
+test('the browser and the webhook confirming the same payment at the same moment make one order', async () => {
+  const s = (await pay({ stepId: co.id, email: 'race@x.dev', name: 'Race' })).data;
+  const me = (await api('/me', 'GET', null, T)).data;
+  const body = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_race1', order_id: s.order_id, amount: s.amount } } } });
+  const hook = () => fetch(`${srv.base}/api/razorpay/webhook/${me.id}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-razorpay-signature': sign(WH, body) }, body });
+  const [v1, , v2] = await Promise.all([verify(s, { razorpay_payment_id: 'pay_race1', razorpay_signature: sign(SECRET, `${s.order_id}|pay_race1`) }), hook(), verify(s, { razorpay_payment_id: 'pay_race1', razorpay_signature: sign(SECRET, `${s.order_id}|pay_race1`) })]);
+  const orders = (await api('/orders', 'GET', null, T)).data.orders.filter((o) => o.email === 'race@x.dev');
+  assert.equal(orders.length, 1, 'one order');
+  assert.equal(v1.data.orderId, orders[0].id);
+  assert.equal(v2.data.orderId, orders[0].id);
+});
+
 test('nothing to charge (100% coupon) → order without opening Razorpay', async () => {
   await api('/coupons', 'POST', { code: 'GIFT100', type: 'percent', value: 100 }, T);
   const r = (await pay({ stepId: co.id, email: 'gift@x.dev', coupon: 'GIFT100' })).data;
