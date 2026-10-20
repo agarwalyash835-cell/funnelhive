@@ -25,6 +25,8 @@ export const STYLES = {
   studio: 'Studio — warm neutral, modern startup',
 };
 
+// a buyer's button never stays stuck on Processing…: anything that throws comes back as { error }
+const safely = (fn) => Promise.resolve().then(fn).catch((x) => ({ error: x?.message || 'Something went wrong — please try again' }));
 const T = 'text', LONG = 'long', NUM = 'number', B = 'bool', L = 'list';
 const HL = 'Wrap words in *stars* to highlight them';
 // What a built-in button does; "Open a pop-up" opens one of this step's pop-ups (Step → Pop-ups)
@@ -955,7 +957,7 @@ function Checkout({ p, ctx }) {
   return (
     <Sec type="checkout">
       <div className="co-grid">
-        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await ctx.onCheckout({ ...f, total, withBump: bump, coupon: per ? undefined : coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}), ...(canSave && saveCard ? { saveCard: true } : {}) }); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
+        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await safely(() => ctx.onCheckout({ ...f, total, withBump: bump, coupon: per ? undefined : coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}), ...(canSave && saveCard ? { saveCard: true } : {}) })); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
           <div className="co-step"><span className="co-n">1</span> <E ctx={ctx} k="step1" v={p.step1} keep /></div>
           {ctx.testCheckout && !ctx.editable && <p className="co-test">{tr(ctx.lang, 'Test checkout — no payment will be taken. The seller hasn’t connected online payments yet.')}</p>}
           <input placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
@@ -1073,7 +1075,7 @@ function Booking({ p, ctx }) {
     e.preventDefault();
     if (!ctx.live || !pick) return;
     setBusy(true); setErr('');
-    const r = await ctx.onBook({ ...form, start: pick, duration: len, answers });
+    const r = await safely(() => ctx.onBook({ ...form, start: pick, duration: len, answers }));
     setBusy(false);
     if (r?.error) { setErr(r.error); if (r.taken) { setPick(null); const again = await ctx.onSlots(len); if (!again.error) setSlots(again.slots); } return; }
     setDone(r);
@@ -1153,7 +1155,7 @@ function Offer({ p, ctx }) {
           <ul className="checks">{(p.bullets || []).map((b, i) => b.text ? <li key={i} data-item={`bullets.${i}`}><E ctx={ctx} k={`bullets.${i}.text`} v={b.text} /></li> : null)}</ul>
           {p.minutes ? <OfferTimer minutes={p.minutes} live={ctx.live} onEnd={setEnded} /> : null}
           {err && <p className="c-err" role="alert">{err}</p>}
-          <Btn big block disabled={busy || ended} ctx={ctx} k="acceptText" onClick={async () => { if (!ctx.live || ended) return; setBusy(true); setErr(''); const r = await ctx.onAccept(); if (r?.error) setErr(r.error); setBusy(false); }}>{busy ? 'Adding…' : p.acceptText}</Btn>
+          <Btn big block disabled={busy || ended} ctx={ctx} k="acceptText" onClick={async () => { if (!ctx.live || ended) return; setBusy(true); setErr(''); const r = await safely(() => ctx.onAccept()); if (r?.error) setErr(r.error); setBusy(false); }}>{busy ? 'Adding…' : p.acceptText}</Btn>
           {p.oneClickText && <E ctx={ctx} k="oneClickText" v={p.oneClickText} as="p" className="oneclick" />}
           <a className="decline" onClick={() => ctx.live && ctx.onDecline()}><E ctx={ctx} k="declineText" v={p.declineText} /></a>
         </div>

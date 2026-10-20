@@ -5,17 +5,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { loadRazorpay } from '../api';
 import { stripeDialog } from '../stripePay';
+import { buyerPost, confirmPaid } from '../buyerFetch';
 import { viewerTz, dayKey, fmtTime, zoneLabel, zoneCity } from '../tzfmt';
 import '../meet.css';
 
 const money = (iso, v) => { try { return new Intl.NumberFormat(iso === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency: iso || 'INR', minimumFractionDigits: 0 }).format(Number(v || 0)); } catch { return `${iso} ${v}`; } };
 const lengthLabel = (m) => (m % 60 === 0 ? `${m / 60} hr` : m > 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : `${m} min`);
 const longDay = (t, z) => new Date(t).toLocaleDateString('en-IN', { timeZone: z, weekday: 'long', day: 'numeric', month: 'long' });
-const post = async (url, body) => {
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const d = await r.json().catch(() => ({}));
-  return r.ok ? d : { ...d, error: d.error || 'Something went wrong — please try again', taken: r.status === 409 };
-};
+const post = (url, body) => buyerPost(url, body).then((d) => (d.status === 409 ? { ...d, taken: true } : d));
 
 function Shell({ seller, embed, children }) {
   if (embed) return <div className="mt mt-embed">{children}</div>;
@@ -117,14 +114,14 @@ function Book({ handle, cal: slug, embed }) {
     if (r.pay?.provider === 'stripe') {
       const back = new URL(location.href);
       try { const s = await stripeDialog(r.pay, back.toString()); if (s.error) { setBusy(false); return setErr(s.error); } } catch (x) { setBusy(false); return setErr(x.message); }
-      v = await post(`${base}/stripe/verify`, { payment: r.pay.payment });
+      v = await confirmPaid(`${base}/stripe/verify`, { payment: r.pay.payment });
     } else if (r.pay) {
       try { await loadRazorpay(); } catch (x) { setBusy(false); return setErr(x.message); }
       v = await new Promise((resolve) => {
         const rz = new window.Razorpay({
           key: r.pay.key, order_id: r.pay.order_id, amount: r.pay.amount, currency: r.pay.currency, name: r.pay.name, description: r.pay.description,
           prefill: r.pay.prefill, theme: { color: r.pay.color }, retry: { enabled: true },
-          handler: async (resp) => resolve(await post(`${base}/verify`, { payment: r.pay.payment, ...resp })),
+          handler: async (resp) => resolve(await confirmPaid(`${base}/verify`, { payment: r.pay.payment, ...resp })),
           modal: { ondismiss: () => resolve({ error: 'Payment cancelled — your time is held for 15 minutes if you’d like to try again' }) },
         });
         rz.open();

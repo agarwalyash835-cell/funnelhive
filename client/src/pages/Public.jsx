@@ -3,9 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '../blocks';
 import { tr } from '../i18n';
 import { stripeDialog } from '../stripePay';
-
-const post = (url, body) =>
-  fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+import { buyerPost as post, confirmPaid } from '../buyerFetch';
 
 // Razorpay Checkout is loaded only when someone actually pays
 const loadRazorpay = () => (window.Razorpay ? Promise.resolve() : new Promise((resolve, reject) => {
@@ -201,7 +199,7 @@ export default function Public() {
   useEffect(() => {
     const pid = qs.get('ff_pay');
     if (!pid || !f || !step) return;
-    post(`/api/public/${slug}/pay/stripe/verify${preview}`, { payment: pid }).then((r) => {
+    confirmPaid(`/api/public/${slug}/pay/stripe/verify${preview}`, { payment: pid }).then((r) => {
       if (!r?.orderId) return;
       store.set(`ff_order_${slug}${preview ? '_preview' : ''}`, r.orderId, sessionStorage);
       purchase(r);
@@ -237,7 +235,7 @@ export default function Public() {
         // a payment method that leaves the page (bank redirect) comes back here with ff_pay to finish
         const back = new URL(location.href); back.searchParams.set('ff_pay', st.payment);
         try { const r = await stripeDialog(st, back.toString()); if (r.error) return r; } catch (e) { return { error: e.message }; }
-        return post(`${base}/pay/stripe/verify${preview}`, { payment: st.payment });
+        return confirmPaid(`${base}/pay/stripe/verify${preview}`, { payment: st.payment });
       }
       try { await loadRazorpay(); } catch (e) { return { error: e.message }; }
       track('AddPaymentInfo', { value: (st.amount || 0) / 100 || body.total || 0, currency: 'INR' });
@@ -245,7 +243,7 @@ export default function Public() {
         const rz = new window.Razorpay({
           key: st.key, ...(st.subscription_id ? { subscription_id: st.subscription_id, recurring: 1 } : { order_id: st.order_id, amount: st.amount, currency: st.currency }), name: st.name, description: st.description,
           prefill: st.prefill, theme: { color: st.color }, retry: { enabled: true },
-          handler: async (resp) => resolve(await post(`${base}/pay/verify${preview}`, { payment: st.payment, ...resp })),
+          handler: async (resp) => resolve(await confirmPaid(`${base}/pay/verify${preview}`, { payment: st.payment, ...resp })),
           modal: { ondismiss: () => resolve({ error: 'Payment cancelled — you can try again whenever you’re ready' }) },
         });
         rz.open();
@@ -290,9 +288,10 @@ export default function Public() {
       onFormNext: () => go(idx + 1),
       // booking calendar: free slots and the booking itself
       prefill: { email: store.get('ff_email', sessionStorage) || '', name: store.get('ff_name', sessionStorage) || '', phone: store.get('ff_phone', sessionStorage) || '' },
-      onSlots: (blockId, d) => fetch(`${base}/slots${preview ? `${preview}&` : '?'}stepId=${step.id}&blockId=${blockId}${d ? `&d=${d}` : ''}`).then((r) => r.json()),
+      onSlots: (blockId, d) => fetch(`${base}/slots${preview ? `${preview}&` : '?'}stepId=${step.id}&blockId=${blockId}${d ? `&d=${d}` : ''}`).then((r) => r.json()).catch(() => ({ error: 'Network problem — check your connection and try again' })),
       onBook: async (blockId, data) => {
-        const r = await fetch(`${base}/book${preview}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, stepId: step.id, blockId, attr }) });
+        let r;
+        try { r = await fetch(`${base}/book${preview}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, stepId: step.id, blockId, attr }) }); } catch { return { error: 'Network problem — check your connection and try again' }; }
         const d = await r.json().catch(() => ({}));
         if (!r.ok) return { error: d.error || 'Booking failed — please try again', taken: r.status === 409 };
         // a paid call by card: the Stripe form, then the server reads the payment back and confirms the held slot
@@ -300,7 +299,7 @@ export default function Public() {
           track('InitiateCheckout', { value: d.pay.amount, currency: d.pay.currency });
           const back = new URL(location.href); back.searchParams.set('ff_pay', d.pay.payment);
           try { const r = await stripeDialog(d.pay, back.toString()); if (r.error) return { ...r, retry: true }; } catch (e) { return { error: e.message }; }
-          const v = await post(`${base}/book/stripe/verify${preview}`, { payment: d.pay.payment });
+          const v = await confirmPaid(`${base}/book/stripe/verify${preview}`, { payment: d.pay.payment });
           if (v.error) return v;
           track('Purchase', { value: d.pay.amount, currency: d.pay.currency }, eventId('purchase'));
           track('Schedule', { content_name: step.name }, eventId('book'));
@@ -315,7 +314,7 @@ export default function Public() {
             const rz = new window.Razorpay({
               key: d.pay.key, order_id: d.pay.order_id, amount: d.pay.amount, currency: d.pay.currency, name: d.pay.name, description: d.pay.description,
               prefill: d.pay.prefill, theme: { color: d.pay.color }, retry: { enabled: true },
-              handler: async (resp) => resolve(await post(`${base}/book/verify${preview}`, { payment: d.pay.payment, ...resp })),
+              handler: async (resp) => resolve(await confirmPaid(`${base}/book/verify${preview}`, { payment: d.pay.payment, ...resp })),
               modal: { ondismiss: () => resolve({ error: 'Payment cancelled — your time is held for 15 minutes if you’d like to try again', retry: true }) },
             });
             rz.open();

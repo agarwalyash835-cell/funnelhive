@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { loadRazorpay } from '../api';
+import { buyerPost, confirmPaid } from '../buyerFetch';
 import { stripeDialog, fmtMoney } from '../stripePay';
 import { alertDialog, promptDialog } from '../ui';
 
@@ -18,12 +19,13 @@ export default function QuotePublic() {
   const [done, setDone] = useState(null);
   const load = () => fetch(`/api/q/${id}?t=${encodeURIComponent(t)}${preview}`).then(async (r) => { const d = await r.json(); r.ok ? setQ(d) : setErr(d.error || 'Quote not found'); });
   useEffect(() => { load(); }, [id]);
-  const post = async (path, body = {}) => { const r = await fetch(`/api/q/${id}/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t, ...body }) }); const d = await r.json().catch(() => ({})); return r.ok ? d : { error: d.error || 'That didn’t work — please try again' }; };
+  const post = (path, body = {}) => buyerPost(`/api/q/${id}/${path}`, { t, ...body });
+  const confirmPay = (path, body = {}) => confirmPaid(`/api/q/${id}/${path}`, { t, ...body }); // the money is taken: retry through network drops
 
   // back from a bank page (Stripe redirect)
   useEffect(() => {
     const pid = qs.get('ff_pay');
-    if (pid) post('stripe/verify', { payment: pid }).then((r) => { if (!r.error) { setDone(r); load(); } });
+    if (pid) confirmPay('stripe/verify', { payment: pid }).then((r) => { if (!r.error) { setDone(r); load(); } });
   }, []);
 
   const pay = async () => {
@@ -33,12 +35,12 @@ export default function QuotePublic() {
     let r;
     if (st.provider === 'stripe') {
       const back = new URL(location.href); back.searchParams.set('ff_pay', st.payment);
-      try { const x = await stripeDialog({ ...st, button: `Pay ${fmtMoney(st.amount, st.currency)}` }, back.toString()); r = x.error ? x : await post('stripe/verify', { payment: st.payment }); } catch (e) { r = { error: e.message }; }
+      try { const x = await stripeDialog({ ...st, button: `Pay ${fmtMoney(st.amount, st.currency)}` }, back.toString()); r = x.error ? x : await confirmPay('stripe/verify', { payment: st.payment }); } catch (e) { r = { error: e.message }; }
     } else {
       try { await loadRazorpay(); } catch (e) { setBusy(false); return alertDialog({ text: e.message, buyer: true }); }
       r = await new Promise((resolve) => {
         const rz = new window.Razorpay({ key: st.key, order_id: st.order_id, amount: st.amount, currency: st.currency, name: st.name, description: st.description, prefill: st.prefill, retry: { enabled: true },
-          handler: async (resp) => resolve(await post('verify', { payment: st.payment, ...resp })),
+          handler: async (resp) => resolve(await confirmPay('verify', { payment: st.payment, ...resp })),
           modal: { ondismiss: () => resolve({ error: null }) } });
         rz.open();
       });
