@@ -1348,7 +1348,7 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
       else {
         const id = uid();
         for (const it of items) it.txn = `${id}-${items.length}`;
-        order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...((payment?.currency || funnelIso(f)) !== 'INR' ? { currency: payment?.currency || funnelIso(f), fx: fxRate(payment?.currency || funnelIso(f)) } : {}) });
+        order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...(payment?.pm ? { stripePm: payment.pm } : {}), ...((payment?.currency || funnelIso(f)) !== 'INR' ? { currency: payment?.currency || funnelIso(f), fx: fxRate(payment?.currency || funnelIso(f)) } : {}) });
         recoverAbandoned(f, buyer);
       }
     });
@@ -1441,7 +1441,7 @@ function finalizePayment(pay, paymentId, base) {
     if (!f) return null;
     fresh.status = 'paid'; fresh.paymentId = paymentId; fresh.paidAt = Date.now();
     const charge = { ...fresh.charge, couponObj: fresh.charge.usedCoupon ? T.coupons.find({ userId: f.userId, code: fresh.charge.usedCoupon }) : null };
-    fresh.result = recordOrder(f, charge, fresh.buyer, { orderId: fresh.orderId, payment: { id: paymentId, provider: fresh.provider || 'razorpay', mode: fresh.mode, ...(fresh.plan ? { subId: fresh.stripeSub || fresh.rzpOrderId } : {}), ...(fresh.stripeCustomer ? { customer: fresh.stripeCustomer } : {}) }, verified: true, base: base || fresh.base });
+    fresh.result = recordOrder(f, charge, fresh.buyer, { orderId: fresh.orderId, payment: { id: paymentId, provider: fresh.provider || 'razorpay', mode: fresh.mode, ...(fresh.plan ? { subId: fresh.stripeSub || fresh.rzpOrderId } : {}), ...(fresh.stripeCustomer ? { customer: fresh.stripeCustomer } : {}), ...(fresh.stripePm ? { pm: fresh.stripePm } : {}) }, verified: true, base: base || fresh.base });
     T.payments.put(fresh);
     Object.assign(pay, fresh);
     return fresh.result;
@@ -1492,10 +1492,10 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
       // one-click: the card saved at checkout
       if (prevStripe) {
         pay.stripeCustomer = prevStripe;
-        const pi = await chargeSaved(sc, { pay, iso, customer: prevStripe, description });
+        // one-click right after the checkout only (order ids appear in receipt links)
+        const pi = Date.now() - (prevCod.at || 0) < 3 * 3600000 ? await chargeSaved(sc, { pay, iso, customer: prevStripe, pm: prevCod.stripePm, description }) : null;
         if (pi?.status === 'succeeded') { Object.assign(pay, { stripeIntent: pi.id, rzpOrderId: pi.id }); T.payments.insert(pay); return res.json({ provider: 'stripe', ...finalizePayment(pay, pi.id, appUrl(req)) }); }
       }
-      if (!orderId && charge.items[0]?.kind === 'main') trackServer(f.userId, { name: 'InitiateCheckout', funnelId: f.id, id: safeEventId(req.body.eventId) || `ic-${pay.id}`, value: charge.total, currency: funnelIso(f), items: charge.items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer, tk: buyer.tk });
       const r = await startStripePayment(sc, { userId: f.userId, pay, iso, buyer, description, saveCard: req.body.saveCard === true }); // the buyer's "Save my card" tick
       Object.assign(pay, { stripeIntent: r.intent, stripeCustomer: r.customer, rzpOrderId: r.intent });
       T.payments.insert(pay);

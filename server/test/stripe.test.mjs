@@ -26,9 +26,10 @@ before(async () => {
     if (path === '/customers' && req.method === 'POST') return send({ id: 'cus_1' });
     if (path === '/products') return send({ id: 'prod_1' });
     if (/^\/customers\/\w+\/payment_methods$/.test(path)) return send({ data: S.saved ? [{ id: 'pm_card' }] : [] });
+    if (/^\/payment_methods\/\w+$/.test(path)) return send({ id: path.split('/')[2], customer: 'cus_1', card: { country: 'US' } });
     if (path === '/payment_intents' && req.method === 'POST') {
       const id = `pi_${crypto.randomBytes(4).toString('hex')}`;
-      const pi = { id, amount: Number(p.amount), amount_received: p.confirm ? Number(p.amount) : 0, currency: p.currency, client_secret: `${id}_secret`, status: p.confirm ? 'succeeded' : 'requires_payment_method', metadata: { payment: p['metadata[payment]'] }, off_session: p.off_session, setup: p.setup_future_usage };
+      const pi = { id, amount: Number(p.amount), amount_received: p.confirm ? Number(p.amount) : 0, currency: p.currency, client_secret: `${id}_secret`, status: p.confirm ? 'succeeded' : 'requires_payment_method', metadata: { payment: p['metadata[payment]'] }, off_session: p.off_session, setup: p.setup_future_usage, setup_future_usage: p.setup_future_usage || null, payment_method: p.payment_method || null };
       S.pis[id] = pi;
       return send(pi);
     }
@@ -85,7 +86,7 @@ test('USD checkout: a PaymentIntent in cents, saved for upsells (the buyer ticke
   const pi = S.pis[r.intent];
   assert.deepEqual([pi.amount, pi.currency, pi.setup], [19900, 'usd', 'off_session']);
   assert.equal((await api(`/public/${f.slug}/pay/stripe/verify`, 'POST', { payment: r.payment })).status, 400, 'not paid yet');
-  Object.assign(pi, { status: 'succeeded', amount_received: 19900 }); S.saved = true;
+  Object.assign(pi, { status: 'succeeded', amount_received: 19900, payment_method: 'pm_card' }); S.saved = true;
   paid = (await api(`/public/${f.slug}/pay/stripe/verify`, 'POST', { payment: r.payment })).data;
   assert.ok(paid.orderId);
   const o = await order(paid.orderId);
@@ -109,6 +110,17 @@ test('one-click upsell charges the saved card off-session; refunds go back throu
   assert.equal(ok.length, 1, JSON.stringify([r1.data, r2.data]));
   assert.equal(S.refunds.length - before, 1, 'one refund at Stripe');
   assert.equal(S.refunds.at(-1).amount, Number(offer.price) * 100);
+});
+
+test('someone who types a buyer’s email can’t one-click upsell on that buyer’s saved card', async () => {
+  // same email → same Stripe customer, but this checkout paid with another card and saved nothing
+  const r = (await api(`/public/${f.slug}/pay/start`, 'POST', buyer('jane@x.com'))).data;
+  Object.assign(S.pis[r.intent], { status: 'succeeded', amount_received: 19900, payment_method: 'pm_other' });
+  const o = (await api(`/public/${f.slug}/pay/stripe/verify`, 'POST', { payment: r.payment })).data;
+  const offs = Object.values(S.pis).filter((p) => p.off_session).length;
+  const u = (await api(`/public/${f.slug}/pay/start`, 'POST', { stepId: up.id, orderId: o.orderId })).data;
+  assert.ok(!u.orderId && u.clientSecret, 'the card form is shown instead of charging a saved card');
+  assert.equal(Object.values(S.pis).filter((p) => p.off_session).length, offs, 'nothing charged off-session');
 });
 
 test('export invoices: a foreign-currency sale is invoiced in that currency, zero-rated under a LUT', async () => {

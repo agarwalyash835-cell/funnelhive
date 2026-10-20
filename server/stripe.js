@@ -73,11 +73,12 @@ export async function startStripePayment(c, { userId, pay, iso, buyer, descripti
 // one-click upsell: charge the card saved at checkout, no form; a card that needs the buyer (3-D Secure) falls back to the form.
 // INR, or a card issued in India: never off-session (RBI additional factor of authentication) — null, so the
 // buyer confirms in the card form on the page
-export async function chargeSaved(c, { pay, iso, customer, description }) {
-  if (iso === 'INR') return null;
-  const pms = await stripe(c, 'GET', `/customers/${customer}/payment_methods`, { limit: 1 });
-  const pm = pms.data?.[0]?.id;
-  if (!pm || pms.data[0].card?.country === 'IN') return null;
+// Only the exact card that paid this buyer's order, saved with their tick — never another card on the customer
+// (customers are per email, and anyone can type an email at checkout)
+export async function chargeSaved(c, { pay, iso, customer, pm, description }) {
+  if (iso === 'INR' || !pm) return null;
+  const card = await stripe(c, 'GET', `/payment_methods/${pm}`);
+  if (card.customer !== customer || card.card?.country === 'IN') return null;
   try {
     const pi = await stripe(c, 'POST', '/payment_intents', { amount: minor(pay.charge.total, iso), currency: iso.toLowerCase(), customer, payment_method: pm, off_session: true, confirm: true, description: description.slice(0, 500), metadata: { payment: pay.id, funnel: pay.funnelId } }, { idem: `pi-${pay.id}` });
     return pi;
@@ -115,6 +116,11 @@ export async function confirmedIntent(c, pay) {
     return pi?.status === 'succeeded' && sub.metadata?.payment === pay.id ? pi.id : null;
   }
   const pi = await stripe(c, 'GET', `/payment_intents/${pay.stripeIntent}`);
+  // the card the buyer chose to save (setup_future_usage) is the only one one-click upsells may use later
+  if (pi.status === 'succeeded' && pi.setup_future_usage === 'off_session' && typeof pi.payment_method === 'string' && pi.metadata?.payment === pay.id && !pay.stripePm) {
+    pay.stripePm = pi.payment_method;
+    T.payments.update(pay.id, (p) => { p.stripePm = pi.payment_method; });
+  }
   return pi.status === 'succeeded' && pi.metadata?.payment === pay.id && pi.amount_received >= minor(pay.charge.total, pay.currency || 'INR') ? pi.id : null;
 }
 export const stripeRefund = (c, intent, amount, iso, reason) => stripe(c, 'POST', '/refunds', { payment_intent: intent, amount: minor(amount, iso), metadata: { reason: String(reason || '').slice(0, 200) } });
