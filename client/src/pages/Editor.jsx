@@ -510,6 +510,7 @@ export default function Editor() {
   const fRef = useRef(null);         // always the newest funnel, even between renders
   const loaded = useRef(false);
   const verRef = useRef(1);          // server version this editor is based on
+  const [publishing, setPublishing] = useState(false);
   const skipSave = useRef(false);    // set when f is replaced by a copy that is already saved
   const [conflict, setConflict] = useState(null);
   const [legalMiss, setLegalMiss] = useState([]); // business & legal details still missing (publishing needs them)
@@ -532,7 +533,18 @@ export default function Editor() {
   // the clipboard may be filled from another tab
   useEffect(() => { const k = (e) => { if (e.key === CLIP_KEY) setClip(readClip()); }; window.addEventListener('storage', k); return () => window.removeEventListener('storage', k); }, []);
 
-  const save = async (data = f) => {
+  // One save at a time: a slow save and the next edit never race each other into a false “Conflict”,
+  // because each save goes out on the version the previous one got back
+  const saving = useRef(Promise.resolve());
+  const dirty = useRef(false); // an edit is waiting for the autosave timer
+  const save = (data = f) => {
+    dirty.current = false;
+    const run = () => saveNow(data);
+    const p = saving.current.then(run, run);
+    saving.current = p;
+    return p;
+  };
+  const saveNow = async (data) => {
     setStatus('Saving…');
     try {
       const r = await api(`/funnels/${id}`, 'PUT', { name: data.name, steps: data.steps, theme: data.theme, published: data.published, baseVersion: verRef.current });
@@ -541,7 +553,7 @@ export default function Editor() {
       return true;
     } catch (e) {
       if (e.status === 409) { setConflict(e.data.funnel); setStatus('Conflict'); }
-      else { setStatus('Not saved'); toast(e.message); }
+      else { setStatus('Not saved'); dirty.current = true; toast(e.message); } // still unsaved: closing the tab warns
       return false;
     }
   };
@@ -554,9 +566,16 @@ export default function Editor() {
     if (skipSave.current) { skipSave.current = false; setStatus('Saved'); return; }
     if (conflict) return;
     setStatus('Unsaved');
+    dirty.current = true;
     const t = setTimeout(() => save(f), 700);
     return () => clearTimeout(t);
   }, [f]);
+  // leaving the editor right after an edit still saves it; closing the tab with an edit unsaved asks first
+  useEffect(() => {
+    const warn = (e) => { if (dirty.current) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => { window.removeEventListener('beforeunload', warn); if (dirty.current && fRef.current) save(fRef.current); };
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -809,6 +828,11 @@ export default function Editor() {
   const loadLatest = () => { hist.current = { past: [], future: [], last: 0 }; adopt(conflict); setConflict(null); toast('Loaded the latest version'); };
   const keepMine = async () => { verRef.current = conflict.version; setConflict(null); if (await save(f)) toast('Your version was saved'); };
   const publish = async () => {
+    if (publishing) return; // a second click while the first is still going
+    setPublishing(true);
+    try { await publishNow(); } finally { setPublishing(false); }
+  };
+  const publishNow = async () => {
     // going live needs the business & legal details (the server checks too)
     if (!f.published) { const r = await api(`/funnels/${f.id}/legal-check`).catch(() => ({ missing: [] })); setLegalMiss(r.missing || []); if (r.missing?.length) return toast(`Add your ${r.missing.join(', ')} in Settings → Business & legal before publishing`); }
     const nf = { ...f, published: !f.published }; commit(nf);
@@ -897,7 +921,7 @@ export default function Editor() {
         <Link className="btn ghost hide-m" to={`/funnels/${f.id}/analytics`}><Icon name="chart" size={16} /></Link>
         <Link className="btn ghost" to={`/f/${f.slug}/${step.slug}?preview=1&pv=${f.previewKey || ''}`}><Icon name="eye" size={16} /> Preview</Link>
         {f.published && <button className="btn ghost" title={liveUrl} aria-label={liveUrl} onClick={() => { navigator.clipboard?.writeText(liveUrl); toast('Live link copied'); }}><Icon name="link" size={16} /></button>}
-        <button className={`btn ${f.published ? 'live' : 'primary'}`} onClick={publish}>{f.published ? <><span className="live-dot" /> Live</> : <><Icon name="send" size={15} /> Publish</>}</button>
+        <button className={`btn ${f.published ? 'live' : 'primary'}`} onClick={publish} disabled={publishing}>{f.published ? <><span className="live-dot" /> Live</> : <><Icon name="send" size={15} /> Publish</>}</button>
       </header>
 
       <div className="ed-cols">
