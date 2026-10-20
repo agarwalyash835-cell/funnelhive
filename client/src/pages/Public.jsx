@@ -15,6 +15,10 @@ const loadRazorpay = () => (window.Razorpay ? Promise.resolve() : new Promise((r
 }));
 
 
+// Funnels on the shared pages domain belong to many different sellers: what one remembers about a visitor (consent,
+// ad click, typed email) stays with that funnel. On a seller's own domain the browser already keeps it apart.
+let SCOPE = '';
+const sk = (k) => k + SCOPE;
 const store = {
   get: (k, s = localStorage) => { try { return s.getItem(k); } catch { return null; } },
   set: (k, v, s = localStorage) => { try { s.setItem(k, v); } catch {} },
@@ -23,13 +27,13 @@ const store = {
 // Where did this visitor come from? utm_source wins, then the referrer's domain
 function trafficSource(qs) {
   const utm = qs.get('utm_source');
-  if (utm) { store.set('ff_src', utm.toLowerCase(), sessionStorage); return utm.toLowerCase(); }
-  const saved = store.get('ff_src', sessionStorage);
+  if (utm) { store.set(sk('ff_src'), utm.toLowerCase(), sessionStorage); return utm.toLowerCase(); }
+  const saved = store.get(sk('ff_src'), sessionStorage);
   if (saved) return saved;
   const ref = document.referrer && !document.referrer.startsWith(location.origin) ? new URL(document.referrer).hostname : '';
   const map = [['facebook', 'facebook'], ['fb.', 'facebook'], ['instagram', 'instagram'], ['google', 'google'], ['youtube', 'youtube'], ['whatsapp', 'whatsapp'], ['wa.me', 'whatsapp'], ['t.co', 'twitter'], ['linkedin', 'linkedin']];
   const src = ref ? (map.find(([k]) => ref.includes(k))?.[1] || ref.replace(/^www\./, '')) : 'direct';
-  store.set('ff_src', src, sessionStorage);
+  store.set(sk('ff_src'), src, sessionStorage);
   return src;
 }
 // Ad attribution: the UTM tags and click ids of the visit that brought this person here. A new tagged
@@ -37,14 +41,14 @@ function trafficSource(qs) {
 const ATTR_DAYS = 30;
 function captureAttr(qs) {
   let saved = null;
-  try { saved = JSON.parse(store.get('ff_attr') || 'null'); } catch {}
+  try { saved = JSON.parse(store.get(sk('ff_attr')) || 'null'); } catch {}
   if (saved && Date.now() - (saved.at || 0) > ATTR_DAYS * 864e5) saved = null;
   const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'gbraid', 'wbraid']; // gbraid / wbraid: Google's click ids from iPhones
   const fromUrl = Object.fromEntries(keys.map((k) => [k, qs.get(k)]).filter(([, v]) => v));
   const ref = document.referrer && !document.referrer.startsWith(location.origin) ? (() => { try { return new URL(document.referrer).hostname; } catch { return ''; } })() : '';
   if (Object.keys(fromUrl).length || (!saved && ref)) {
     saved = { ...fromUrl, ...(ref ? { ref } : {}), landing: location.pathname, at: Date.now() };
-    store.set('ff_attr', JSON.stringify(saved));
+    store.set(sk('ff_attr'), JSON.stringify(saved));
   }
   if (!saved) return undefined;
   const { at, ...attr } = saved;
@@ -54,15 +58,15 @@ const cookie = (n) => { try { return decodeURIComponent((document.cookie.match(n
 // what the ad platforms match server-side events on (Meta's _fbp/_fbc cookies, GA's client id)
 function browserIds(attr) {
   let fbc = cookie('_fbc');
-  if (!fbc && attr?.fbclid) { try { fbc = `fb.1.${JSON.parse(store.get('ff_attr') || '{}').at || Date.now()}.${attr.fbclid}`; } catch {} }
+  if (!fbc && attr?.fbclid) { try { fbc = `fb.1.${JSON.parse(store.get(sk('ff_attr')) || '{}').at || Date.now()}.${attr.fbclid}`; } catch {} }
   const ga = (cookie('_ga').match(/^GA\d\.\d\.(\d+\.\d+)$/) || [])[1];
   return { fbp: cookie('_fbp') || undefined, fbc: fbc || undefined, ga, url: location.href.slice(0, 500) };
 }
 const eventId = (p) => `${p}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`;
 
 function visitorId() {
-  let v = store.get('ff_vid');
-  if (!v) { v = Math.random().toString(36).slice(2, 12); store.set('ff_vid', v); }
+  let v = store.get(sk('ff_vid'));
+  if (!v) { v = Math.random().toString(36).slice(2, 12); store.set(sk('ff_vid'), v); }
   return v;
 }
 
@@ -94,7 +98,7 @@ const AW_LABEL = { Purchase: 'purchaseLabel', Lead: 'leadLabel', Schedule: 'book
 function adsConversion(event, data, id) {
   const label = ADS?.[AW_LABEL[event]];
   if (!label) return;
-  const email = store.get('ff_email', sessionStorage), phone = store.get('ff_phone', sessionStorage);
+  const email = store.get(sk('ff_email'), sessionStorage), phone = store.get(sk('ff_phone'), sessionStorage);
   if (email || phone) window.gtag('set', 'user_data', { ...(email ? { email } : {}), ...(phone ? { phone_number: phone } : {}) });
   window.gtag('event', 'conversion', { send_to: `${ADS.conversionId}/${label}`, ...(data.value != null ? { value: data.value, currency: data.currency || CURRENCY } : {}), ...(id ? { transaction_id: id } : {}) });
 }
@@ -124,6 +128,7 @@ export default function Public() {
   // On a seller's own domain the page lives at "/" and "/<step>" — the funnel comes from the server render
   const onDomain = typeof window !== 'undefined' && !!window.__FF_DOMAIN__;
   const slug = onDomain ? window.__FUNNEL__?.slug : params.slug;
+  SCOPE = onDomain ? '' : `:${slug}`;
   const stepSlug = params.step;
   const [qs] = useSearchParams();
   const nav = useNavigate();
@@ -148,10 +153,10 @@ export default function Public() {
     });
   }, [slug]);
   // consent (DPDP): with the seller's banner on, pixels load only after the visitor accepts
-  const [choice, setChoice] = useState(() => store.get('ff_consent'));
+  const [choice, setChoice] = useState(() => store.get(sk('ff_consent')));
   const needsConsent = !!f?.privacy?.banner;
   useEffect(() => { if (f && !preview && (!needsConsent || choice === 'yes')) loadTracking(f.tracking); }, [f?.slug, choice]);
-  const decide = (v) => { store.set('ff_consent', v); setChoice(v); };
+  const decide = (v) => { store.set(sk('ff_consent'), v); setChoice(v); };
 
   if (f?.currency) CURRENCY = f.currency;
   const idx = f ? Math.max(0, f.steps.findIndex((s) => s.slug === stepSlug)) : 0;
@@ -261,9 +266,9 @@ export default function Public() {
         const id = eventId('lead');
         const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id });
         if (r?.error) throw new Error(r.error);
-        store.set('ff_email', data.email, sessionStorage);
-        if (data.name) store.set('ff_name', data.name, sessionStorage);
-        if (data.phone) store.set('ff_phone', data.phone, sessionStorage);
+        store.set(sk('ff_email'), data.email, sessionStorage);
+        if (data.name) store.set(sk('ff_name'), data.name, sessionStorage);
+        if (data.phone) store.set(sk('ff_phone'), data.phone, sessionStorage);
         remember(r);
         track('Lead', {}, r?.eventId || id);
         store.set(leadKey, '1');
@@ -276,9 +281,9 @@ export default function Public() {
         const id = eventId('lead');
         const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id });
         if (r.error) throw new Error(r.error);
-        if (data.email) store.set('ff_email', data.email, sessionStorage);
-        if (data.name) store.set('ff_name', data.name, sessionStorage);
-        if (data.phone) store.set('ff_phone', data.phone, sessionStorage);
+        if (data.email) store.set(sk('ff_email'), data.email, sessionStorage);
+        if (data.name) store.set(sk('ff_name'), data.name, sessionStorage);
+        if (data.phone) store.set(sk('ff_phone'), data.phone, sessionStorage);
         remember(r);
         if (r.qualified !== false) track('Lead', {}, r.eventId || id);
         store.set(leadKey, '1');
@@ -287,7 +292,7 @@ export default function Public() {
       },
       onFormNext: () => go(idx + 1),
       // booking calendar: free slots and the booking itself
-      prefill: { email: store.get('ff_email', sessionStorage) || '', name: store.get('ff_name', sessionStorage) || '', phone: store.get('ff_phone', sessionStorage) || '' },
+      prefill: { email: store.get(sk('ff_email'), sessionStorage) || '', name: store.get(sk('ff_name'), sessionStorage) || '', phone: store.get(sk('ff_phone'), sessionStorage) || '' },
       onSlots: (blockId, d) => fetch(`${base}/slots${preview ? `${preview}&` : '?'}stepId=${step.id}&blockId=${blockId}${d ? `&d=${d}` : ''}`).then((r) => r.json()).catch(() => ({ error: 'Network problem — check your connection and try again' })),
       onBook: async (blockId, data) => {
         let r;
@@ -339,14 +344,14 @@ export default function Public() {
         const r = data.method === 'cod' ? await post(`${base}/cod${preview}`, body) : await charge(body);
         if (!r.orderId) return { error: r.error || tr(f.theme?.lang, 'Payment could not be completed — please try again') };
         store.set(key, r.orderId, sessionStorage);
-        store.set('ff_email', data.email, sessionStorage);
+        store.set(sk('ff_email'), data.email, sessionStorage);
         remember(r);
         purchase(r);
         await convert(); go(idx + 1);
       },
       // One-click: reuses the order created at checkout — no re-entry of payment details
       onAccept: async () => {
-        const r = await charge({ stepId: step.id, orderId: store.get(key, sessionStorage), email: store.get('ff_email', sessionStorage), visitor, tk: ids() });
+        const r = await charge({ stepId: step.id, orderId: store.get(key, sessionStorage), email: store.get(sk('ff_email'), sessionStorage), visitor, tk: ids() });
         if (!r.orderId) return { error: r.error || 'That didn’t go through — please try again' };
         store.set(key, r.orderId, sessionStorage);
         remember(r);
@@ -358,7 +363,7 @@ export default function Public() {
       },
       onDecline: () => go(idx + 1),
       onCrossSell: async (blockId, itemIndex) => {
-        const r = await charge({ stepId: step.id, orderId: store.get(key, sessionStorage), email: store.get('ff_email', sessionStorage), blockId, itemIndex, source, visitor, tk: ids() });
+        const r = await charge({ stepId: step.id, orderId: store.get(key, sessionStorage), email: store.get(sk('ff_email'), sessionStorage), blockId, itemIndex, source, visitor, tk: ids() });
         if (!r.orderId) return { error: r.error || 'That didn’t go through — please try again' };
         store.set(key, r.orderId, sessionStorage);
         remember(r);
