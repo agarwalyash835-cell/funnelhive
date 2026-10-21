@@ -1212,7 +1212,7 @@ app.post('/api/public/:slug/lead', (req, res) => {
     fireWebhook(f.userId, 'lead.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}) });
     fireAutomation(f.userId, 'lead', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { accessLink: access.library } : {}) });
     trackServer(f.userId, { name: 'Lead', funnelId: f.id, id: eventId, buyer: lead, tk: cleanTk(req.body.tk, req) });
-    notify(f.userId, { kind: 'lead', title: `${qualified === undefined ? 'New lead' : qualified ? 'New application (qualified)' : 'New application (not a fit)'} · ${lead.name || cleanEmail || cleanPhone} · ${f.name}`, body: [cleanEmail, cleanPhone].filter(Boolean).join(' · '), link: `/contacts/${encodeURIComponent(contactKey(cleanEmail, cleanPhone))}` });
+    notify(f.userId, { kind: 'lead', title: `${qualified === undefined ? 'New lead' : qualified ? 'New application (qualified)' : 'New application (not a fit)'} · ${lead.name || cleanEmail || cleanPhone} · ${f.name}`, body: [cleanEmail, cleanPhone].filter(Boolean).join(' · '), link: `/contacts/${encodeURIComponent(contactKey(cleanEmail, cleanPhone))}`, ckey: contactKey(cleanEmail, cleanPhone) });
   }
   res.json({ ok: true, eventId, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
 });
@@ -1372,7 +1372,7 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
       trackServer(f.userId, { name: 'Purchase', funnelId: f.id, id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
     } else if (items.some((it) => it.productId)) order = T.orders.update(order.id, (o) => { o.undelivered = true; }) || order; // demo checkout: nothing is handed out without a payment
     // the seller's bell (sample-data orders aside); test-mode sales are marked so they aren't mistaken for money
-    if (!order.demo) notify(f.userId, { kind: 'order', title: `${updated ? 'Upsell' : cod ? 'New COD order' : 'New order'} · ${money(charge.total, order.currency || 'INR')} · ${order.name || order.email || order.phone || 'a buyer'}${testOrder(order) ? ' (test)' : ''}`, body: `${items.map((it) => it.name).join(', ')} — ${f.name}`, link: '/orders' });
+    if (!order.demo) notify(f.userId, { kind: 'order', title: `${updated ? 'Upsell' : cod ? 'New COD order' : 'New order'} · ${money(charge.total, order.currency || 'INR')} · ${order.name || order.email || order.phone || 'a buyer'}${testOrder(order) ? ' (test)' : ''}`, body: `${items.map((it) => it.name).join(', ')} — ${f.name}`, link: '/orders', ckey: contactKey(order.email, order.phone) });
     // WhatsApp (Hive): the buyer's receipt and the seller's alert, for a new order (not each one-click offer)
     if (!order.demo && !updated) {
       waEvent(owner, 'order_receipt', { to: order.phone, params: [String(order.name || '').split(/\s+/)[0] || 'there', items.map((it) => it.name).join(', ').slice(0, 200), money(charge.total, order.currency || 'INR')], link: invoice || access?.library || funnelUrl(f, process.env.APP_URL || base || 'http://localhost:4000'), entityId: order.id, ckey: contactKey(order.email, order.phone) });

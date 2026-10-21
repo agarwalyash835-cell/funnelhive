@@ -4,6 +4,7 @@
 //   - generated Privacy, Terms, Refund and Contact pages from the business details (or the seller's own URL)
 //   - erasing a contact on request: their sign-ups and messages are deleted; orders are kept for tax law but
 //     anonymised
+import crypto from 'node:crypto';
 import { T, q, tx } from './db.js';
 import { invoicingOf } from './sales.js';
 import { brand } from './platform.js';
@@ -106,6 +107,17 @@ export function eraseContact(userId, key) {
   if (!k) return null;
   const n = {};
   tx(() => {
+    const phone = T.crm.find({ userId, key: k })?.phone || (k.startsWith('phone:') ? k.slice(6) : '');
+    const email = k.startsWith('phone:') ? '' : k;
+    // anything else that carries this person: WhatsApp messages, the seller's bell, queued webhooks and ad conversions
+    // (Meta gets a hash of the contact key), Stripe customer links, download logs
+    n.wamsgs = q("DELETE FROM wamsgs WHERE userId = ? AND (json_extract(data, '$.ckey') = ? OR (? <> '' AND json_extract(data, '$.to') LIKE '%' || ?))").run(userId, k, phone.replace(/\D/g, '').slice(-10), phone.replace(/\D/g, '').slice(-10)).changes;
+    if (email) {
+      n.webhooks = q('DELETE FROM webhooks WHERE userId = ? AND instr(lower(data), ?) > 0').run(userId, `"${email}"`).changes;
+      n.stripecust = q("DELETE FROM stripecust WHERE userId = ? AND key LIKE '%:' || ?").run(userId, email).changes;
+    }
+    n.notifications = q("DELETE FROM notifications WHERE userId = ? AND (json_extract(data, '$.ckey') = ? OR (? <> '' AND instr(lower(data), ?) > 0))").run(userId, k, email, email).changes;
+    n.conversions = q('DELETE FROM conversions WHERE userId = ? AND instr(data, ?) > 0').run(userId, crypto.createHash('sha256').update(k).digest('hex')).changes;
     n.leads = T.leads.delWhere({ userId, ckey: k });
     n.abandoned = T.abandoned.delWhere({ userId, ckey: k });
     n.crm = T.crm.delWhere({ userId, key: k });
@@ -113,6 +125,8 @@ export function eraseContact(userId, key) {
     n.msgs = q("DELETE FROM msgs WHERE userId = ? AND json_extract(data, '$.key') = ?").run(userId, k).changes;
     n.bsends = q("DELETE FROM bsends WHERE userId = ? AND json_extract(data, '$.key') = ?").run(userId, k).changes;
     if (!k.startsWith('phone:')) {
+      const accessIds = T.access.all({ userId, ckey: k }).map((a) => a.id);
+      for (const id of accessIds) T.downloads.delWhere({ userId, accessId: id });
       n.access = T.access.delWhere({ userId, ckey: k });
       n.portals = T.portals.delWhere({ userId, ckey: k });
       n.registrations = T.registrations.delWhere({ userId, ckey: k });
@@ -124,6 +138,10 @@ export function eraseContact(userId, key) {
         n.orders++;
       }
       for (const i of T.sinvoices.all({ userId })) if (String(i.billedTo?.email || '').toLowerCase() === k) T.sinvoices.update(i.id, (x) => { x.billedTo = { ...x.billedTo, email: '', phone: '', person: '' }; });
+      // quotes and payment attempts: money records stay, the person's details go
+      n.quotes = 0;
+      for (const x of T.quotes.all({ userId })) if (x.client?.email === k) { T.quotes.update(x.id, (y) => { y.client = { ...y.client, name: 'Erased on request', email: '', phone: '' }; y.erasedAt = Date.now(); }); n.quotes++; }
+      n.payments = q("UPDATE payments SET data = json_set(data, '$.buyer', json('{}')) WHERE userId = ? AND lower(json_extract(data, '$.buyer.email')) = ?").run(userId, k).changes;
     }
   });
   return n;

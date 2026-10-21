@@ -66,4 +66,6 @@ test('erasing a contact: their data goes, orders stay anonymised; team members c
   assert.ok(order, 'the order is kept');
   assert.equal(order.name, 'Erased on request');
   assert.ok(!JSON.stringify(order).includes('gone@x.in') && !JSON.stringify(order).includes('9811111111'));
+  // the seller's bell no longer names them either
+  assert.ok(!JSON.stringify((await api('/notifications', 'GET', null, T)).data).includes('Gone Person'), 'notifications about them are gone');
 });

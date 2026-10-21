@@ -194,7 +194,7 @@ const HOLD = 15 * MIN;
 function confirmed(b, cal, base, rescheduled) {
   const data = { email: b.email, phone: b.phone, name: b.name, funnelId: b.funnelId, bookingTime: when(b.start, calTz(cal)), bookingLink: manageUrl(base, b), meetingLink: cal.meetingLink || '' };
   fireWebhook(cal.userId, rescheduled ? 'booking.rescheduled' : 'booking.created', { booking: outBooking(b, cal), manage: manageUrl(base, b) });
-  notify(cal.userId, { kind: 'booking', title: `${rescheduled ? 'Booking moved' : 'New booking'} · ${b.name || b.email || b.phone} · ${cal.name}`, body: data.bookingTime, link: '/bookings' });
+  notify(cal.userId, { kind: 'booking', title: `${rescheduled ? 'Booking moved' : 'New booking'} · ${b.name || b.email || b.phone} · ${cal.name}`, body: data.bookingTime, link: '/bookings', ckey: contactKey(b.email, b.phone) });
   sellerAlert(cal.userId, { kind: rescheduled ? 'booking change' : 'booking', where: cal.name, what: `${b.name || b.email || b.phone} at ${data.bookingTime}`, path: '/bookings', entityId: b.id });
   // the Google event (and its Meet link) first, so the confirmation email can include the link
   addEvent(b, cal).then((ev) => {
