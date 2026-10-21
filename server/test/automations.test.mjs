@@ -16,6 +16,7 @@ const mails = [];
 // unfold headers and decode quoted-printable / encoded subjects so tests read what a person sees
 const readable = (m) => Buffer.from(m.replace(/\n[ \t]+/g, ' ').replace(/=\?UTF-8\?Q\?(.+?)\?=/gi, (x, q) => q.replace(/_/g, ' ')).replace(/=\n/g, '').replace(/=([0-9A-F]{2})/g, (x, h) => String.fromCharCode(parseInt(h, 16))), 'latin1').toString('utf8');
 const wa = [];
+let smtpDown = false;
 let smtp, graph, srv, api, T, me, f;
 const k = (key) => encodeURIComponent(key);
 const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { const v = await fn(); if (v) return v; await new Promise((r) => setTimeout(r, 40)); } return fn(); };
@@ -36,6 +37,7 @@ before(async () => {
         else if (c === 'AUTH') sock.write('235 ok\r\n');
         else if (c === 'DATA') { data = true; sock.write('354 go\r\n'); }
         else if (c === 'QUIT') { sock.write('221 bye\r\n'); sock.end(); }
+        else if (c === 'MAIL' && smtpDown) sock.write('451 try again later\r\n');
         else sock.write('250 ok\r\n');
       }
     });
@@ -334,6 +336,25 @@ test('webhook trigger + manual enrolment + test sends', async () => {
   assert.equal(t.status, 200, JSON.stringify(t.data));
   assert.ok(mails.slice(n).some((x) => x.includes('[Test] Preview for')));
   assert.equal((await api(`/automations/${a.id}/test`, 'POST', { step: { type: 'tag', tag: 'x' } }, T)).status, 400);
+});
+
+test('automated email: a mail-server hiccup is retried later, not lost; withdrawn consent stops it', async () => {
+  const m = (await api('/automations', 'POST', { name: 'Retry me', trigger: { type: 'manual' }, steps: [{ type: 'email', subject: 'Hello again', body: 'Hi' }] }, T)).data;
+  await api(`/automations/${m.id}`, 'PUT', { active: true }, T);
+  smtpDown = true;
+  try {
+    assert.equal((await api(`/automations/${m.id}/enroll`, 'POST', { key: 'zap@example.com' }, T)).status, 200);
+    const run = await until(async () => { const r = (await api(`/automations/${m.id}`, 'GET', null, T)).data.runs[0]; return r?.log.some((l) => l.result === 'retrying') && r; });
+    assert.equal(run.status, 'active', 'still waiting to send');
+    assert.ok(run.nextAt - Date.now() > 8 * 60000, 'tries again in about 10 minutes');
+  } finally { smtpDown = false; }
+  // a contact who withdrew marketing consent gets no automated email
+  await api(`/contacts/${k('zap@example.com')}`, 'PATCH', { optIn: false }, T);
+  const n = (await api('/automations', 'POST', { name: 'No consent', trigger: { type: 'manual' }, steps: [{ type: 'email', subject: 'Nope', body: 'Hi' }] }, T)).data;
+  await api(`/automations/${n.id}`, 'PUT', { active: true }, T);
+  await api(`/automations/${n.id}/enroll`, 'POST', { key: 'zap@example.com' }, T);
+  const r2 = await until(async () => { const r = (await api(`/automations/${n.id}`, 'GET', null, T)).data.runs[0]; return r?.status === 'done' && r; });
+  assert.match(r2.log.at(-1).detail, /withdrew marketing consent/);
 });
 
 test('email tracking: opens & clicks recorded, signed links, If/else on "opened"', async () => {

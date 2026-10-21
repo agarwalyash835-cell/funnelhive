@@ -326,6 +326,13 @@ export function nextTimeOfDay(hhmm, now = Date.now(), tz = process.env.REPORT_TZ
 // per-step counters, updated on the stored automation (several runs may finish steps at once)
 const bump = (a, s, result) => T.automations.update(a.id, (x) => { x.stepStats ||= {}; const c = (x.stepStats[s.id] ||= {}); c[result] = (c[result] || 0) + 1; });
 
+// the platform's shared email sender protects everyone's deliverability: automated emails have their own daily
+// cap per seller (separate from broadcasts, so a big broadcast never holds up a welcome email); the rest waits a day
+const AUTO_SHARED_DAILY = Number(process.env.AUTOMATION_SHARED_DAILY || 500);
+const sellerMidnight = (u, now = Date.now()) => { const tz = sellerTz(u); return zoned(tz, localYmd(tz, now), 0); };
+const autoEmailsToday = (u) => q('SELECT COUNT(*) AS n FROM msgs WHERE userId = ? AND at >= ? AND automationId IS NOT NULL').get(u.id, sellerMidnight(u)).n;
+const RETRY_STEPS = new Set(['email', 'notify']), RETRIES = 2;
+
 async function runStep(a, r, s, u) {
   const ctx = r.ctx;
   const tl = (type, title, text, extra = {}) => logActivity(r.userId, r.key, { type, title, text, by: 'automation', automation: a.name, ...extra });
@@ -333,7 +340,9 @@ async function runStep(a, r, s, u) {
     case 'email': {
       if (!ctx.email) return { result: 'skipped', detail: 'No email address' };
       if (meta(r)?.unsubscribed) return { result: 'skipped', detail: 'Contact unsubscribed' };
+      if (meta(r)?.optIn === false) return { result: 'skipped', detail: 'Contact withdrew marketing consent' };
       if (!emailStatus(u).configured) { tl('email', `Email not sent — email isn’t set up (${a.name})`, fill(s.subject, ctx), { status: 'not-configured' }); return { result: 'skipped', detail: 'Email not set up' }; }
+      if (emailStatus(u).via !== 'your SMTP' && autoEmailsToday(u) >= AUTO_SHARED_DAILY) return { later: sellerMidnight(u) + 86400000 + 60000 - Date.now(), detail: `Daily limit of ${AUTO_SHARED_DAILY} automated emails reached — sends tomorrow (connect your own SMTP for more)` };
       const subject = fill(s.subject, ctx), text = fill(s.body, ctx);
       const msg = { id: uid(), userId: r.userId, automationId: a.id, stepId: s.id, runId: r.id, key: r.key, subject, at: Date.now(), opens: 0, clicks: 0 };
       const unsub = unsubUrl(ctx.origin, r.userId, r.key);
@@ -438,9 +447,16 @@ export async function advance(id) {
       }
       try {
         const out = await runStep(a, r, s, u);
+        // not now: the same step runs again later (e.g. the daily email limit)
+        if (out.later) { r.nextAt = Date.now() + out.later; if (r.log.at(-1)?.detail !== out.detail) note(r, { step: where, type: s.type, result: 'waiting', detail: out.detail }); return; }
+        if (r.tries?.[s.id]) { const { [s.id]: _, ...rest } = r.tries; r.tries = rest; }
         note(r, { step: where, type: s.type, ...out });
         bump(a, s, out.result);
       } catch (e) {
+        // a mail server hiccup: try this step again in 10, then 20 minutes before giving up on it
+        const tries = (r.tries?.[s.id] || 0) + 1;
+        if (RETRY_STEPS.has(s.type) && tries <= RETRIES) { r.tries = { ...r.tries, [s.id]: tries }; r.nextAt = Date.now() + tries * 10 * 60000; note(r, { step: where, type: s.type, result: 'retrying', detail: `${e.message} — trying again in ${tries * 10} minutes` }); return; }
+        if (r.tries?.[s.id]) { const { [s.id]: _, ...rest } = r.tries; r.tries = rest; }
         note(r, { step: where, type: s.type, result: 'failed', detail: e.message });
         bump(a, s, 'failed');
         logActivity(r.userId, r.key, { type: s.type === 'whatsapp' ? 'whatsapp' : 'email', title: `${s.type === 'whatsapp' ? 'WhatsApp' : 'Email'} failed (${a.name})`, text: e.message, by: 'automation', status: 'failed' });
