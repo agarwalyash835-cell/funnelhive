@@ -757,7 +757,7 @@ function ExitPopup({ p, ctx }) {
         <h2>{p.title}</h2><p>{p.body}</p>
         <div className="code">{p.code}</div>
         <Btn big block onClick={() => { setOpen(false); ctx.onClaim?.(p.code); ctx.onNext(); }}>{p.buttonText}</Btn>
-        <a className="decline" onClick={() => setOpen(false)}>{tr(ctx.lang, 'No thanks')}</a>
+        <a className="decline" href="#" onClick={(e) => { e.preventDefault(); setOpen(false); }}>{tr(ctx.lang, 'No thanks')}</a>
       </div>
     </div>
   );
@@ -886,8 +886,8 @@ function OptinForm({ p, ctx }) {
         )}
         <form className="pc formcard" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setErr(''); try { await ctx.onOptin({ ...f, ...(session ? { session: Number(session) } : {}), ...consentOf(ctx, agree) }); } catch (x) { setErr(x.message); } setBusy(false); }}>
           {!pts.length && <><E ctx={ctx} k="title" v={p.title} as="h2" /><E ctx={ctx} k="subtitle" v={p.subtitle} as="p" className="sub" /></>}
-          <E ctx={ctx} k="nameLabel" v={p.nameLabel} as="label" keep /><input placeholder={tr(ctx.lang, 'e.g. Priya Sharma')} value={f.name} onChange={set('name')} />
-          <E ctx={ctx} k="emailLabel" v={p.emailLabel} as="label" keep /><input type="email" required placeholder="you@example.com" value={f.email} onChange={set('email')} />
+          <E ctx={ctx} k="nameLabel" v={p.nameLabel} as="label" keep /><input aria-label={p.nameLabel || tr(ctx.lang, 'Full name')} placeholder={tr(ctx.lang, 'e.g. Priya Sharma')} value={f.name} onChange={set('name')} />
+          <E ctx={ctx} k="emailLabel" v={p.emailLabel} as="label" keep /><input type="email" required aria-label={p.emailLabel || tr(ctx.lang, 'Email')} placeholder="you@example.com" value={f.email} onChange={set('email')} />
           {p.askPhone && <><E ctx={ctx} k="phoneLabel" v={p.phoneLabel} as="label" keep /><input type="tel" placeholder="+91 98765 43210" value={f.phone} onChange={set('phone')} /></>}
           {sessions.length > 1 && <><label>{tr(ctx.lang, 'Choose your session')}</label><select className="sess-pick" value={session || sessions[0]} onChange={(e) => setSession(e.target.value)}>{sessions.map((s) => <option key={s} value={s}>{sessionLabel(s, sessionZone(vz, ctx.webinar))}</option>)}</select></>}
           {sessions.length === 1 && <p className="sess-one">📅 {sessionLabel(sessions[0], sessionZone(vz, ctx.webinar))}</p>}
@@ -960,22 +960,22 @@ function Checkout({ p, ctx }) {
         <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await safely(() => ctx.onCheckout({ ...f, total, withBump: bump, coupon: per ? undefined : coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}), ...(canSave && saveCard ? { saveCard: true } : {}) })); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
           <div className="co-step"><span className="co-n">1</span> <E ctx={ctx} k="step1" v={p.step1} keep /></div>
           {ctx.testCheckout && !ctx.editable && <p className="co-test">{tr(ctx.lang, 'Test checkout — no payment will be taken. The seller hasn’t connected online payments yet.')}</p>}
-          <input placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
-          <div className="two"><input type="email" placeholder={tr(ctx.lang, 'Email')} required value={f.email} onChange={set('email')} onBlur={onEmailBlur} /><input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} required={!!ctx.waRequired && !ctx.editable} value={f.phone} onChange={set('phone')} onBlur={onEmailBlur} /></div>
+          <input aria-label={tr(ctx.lang, 'Full name')} placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
+          <div className="two"><input type="email" aria-label={tr(ctx.lang, 'Email')} placeholder={tr(ctx.lang, 'Email')} required value={f.email} onChange={set('email')} onBlur={onEmailBlur} /><input type="tel" aria-label={tr(ctx.lang, 'WhatsApp number')} placeholder={tr(ctx.lang, 'WhatsApp number')} required={!!ctx.waRequired && !ctx.editable} value={f.phone} onChange={set('phone')} onBlur={onEmailBlur} /></div>
           <p className="co-save" style={{ fontSize: 12, opacity: 0.65, margin: '2px 0 6px' }}>{tr(ctx.lang, 'We save these details so we can help you finish your order.')}</p>
           {ctx.gstInvoices && !ctx.editable && (biz ? (
             <div className="co-gst">
-              <input placeholder={tr(ctx.lang, 'Business name')} value={gst.company} onChange={(e) => setGst({ ...gst, company: e.target.value })} />
-              <input placeholder={tr(ctx.lang, 'GSTIN (15 characters)')} value={gst.gstin} maxLength={15} pattern="[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z][Zz][0-9A-Za-z]" title="15 characters, like 27ABCDE1234F1Z5" onChange={(e) => setGst({ ...gst, gstin: e.target.value.toUpperCase() })} />
+              <input aria-label={tr(ctx.lang, 'Business name')} placeholder={tr(ctx.lang, 'Business name')} value={gst.company} onChange={(e) => setGst({ ...gst, company: e.target.value })} />
+              <input aria-label={tr(ctx.lang, 'GSTIN (15 characters)')} placeholder={tr(ctx.lang, 'GSTIN (15 characters)')} value={gst.gstin} maxLength={15} pattern="[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z][Zz][0-9A-Za-z]" title="15 characters, like 27ABCDE1234F1Z5" onChange={(e) => setGst({ ...gst, gstin: e.target.value.toUpperCase() })} />
             </div>
-          ) : <a className="coupon-link co-gst-l" onClick={() => setBiz(true)}>{tr(ctx.lang, 'Buying for a business? Add your GSTIN')}</a>)}
+          ) : <a className="coupon-link co-gst-l" href="#" onClick={(e) => { e.preventDefault(); setBiz(true); }}>{tr(ctx.lang, 'Buying for a business? Add your GSTIN')}</a>)}
           {ships && (
             <div className="co-addr">
-              <input required placeholder={tr(ctx.lang, 'House / flat, street')} value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} />
-              <input placeholder={tr(ctx.lang, 'Area, landmark (optional)')} value={addr.line2} onChange={(e) => setAddr({ ...addr, line2: e.target.value })} />
-              <div className="three"><input required placeholder={tr(ctx.lang, 'City')} value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} />
+              <input required aria-label={tr(ctx.lang, 'House / flat, street')} placeholder={tr(ctx.lang, 'House / flat, street')} value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} />
+              <input aria-label={tr(ctx.lang, 'Area, landmark (optional)')} placeholder={tr(ctx.lang, 'Area, landmark (optional)')} value={addr.line2} onChange={(e) => setAddr({ ...addr, line2: e.target.value })} />
+              <div className="three"><input required aria-label={tr(ctx.lang, 'City')} placeholder={tr(ctx.lang, 'City')} value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} />
                 <select value={addr.state} onChange={(e) => setAddr({ ...addr, state: e.target.value })}><option value="">{tr(ctx.lang, 'State')}</option>{IN_STATES.map((s) => <option key={s}>{s}</option>)}</select>
-                <input required inputMode="numeric" pattern="[1-9][0-9]{5}" maxLength={6} placeholder={tr(ctx.lang, 'PIN code')} value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, '') })} /></div>
+                <input required inputMode="numeric" pattern="[1-9][0-9]{5}" maxLength={6} aria-label={tr(ctx.lang, 'PIN code')} placeholder={tr(ctx.lang, 'PIN code')} value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, '') })} /></div>
             </div>
           )}
           <div className="co-step"><span className="co-n">2</span> <E ctx={ctx} k="step2" v={p.step2} keep /></div>
@@ -1022,10 +1022,10 @@ function Checkout({ p, ctx }) {
           {mrp > price && <div className="save">🎉 You save {money(p.currency, mrp - price + discount)} today</div>}
           {instal || per ? null : showCoupon ? (
             <div className="coupon">
-              <input placeholder={tr(ctx.lang, 'Coupon code')} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+              <input aria-label={tr(ctx.lang, 'Coupon code')} placeholder={tr(ctx.lang, 'Coupon code')} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
               <button type="button" onClick={apply}>{tr(ctx.lang, 'Apply')}</button>
             </div>
-          ) : <a className="coupon-link" onClick={() => setShowCoupon(true)}>{tr(ctx.lang, 'Have a coupon code?')}</a>}
+          ) : <a className="coupon-link" href="#" onClick={(e) => { e.preventDefault(); setShowCoupon(true); }}>{tr(ctx.lang, 'Have a coupon code?')}</a>}
           {cErr && <small className="c-err">{cErr}</small>}
           {(p.perks || []).some((x) => x.text) && <ul className="checks sm">{p.perks.map((x, i) => x.text ? <li key={i} data-item={`perks.${i}`}><E ctx={ctx} k={`perks.${i}.text`} v={x.text} /></li> : null)}</ul>}
         </aside>
@@ -1111,8 +1111,8 @@ function Booking({ p, ctx }) {
             {pick && (
               <form className="bk-form" onSubmit={submit}>
                 <p className="bk-picked">📅 <b>{fmtDay(pick, off)}</b> at <b>{fmtTime(pick, off)}</b> {tzLabel(off)}</p>
-                <div className="two"><input required placeholder={tr(ctx.lang, 'Full name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><input required type="email" placeholder={tr(ctx.lang, 'Email')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-                <input type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} required={!!cal?.waRequired} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <div className="two"><input required aria-label={tr(ctx.lang, 'Full name')} placeholder={tr(ctx.lang, 'Full name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><input required type="email" aria-label={tr(ctx.lang, 'Email')} placeholder={tr(ctx.lang, 'Email')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                <input type="tel" aria-label={tr(ctx.lang, 'WhatsApp number')} placeholder={tr(ctx.lang, 'WhatsApp number')} required={!!cal?.waRequired} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
                 {(cal?.questions || []).map((q) => q.type === 'select'
                   ? <select key={q.id} required={q.required} value={answers[q.id] || ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}><option value="">{q.label}{q.required ? ' *' : ''}</option>{(q.options || []).map((o) => <option key={o}>{o}</option>)}</select>
                   : q.type === 'long' ? <textarea key={q.id} rows={2} required={q.required} placeholder={`${q.label}${q.required ? ' *' : ''}`} value={answers[q.id] || ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
@@ -1157,7 +1157,7 @@ function Offer({ p, ctx }) {
           {err && <p className="c-err" role="alert">{err}</p>}
           <Btn big block disabled={busy || ended} ctx={ctx} k="acceptText" onClick={async () => { if (!ctx.live || ended) return; setBusy(true); setErr(''); const r = await safely(() => ctx.onAccept()); if (r?.error) setErr(r.error); setBusy(false); }}>{busy ? 'Adding…' : p.acceptText}</Btn>
           {p.oneClickText && <E ctx={ctx} k="oneClickText" v={p.oneClickText} as="p" className="oneclick" />}
-          <a className="decline" onClick={() => ctx.live && ctx.onDecline()}><E ctx={ctx} k="declineText" v={p.declineText} /></a>
+          <a className="decline" href="#" onClick={(e) => { e.preventDefault(); if (ctx.live) ctx.onDecline(); }}><E ctx={ctx} k="declineText" v={p.declineText} /></a>
         </div>
       </div>
     </Sec>
