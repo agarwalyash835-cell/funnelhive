@@ -87,7 +87,7 @@ export default function Landing() {
           <div className="seg center-seg"><button className={!yearly ? 'on' : ''} onClick={() => setYearly(false)}>Monthly</button><button className={yearly ? 'on' : ''} onClick={() => setYearly(true)}>Yearly <span className="save-tag">2 months free</span></button></div>
           {p && <div className="plan-price big"><span className="amt">{inr(yearly ? p.yearly : p.monthly)}</span><span className="per">/{yearly ? 'year' : 'month'}</span></div>}
           {p && <p className="muted">{yearly ? `That’s ${inr(p.yearlyPerMonth)}/month — you save ${inr(p.yearlySaves)}` : 'Billed monthly, cancel any time'}{site?.gstRegistered ? ' · GST included' : ''}</p>}
-          <ul className="plan-feats">{['Unlimited funnels & pages', 'Unlimited contacts & leads', 'Hive AI + AI page builder', `${site?.aiCredits?.paid?.toLocaleString('en-IN') ?? '1,500'} AI credits / month`, 'Email + WhatsApp automations', 'Custom domains with SSL', 'A/B tests & analytics', 'GST invoices'].map((f) => <li key={f}><Icon name="check" size={15} />{f}</li>)}</ul>
+          <ul className="plan-feats">{['Up to 200 funnels, unlimited pages', 'Unlimited contacts & leads', 'Hive AI + AI page builder', `${site?.aiCredits?.paid?.toLocaleString('en-IN') ?? '1,500'} AI credits / month`, 'Email + WhatsApp automations', 'Custom domains with SSL', 'A/B tests & analytics', 'GST invoices'].map((f) => <li key={f}><Icon name="check" size={15} />{f}</li>)}</ul>
           <Link className="btn primary lg block" to="/login">Start free trial</Link>
         </div>
       </section>

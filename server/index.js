@@ -635,7 +635,7 @@ app.post('/api/funnels', auth, funnelCap, (req, res) => {
   const name = (typeof req.body.name === 'string' && req.body.name.trim().slice(0, 120)) || 'Untitled funnel';
   res.json(createFunnel(req.user.id, {
     name, theme: { style: 'aurora', primary: '#6366f1', secondary: '#ec4899' },
-    steps: [{ id: uid(), name: 'Landing page', type: 'landing', slug: 'start', blocks: [{ id: uid(), type: 'hero', props: { badge: '⭐ Trusted by 10,000+ customers', headline: 'Your big promise — *the result they want*', subheadline: 'One sentence that makes your visitor want it.', ctaText: 'Get Started', secondaryText: 'See how it works', socialText: 'Loved by 10,000+ customers', rating: 4.9, reviews: '2,300', image: '', cardEmoji: '🚀', cardTitle: name, cardPrice: '₹499', cardMrp: '₹1,999', cardPoints: [{ text: 'Key benefit one' }, { text: 'Key benefit two' }], chip1: '🔥 120 joined today', chip2: '🔒 Secure payment' } }] }],
+    steps: [{ id: uid(), name: 'Landing page', type: 'landing', slug: 'start', blocks: [{ id: uid(), type: 'hero', props: { badge: '⭐ A true highlight — e.g. your real rating or students taught', headline: 'Your big promise — *the result they want*', subheadline: 'One sentence that makes your visitor want it.', ctaText: 'Get Started', secondaryText: 'See how it works', socialText: 'Real proof — e.g. how many people you’ve helped', rating: 4.9, reviews: '2,300', image: '', cardEmoji: '🚀', cardTitle: name, cardPrice: '₹499', cardMrp: '₹1,999', cardPoints: [{ text: 'Key benefit one' }, { text: 'Key benefit two' }], chip1: '✅ A real fact — e.g. Lifetime access', chip2: '🔒 Secure payment' } }] }],
   }));
 });
 

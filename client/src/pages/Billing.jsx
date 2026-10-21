@@ -9,7 +9,7 @@ const EURO = ['AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'IE', 
 const curFor = (c) => (c === 'GB' ? 'GBP' : EURO.includes(c) ? 'EUR' : 'USD');
 const COUNTRIES = [['IN', 'India'], ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['AU', 'Australia'], ['AE', 'United Arab Emirates'], ['SG', 'Singapore'], ['DE', 'Germany'], ['FR', 'France'], ['NL', 'Netherlands'], ['IE', 'Ireland'], ['ES', 'Spain'], ['IT', 'Italy'], ['NZ', 'New Zealand'], ['ZA', 'South Africa'], ['NG', 'Nigeria'], ['KE', 'Kenya'], ['MY', 'Malaysia'], ['PH', 'Philippines'], ['ID', 'Indonesia'], ['BD', 'Bangladesh'], ['NP', 'Nepal'], ['LK', 'Sri Lanka'], ['PK', 'Pakistan'], ['SA', 'Saudi Arabia'], ['QA', 'Qatar'], ['BR', 'Brazil'], ['MX', 'Mexico'], ['JP', 'Japan'], ['XX', 'Other']];
 
-const FEATURES = ['Unlimited funnels & pages', '100+ expert templates', 'Hive AI funnel builder', 'CRM, pipelines & automations', 'Email + WhatsApp automations', 'Razorpay checkout, upsells & coupons', 'Custom domains with free SSL', 'A/B tests & analytics'];
+const FEATURES = ['Up to 200 funnels, unlimited pages', '100+ expert templates', 'Hive AI funnel builder', 'CRM, pipelines & automations', 'Email + WhatsApp automations', 'Razorpay checkout, upsells & coupons', 'Custom domains with free SSL', 'A/B tests & analytics'];
 
 export function statusLine(a) {
   if (!a) return '';
