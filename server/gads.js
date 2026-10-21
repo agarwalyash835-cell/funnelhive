@@ -175,7 +175,7 @@ export async function uploadConversions(userId, { now = Date.now() } = {}) {
   const marks = {};
   let lastError;
   try {
-    const u = T.users.get(userId), g = cfgOf(u), a = apiOf(g), done = g.done || {};
+    const u = T.users.get(userId), g = cfgOf(u), a = apiOf(g), done = marksOf(userId);
     if (!apiReady(a)) throw new Error('Google Ads API isn’t fully connected');
     const rows = offlineConversions(u, { now }).filter((r) => {
       const d = done[r.key];
@@ -221,16 +221,27 @@ export async function uploadConversions(userId, { now = Date.now() } = {}) {
   } catch (e) { lastError = String(e.message).slice(0, 300); }
   finally {
     busy.delete(userId);
+    saveMarks(userId, marks, now);
     T.users.update(userId, (x) => {
       const g = x.channels?.gads;
       if (!g) return;
-      const done = { ...(g.done || {}), ...marks };
-      for (const [k, v] of Object.entries(done)) if (v.at < now - 100 * DAY) delete done[k]; // older than Google takes
-      g.done = done;
       if (g.api) { g.api.lockUntil = 0; g.api.lastRun = now; g.api.lastResult = { ...result, ...(lastError ? { error: lastError } : {}) }; }
     });
   }
   return { ...result, ...(lastError ? { error: lastError } : {}) };
+}
+// what was uploaded (or keeps failing), per conversion: its own table, not the seller's account record (read on every request)
+q('CREATE TABLE IF NOT EXISTS gadsmarks (userId TEXT NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, ok INTEGER NOT NULL DEFAULT 0, tries INTEGER NOT NULL DEFAULT 0, err TEXT, PRIMARY KEY (userId, key))').run();
+function marksOf(userId) {
+  // older accounts kept these inside the account record: moved here once
+  const legacy = T.users.get(userId)?.channels?.gads?.done;
+  if (legacy && Object.keys(legacy).length) { saveMarks(userId, legacy, Date.now()); T.users.update(userId, (x) => { if (x.channels?.gads) delete x.channels.gads.done; }); }
+  return Object.fromEntries(q('SELECT key, at, ok, tries, err FROM gadsmarks WHERE userId = ?').all(userId).map((r) => [r.key, { at: r.at, ok: r.ok, tries: r.tries, err: r.err }]));
+}
+function saveMarks(userId, marks, now) {
+  const up = q('INSERT INTO gadsmarks (userId, key, at, ok, tries, err) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(userId, key) DO UPDATE SET at = excluded.at, ok = excluded.ok, tries = excluded.tries, err = excluded.err');
+  for (const [k, v] of Object.entries(marks)) up.run(userId, k, v.at || now, v.ok ? 1 : 0, v.tries || 0, v.err || null);
+  q('DELETE FROM gadsmarks WHERE userId = ? AND at < ?').run(userId, now - 100 * DAY); // older than Google takes
 }
 if (JOBS) setInterval(() => {
   for (const { id } of q("SELECT id FROM users WHERE json_extract(data, '$.channels.gads.api.enabled') = 1").all()) uploadConversions(id).catch(() => {});
@@ -244,7 +255,9 @@ const feedUrl = (u, req) => {
 };
 const newSecret = () => crypto.randomBytes(24).toString('hex');
 function view(u, req) {
-  const g = cfgOf(u), a = apiOf(g), done = Object.values(g.done || {});
+  const g = cfgOf(u), a = apiOf(g);
+  const uploaded = q('SELECT COUNT(*) AS n FROM gadsmarks WHERE userId = ? AND ok = 1').get(u.id).n;
+  const failing = q('SELECT key, err, tries FROM gadsmarks WHERE userId = ? AND ok = 0 ORDER BY at DESC LIMIT 10').all(u.id);
   const rows = offlineConversions(u);
   return {
     feedUrl: feedUrl(u, req), names: namesOf(g), include: includeOf(g), hashed: !!g.hashed,
@@ -254,7 +267,7 @@ function view(u, req) {
       developerToken: !!a.devTokenEnc, clientId: a.clientId || '', clientSecret: !!a.clientSecretEnc, refreshToken: !!a.refreshEnc,
       customerId: a.customerId || '', loginCustomerId: a.loginCustomerId || '', actions: Object.fromEntries(KINDS.map((k) => [k, a.actions?.[k] || ''])),
       enabled: !!a.enabled, ready: apiReady(a), lastRun: a.lastRun || null, lastResult: a.lastResult || null,
-      uploaded: done.filter((d) => d.ok).length, failing: Object.entries(g.done || {}).filter(([, d]) => !d.ok).slice(-10).map(([key, d]) => ({ key, err: d.err, tries: d.tries })),
+      uploaded, failing: failing.map((d) => ({ key: d.key, err: d.err, tries: d.tries })),
     },
   };
 }
