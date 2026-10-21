@@ -1,5 +1,5 @@
 // A registrant's personal webinar page (the link in their emails): countdown, add to calendar, join, replay.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { viewerTz, zoneLabel } from '../tzfmt';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { alertDialog } from '../ui';
@@ -18,8 +18,13 @@ export default function WebinarJoin() {
   const [busy, setBusy] = useState(false);
   const load = () => fetch(`/api/webinar-reg/${id}?t=${encodeURIComponent(t)}`).then(async (r) => { const d = await r.json(); r.ok ? setW(d) : setErr(d.error); });
   useEffect(() => { load(); const i = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(i); }, [id]);
-  // the room opens 15 minutes before: refresh the state when it does
-  useEffect(() => { if (w && w.state === 'soon' && now >= w.session - 15 * 60000) load(); if (w && w.state === 'live' && now > w.end) load(); }, [now]);
+  // the room opens 15 minutes before: refresh the state when it does — at most every ~30 s (spread out), so a full
+  // webinar's attendees don't all ask the server every second while it still says “soon”
+  const lastLoad = useRef(0), gap = useRef(25000 + Math.random() * 10000);
+  useEffect(() => {
+    if (!w || now - lastLoad.current < gap.current) return;
+    if ((w.state === 'soon' && now >= w.session - 15 * 60000) || (w.state === 'live' && now > w.end)) { lastLoad.current = now; load(); }
+  }, [now]);
   useEffect(() => { if (w?.name) document.title = w.name; }, [w?.name]);
   const join = async () => {
     setBusy(true);
