@@ -75,6 +75,7 @@ test('the buyer’s link: view, calendar file, reschedule, cancel — and nobody
   const b = (await api(`/booking/${id}?t=${t}`)).data;
   assert.equal(b.status, 'confirmed');
   assert.ok(b.slots.length > 0 && b.canChange);
+  assert.ok(b.slots.includes(b.start), 'the booking being moved doesn’t block the times around it (even its own)');
   assert.equal((await api(`/booking/${id}?t=wrongwrongwrongwrongwron`)).status, 404);
   const ics = await fetch(`${srv.base}/api/booking/${id}/ics?t=${t}`);
   assert.match(ics.headers.get('content-type'), /text\/calendar/);

@@ -102,12 +102,13 @@ const calendarFor = (userId, id) => (id && T.calendars.get(id)?.userId === userI
 // ---------- slots ----------
 // a calendar's zone: its own, else its seller's (India by default)
 export const calTz = (cal) => tzOf(cal, sellerTz(T.users.get(cal.userId)));
-export function freeSlots(cal, from = Date.now(), now = Date.now(), dur = cal.duration) {
+// ignore: the booking being moved (rescheduling) — its own time and buffer don't block the slots around it
+export function freeSlots(cal, from = Date.now(), now = Date.now(), dur = cal.duration, ignore = null) {
   const tz = calTz(cal);
   const earliest = now + cal.noticeHours * HOUR;
   const until = now + cal.daysAhead * DAY;
   // taken: confirmed bookings, slots held while someone pays, and busy times in the seller's Google Calendar
-  const taken = T.bookings.all({ calendarId: cal.id, status: ['confirmed', 'held'], start: { gte: from - DAY, lte: until + DAY } }).filter((b) => b.status === 'confirmed' || b.holdUntil > now);
+  const taken = T.bookings.all({ calendarId: cal.id, status: ['confirmed', 'held'], start: { gte: from - DAY, lte: until + DAY } }).filter((b) => b.id !== ignore && (b.status === 'confirmed' || b.holdUntil > now));
   const busy = taken.map((b) => [b.start - cal.buffer * MIN, b.end + cal.buffer * MIN]).concat(cachedBusy(cal.userId).map(([a, b]) => [a - cal.buffer * MIN, b + cal.buffer * MIN]));
   const perDayCount = {};
   for (const b of taken) perDayCount[localYmd(tz, b.start)] = (perDayCount[localYmd(tz, b.start)] || 0) + 1;
@@ -178,7 +179,7 @@ export function book(cal, { start, email, name, phone, notes, funnelId = null, s
   const cleanEmail = clip(email, 200).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return { error: 'Please enter a valid email address' };
   const b = tx(() => {
-    const ok = freeSlots(cal, s - DAY, Date.now(), dur).includes(s);
+    const ok = freeSlots(cal, s - DAY, Date.now(), dur, replaces).includes(s);
     if (!ok) return null;
     return T.bookings.insert({ id: uid(), userId: cal.userId, calendarId: cal.id, funnelId, stepId, leadId, email: cleanEmail, name: clip(name, 120), phone: clip(phone, 40), notes: clip(notes, 1000), start: s, end: s + dur * MIN, ...(ans && Object.keys(ans).length ? { answers: ans } : {}), ...(source ? { source } : {}), status: hold ? 'held' : 'confirmed', ...(hold ? { holdUntil: Date.now() + HOLD } : {}), at: Date.now(), base, reminded: {}, ...(replaces ? { replaces } : {}), ...(attr ? { attr } : {}), ...(carry || {}), ...(unpaid ? { unpaid: true } : {}) });
   });
@@ -515,7 +516,7 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
   app.get('/api/booking/:bid', (req, res) => {
     const b = byToken(req, res); if (!b) return;
     const cal = T.calendars.get(b.calendarId), owner = T.users.get(b.userId);
-    res.set('Cache-Control', 'no-store').json({ ...outBooking(b, cal), seller: owner?.settings?.businessName || owner?.name || '', slots: b.status === 'confirmed' && cal ? freeSlots(cal, Date.now(), Date.now(), Math.round((b.end - b.start) / MIN)) : [], canChange: b.status === 'confirmed' && b.start > Date.now() });
+    res.set('Cache-Control', 'no-store').json({ ...outBooking(b, cal), seller: owner?.settings?.businessName || owner?.name || '', slots: b.status === 'confirmed' && cal ? freeSlots(cal, Date.now(), Date.now(), Math.round((b.end - b.start) / MIN), b.id) : [], canChange: b.status === 'confirmed' && b.start > Date.now() });
   });
   app.get('/api/booking/:bid/ics', (req, res) => {
     const b = byToken(req, res); if (!b) return;
