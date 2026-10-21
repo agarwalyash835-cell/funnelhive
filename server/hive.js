@@ -616,7 +616,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   app.post('/api/hive/tokens', auth, (req, res) => {
     if (T.mcptokens.count({ userId: req.user.id }) >= 10) return res.status(400).json({ error: 'You can have up to 10 tokens — revoke one first' });
     const token = `ffmcp_${crypto.randomBytes(24).toString('hex')}`;
-    const t = T.mcptokens.insert({ id: uid(), userId: req.user.id, name: String(req.body.name || 'MCP client').slice(0, 60), hash: hashToken(token), prefix: token.slice(0, 12), at: Date.now(), lastUsedAt: null });
+    const t = T.mcptokens.insert({ id: uid(), userId: req.user.id, ...(req.actor ? { by: req.actor.id } : {}), name: String(req.body.name || 'MCP client').slice(0, 60), hash: hashToken(token), prefix: token.slice(0, 12), at: Date.now(), lastUsedAt: null });
     res.json({ ...tokenView(t), token }); // shown once
   });
   app.delete('/api/hive/tokens/:id', auth, (req, res) => { T.mcptokens.delWhere({ id: req.params.id, userId: req.user.id }); res.json({ ok: true }); });

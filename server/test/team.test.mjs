@@ -91,6 +91,10 @@ test('admins manage almost everything but not billing or the team; removing some
   assert.equal((await api('/settings', 'PUT', { supportWhatsapp: '919800000000' }, a.ws)).status, 200);
   assert.equal((await api('/team/members', 'GET', null, a.ws)).status, 200);
   assert.equal((await api('/team/invite', 'POST', { email: 'q@x.in', role: 'viewer' }, a.ws)).status, 403);
+  const made = await api('/keys', 'POST', { name: 'Admin’s Zapier' }, a.ws);
+  assert.equal(made.status, 200, JSON.stringify(made.data));
+  const key = made.data.token;
+  assert.equal((await fetch(`${srv.base}/api/v1/me`, { headers: { 'x-api-key': key } })).status, 200, 'the key works while they’re on the team');
   assert.equal((await api('/billing/cancel', 'POST', {}, a.ws)).status, 403);
   const list = (await api('/team/members', 'GET', null, owner.token)).data;
   assert.ok(list.members.length >= 4);
@@ -100,6 +104,7 @@ test('admins manage almost everything but not billing or the team; removing some
   assert.equal((await api(`/team/members/${a.mid}`, 'DELETE', null, owner.token)).status, 200);
   assert.equal((await api('/funnels', 'GET', null, a.ws)).status, 401);
   assert.equal((await api('/funnels', 'GET', null, a.token)).status, 200, 'their own account still works');
+  assert.equal((await fetch(`${srv.base}/api/v1/me`, { headers: { 'x-api-key': key } })).status, 401, 'the API key they made stops working');
   // another owner can't edit this team
   const other = await register(api);
   const m = list.members.find((x) => x.role === 'sales');

@@ -34,7 +34,7 @@ export function registerApi(app, { auth }) {
   app.post('/api/keys', auth, (req, res) => {
     if (T.apikeys.count({ userId: req.user.id }) >= 20) return res.status(400).json({ error: 'You can have up to 20 API keys — revoke one first' });
     const token = `fh_live_${randomToken().slice(0, 40)}`;
-    const k = T.apikeys.insert({ id: uid(), userId: req.user.id, name: String(req.body?.name || 'API key').trim().slice(0, 60) || 'API key', scope: req.body?.scope === 'read' ? 'read' : 'full', hash: hashToken(token), prefix: token.slice(0, 14), at: Date.now(), lastUsedAt: null });
+    const k = T.apikeys.insert({ id: uid(), userId: req.user.id, ...(req.actor ? { by: req.actor.id } : {}), name: String(req.body?.name || 'API key').trim().slice(0, 60) || 'API key', scope: req.body?.scope === 'read' ? 'read' : 'full', hash: hashToken(token), prefix: token.slice(0, 14), at: Date.now(), lastUsedAt: null });
     res.json({ ...view(k), token });
   });
   app.delete('/api/keys/:id', auth, (req, res) => { T.apikeys.delWhere({ id: req.params.id, userId: req.user.id }); q("DELETE FROM hooksubs WHERE userId = ? AND json_extract(data, '$.keyId') = ?").run(req.user.id, req.params.id); res.json({ ok: true }); }); // its Zapier subscriptions go with it

@@ -5,7 +5,7 @@
 //   marketer  — funnels, pages, AI, automations, broadcasts, contacts, products, webinars, bookings; reads orders
 //   sales     — contacts and pipelines, orders (shipping / COD, no refunds), bookings, buyer access; reads the rest
 //   viewer    — read-only, no settings or secrets
-import { T, uid } from './db.js';
+import { T, q, uid } from './db.js';
 import { randomToken, hashToken } from './security.js';
 import { sendMail, appUrl, mailEnabled } from './mail.js';
 import { brand } from './platform.js';
@@ -17,6 +17,8 @@ export const ROLES = {
   sales: 'Sales & support — contacts, orders, shipping, bookings',
   viewer: 'Viewer — read-only reports',
 };
+// API keys and MCP tokens a team member created for the owner's account stop working when they leave the team
+const revokeKeysBy = (ownerId, userId) => { for (const t of ['apikeys', 'mcptokens']) q(`DELETE FROM ${t} WHERE userId = ? AND json_extract(data, '$.by') = ?`).run(ownerId, userId); };
 const TEAM_MAX = Number(process.env.TEAM_MAX || 25);
 const INVITE_DAYS = 7;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -103,6 +105,7 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
   app.delete('/api/team/members/:mid', auth, (req, res) => {
     const m = ownMember(req, res); if (!m) return;
     T.members.del(m.id); // their open sessions in this workspace stop working on the next request
+    revokeKeysBy(m.ownerId, m.userId);
     res.json({ ok: true });
   });
 
@@ -146,6 +149,7 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     const m = T.members.find({ ownerId: req.body?.ownerId || (req.actor ? req.user.id : ''), userId: me.id });
     if (!m) return res.status(404).json({ error: 'You’re not on that team' });
     T.members.del(m.id);
+    revokeKeysBy(m.ownerId, m.userId);
     res.json({ ok: true, token: sign(me) });
   });
 }
