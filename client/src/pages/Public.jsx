@@ -156,7 +156,8 @@ export default function Public() {
   const [choice, setChoice] = useState(() => store.get(sk('ff_consent')));
   const needsConsent = !!f?.privacy?.banner;
   useEffect(() => { if (f && !preview && (!needsConsent || choice === 'yes')) loadTracking(f.tracking); }, [f?.slug, choice]);
-  const decide = (v) => { store.set(sk('ff_consent'), v); setChoice(v); };
+  // a visitor can change their mind any time (Cookie settings); taking consent back reloads so the pixels are gone
+  const decide = (v) => { const was = store.get(sk('ff_consent')); store.set(sk('ff_consent'), v || ''); if (was === 'yes' && v === 'no' && window.__ffTracking) return location.reload(); setChoice(v); };
 
   if (f?.currency) CURRENCY = f.currency;
   const idx = f ? Math.max(0, f.steps.findIndex((s) => s.slug === stepSlug)) : 0;
@@ -385,6 +386,9 @@ export default function Public() {
           <button onClick={() => decide('no')} style={{ background: 'transparent', color: '#f9fafb', border: '1px solid #4b5563', borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>{tr(f.theme?.lang, 'Reject')}</button>
           <button onClick={() => decide('yes')} style={{ background: '#f9fafb', color: '#111827', border: 0, borderRadius: 8, padding: '8px 16px', fontWeight: 700, cursor: 'pointer' }}>{tr(f.theme?.lang, 'Accept')}</button>
         </div>
+      )}
+      {needsConsent && choice && !preview && !hydrating && (
+        <button type="button" onClick={() => setChoice(null)} style={{ position: 'fixed', left: 10, bottom: 10, zIndex: 8999, background: 'rgba(17,24,39,.72)', color: '#f9fafb', border: 0, borderRadius: 999, padding: '5px 11px', font: '12px/1.4 system-ui, sans-serif', cursor: 'pointer' }}>{tr(f.theme?.lang, 'Cookie settings')}</button>
       )}
     </>
   );

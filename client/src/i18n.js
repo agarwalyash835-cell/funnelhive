@@ -24,6 +24,7 @@ const hi = {
   Hours: 'घंटे', Minutes: 'मिनट', Seconds: 'सेकंड', Days: 'दिन', from: 'से', '{n} mins ago': '{n} मिनट पहले', '{n} min ago': '{n} मिनट पहले', Verified: 'सत्यापित',
   'Payment cancelled — you can try again whenever you’re ready': 'भुगतान रद्द हुआ — जब चाहें दोबारा कोशिश करें', 'Payment could not be completed — please try again': 'भुगतान पूरा नहीं हो सका — कृपया दोबारा कोशिश करें',
 };
+hi['Cookie settings'] = 'कुकी सेटिंग्स';
 const DICT = { hi };
 
 // tr(lang, 'Pay {amount} & confirm', { amount: '₹1,499' })
