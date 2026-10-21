@@ -11,6 +11,7 @@ import { PAGE_STYLES } from './page-styles.js';
 import { TRIGGERS, VARIABLES } from './automations.js';
 import { offerStep } from './actions.js';
 import { EVENTS } from './api.js';
+import { websiteSteps } from './website.js';
 
 const MAX_MODEL_CALLS = 16, RESULT_MAX = 40000; // a full 21-section page with all props is ~25k characters
 
@@ -428,6 +429,27 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     },
     summary: () => 'Updated your business settings',
   },
+  {
+    name: 'create_website',
+    description: `Build a complete business WEBSITE (not a sales funnel): Home, About, Services and Contact pages with the same header menu and footer, a contact form and WhatsApp button. Use it when the user wants a website / homepage / online presence for a coach, consultant, clinic, agency, studio or local business. Write all copy yourself — specific to their business, never placeholders. Only pass stats and testimonials the user actually gave you (never invent numbers or reviews). Then customise with the edit tools (pages: home, about, services, contact).`,
+    schema: S({
+      brand: str('Business name'), tagline: str('One line: who they help and how'), headline: str('Home page headline; wrap 1–3 words in *stars* to highlight'), sub: str('Home subheadline'), badge: str('Small label above the headline'),
+      ctaText: str('Main button, e.g. Book a free call'), services: arr('[{ icon (emoji), title, text, price (optional, e.g. ₹2,999) }] — 3 to 9'), process: arr('[{ title, text }] — how working together goes, 3 steps'),
+      owner: obj('{ name, role, bio, points: [text] } — the founder / expert'), story: str('Optional longer “our story” for the About page'), faqs: arr('[{ q, a }]'),
+      contact: obj('{ phone, whatsapp, email, address, hours } — only what the user gave'), stats: arr('[{ value, label }] — ONLY real numbers the user gave'), testimonials: arr('[{ name, quote, tag }] — ONLY real ones the user gave'),
+      style: str(`Page style: ${PAGE_STYLES.join(' | ')}`), primary: str('Brand colour #hex'),
+    }, ['brand', 'tagline', 'services']),
+    touchesResult: true,
+    run: async (ctx, a) => {
+      const steps = websiteSteps(a).map((st) => ({ ...st, id: uid(), blocks: st.blocks.map((b) => ({ id: uid(), type: b.type, props: b.props })) }));
+      const style = PAGE_STYLES.includes(a.style) ? a.style : 'clean';
+      const primary = /^#[0-9a-f]{6}$/i.test(a.primary || '') ? a.primary : '#4f46e5';
+      const f = await ctx.call('POST', '/funnels', { name: `${String(a.brand).slice(0, 80)} — website` });
+      const saved = await saveFunnel(ctx, f, { steps, theme: { ...f.theme, style, primary } });
+      return { ok: true, id: saved.id, name: saved.name, pages: saved.steps.map((x) => x.slug), previewUrl: `${ctx.origin}/f/${saved.slug}` };
+    },
+    summary: (r) => `Built the website “${r.name}” — ${r.pages.length} pages`,
+  },
   // ---- split tests, tracking, domains, team, webhooks, copies ----
   {
     name: 'split_test',
@@ -594,6 +616,7 @@ How to work:
 - Custom work for one client (consulting, coaching packages, agency retainers) → create_quote: a proposal with line items, an optional deposit and a private pay link; send it only when asked. list_quotes shows who has paid.
 - Contacts → find_contacts / tag_contacts. Broadcasts → draft_broadcast ALWAYS first and tell the user who it reaches; call send_broadcast only when the user explicitly says to send or schedule that draft.
 - Agencies → list_clients, copy_funnel_to_client. Account → update_business (time zone, WhatsApp, consent banner / tick box).
+- Website (home / about / services / contact for a business, not a sales funnel) → create_website with copy you write; then edit pages like any funnel. A funnel’s buttons and menu can open another page with buttonAction / ctaAction "page" and the page name in the link field.
 - Testing → split_test (start with the changes for B, results once it has traffic, pick the winner). Tracking → set_tracking (pixel / GA4 / Google Ads ids; never ask for the Conversions API token in chat — that goes in Settings). Own domain → connect_domain, show the DNS records as a table, then check_domain. Team → list_team / invite_team_member with the smallest role that fits. Other tools / CRM → connect_webhook. Reuse a funnel → duplicate_funnel.
 - Payment gateway keys, passwords and tokens are never typed into chat: send the seller to Settings → Payments (or the screen named) for those.
 - Sellers can be anywhere: use the user's currency and time zone when they mention them (e.g. a US coach → $ and America/New_York); default to India (₹, IST) otherwise.

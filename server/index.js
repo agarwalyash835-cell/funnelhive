@@ -1717,7 +1717,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
   let body = '';
   // A/B steps are rendered in the browser so each visitor sees only their own variant
   if (ssr && !step.ab?.enabled) {
-    try { body = ssr.renderFunnelPage({ blocks: step.blocks, theme: f.theme, seller: data.seller, lang: f.theme?.lang || 'en' }); } catch (e) { console.error('SSR failed for', f.slug, e.message); }
+    try { body = ssr.renderFunnelPage({ blocks: step.blocks, theme: f.theme, seller: data.seller, lang: f.theme?.lang || 'en', pageBase: domain ? '/' : `/f/${f.slug}/`, stepSlug: step.slug, stepIndex: data.steps.indexOf(step) }); } catch (e) { console.error('SSR failed for', f.slug, e.message); }
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(new RegExp('[\\u2028\\u2029]', 'g'), '');
   return indexHtml

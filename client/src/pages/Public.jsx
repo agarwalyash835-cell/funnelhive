@@ -255,7 +255,10 @@ export default function Public() {
         rz.open();
       });
     };
+    // website menus: a page of this funnel by its web name ('' = the first page). Same address as the server render.
+    const pageHref = (s) => (s ? (onDomain ? `/${s}` : `/f/${slug}/${s}`) : (onDomain ? '/' : `/f/${slug}`));
     return {
+      pageHref, goPage: (s) => nav(`${pageHref(s)}${preview}`), stepSlug: step.slug, stepIndex: idx,
       live: true, preview: !!preview, leadKey, holdPopups: needsConsent && !choice && !preview, onPopupEvent: popupEvent, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, stripe: !!f.stripe, waRequired: !!f.waRequired, delivery, webinar: sessions, privacy: f.privacy || null, seller: f.seller || null, social,
       onNext: async () => {
         if (blocks.some((b) => b.type === 'optin')) return document.getElementById('optin')?.scrollIntoView({ behavior: 'smooth', block: 'center' });

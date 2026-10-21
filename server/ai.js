@@ -99,6 +99,9 @@ export const BLOCK_SPEC = `Block types and their props (all strings unless noted
 Never invent urgency or social proof (India's Consumer Protection rules on dark patterns): no fake deadlines, resetting timers, stock, viewer counts or buyers, and no confirmshaming decline text.
 - stickybar: text, price, buttonText
 - whatsapp: number, message, label
+- navbar: brand, logo (image link or ""), links [{label, to}], buttonText, buttonTo   (website header menu: "to" is another page of this funnel by its slug — "" = the first page — or #section or a full link; put it FIRST on every page of a website)
+- footer: brand, text, links [{label, to}], note   (website footer, LAST on the page)
+Buttons (hero ctaAction, cta / pricing buttonAction) can be "page" with the page slug in ctaUrl / buttonUrl to open another page of the same funnel.
 Landing-page block types (use them for rich 12+ section pages):
 - stats: items: [{value, label}]
 - problem: eyebrow, title, subtitle, items: [{text}], closing

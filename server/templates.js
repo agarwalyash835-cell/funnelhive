@@ -3,6 +3,7 @@ import { CAT, X, LOOK, GENERIC_QUOTES, LADDER, shiftHue } from './template-kit.j
 import { VSL } from './templates-vsl.js';
 import { WEBINARS } from './templates-webinar.js';
 import { buildVsl, buildWebinar } from './template-funnels.js';
+import { websiteSteps, WEBSITE_TEMPLATES } from './website.js';
 
 const CITIES = ['Mumbai', 'Delhi', 'Bengaluru', 'Pune', 'Hyderabad', 'Chennai', 'Kolkata', 'Jaipur', 'Ahmedabad', 'Lucknow', 'Indore', 'Chandigarh', 'Surat', 'Nagpur', 'Kochi', 'Bhopal', 'Patna', 'Coimbatore'];
 const NAMES = ['Rahul S.', 'Priya M.', 'Ankit P.', 'Sneha R.', 'Vikram J.', 'Anjali K.', 'Rohit D.', 'Neha G.', 'Arjun V.', 'Pooja T.', 'Karan B.', 'Divya N.', 'Aman C.', 'Kavya L.', 'Imran Q.', 'Simran K.', 'Suresh R.', 'Meera I.'];
@@ -342,7 +343,12 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
 const FUNNELS = [...VSL.map(buildVsl), ...WEBINARS.map(buildWebinar)].map(({ color, ...t }) => ({
   ...t, theme: { style: t.style, primary: color, secondary: shiftHue(color, ['luxe', 'royal', 'editorial', 'noir'].includes(t.style) ? 18 : 38) }, hero: t.steps[0].blocks.find((b) => b.type === 'hero'),
 }));
-const TEMPLATES = [...SALES, ...FUNNELS];
+// business websites: Home, About, Services, Contact with a shared menu (website.js)
+const SITES = WEBSITE_TEMPLATES.map((t) => {
+  const steps = websiteSteps(t.input);
+  return { id: t.id, category: t.category, name: t.name, style: t.style, kind: 'website', type: 'website', headline: t.input.headline, theme: { style: t.style, primary: t.color, secondary: shiftHue(t.color, 38) }, hero: steps[0].blocks.find((b) => b.type === 'hero'), steps };
+});
+const TEMPLATES = [...SALES, ...FUNNELS, ...SITES];
 
 // Gallery order: each card should look different from the ones beside and above it — another style, hero design,
 // colour, funnel type and industry — while sales, VSL and webinar funnels stay evenly mixed down the page.

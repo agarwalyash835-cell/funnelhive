@@ -30,7 +30,7 @@ const safely = (fn) => Promise.resolve().then(fn).catch((x) => ({ error: x?.mess
 const T = 'text', LONG = 'long', NUM = 'number', B = 'bool', L = 'list';
 const HL = 'Wrap words in *stars* to highlight them';
 // What a built-in button does; "Open a pop-up" opens one of this step's pop-ups (Step → Pop-ups)
-const BTN_ACTIONS = [['next', 'Go to the next step'], ['url', 'Open a link'], ['scroll', 'Scroll to a section'], ['popup', 'Open a pop-up']];
+const BTN_ACTIONS = [['next', 'Go to the next step'], ['page', 'Open a page of this funnel (its web name in the link field)'], ['url', 'Open a link'], ['scroll', 'Scroll to a section'], ['popup', 'Open a pop-up']];
 
 // Field schema drives the editor's inspector: [key, kind, listSubKeys, hint]
 export const BLOCK_TYPES = {
@@ -59,6 +59,8 @@ export const BLOCK_TYPES = {
   offer: { label: 'Upsell / downsell offer', fields: [['productId', 'product', null, 'Delivered when the buyer accepts this offer'], ['progress', T], ['headline', LONG, null, HL], ['description', LONG], ['productName', T], ['emoji', T], ['price', NUM], ['mrp', NUM], ['currency', T], ['bullets', L, ['text']], ['minutes', NUM, null, 'Offer timer — 0 hides it'], ['acceptText', T], ['declineText', T], ['tag', T, null, 'Label on the product card'], ['oneClickText', T]], defaults: { progress: 'Step 2 of 3 · Customise your order', headline: 'Wait! Add the *VIP upgrade* to your order', description: 'One click adds it — no need to re-enter payment details.', productName: 'VIP Upgrade', emoji: '👑', price: 999, mrp: 2999, currency: '₹', bullets: [{ text: 'Personal 1-on-1 support' }, { text: 'Advanced resources' }], minutes: 10, acceptText: 'Yes! Add it to my order', declineText: 'No thanks' } },
   crosssell: { label: 'Cross-sells', fields: [['title', T], ['subtitle', T], ['eyebrow', T], ['items', L, ['emoji', 'name', 'desc', 'price', 'productId']], ['buttonText', T]], defaults: { title: 'Customers also bought', subtitle: 'Add these to your order with one click.', items: [{ emoji: '📚', name: 'Advanced Masterclass', desc: 'Go deeper with expert sessions.', price: 499 }, { emoji: '🧾', name: 'Templates Pack', desc: 'Ready-to-use resources.', price: 299 }], buttonText: 'Add to my order' } },
   pricing: { label: 'Pricing box', fields: [['badge', T], ['title', T], ['mrp', NUM], ['price', NUM], ['currency', T], ['bullets', L, ['text']], ['buttonText', T], ['buttonAction', 'select', BTN_ACTIONS], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T], ['priceNote', T, null, 'Line under the price'], ['payMethods', T, null, 'Payment badges, separated by ·']], defaults: { badge: 'Limited-time offer', title: 'Your Product', mrp: 1999, price: 499, currency: '₹', bullets: [{ text: 'Everything included' }], buttonText: 'Enroll Now', note: '🔒 Secure checkout' } },
+  navbar: { label: 'Header & menu', fields: [['brand', T], ['logo', T, null, 'Optional: a logo image link, shown before the name'], ['links', L, ['label', 'to'], 'Where each one goes: a page of this funnel by its web name (about, contact — empty = the first page), a section (#faq) or a full link'], ['buttonText', T], ['buttonTo', T, null, 'A page, #section or link']], defaults: { brand: 'Your Brand', links: [{ label: 'Home', to: '' }, { label: 'About', to: 'about' }, { label: 'Services', to: 'services' }, { label: 'Contact', to: 'contact' }], buttonText: 'Get in touch', buttonTo: 'contact' } },
+  footer: { label: 'Footer', fields: [['brand', T], ['text', LONG], ['links', L, ['label', 'to'], 'A page of this funnel (about, contact), a section (#faq) or a full link'], ['note', T, null, 'e.g. © 2026 Your Brand']], defaults: { brand: 'Your Brand', text: 'One line about who you help and how.', links: [{ label: 'Home', to: '' }, { label: 'About', to: 'about' }, { label: 'Services', to: 'services' }, { label: 'Contact', to: 'contact' }], note: '' } },
   faq: { label: 'FAQ', fields: [['eyebrow', T], ['title', T], ['items', L, ['q', 'a']]], defaults: { eyebrow: 'FAQ', title: 'Questions? We have answers.', items: [{ q: 'Question?', a: 'Answer.' }] } },
   cta: { label: 'Final call to action', fields: [['headline', T], ['subheadline', T], ['buttonText', T], ['buttonAction', 'select', BTN_ACTIONS], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['note', T]], defaults: { headline: 'Ready to start?', subheadline: '', buttonText: 'Get Started', note: '' } },
   booking: { label: 'Booking calendar', fields: [['calendarId', 'calendar', null, 'Which availability to book against (Bookings → Calendars)'], ['eyebrow', T], ['title', T], ['subtitle', T], ['buttonText', T], ['successTitle', T], ['successText', LONG], ['qualifiedOnly', B, null, 'In an application funnel, only applicants who qualified can book']], defaults: { calendarId: '', eyebrow: 'Book your call', title: 'Pick a time that suits you', subtitle: 'Times are shown in India time (IST).', buttonText: 'Confirm my call', successTitle: 'Your call is booked ✅', successText: 'The confirmation and joining link are in your email.', qualifiedOnly: true } },
@@ -95,11 +97,12 @@ const vOf = (type, p) => (VARIANTS[type]?.some(([k]) => k === p.variant) ? p.var
 
 export const BLOCK_GROUPS = [
   ['Essentials', ['section', 'hero', 'text', 'image', 'gallery', 'video', 'stats', 'cta', 'spacer', 'divider', 'html']],
+  ['Website', ['navbar', 'footer']],
   ['Persuasion', ['problem', 'features', 'steps', 'compare', 'testimonials', 'mentor', 'bonuses', 'guarantee', 'faq']],
   ['Sell', ['pricing', 'optin', 'form', 'booking', 'checkout', 'offer', 'crosssell', 'thankyou']],
   ['FOMO & urgency', ['hellobar', 'countdown', 'livecount', 'stock', 'proof', 'exitpopup', 'stickybar', 'whatsapp']],
 ];
-export const BLOCK_ICONS = { section: '🧱', image: '🖼️', gallery: '🎞️', spacer: '↕️', divider: '➖', html: '🧩', form: '🗒️', hero: '🦸', text: '📝', video: '🎬', stats: '📊', cta: '📣', problem: '😣', features: '✨', steps: '🪜', compare: '⚖️', testimonials: '💬', mentor: '🧑‍🏫', bonuses: '🎁', guarantee: '🛡️', faq: '❓', pricing: '💰', optin: '📧', checkout: '💳', offer: '⬆️', crosssell: '🛍️', thankyou: '🎉', booking: '📅', hellobar: '📢', countdown: '⏳', livecount: '👀', stock: '📦', proof: '🔔', exitpopup: '🚪', stickybar: '📌', whatsapp: '💚' };
+export const BLOCK_ICONS = { navbar: '🧭', footer: '🔚', section: '🧱', image: '🖼️', gallery: '🎞️', spacer: '↕️', divider: '➖', html: '🧩', form: '🗒️', hero: '🦸', text: '📝', video: '🎬', stats: '📊', cta: '📣', problem: '😣', features: '✨', steps: '🪜', compare: '⚖️', testimonials: '💬', mentor: '🧑‍🏫', bonuses: '🎁', guarantee: '🛡️', faq: '❓', pricing: '💰', optin: '📧', checkout: '💳', offer: '⬆️', crosssell: '🛍️', thankyou: '🎉', booking: '📅', hellobar: '📢', countdown: '⏳', livecount: '👀', stock: '📦', proof: '🔔', exitpopup: '🚪', stickybar: '📌', whatsapp: '💚' };
 
 // Text that used to be fixed in the design. Kept as defaults so existing pages look the same,
 // but every piece can now be edited or removed (empty string = removed).
@@ -193,6 +196,7 @@ export function buttonLink(action, url, newTab) {
   if (action === 'url') { const h = safeHref(u); if (!h) return null; return h.startsWith('#') ? { scroll: cleanAnchor(h.slice(1)) } : { href: h, newTab: !!newTab }; }
   if (action === 'scroll' && u) { const id = cleanAnchor(u.replace(/^#/, '')); return id ? { scroll: id } : null; }
   if (action === 'popup' && u) return { popup: u };
+  if (action === 'page') return { page: String(u).trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60) };
   return null;
 }
 const Btn = ({ children, big, block, onClick, type = 'button', disabled, ctx, k, link }) => {
@@ -204,6 +208,14 @@ const Btn = ({ children, big, block, onClick, type = 'button', disabled, ctx, k,
     return (
       <a className={cls} href={link.href} {...(link.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
         onClick={(e) => { if (ctx && !ctx.live) e.preventDefault(); else ctx?.onLinkClick?.(link.href); }}>
+        <span>{children}</span><span className="arr">→</span>
+      </a>
+    );
+  }
+  if (link?.page != null) {
+    return (
+      <a className={cls} href={ctx?.pageHref ? ctx.pageHref(link.page) : '#'}
+        onClick={(e) => { if (!ctx?.live) return e.preventDefault(); if (ctx.goPage) { e.preventDefault(); ctx.goPage(link.page); } }}>
         <span>{children}</span><span className="arr">→</span>
       </a>
     );
@@ -648,6 +660,58 @@ function Countdown({ p, ctx }) {
       {p.label && <p className="cd-label">⏳ <E ctx={ctx} k="label" v={p.label} /></p>}
       <div className="tiles">{parts.map(([v, l]) => <div className="tile" key={l}><b>{pad(v)}</b><small>{tr(ctx.lang, l)}</small></div>)}</div>
     </Sec>
+  );
+}
+
+// ---------- website: header menu and footer ----------
+// to: a page of this funnel by its web name ("" = the first page), a #section, or a full link
+const pageSlug = (s) => String(s || '').trim().toLowerCase().replace(/^\/+|\/+$/g, '').replace(/[^a-z0-9-]/g, '').slice(0, 60);
+export function linkTarget(to) {
+  const t = String(to ?? '').trim();
+  if (/^(https?:|mailto:|tel:)/i.test(t)) { const h = safeHref(t); return h ? { href: h, newTab: /^https?:/i.test(h) } : null; }
+  if (t.startsWith('#')) { const id = cleanAnchor(t.slice(1)); return id ? { scroll: id } : null; }
+  return { page: pageSlug(t) };
+}
+function NavLink({ to, ctx, className = '', children, onGo }) {
+  const l = linkTarget(to);
+  if (!l) return <span className={className}>{children}</span>;
+  if (l.scroll) return <a className={className} href={`#${l.scroll}`} onClick={(e) => { e.preventDefault(); onGo?.(); if (ctx.live) smoothTo(l.scroll); }}>{children}</a>;
+  if (l.href) return <a className={className} href={l.href} {...(l.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})} onClick={(e) => { if (!ctx.live) e.preventDefault(); }}>{children}</a>;
+  const here = l.page ? ctx.stepSlug === l.page : ctx.stepIndex === 0;
+  return (
+    <a className={`${className}${here ? ' on' : ''}`} aria-current={here ? 'page' : undefined} href={ctx.pageHref ? ctx.pageHref(l.page) : '#'}
+      onClick={(e) => { if (!ctx.live) return e.preventDefault(); if (ctx.goPage) { e.preventDefault(); onGo?.(); ctx.goPage(l.page); } }}>{children}</a>
+  );
+}
+function Navbar({ p, ctx }) {
+  const [open, setOpen] = useState(false);
+  const links = (p.links || []).map((l, i) => ({ ...l, i })).filter((l) => l.label || ctx.editable);
+  const logo = safeHref(p.logo);
+  return (
+    <header className={`navbar ${ctx.live ? 'live' : ''} ${open ? 'open' : ''}`}>
+      <div className="in nav-in">
+        <NavLink to="" ctx={ctx} className="nav-brand">{logo && <img src={logo} alt="" />}<E ctx={ctx} k="brand" v={p.brand} /></NavLink>
+        {links.length > 0 && <button type="button" className="nav-burger" aria-label="Menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><span /><span /><span /></button>}
+        <nav className="nav-links" aria-label="Main">
+          {links.map((l) => <NavLink key={l.i} to={l.to} ctx={ctx} onGo={() => setOpen(false)}><E ctx={ctx} k={`links.${l.i}.label`} v={l.label} keep={ctx.editable} /></NavLink>)}
+          {(p.buttonText || ctx.editable) && <NavLink to={p.buttonTo} ctx={ctx} className="nav-cta" onGo={() => setOpen(false)}><E ctx={ctx} k="buttonText" v={p.buttonText} /></NavLink>}
+        </nav>
+      </div>
+    </header>
+  );
+}
+function Footer({ p, ctx }) {
+  const links = (p.links || []).map((l, i) => ({ ...l, i })).filter((l) => l.label || ctx.editable);
+  return (
+    <footer className="sitefoot">
+      <div className="in">
+        <div className="sf-top">
+          <div className="sf-about"><E ctx={ctx} k="brand" v={p.brand} as="b" /><E ctx={ctx} k="text" v={p.text} as="p" multiline /></div>
+          {links.length > 0 && <nav className="sf-links" aria-label="Footer">{links.map((l) => <NavLink key={l.i} to={l.to} ctx={ctx}><E ctx={ctx} k={`links.${l.i}.label`} v={l.label} keep={ctx.editable} /></NavLink>)}</nav>}
+        </div>
+        <E ctx={ctx} k="note" v={p.note} as="small" className="sf-note" />
+      </div>
+    </footer>
   );
 }
 
@@ -1616,6 +1680,8 @@ function renderBlock(block, ctx) {
       );
     case 'pricing': return <Pricing p={p} ctx={ctx} />;
     case 'hellobar': return <HelloBar p={p} ctx={ctx} />;
+    case 'navbar': return <Navbar p={p} ctx={ctx} />;
+    case 'footer': return <Footer p={p} ctx={ctx} />;
     case 'livecount': return <LiveCount p={p} ctx={ctx} />;
     case 'stock': return <Stock p={p} ctx={{ ...ctx, blockId: block.id }} />;
     case 'proof': return <Proof p={p} ctx={ctx} />;

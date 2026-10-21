@@ -4,7 +4,7 @@ import { api, loggedIn } from '../api';
 import { Page } from '../blocks';
 import { Layout, Icon, loadFailed } from '../ui';
 
-const TYPES = [['all', 'All funnels'], ['sales', 'Sales pages'], ['vsl', 'VSL + application'], ['webinar', 'Webinars'], ['lead', 'Lead generation']];
+const TYPES = [['all', 'All funnels'], ['sales', 'Sales pages'], ['vsl', 'VSL + application'], ['webinar', 'Webinars'], ['lead', 'Lead generation'], ['website', 'Websites']];
 const TYPE_LABEL = { sales: 'Sales funnel', vsl: 'VSL · Application', webinar: 'Webinar', lead: 'Lead generation' };
 
 export function TemplateGallery() {
@@ -78,6 +78,8 @@ export function TemplatePreview() {
   };
   const skipDownsells = () => { let n = i + 1; while (t.steps[n]?.type === 'downsell') n++; setI(Math.min(n, t.steps.length - 1)); };
   const ctx = {
+    // website menus move between the preview's pages
+    pageHref: () => '#', goPage: (slug) => { const k = slug ? t.steps.findIndex((x) => x.slug === slug) : 0; if (k >= 0) setI(k); }, stepSlug: step?.slug, stepIndex: i,
     live: true, onNext: next, onOptin: async () => setI(i + 1), onCheckout: async () => setI(i + 1),
     onAccept: async () => skipDownsells(), onDecline: () => setI(Math.min(i + 1, t.steps.length - 1)),
     onCoupon: async (code) => (code === 'INDIA10' ? { valid: true, code, type: 'percent', value: 10 } : { valid: false }),
