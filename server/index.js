@@ -1134,7 +1134,9 @@ app.get('/api/public/:slug/social', (req, res) => {
   const k = `${f.id}:${step?.id}:${f.updatedAt || 0}`, hit = socialCache.get(k);
   if (hit && Date.now() - hit.at < 60000) return res.json(hit.data);
   const real = (o) => o.status === 'paid' && !o.demo && !o.erasedAt && !testOrder(o);
-  const orders = T.orders.all({ funnelId: f.id }, { order: 'at', desc: true, limit: 50 }).filter(real);
+  // only what this page actually shows: recent buyers only with a recent-buyers block, viewers only with a live counter
+  const shows = new Set((step ? allBlocks(step) : []).map((b) => b.type));
+  const orders = !shows.has('proof') ? [] : T.orders.all({ funnelId: f.id }, { order: 'at', desc: true, limit: 50 }).filter(real);
   const stock = {};
   for (const b of step ? allBlocks(step) : []) {
     if (b.type !== 'stock' || !(Number(b.props?.left) > 0)) continue;
@@ -1142,7 +1144,7 @@ app.get('/api/public/:slug/social', (req, res) => {
     stock[b.id] = Math.max(0, Math.round(Number(b.props.left)) - T.orders.all({ funnelId: f.id, at: { gt: from } }).filter(real).length);
   }
   const data = {
-    viewers: step ? q("SELECT COUNT(DISTINCT visitor) AS n FROM events WHERE funnelId = ? AND type = 'view' AND at > ? AND stepId = ? AND demo = 0").get(f.id, Date.now() - 30 * 60000, step.id).n : 0,
+    viewers: step && shows.has('livecount') ? q("SELECT COUNT(DISTINCT visitor) AS n FROM events WHERE funnelId = ? AND type = 'view' AND at > ? AND stepId = ? AND demo = 0").get(f.id, Date.now() - 30 * 60000, step.id).n : 0,
     orders: orders.slice(0, 10).map((o) => ({ name: String(o.name || '').trim().split(/\s+/)[0].slice(0, 30), city: String(o.address?.city || '').trim().slice(0, 40), at: o.at })).filter((o) => o.name),
     stock,
   };

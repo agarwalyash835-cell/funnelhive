@@ -42,7 +42,7 @@ test('recent buyers: only real orders, first name and city, never email or phone
   const step = full.steps.find((s) => s.id === co.id);
   const chk = step.blocks.find((b) => b.type === 'checkout');
   Object.assign(chk.props, { price: 0, mrp: 0, bumpEnabled: false, shipping: 'address', shippingFee: 0 });
-  step.blocks.push({ id: 'stk1', type: 'stock', props: { label: 'Only {n} left', left: 5, setAt: Date.now() - 1000 } }, { id: 'stk0', type: 'stock', props: { label: 'Only {n} left', left: 0 } });
+  step.blocks.push({ id: 'stk1', type: 'stock', props: { label: 'Only {n} left', left: 5, setAt: Date.now() - 1000 } }, { id: 'stk0', type: 'stock', props: { label: 'Only {n} left', left: 0 } }, { id: 'pr1', type: 'proof', props: {} }, { id: 'lc1', type: 'livecount', props: {} });
   assert.equal((await api(`/funnels/${f.id}`, 'PUT', { steps: full.steps }, T)).status, 200);
   const o = await api(`/public/${f.slug}/order`, 'POST', { stepId: co.id, email: 'ravi@x.in', name: 'Ravi Kumar', phone: '+91 98765 43210', address: { line1: '12 MG Road', city: 'Pune', state: 'Maharashtra', pincode: '411001' } });
   assert.equal(o.status, 200, JSON.stringify(o.data));
@@ -55,6 +55,9 @@ test('recent buyers: only real orders, first name and city, never email or phone
   const raw = JSON.stringify(d);
   assert.doesNotMatch(raw, /ravi@x\.in|98765|Kumar|MG Road|test@x\.in|Tina/);
   assert.deepEqual(d.stock, { stk1: 4 }, 'the seller’s stock less real orders; no number set = nothing');
+  // a page without a recent-buyers block gives nothing away about buyers
+  const other = full.steps.find((x) => x.id !== co.id && !x.blocks.some((bl) => bl.type === 'proof'));
+  assert.deepEqual((await api(`/public/${f.slug}/social?stepId=${other.id}`)).data.orders, []);
   assert.equal((await api(`/public/nope-${Date.now()}/social`)).status, 404);
 });
 
