@@ -126,7 +126,8 @@ function notify(r, w, kind) {
 
 // ---------- reminders, attendance follow-up, replays ----------
 export function webinarJob(now = Date.now()) {
-  for (const r of T.registrations.all({ session: { gte: now - 3 * HOUR, lte: now + 25 * HOUR } })) {
+  // looks back far enough for the replay of the longest session (8 h) — sent up to 3 h after it ends
+  for (const r of T.registrations.all({ session: { gte: now - (8 * HOUR + 3 * HOUR + 15 * MIN), lte: now + 25 * HOUR } })) {
     if (r.status === 'cancelled') continue;
     const w = T.webinars.get(r.webinarId);
     if (!w) continue;

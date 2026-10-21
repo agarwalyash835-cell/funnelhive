@@ -98,4 +98,9 @@ test('reminders, then the replay and attended / missed follow-ups — each once'
   assert.equal(g(went).status, 'attended');
   assert.equal(g(missed).status, 'missed');
   assert.ok(g(missed).sent.replay);
+  // a 4-hour masterclass still gets its replay (it started more than 3 hours ago)
+  const long = DB.webinars.insert({ ...web, id: undefined, duration: 240 });
+  const marathon = mk('f@x.in', now - 4 * HOUR - 30 * MIN, { webinarId: long.id });
+  W.webinarJob(now);
+  assert.ok(g(marathon).sent.replay, 'replay sent after a long session');
 });
