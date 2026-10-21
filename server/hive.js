@@ -290,10 +290,14 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
   },
   {
     name: 'create_product',
-    description: 'Create a digital product delivered automatically after payment (or as a free lead magnet): name, description, links [{label,url}], a course outline as lessons [{title, section, body, videoUrl, dripDays}], accessDays (0 = lifetime). Files are uploaded by the seller in Products. Attach it with configure_checkout productId (or an opt-in’s productId for a lead magnet).',
-    schema: S({ name: str('Product name'), description: str('One line'), links: arr('[{ label, url }]'), lessons: arr('[{ title, section, body, videoUrl, dripDays }]'), accessDays: num('0 = lifetime') }, ['name']),
-    run: async (ctx, a) => { let p = await ctx.call('POST', '/products', { name: a.name, description: a.description || '', links: a.links || [], accessDays: a.accessDays || 0 }); if (a.lessons?.length) p = await ctx.call('PUT', `/products/${p.id}`, { lessons: a.lessons }); return { ok: true, id: p.id, name: p.name, lessons: p.lessons?.length || 0 }; },
-    summary: (r) => `Created the product “${r.name}”${r.lessons ? ` with ${r.lessons} lessons` : ''}`,
+    description: 'Create a digital product delivered automatically after payment (or as a free lead magnet): name, description, links [{label,url}], a course outline as lessons [{title, section, body, videoUrl, dripDays}], accessDays (0 = lifetime). A BUNDLE: includes = ids of existing products (list_products) that buying this one also unlocks — e.g. three courses sold together. Files are uploaded by the seller in Products. Attach it with configure_checkout productId (or an opt-in’s productId for a lead magnet).',
+    schema: S({ name: str('Product name'), description: str('One line'), links: arr('[{ label, url }]'), lessons: arr('[{ title, section, body, videoUrl, dripDays }]'), includes: arr('Product ids this bundle unlocks', { type: 'string' }), accessDays: num('0 = lifetime') }, ['name']),
+    run: async (ctx, a) => {
+      let p = await ctx.call('POST', '/products', { name: a.name, description: a.description || '', links: a.links || [], accessDays: a.accessDays || 0 });
+      if (a.lessons?.length || a.includes?.length) p = await ctx.call('PUT', `/products/${p.id}`, { ...(a.lessons?.length ? { lessons: a.lessons } : {}), ...(a.includes?.length ? { includes: a.includes } : {}) });
+      return { ok: true, id: p.id, name: p.name, lessons: p.lessons?.length || 0, includes: p.includes?.length || 0 };
+    },
+    summary: (r) => (r.includes ? `Created the bundle “${r.name}” — ${r.includes} products in one` : `Created the product “${r.name}”${r.lessons ? ` with ${r.lessons} lessons` : ''}`),
   },
   {
     name: 'get_sales',

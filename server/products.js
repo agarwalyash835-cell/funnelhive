@@ -80,7 +80,12 @@ function cleanProduct(b = {}, cur = {}) {
       dripDays: intIn(l?.dripDays, 0, 3650),
     }));
   }
-  out.links ||= []; out.lessons ||= []; out.files ||= [];
+  // a bundle: buying this also unlocks these products (the seller's own; one level — checked when granting)
+  if ('includes' in b) {
+    if (!Array.isArray(b.includes)) return { error: 'Included products must be a list' };
+    out.includes = [...new Set(b.includes.map((x) => String(x || '')).filter((x) => /^[\w-]{4,40}$/.test(x) && x !== cur.id))].slice(0, 30);
+  }
+  out.links ||= []; out.lessons ||= []; out.files ||= []; out.includes ||= [];
   out.accessDays ??= 0; out.downloadLimit ??= 0;
   return out;
 }
@@ -104,7 +109,7 @@ export function copyProduct(p, toUserId, fromUserId = p.userId) {
   }
   const lessons = (p.lessons || []).map((l) => ({ ...l, id: uid(), fileIds: (l.fileIds || []).map((x) => idMap[x]).filter(Boolean), videoFileId: l.videoFileId ? idMap[l.videoFileId] || '' : '' }));
   const { id, userId, at, ...rest } = p;
-  return T.products.insert({ ...rest, id: uid(), userId: toUserId, files, lessons, at: Date.now() });
+  return T.products.insert({ ...rest, id: uid(), userId: toUserId, files, lessons, includes: [], at: Date.now() }); // a bundle's products live in the other account: re-pick them there
 }
 export const productsOf = (userId) => T.products.all({ userId }, { order: 'at', desc: true });
 const ownProduct = (userId, id) => { const p = T.products.get(id); return p && p.userId === userId ? p : null; };
@@ -116,7 +121,7 @@ const hasFile = (userId, f) => !!f && (fs.existsSync(filePath(userId, f.id)) || 
 const dropFile = (userId, f) => { fs.rmSync(filePath(userId, f.id), { force: true }); if (f.s3) deleteObject(s3Key(userId, f.id)).catch((e) => console.error('storage delete failed', e.message)); };
 
 // What the buyer sees of a product (no internals)
-const kindOf = (p) => (p.lessons?.length ? 'course' : p.files?.length ? 'download' : p.links?.length ? 'link' : 'empty');
+const kindOf = (p) => (p.includes?.length && !p.lessons?.length && !p.files?.length && !p.links?.length ? 'bundle' : p.lessons?.length ? 'course' : p.files?.length ? 'download' : p.links?.length ? 'link' : 'empty');
 
 // Funnels that sell or give away a product (so the seller sees where it's delivered from)
 export function productUsage(userId, productId) {
@@ -142,13 +147,22 @@ export function grant(userId, { email, name = '', phone = '', productId, orderId
   const ckey = contactKey(email);
   if (!p || !ckey || ckey.startsWith('phone:')) return null;
   return tx(() => {
-    const dupe = (orderId || leadId) && T.access.all({ userId, ckey }).find((a) => a.productId === productId && a.orderId === orderId && (a.leadId || null) === leadId && (a.item ?? null) === item);
-    if (dupe) return dupe;
-    const at = Date.now();
-    return T.access.insert({
-      id: uid(), userId, productId, email: String(email).trim().toLowerCase(), name: clip(name, 120), phone: clip(phone, 40), orderId, leadId, item, via, funnelId,
-      theme: theme ? { primary: theme.primary, style: theme.style } : null, at, expiresAt: p.accessDays ? at + p.accessDays * DAY : null, revoked: false, dl: {}, progress: {},
-    });
+    const at = Date.now(), expiresAt = p.accessDays ? at + p.accessDays * DAY : null;
+    const one = (pid, bundle) => {
+      const dupe = (orderId || leadId) && T.access.all({ userId, ckey }).find((a) => a.productId === pid && a.orderId === orderId && (a.leadId || null) === leadId && (a.item ?? null) === item);
+      if (dupe) return dupe;
+      return T.access.insert({
+        id: uid(), userId, productId: pid, email: String(email).trim().toLowerCase(), name: clip(name, 120), phone: clip(phone, 40), orderId, leadId, item, via, funnelId,
+        theme: theme ? { primary: theme.primary, style: theme.style } : null, at, expiresAt, revoked: false, dl: {}, progress: {}, ...(bundle ? { bundle } : {}),
+      });
+    };
+    const main = one(productId, null);
+    // a bundle unlocks each included product too, for as long as the bundle (a refund of the order revokes them all)
+    for (const id of p.includes || []) {
+      const inc = id !== productId && ownProduct(userId, id);
+      if (inc && !inc.includes?.length) one(inc.id, productId);
+    }
+    return main;
   });
 }
 export function revoke(userId, where, reason = 'refunded') {
@@ -235,6 +249,7 @@ function libraryView(ctx) {
   for (const a of byProduct.values()) {
     const p = T.products.get(a.productId);
     if (!p) continue;
+    if (kindOf(p) === 'bundle') continue; // just a wrapper: its products are listed on their own
     const ok = active(a, now);
     const base = { productId: p.id, accessId: a.id, name: p.name, description: p.description || '', cover: p.cover || '', kind: kindOf(p), grantedAt: a.at, expiresAt: a.expiresAt || null, status: ok ? 'active' : a.revoked ? (a.revokeReason === 'refunded' ? 'refunded' : 'revoked') : 'expired' };
     if (!ok) { products.push(base); continue; }
@@ -295,6 +310,11 @@ export function registerProducts(app, { auth, wrap, rateLimit, isTest, secret, a
     if (!cur) return res.status(404).json({ error: 'Product not found' });
     const p = cleanProduct(req.body, cur);
     if (p.error) return res.status(400).json(p);
+    if (p.includes?.length) {
+      // bundles hold the seller's own products, one level deep (no bundle inside a bundle)
+      if (p.includes.some((id) => { const x = ownProduct(req.user.id, id); return !x || x.includes?.length; })) return res.status(400).json({ error: 'A bundle can include your own products — not other bundles' });
+      if (T.products.all({ userId: req.user.id }).some((x) => x.id !== cur.id && x.includes?.includes(cur.id))) return res.status(400).json({ error: 'This product is already inside a bundle, so it can’t be a bundle itself' });
+    }
     p.updatedAt = Date.now();
     res.json(T.products.put(p));
   });

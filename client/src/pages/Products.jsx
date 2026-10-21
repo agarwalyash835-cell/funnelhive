@@ -90,7 +90,7 @@ function ProductEditor({ id }) {
   const save = async () => {
     setBusy(true);
     try {
-      const x = await api(`/products/${id}`, 'PUT', { name: p.name, description: p.description, note: p.note, cover: p.cover, links: p.links, lessons: p.lessons, accessDays: p.accessDays, downloadLimit: p.downloadLimit, hsn: p.hsn || '', gstRate: p.gstRate ?? '', origin: p.origin || '' });
+      const x = await api(`/products/${id}`, 'PUT', { name: p.name, description: p.description, note: p.note, cover: p.cover, links: p.links, lessons: p.lessons, includes: p.includes || [], accessDays: p.accessDays, downloadLimit: p.downloadLimit, hsn: p.hsn || '', gstRate: p.gstRate ?? '', origin: p.origin || '' });
       const next = { ...x, usage: p.usage };
       setP(next); setSaved(JSON.stringify(next)); toast('Product saved');
     } catch (e) { toast(e.message); }
@@ -345,10 +345,30 @@ function BuyersTab({ p }) {
   );
 }
 
+// A bundle: buying this product also unlocks the products ticked here (one level — no bundle inside a bundle)
+function BundlePanel({ p, set }) {
+  const [all, setAll] = useState(null);
+  useEffect(() => { api('/products').then((d) => setAll((d.products || d).filter((x) => x.id !== p.id))).catch(() => setAll([])); }, [p.id]);
+  const inc = p.includes || [];
+  const choices = (all || []).filter((x) => !(x.includes || []).length);
+  const toggle = (id) => set({ includes: inc.includes(id) ? inc.filter((x) => x !== id) : [...inc, id] });
+  return (
+    <Panel title="Bundle">
+      <p className="hint" style={{ marginTop: 0 }}>Sell several products as one: buyers of <b>{p.name}</b> also get every product ticked here, for as long as their access to this one lasts. A refund takes them all back.</p>
+      {!all ? <div className="skeleton" style={{ height: 40 }} /> : choices.length === 0 ? <p className="hint">Create the products first, then tick them here.</p> : (
+        <div className="pr-bundle" style={{ display: 'grid', gap: 6 }}>
+          {choices.map((x) => <label key={x.id} className="tog" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={inc.includes(x.id)} onChange={() => toggle(x.id)} /><span>{x.name}</span></label>)}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function SettingsTab({ p, set, onDelete }) {
   return (
     <div className="pr-cols">
       <div className="pr-main">
+        <BundlePanel p={p} set={set} />
         <Panel title="Access">
           <div className="form2">
             <label className="fld"><span>Access lasts</span><select value={[0, 30, 90, 180, 365, 730].includes(p.accessDays) ? p.accessDays : 'custom'} onChange={(e) => e.target.value !== 'custom' && set({ accessDays: Number(e.target.value) })}>

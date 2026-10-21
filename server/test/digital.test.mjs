@@ -334,3 +334,28 @@ test('account export includes products; deleting the account removes the files',
   assert.equal((await api('/account/delete', 'POST', { password: 'secret123', confirm: 'DELETE' }, T)).status, 200);
   assert.ok(!fs.existsSync(dir));
 });
+
+test('bundles: one product unlocks several, for the bundle’s access period; only your own products; no bundle inside a bundle', async () => {
+  const S = (await register(api)).token; // the account above was deleted
+  const a = (await api('/products', 'POST', { name: 'Course A', links: [{ label: 'A', url: 'https://cdn.example.in/a' }] }, S)).data;
+  const b = (await api('/products', 'POST', { name: 'Course B', links: [{ label: 'B', url: 'https://cdn.example.in/b' }] }, S)).data;
+  const bundle = (await api('/products', 'POST', { name: 'All-access bundle' }, S)).data;
+  const saved = await api(`/products/${bundle.id}`, 'PUT', { includes: [a.id, b.id, bundle.id], accessDays: 365 }, S);
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+  assert.deepEqual(saved.data.includes, [a.id, b.id], 'not itself');
+  // nesting is refused both ways
+  const outer = (await api('/products', 'POST', { name: 'Outer' }, S)).data;
+  assert.equal((await api(`/products/${outer.id}`, 'PUT', { includes: [bundle.id] }, S)).status, 400, 'no bundle inside a bundle');
+  assert.equal((await api(`/products/${a.id}`, 'PUT', { includes: [b.id] }, S)).status, 400, 'a product inside a bundle can’t become one');
+  const other = (await register(api)).token;
+  const theirs = (await api('/products', 'POST', { name: 'Not yours' }, other)).data;
+  assert.equal((await api(`/products/${bundle.id}`, 'PUT', { includes: [a.id, theirs.id] }, S)).status, 400, 'only your own products');
+  // given away on an opt-in: the buyer's library has both courses (not an empty bundle card), with the bundle's access period
+  const g = (await api('/templates/webinar/use', 'POST', {}, S)).data;
+  g.steps[0].blocks.find((x) => x.type === 'optin').props.productId = bundle.id;
+  await api(`/funnels/${g.id}`, 'PUT', { steps: g.steps, published: true }, S);
+  const r = (await api(`/public/${g.slug}/lead`, 'POST', { stepId: g.steps[0].id, email: 'bundle.buyer@example.com', name: 'Bea' })).data;
+  const lib = (await library(r.access)).data;
+  assert.deepEqual(lib.products.map((p) => p.name).sort(), ['Course A', 'Course B']);
+  assert.ok(lib.products.every((p) => p.expiresAt > Date.now() + 360 * 86400000), 'the bundle’s 1-year access');
+});
