@@ -501,7 +501,7 @@ function contactInfo(userId, key) {
   return { key, email: m?.email || last?.email || (key.startsWith('phone:') ? '' : key), phone: m?.phone || last?.phone || (key.startsWith('phone:') ? key.slice(6) : ''), name: m?.name || last?.name || '', funnelId: last?.funnelId, source: last?.source };
 }
 // "A date arrives": birthday / renewal / course start stored in a date custom field (India time)
-function scanDates(now = Date.now()) {
+export function scanDates(now = Date.now()) {
   for (const a of T.automations.all({ triggerType: 'date', active: 1 })) {
     // dates fire on the seller's own calendar day and clock
     const tz = sellerTz(userOf(a.userId)), today = localYmd(tz, now);
@@ -514,16 +514,16 @@ function scanDates(now = Date.now()) {
       const v = m.custom?.[t.fieldId];
       if (!v || !/^\d{4}-\d{2}-\d{2}/.test(v)) continue;
       // the day it should fire: the date (this year's, for yearly ones) shifted by the offset
-      let base = String(v).slice(0, 10);
-      if (t.yearly) base = `${today.slice(0, 4)}${base.slice(4)}`;
-      if (!Number.isFinite(Date.parse(`${base}T00:00:00Z`)) && base.slice(5) === '02-29') base = `${base.slice(0, 4)}-02-28`; // leap-day birthdays → 28 Feb
-      if (!Number.isFinite(Date.parse(`${base}T00:00:00Z`))) continue;
-      const fireDay = addDays(base, t.offsetDays);
-      if (fireDay !== today) continue;
+      // yearly with an offset can cross New Year (“3 days before 2 Jan” fires on 30 Dec): try last, this and next year's date
+      const y = Number(today.slice(0, 4)), date = String(v).slice(0, 10);
+      const leap = (d) => (!Number.isFinite(Date.parse(`${d}T00:00:00Z`)) && d.slice(5) === '02-29' ? `${d.slice(0, 4)}-02-28` : d); // leap-day birthdays → 28 Feb
+      const base = (t.yearly ? [y - 1, y, y + 1].map((yr) => leap(`${yr}${date.slice(4)}`)) : [leap(date)])
+        .find((d) => Number.isFinite(Date.parse(`${d}T00:00:00Z`)) && addDays(d, t.offsetDays) === today);
+      if (!base) continue;
       const [h, mi] = t.time.split(':').map(Number);
       const at = zoned(tz, today, h * 60 + mi);
       if (now < at) continue;
-      const mark = t.yearly ? today.slice(0, 4) : 'once';
+      const mark = t.yearly ? base.slice(0, 4) : 'once'; // the occasion's year: one send per birthday
       m.dateFired ||= {};
       if (m.dateFired[a.id] === mark) continue;
       m.dateFired[a.id] = mark;
