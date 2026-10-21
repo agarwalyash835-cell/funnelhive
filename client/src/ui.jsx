@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
-import { api, logout, stopImpersonating, fmtDate } from './api';
+import { api, meCache, logout, stopImpersonating, fmtDate } from './api';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
 
 const P = {
@@ -291,11 +291,16 @@ function Bell({ me }) {
   );
 }
 
+// a screen whose data didn't load: Layout shows a banner with Reload instead of an endless skeleton
+export const loadFailed = () => window.dispatchEvent(new Event('ff:loadfail'));
+
 export function Layout({ title, subtitle, actions, children, wide }) {
-  const [me, setMe] = useState(null);
+  const [me, setMe] = useState(meCache.data);
+  const [loadFail, setLoadFail] = useState(false);
+  useEffect(() => { const h = () => setLoadFail(true); window.addEventListener('ff:loadfail', h); return () => window.removeEventListener('ff:loadfail', h); }, []);
   const [open, setOpen] = useState(false);
   const [paywall, setPaywall] = useState(null);
-  useEffect(() => { api('/me').then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); }).catch(() => {}); }, []);
+  useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); }).catch(() => {}); }, []);
   useEffect(() => { applyUiLang(); }, []);
   useEffect(() => { const h = (e) => setPaywall(e.detail || {}); window.addEventListener('ff:paywall', h); return () => window.removeEventListener('ff:paywall', h); }, []);
   return (
@@ -319,6 +324,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
           <div className="tb-actions">{actions}</div>
           {me && <Bell me={me} />}
         </header>
+        {loadFail && <div className="app-banner bad" role="alert"><span>Part of this page didn’t load — check your connection.</span><button onClick={() => location.reload()}>Reload</button></div>}
         {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} /><span>{tx('You’re working in the {name} workspace as {role}.', { name: <b>{me.workspace.name}</b>, role: t(({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role] || '') })}</span></div>}
         {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('You’re signed in as {email} (support view).', { email: <b>{me.email}</b> })}</span><button onClick={stopImpersonating}>{t('Back to admin')}</button></div>}
         {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}

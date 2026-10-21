@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, fmtDate } from '../api';
-import { Layout, Panel, Icon, Empty, Modal, toast, num, ago, confirmDialog } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, toast, num, ago, confirmDialog, loadFailed } from '../ui';
 
 const KIND = { course: ['Course', 'play'], download: ['Download', 'download'], link: ['Link', 'link'], empty: ['Empty', 'box'] };
 export const bytes = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n || 0} B`);
@@ -18,7 +18,7 @@ function ProductList() {
   const [d, setD] = useState(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
-  useEffect(() => { api('/products').then(setD); }, []);
+  useEffect(() => { api('/products').then(setD).catch(loadFailed); }, []);
   const create = async (e) => {
     e.preventDefault();
     try { const p = await api('/products', 'POST', { name }); nav(`/products/${p.id}`); } catch (x) { toast(x.message); }

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Sparkles, Send, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil } from 'lucide-react';
 import { api } from '../api';
-import { Layout, toast, ago, confirmDialog } from '../ui';
+import { Layout, toast, ago, confirmDialog, loadFailed } from '../ui';
 import { Page } from '../blocks';
 
 const SUGGESTIONS = [
@@ -68,7 +68,7 @@ export default function Hive() {
   const boxRef = useRef(null);
 
   const loadThreads = () => api('/hive/threads').then(setThreads).catch(() => {});
-  useEffect(() => { api('/hive/status').then(setStatus); loadThreads(); }, []);
+  useEffect(() => { api('/hive/status').then(setStatus).catch(loadFailed); loadThreads(); }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [msgs, live]);
   const loadFunnel = async (id) => {
     if (!id) { setFunnel(null); return; }

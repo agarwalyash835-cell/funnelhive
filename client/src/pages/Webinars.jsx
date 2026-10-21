@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { fmtWhenShort, zoneCity, allZones, zoneOption } from '../tzfmt';
-import { Layout, Panel, Icon, Empty, toast, num, downloadCSV } from '../ui';
+import { Layout, Panel, Icon, Empty, toast, num, downloadCSV, loadFailed } from '../ui';
 
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 const fmt = (t, zone) => (t ? fmtWhenShort(t, zone ?? 330) : '—');
@@ -37,7 +37,7 @@ function WebinarEditor({ w, onSaved }) {
   const [regs, setRegs] = useState(null);
   const [busy, setBusy] = useState(false);
   const [newDate, setNewDate] = useState('');
-  useEffect(() => { api(`/webinars/${w.id}/registrations`).then(setRegs); }, [w.id]);
+  useEffect(() => { api(`/webinars/${w.id}/registrations`).then(setRegs).catch(loadFailed); }, [w.id]);
   const s = v.schedule;
   const set = (patch) => setV({ ...v, ...patch });
   const setS = (patch) => set({ schedule: { ...s, ...patch } });

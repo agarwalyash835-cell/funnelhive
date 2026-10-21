@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Copy, RefreshCw, Trash2, Plus, ExternalLink } from 'lucide-react';
 import { api } from '../api';
-import { Panel, toast, confirmDialog } from '../ui';
+import { Panel, toast, confirmDialog, loadFailed } from '../ui';
 
 const SMTP_PRESETS = [
   ['custom', 'Other / custom', '', 465],
@@ -20,7 +20,7 @@ export function EmailPanel({ me }) {
   const [v, setV] = useState(null);
   const [testTo, setTestTo] = useState('');
   const [busy, setBusy] = useState('');
-  useEffect(() => { api('/channels').then((c) => { setCh(c); setV({ ...c.email, pass: '' }); }); }, []);
+  useEffect(() => { api('/channels').then((c) => { setCh(c); setV({ ...c.email, pass: '' }); }).catch(loadFailed); }, []);
   useEffect(() => { if (me?.email) setTestTo((t) => t || me.email); }, [me]);
   if (!v) return <Panel title="Email sending"><div className="skeleton sm" /></Panel>;
   const preset = SMTP_PRESETS.find((p) => p[2] === v.host) || SMTP_PRESETS[0];
@@ -327,7 +327,7 @@ export function RazorpayPanel() {
   const [st, setSt] = useState(null);
   const [v, setV] = useState({ keyId: '', keySecret: '', webhookSecret: '' });
   const [busy, setBusy] = useState(false);
-  useEffect(() => { api('/channels').then((c) => { setSt(c.razorpay); setV((x) => ({ ...x, keyId: c.razorpay.keyId })); }); }, []);
+  useEffect(() => { api('/channels').then((c) => { setSt(c.razorpay); setV((x) => ({ ...x, keyId: c.razorpay.keyId })); }).catch(loadFailed); }, []);
   if (!st) return <div className="skeleton sm" />;
   const save = async () => {
     setBusy(true);

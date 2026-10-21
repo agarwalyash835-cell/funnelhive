@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, fmtDate, impersonate } from '../api';
-import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV, confirmDialog, promptDialog } from '../ui';
+import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { AreaChart } from '../charts';
 
 const TABS = [['overview', 'Overview'], ['sellers', 'Sellers'], ['invoices', 'Invoices'], ['settings', 'Plan & settings'], ['audit', 'Audit log']];
@@ -38,7 +38,7 @@ function Kpi({ label, value, sub, warn }) {
 
 function Overview() {
   const [d, setD] = useState(null);
-  useEffect(() => { api('/admin/overview').then(setD); }, []);
+  useEffect(() => { api('/admin/overview').then(setD).catch(loadFailed); }, []);
   if (!d) return <div className="skeleton" />;
   const s = d.system, p = d.platform;
   return (
@@ -232,7 +232,7 @@ function SellerModal({ id, onClose, onChange }) {
 
 function Invoices() {
   const [list, setList] = useState(null);
-  useEffect(() => { api('/admin/invoices').then(setList); }, []);
+  useEffect(() => { api('/admin/invoices').then(setList).catch(loadFailed); }, []);
   if (!list) return <div className="skeleton" />;
   const csv = () => downloadCSV('invoices.csv', list.map((i) => ({ number: i.number, date: new Date(i.at).toISOString().slice(0, 10), customer: i.billedTo?.name, email: i.billedTo?.email, gstin: i.billedTo?.gstin, state: i.billedTo?.state, plan: i.interval, taxable: i.taxable, cgst: i.cgst, sgst: i.sgst, igst: i.igst, total: i.total, payment: i.paymentId })));
   return (
@@ -277,7 +277,7 @@ function PlatformSettings() {
   const [s, setS] = useState(null);
   const [rz, setRz] = useState({ keyId: '', keySecret: '', webhookSecret: '' });
   const [sk, setSk] = useState({ publishableKey: '', secretKey: '', webhookSecret: '' });
-  useEffect(() => { api('/admin/settings').then((x) => { setS(x); setRz({ keyId: x.razorpay.keyId.includes('(') ? '' : x.razorpay.keyId, keySecret: '', webhookSecret: '' }); setSk({ publishableKey: x.stripe?.publishableKey || '', secretKey: '', webhookSecret: '' }); }); }, []);
+  useEffect(() => { api('/admin/settings').then((x) => { setS(x); setRz({ keyId: x.razorpay.keyId.includes('(') ? '' : x.razorpay.keyId, keySecret: '', webhookSecret: '' }); setSk({ publishableKey: x.stripe?.publishableKey || '', secretKey: '', webhookSecret: '' }); }).catch(loadFailed); }, []);
   if (!s) return <div className="skeleton" />;
   const set = (patch) => setS({ ...s, ...patch });
   const save = async (body) => { try { const x = await api('/admin/settings', 'PUT', body); setS(x); toast('Saved'); return x; } catch (e) { toast(e.message); return null; } };
@@ -376,7 +376,7 @@ function PlatformSettings() {
 
 function Audit() {
   const [list, setList] = useState(null);
-  useEffect(() => { api('/admin/audit').then(setList); }, []);
+  useEffect(() => { api('/admin/audit').then(setList).catch(loadFailed); }, []);
   if (!list) return <div className="skeleton" />;
   return (
     <Panel title="Every change made by an admin" pad={false}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, RangePicker, inr, num, ago, downloadCSV } from '../ui';
+import { Layout, Panel, Icon, Empty, RangePicker, inr, num, ago, downloadCSV, loadFailed } from '../ui';
 import { Kpis, TrendPanel, OfferMix, Sources, Campaigns } from './Dashboard';
 import { StepIcon } from '../blockIcons';
 
@@ -12,8 +12,8 @@ export default function Analytics() {
   const [days, setDays] = useState(30);
   const [d, setD] = useState(null);
   const [f, setF] = useState(null);
-  useEffect(() => { api(`/funnels/${id}/analytics?days=${days}`).then(setD); }, [id, days]);
-  useEffect(() => { api(`/funnels/${id}`).then(setF); }, [id]);
+  useEffect(() => { api(`/funnels/${id}/analytics?days=${days}`).then(setD).catch(loadFailed); }, [id, days]);
+  useEffect(() => { api(`/funnels/${id}`).then(setF).catch(loadFailed); }, [id]);
   const top = d ? Math.max(1, ...d.steps.map((s) => s.views)) : 1;
   const offerSteps = d?.steps.filter((s) => s.type === 'upsell' || s.type === 'downsell') || [];
   const abSteps = d?.steps.filter((s) => s.ab) || [];

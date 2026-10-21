@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, loggedIn } from '../api';
 import { Page } from '../blocks';
-import { Layout, Icon } from '../ui';
+import { Layout, Icon, loadFailed } from '../ui';
 
 const TYPES = [['all', 'All funnels'], ['sales', 'Sales pages'], ['vsl', 'VSL + application'], ['webinar', 'Webinars'], ['lead', 'Lead generation']];
 const TYPE_LABEL = { sales: 'Sales funnel', vsl: 'VSL · Application', webinar: 'Webinar', lead: 'Lead generation' };
@@ -15,7 +15,7 @@ export function TemplateGallery() {
   const [style, setStyle] = useState('All');
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState('');
-  useEffect(() => { api('/templates').then(setList); }, []);
+  useEffect(() => { api('/templates').then(setList).catch(loadFailed); }, []);
   // thumbnails are the real hero at desktop width (1280px), scaled to fill whatever width the card has
   const grid = useRef(null);
   useEffect(() => {
@@ -68,7 +68,7 @@ export function TemplatePreview() {
   const [t, setT] = useState(null);
   const [i, setI] = useState(0);
   const claimed = useRef(null);
-  useEffect(() => { api(`/templates/${id}`).then(setT); }, [id]);
+  useEffect(() => { api(`/templates/${id}`).then(setT).catch(loadFailed); }, [id]);
   useEffect(() => { window.scrollTo(0, 0); }, [i]);
   if (!t) return null;
   const step = t.steps[i];

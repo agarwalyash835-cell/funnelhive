@@ -11,6 +11,9 @@ function refresh() {
   return refreshing;
 }
 
+// the signed-in account (/me), shared by every screen for a short while; any change you save refreshes it
+export const meCache = { data: null, at: 0 };
+
 export async function api(path, method = 'GET', body) {
   await refresh();
   const res = await fetch('/api' + path, {
@@ -28,6 +31,7 @@ export async function api(path, method = 'GET', body) {
     err.data = data;
     throw err;
   }
+  if (method !== 'GET') meCache.at = 0;
   return data;
 }
 
