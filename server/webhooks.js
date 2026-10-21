@@ -4,6 +4,9 @@
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import http from 'node:http';
+import https from 'node:https';
+import { lookup as dnsLookup } from 'node:dns';
 import { subscribers } from './api.js';
 import { T, q, uid, JOBS } from './db.js';
 
@@ -65,6 +68,27 @@ export async function checkWebhookUrl(raw) {
   return u.toString();
 }
 
+// POST that checks the address at the moment of connecting, so a DNS answer that changes between the check
+// above and the request (DNS rebinding) can't reach the server's private network. No redirects are followed.
+const safeLookup = (host, opts, cb) => dnsLookup(host, opts, (err, addr, family) => {
+  if (err) return cb(err);
+  const list = Array.isArray(addr) ? addr.map((a) => a.address) : [addr];
+  if (!allowPrivate() && (!list.length || list.some(isPrivateIp))) return cb(new Error('Webhooks must point to a public internet address'));
+  cb(null, addr, family);
+});
+export function postPinned(url, { headers, body, timeout = 10000 }) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = (u.protocol === 'https:' ? https : http).request(u, { method: 'POST', headers: { ...headers, 'Content-Length': Buffer.byteLength(body) }, lookup: safeLookup, timeout }, (res) => {
+      res.resume();
+      res.on('end', () => resolve({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300 }));
+    });
+    req.on('timeout', () => { const e = new Error('Timed out after 10s'); e.name = 'TimeoutError'; req.destroy(e); });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 export const newWebhookSecret = () => `whsec_${crypto.randomBytes(24).toString('hex')}`;
 export const sign = (secret, ts, body) => crypto.createHmac('sha256', secret).update(`${ts}.${body}`).digest('hex');
 
@@ -114,16 +138,13 @@ export async function attempt(id) {
     const r0 = { attempts: d.attempts + 1 };
     try {
       try { await checkWebhookUrl(d.url); } catch (e) { r0.blocked = true; throw e; } // re-checked on every send (DNS can change)
-      const r = await fetch(d.url, {
-        redirect: 'manual', // a redirect must not lead to a private address
-        method: 'POST',
+      const r = await postPinned(d.url, { // redirects aren't followed: one must not lead to a private address
         headers: {
           'Content-Type': 'application/json', 'User-Agent': 'FunnelHive-Webhooks/1.0',
           'X-FunnelHive-Event': d.event, 'X-FunnelHive-Delivery': d.id,
           'X-FunnelHive-Signature': `t=${ts},v1=${sign(ensureSecret(u), ts, body)}`,
         },
         body,
-        signal: AbortSignal.timeout(10000),
       });
       r0.lastStatus = r.status;
       if (r.ok) { r0.status = 'delivered'; r0.deliveredAt = Date.now(); r0.lastError = undefined; }

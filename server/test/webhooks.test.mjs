@@ -68,3 +68,17 @@ test('webhooks: unreachable endpoint ends as failed after all retries', async ()
     assert.ok(log[0].lastError);
   } finally { await srv.stop(); }
 });
+
+test('a webhook whose name resolves to a private address is refused at the moment of connecting (DNS rebinding)', async () => {
+  const fsx = await import('node:fs'), osx = await import('node:os'), pathx = await import('node:path');
+  process.env.DATA_DIR ||= fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'ff-wh-'));
+  process.env.WEBHOOK_ALLOW_PRIVATE = '0';
+  const { postPinned } = await import('../webhooks.js');
+  const hits = [];
+  const inner = (await import('node:http')).createServer((req, res) => { hits.push(req.url); res.end('ok'); }).listen(0);
+  await new Promise((r) => setTimeout(r, 30));
+  try {
+    await assert.rejects(postPinned(`http://localhost:${inner.address().port}/admin`, { headers: {}, body: '{}' }), /public internet address/);
+    assert.equal(hits.length, 0, 'the private server was never reached');
+  } finally { inner.close(); delete process.env.WEBHOOK_ALLOW_PRIVATE; }
+});
