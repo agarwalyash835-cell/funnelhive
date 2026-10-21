@@ -115,9 +115,18 @@ async function uploadImage(file) {
   return (await api('/uploads', 'POST', body)).url;
 }
 
-function ImageField({ label, value, onChange, hint }) {
+function ImageField({ label, value, onChange, hint, aspect = '16:9' }) {
   const [busy, setBusy] = useState(false);
+  const [making, setMaking] = useState(false);
   const ref = useRef();
+  // an image made by AI from a description, stored in the seller's media like an upload
+  const generate = async () => {
+    const prompt = await promptDialog({ title: 'Generate an image with AI', text: 'Describe what it should show — the subject, the setting and the mood. No words, prices or real people’s faces. Uses 10 AI credits and takes about half a minute.', placeholder: 'e.g. A calm yoga studio at sunrise, women practising on mats, warm light, photo', confirm: 'Generate' });
+    if (!prompt?.trim()) return;
+    setMaking(true);
+    try { onChange((await api('/ai/image', 'POST', { prompt, aspect })).url); toast('Image ready'); } catch (e) { toast(e.message); }
+    setMaking(false);
+  };
   const pick = async (file) => {
     setBusy(true);
     try { onChange(await uploadImage(file)); toast('Image uploaded'); } catch (e) { toast(e.message); }
@@ -128,6 +137,7 @@ function ImageField({ label, value, onChange, hint }) {
       {value && <div className="img-prev"><img src={value} alt="" /><button className="icon-btn xs danger" title="Remove image" aria-label="Remove image" onClick={() => onChange('')}><Icon name="x" size={12} /></button></div>}
       <div className="upl" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files[0]); }}>
         <button className="btn ghost sm" onClick={() => ref.current.click()} disabled={busy}>{busy ? <span className="spin dark" /> : <Icon name="download" size={14} className="flip" />} {value ? 'Replace' : 'Upload image'}</button>
+        <button className="btn ghost sm" onClick={generate} disabled={busy || making} title="Uses 10 AI credits">{making ? <><span className="spin dark" /> Making…</> : <><Icon name="sparkles" size={14} /> Generate with AI</>}</button>
         <span className="hint">or drop a file · PNG, JPG, WebP · max 5 MB</span>
         <input ref={ref} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" hidden onChange={(e) => pick(e.target.files[0])} />
       </div>
@@ -245,6 +255,7 @@ function Field({ def, value, onChange }) {
   const [key, kind, sub, hint] = def;
   const label = FIELD_LABELS[key] || key.replace(/([A-Z])/g, ' $1').toLowerCase();
   if (key === 'image' || key === 'src') return <ImageField label={label === 'src' ? 'image' : label} value={value} onChange={onChange} hint={hint} />;
+  if (key === 'logo') return <ImageField label="logo" value={value} onChange={onChange} hint={hint} aspect="1:1" />;
   if (kind === 'gallery') return <GalleryField value={value} onChange={onChange} />;
   if (kind === 'formfields') return <FormFieldsField value={value} onChange={onChange} />;
   if (kind === 'calendar') return <div className="fld"><label>calendar</label><CalendarSelect value={value} onChange={onChange} />{hint && <span className="hint">{hint}</span>}</div>;

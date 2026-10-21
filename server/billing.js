@@ -75,7 +75,7 @@ export function lockedOut(req) {
 
 // ---------- AI credits (per calendar month, India time) ----------
 const monthOf = (t = Date.now()) => new Date(t + TZ_OFFSET).toISOString().slice(0, 7);
-export const AI_COST = { generate: 5, chat: 1, edit: 1, agent: 1, hive: 1 };
+export const AI_COST = { generate: 5, chat: 1, edit: 1, agent: 1, hive: 1, image: 10 };
 export function creditLimit(u) {
   const a = accessFor(u);
   if (a.admin) return Infinity;

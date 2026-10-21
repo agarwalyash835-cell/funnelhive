@@ -454,6 +454,25 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     },
     summary: (r) => `Built the website “${r.name}” — ${r.pages.length} pages`,
   },
+  {
+    name: 'generate_image',
+    description: `Make an image with AI (costs 10 AI credits) and store it in the seller's media: a hero photo, an about-page portrait style shot, a product mock-up, or an ad creative. Write a detailed visual prompt (subject, setting, light, style, Indian context when relevant); never put words or prices inside the image, never imitate a real person or brand, and never make "results" or testimonial images. aspect: 16:9 (hero / banner), 1:1 (feed ad, square), 4:5 (Instagram feed ad), 9:16 (Reels / Stories ad), 4:3 or 3:4 (sections). To place it on a page, also give funnelId, stepId and sectionId (hero / image / mentor sections; field defaults to the right one).`,
+    schema: S({ prompt: str('Detailed description of the image'), aspect: str('16:9 | 1:1 | 4:5 | 9:16 | 4:3 | 3:4 | 3:2 | 2:3 | 5:4 | 21:9'), funnelId: str('Optional: place it on this funnel'), stepId: str('Optional: the page'), sectionId: str('Optional: the section'), field: str('Optional: image field (hero/mentor: image, image: src, navbar: logo)') }, ['prompt']),
+    touches: 'funnelId',
+    run: async (ctx, a) => {
+      const img = await ctx.call('POST', '/ai/image', { prompt: a.prompt, aspect: a.aspect || '16:9' });
+      if (!(a.funnelId && a.stepId && a.sectionId)) return { ok: true, url: img.url, aspect: img.aspect, placed: false };
+      const r = await editStep(ctx, a.funnelId, a.stepId, (st) => {
+        const b = st.blocks.find((x) => x.id === a.sectionId);
+        if (!b) throw new Error('No section with that id on this page — call get_page for the ids');
+        const field = a.field || { image: 'src', navbar: 'logo' }[b.type] || 'image';
+        b.props = { ...b.props, [field]: img.url, ...(b.type === 'image' && !b.props?.alt ? { alt: String(a.prompt).slice(0, 120) } : {}) };
+        return { field, section: b.type };
+      });
+      return { ok: true, url: img.url, aspect: img.aspect, placed: true, section: r.section, field: r.field };
+    },
+    summary: (r) => (r.placed ? `Made an image and put it in the ${r.section} section` : `Made an image (${r.aspect})`),
+  },
   // ---- split tests, tracking, domains, team, webhooks, copies ----
   {
     name: 'split_test',
@@ -621,6 +640,7 @@ How to work:
 - Contacts → find_contacts / tag_contacts. Broadcasts → draft_broadcast ALWAYS first and tell the user who it reaches; call send_broadcast only when the user explicitly says to send or schedule that draft.
 - Agencies → list_clients, copy_funnel_to_client. Account → update_business (time zone, WhatsApp, consent banner / tick box).
 - Website (home / about / services / contact for a business, not a sales funnel) → create_website with copy you write; then edit pages like any funnel. A funnel’s buttons and menu can open another page with buttonAction / ctaAction "page" and the page name in the link field.
+- Images → generate_image (hero photos, section images, ad creatives in 1:1 / 4:5 / 9:16) — tell the user it uses 10 AI credits; ad copy and hooks → write_marketing_copy.
 - Testing → split_test (start with the changes for B, results once it has traffic, pick the winner). Tracking → set_tracking (pixel / GA4 / Google Ads ids; never ask for the Conversions API token in chat — that goes in Settings). Own domain → connect_domain, show the DNS records as a table, then check_domain. Team → list_team / invite_team_member with the smallest role that fits. Other tools / CRM → connect_webhook. Reuse a funnel → duplicate_funnel.
 - Payment gateway keys, passwords and tokens are never typed into chat: send the seller to Settings → Payments (or the screen named) for those.
 - Sellers can be anywhere: use the user's currency and time zone when they mention them (e.g. a US coach → $ and America/New_York); default to India (₹, IST) otherwise.

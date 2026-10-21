@@ -48,6 +48,47 @@ export async function kieResponses({ instructions, input, tools, signal }) {
   return d;
 }
 
+// ---------- images (kie.ai market models: create a task, poll it, download the result) ----------
+const IMAGE_MODEL = process.env.KIE_IMAGE_MODEL || 'google/nano-banana';
+export const IMAGE_ASPECTS = ['1:1', '16:9', '9:16', '4:5', '5:4', '3:4', '4:3', '3:2', '2:3', '21:9'];
+export const imagesReady = () => !!KIE_KEY;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// → { buf, type } — kie.ai keeps results for 14 days, so the caller stores the bytes itself
+export async function generateImage(prompt, { aspect = '16:9', timeoutMs = 150000, pollMs = 2500 } = {}) {
+  if (!KIE_KEY) throw new Error('AI images need the AI service (KIE_API_KEY) on the server');
+  const p = String(prompt || '').trim().slice(0, 1500);
+  if (p.length < 3) throw new Error('Describe the image you want');
+  const auth = { Authorization: `Bearer ${KIE_KEY}` };
+  const c = await fetch(`${KIE_BASE}/api/v1/jobs/createTask`, {
+    method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30000),
+    body: JSON.stringify({ model: IMAGE_MODEL, input: { prompt: p, output_format: 'png', aspect_ratio: IMAGE_ASPECTS.includes(aspect) ? aspect : '16:9' } }),
+  });
+  const cd = await c.json().catch(() => ({}));
+  const taskId = cd?.data?.taskId;
+  if (!c.ok || cd.code !== 200 || !taskId) throw new Error(`AI image service: ${cd.msg || `HTTP ${c.status}`}`);
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    await sleep(pollMs);
+    const r = await fetch(`${KIE_BASE}/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, { headers: auth, signal: AbortSignal.timeout(20000) }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : {};
+    const st = d?.data?.state;
+    if (st === 'fail') throw new Error(`The image couldn’t be made: ${d.data.failMsg || 'the AI service refused it'}`);
+    if (st !== 'success') continue;
+    let url;
+    try { url = JSON.parse(d.data.resultJson || '{}').resultUrls?.[0]; } catch {}
+    if (!/^https?:\/\//.test(url || '')) throw new Error('The AI service returned no image');
+    const img = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    const buf = Buffer.from(await img.arrayBuffer());
+    if (!img.ok || !buf.length) throw new Error('Couldn’t download the image');
+    if (buf.length > 8 * 1024 * 1024) throw new Error('The image came back too large');
+    // the type from the bytes themselves, not the header
+    const type = buf[0] === 0x89 && buf[1] === 0x50 ? 'image/png' : buf[0] === 0xff && buf[1] === 0xd8 ? 'image/jpeg' : buf.toString('latin1', 8, 12) === 'WEBP' ? 'image/webp' : null;
+    if (!type) throw new Error('The AI service returned something that isn’t an image');
+    return { buf, type };
+  }
+  throw new Error('The image is taking too long — please try again');
+}
+
 async function complete(system, messages, { json = true } = {}) {
   if (KIE_KEY) return kie(system, messages, json);
   const res = await client.messages.create({ model: MODEL, max_tokens: 8000, system, messages });

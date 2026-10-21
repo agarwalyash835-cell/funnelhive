@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { T, Events, q, tx, uid, contactKey, testOrder, dir as DATA_DIR, JOBS } from './db.js';
-import { generateFunnel, editBlocks, aiEnabled, aiProvider, chatAI, AGENTS, runAgent } from './ai.js';
+import { generateFunnel, editBlocks, aiEnabled, aiProvider, chatAI, AGENTS, runAgent, generateImage, imagesReady, IMAGE_ASPECTS } from './ai.js';
 import { templateList, getTemplate, matchTemplate } from './templates.js';
 import { applyActions, offlineChat } from './actions.js';
 import { abResult } from './stats.js';
@@ -758,23 +758,40 @@ app.post('/api/uploads', auth, rateLimit({ windowMs: 60000, max: isTest ? 500 : 
   const bytes = buf.length + (smallOk ? small.length : 0);
   const full = storageLimitError(req.user, bytes);
   if (full) return res.status(413).json({ error: full, limit: 'storage' });
-  const dir = path.join(UPLOAD_DIR, req.user.id);
-  fs.mkdirSync(dir, { recursive: true });
+  res.json(await saveImage(req.user.id, buf, req.body.type, smallOk ? small : null));
+}));
+// One image into the seller's storage (the bucket when one is set up, else this server's disk); counts towards their storage
+async function saveImage(userId, buf, type, small = null) {
+  const ext = IMG_TYPES[type];
+  const bytes = buf.length + (small ? small.length : 0);
   const base = `${Date.now().toString(36)}-${uid()}`;
-  const name = smallOk ? `${base}.v.webp` : `${base}.${ext}`;
+  const name = small ? `${base}.v.webp` : `${base}.${ext}`;
   // with a storage bucket, images live there (and are served by any server, or straight from its public URL / CDN)
   if (s3Enabled()) {
     try {
-      await putObject(`uploads/${req.user.id}/${name}`, buf, req.body.type);
-      if (smallOk) await putObject(`uploads/${req.user.id}/${base}.v-800.webp`, small, 'image/webp');
-      addStorage(req.user.id, bytes);
-      return res.json({ url: publicUrlFor(`uploads/${req.user.id}/${name}`) || `/uploads/${req.user.id}/${name}`, bytes: buf.length });
+      await putObject(`uploads/${userId}/${name}`, buf, type);
+      if (small) await putObject(`uploads/${userId}/${base}.v-800.webp`, small, 'image/webp');
+      addStorage(userId, bytes);
+      return { url: publicUrlFor(`uploads/${userId}/${name}`) || `/uploads/${userId}/${name}`, bytes: buf.length };
     } catch (e) { console.error('storage upload failed — kept on disk', e.message); }
   }
+  const dir = path.join(UPLOAD_DIR, userId);
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name), buf);
-  if (smallOk) fs.writeFileSync(path.join(dir, `${base}.v-800.webp`), small);
-  addStorage(req.user.id, bytes);
-  res.json({ url: `/uploads/${req.user.id}/${name}`, bytes: buf.length });
+  if (small) fs.writeFileSync(path.join(dir, `${base}.v-800.webp`), small);
+  addStorage(userId, bytes);
+  return { url: `/uploads/${userId}/${name}`, bytes: buf.length };
+}
+// AI images: made from a description, then stored like an upload (credits checked up front, charged on success)
+app.post('/api/ai/image', auth, rateLimit({ windowMs: 60000, max: isTest ? 100 : 6, key: (req) => req.user.id, message: 'You’re making images quickly — wait a minute and try again.' }), credits('image'), wrap(async (req, res) => {
+  if (!imagesReady()) return res.status(503).json({ error: 'AI images aren’t switched on for this server yet' });
+  const prompt = String(req.body.prompt || '').trim();
+  if (prompt.length < 3) return res.status(400).json({ error: 'Describe the image you want' });
+  const full = storageLimitError(req.user, 2 * 1024 * 1024); // room for a typical generated image
+  if (full) return res.status(413).json({ error: full, limit: 'storage' });
+  let img;
+  try { img = await generateImage(prompt, { aspect: req.body.aspect, ...(isTest ? { pollMs: 20 } : {}) }); } catch (e) { return res.status(502).json({ error: e.message }); }
+  res.json({ ...(await saveImage(req.user.id, img.buf, img.type)), aspect: IMAGE_ASPECTS.includes(req.body.aspect) ? req.body.aspect : '16:9' });
 }));
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true, setHeaders: (res) => res.setHeader('Content-Security-Policy', "default-src 'none'") }));
 // not on this server's disk: it's in the bucket
