@@ -174,7 +174,7 @@ const credits = (kind) => (req, res, next) => {
   // checked up front, charged only when the request succeeded — a validation error or a failed AI call costs nothing
   const err = creditsShort(req.user, AI_COST[kind]);
   if (err) return res.status(402).json({ error: err, credits: true });
-  res.on('finish', () => { if (res.statusCode < 400) spendCredits(req.user, AI_COST[kind]); });
+  res.on('finish', () => { if (res.statusCode < 400 && !res.locals.aiFailed) spendCredits(req.user, AI_COST[kind]); }); // a streamed reply (Hive) flags its own failure
   next();
 };
 // Saves changes made to req.user. After an `await`, re-read first so concurrent changes aren't lost.

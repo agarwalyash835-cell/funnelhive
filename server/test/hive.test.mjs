@@ -34,7 +34,7 @@ function brain(body) {
 }
 
 before(async () => {
-  fake = http.createServer((req, res) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => { res.setHeader('content-type', 'application/json'); let out; try { out = brain(JSON.parse(b || '{}')); } catch (e) { out = say(`fake model error: ${e.message}`); } res.end(JSON.stringify(out)); }); }).listen(0);
+  fake = http.createServer((req, res) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => { res.setHeader('content-type', 'application/json'); let out; if (b.includes('explode please')) { res.writeHead(500); return res.end('{"error":{"message":"model down"}}'); } try { out = brain(JSON.parse(b || '{}')); } catch (e) { out = say(`fake model error: ${e.message}`); } res.end(JSON.stringify(out)); }); }).listen(0);
   await new Promise((r) => setTimeout(r, 30));
   srv = await startServer({ KIE_API_KEY: 'kie-test', KIE_BASE_URL: `http://127.0.0.1:${fake.address().port}` });
   api = srv.api;
@@ -91,6 +91,17 @@ test('a broadcast or publish the model asks for never runs without the seller’
   assert.equal((await api(`/funnels/${fid}`, 'GET', null, T)).data.published, false, 'cancelled: still offline');
   const other = (await register(api)).token;
   assert.equal((await api(`/hive/threads/${tid}/confirm`, 'POST', { pendingId: tool.pending }, other)).status, 404, 'nobody else can confirm it');
+});
+
+test('a chat whose AI call fails costs no credits; a working one costs one', async () => {
+  const used = async () => (await api('/billing', 'GET', null, T)).data.credits.used;
+  const before = await used();
+  const bad = await chat({ message: 'explode please' });
+  assert.ok(bad.events.some((e) => e.type === 'error'));
+  assert.equal(await used(), before, 'nothing charged for the failure');
+  await chat({ message: 'hello' });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(await used(), before + 1);
 });
 
 test('tool errors are reported to the model and the user, not thrown', async () => {

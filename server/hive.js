@@ -572,6 +572,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       emit({ type: 'reply', text: out.text, tools: out.tools, funnelId: t.funnelId });
     } catch (e) {
       const msg = ac.signal.aborted ? 'Stopped.' : `Something went wrong: ${e.message}`;
+      if (!ac.signal.aborted) res.locals.aiFailed = true; // the AI call failed: no credits taken
       t.messages.push({ role: 'assistant', text: msg, error: true, at: Date.now() });
       emit({ type: 'error', error: msg });
     } finally {
