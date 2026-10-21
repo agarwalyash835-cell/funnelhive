@@ -10,6 +10,7 @@ import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
 import { PAGE_STYLES } from './page-styles.js';
 import { TRIGGERS, VARIABLES } from './automations.js';
 import { offerStep } from './actions.js';
+import { EVENTS } from './api.js';
 
 const MAX_MODEL_CALLS = 16, RESULT_MAX = 40000; // a full 21-section page with all props is ~25k characters
 
@@ -427,6 +428,126 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     },
     summary: () => 'Updated your business settings',
   },
+  // ---- split tests, tracking, domains, team, webhooks, copies ----
+  {
+    name: 'split_test',
+    description: `A/B test one page (step): half the visitors (or "split" %) see variant B. action:
+- "start": copy the page as variant B, then apply changes [{ sectionId (from get_funnel / get_page — the original page's ids), props }] to B only. E.g. test two headlines.
+- "edit": change variant B again with the same changes list.
+- "results": views, conversions and the verdict per variant (only call after it has had traffic).
+- "pick": keep winner "A" or "B" — B's sections become the page and the test ends.
+- "stop": end the test and keep the original page.`,
+    schema: S({ funnelId: str('Funnel id'), stepId: str('Step id'), action: str('start | edit | results | pick | stop'), changes: arr('[{ sectionId, props }] for variant B'), split: num('% of visitors who see B (10–90, default 50)'), winner: str('A or B (for pick)') }, ['funnelId', 'stepId', 'action']),
+    touches: 'funnelId',
+    run: async (ctx, a) => {
+      if (a.action === 'results') {
+        const d = await ctx.call('GET', `/funnels/${a.funnelId}/analytics?days=90`);
+        const s = d.steps.find((x) => x.id === a.stepId);
+        if (!s) throw new Error('Step not found');
+        if (!s.ab) return { running: false };
+        return { running: true, A: s.ab.A, B: s.ab.B, verdict: s.ab.result };
+      }
+      const r = await editStep(ctx, a.funnelId, a.stepId, (st) => {
+        if (a.action === 'start' || a.action === 'edit') {
+          if (a.action === 'start' || !st.ab?.blocks) {
+            // B starts as a copy; its sections keep the original ids' order so changes can name the original ids
+            st.ab = { enabled: true, split: 50, blocks: st.blocks.map((b) => ({ ...b, id: uid(), from: b.id, props: JSON.parse(JSON.stringify(b.props || {})) })) };
+          }
+          if (a.split != null) st.ab.split = Math.min(90, Math.max(10, Math.round(Number(a.split) / 5) * 5));
+          st.ab.enabled = true;
+          let changed = 0;
+          for (const c of a.changes || []) {
+            const b = st.ab.blocks.find((x) => x.from === c.sectionId || x.id === c.sectionId);
+            if (!b || !c.props || typeof c.props !== 'object') continue;
+            b.props = { ...b.props, ...c.props };
+            changed++;
+          }
+          if ((a.changes || []).length && !changed) throw new Error('None of those section ids are on this page — call get_page for the ids');
+          return { started: true, split: st.ab.split, changed };
+        }
+        if (a.action === 'pick') {
+          if (!st.ab?.blocks) throw new Error('This page has no split test');
+          const w = String(a.winner || '').toUpperCase();
+          if (w !== 'A' && w !== 'B') throw new Error('winner must be A or B');
+          if (w === 'B') st.blocks = st.ab.blocks.map(({ from, ...b }) => b);
+          st.ab = { ...st.ab, enabled: false };
+          return { picked: w };
+        }
+        if (a.action === 'stop') { if (st.ab) st.ab = { ...st.ab, enabled: false }; return { stopped: true }; }
+        throw new Error('action must be start, edit, results, pick or stop');
+      });
+      const { funnel, step, ...out } = r;
+      return { ok: true, ...out };
+    },
+    summary: (r, a) => (a.action === 'results' ? (r.running ? 'Checked the split test results' : 'No split test is running on that page')
+      : a.action === 'pick' ? `Kept variant ${r.picked} — the test is over` : a.action === 'stop' ? 'Stopped the split test (the original page stays)'
+        : `Split test ${a.action === 'start' ? 'started' : 'updated'} — ${r.split}% of visitors see variant B`),
+  },
+  {
+    name: 'set_tracking',
+    description: 'Install tracking: Meta (Facebook) Pixel ID (digits), Google Analytics 4 ID (G-…), Google Ads conversion ID (AW-…) with optional conversion labels purchaseLabel / leadLabel / bookingLabel. funnelId = only for that funnel (overrides the account-wide ids); leave it out for every funnel. Pass "" to remove one. The Meta Conversions API token is a secret: the seller adds it in Settings → Tracking, never in chat.',
+    schema: S({ funnelId: str('Optional: just this funnel'), fbPixel: str('Meta Pixel ID'), ga4: str('GA4 measurement ID, G-…'), googleAdsId: str('AW-…'), purchaseLabel: str('Google Ads purchase label'), leadLabel: str('Google Ads lead label'), bookingLabel: str('Google Ads booking label') }),
+    run: async (ctx, a) => {
+      const ads = ['googleAdsId', 'purchaseLabel', 'leadLabel', 'bookingLabel'].some((k) => a[k] != null)
+        ? { conversionId: a.googleAdsId ?? '', purchaseLabel: a.purchaseLabel ?? '', leadLabel: a.leadLabel ?? '', bookingLabel: a.bookingLabel ?? '' } : null;
+      const t = { ...(a.fbPixel != null ? { fbPixel: a.fbPixel } : {}), ...(a.ga4 != null ? { ga4: a.ga4 } : {}), ...(ads ? { googleAds: ads } : {}) };
+      if (a.funnelId) {
+        const cur = (await ctx.call('GET', `/funnels/${a.funnelId}/tracking`)).tracking || {};
+        const r = await ctx.call('PUT', `/funnels/${a.funnelId}/tracking`, { fbPixel: cur.fbPixel || '', ga4: cur.ga4 || '', googleAds: cur.googleAds || {}, ...t });
+        return { ok: true, scope: 'funnel', tracking: { fbPixel: r.tracking?.fbPixel || '', ga4: r.tracking?.ga4 || '', googleAds: r.tracking?.googleAds?.conversionId || '' } };
+      }
+      const s = await ctx.call('PUT', '/settings', { tracking: t });
+      return { ok: true, scope: 'account', tracking: { fbPixel: s.tracking?.fbPixel || '', ga4: s.tracking?.ga4 || '', googleAds: s.tracking?.googleAds?.conversionId || '' } };
+    },
+    summary: (r) => `Tracking ${r.scope === 'funnel' ? 'for this funnel' : 'for all funnels'}: ${[r.tracking.fbPixel && 'Meta Pixel', r.tracking.ga4 && 'GA4', r.tracking.googleAds && 'Google Ads'].filter(Boolean).join(', ') || 'none'}`,
+  },
+  {
+    name: 'connect_domain',
+    description: 'Put a funnel on the seller’s own domain (e.g. offer.brand.in or brand.in). Returns the DNS records the seller adds at their domain provider (GoDaddy, Hostinger…) — show them clearly as a table. Then check_domain verifies once they’ve added them (DNS can take minutes to hours).',
+    schema: S({ domain: str('e.g. offer.brand.in'), funnelId: str('Funnel to show there') }, ['domain', 'funnelId']),
+    touches: 'funnelId',
+    run: async (ctx, a) => {
+      const d = await ctx.call('POST', '/domains', { domain: a.domain, funnelId: a.funnelId });
+      return { ok: true, domainId: d.id, domain: d.domain, status: d.status, records: (d.records || []).map(({ type, name, value, optional }) => ({ type, name, value, ...(optional ? { optional } : {}) })) };
+    },
+    summary: (r) => `Added ${r.domain} — waiting for its DNS records`,
+  },
+  {
+    name: 'check_domain',
+    description: 'Check whether a connected domain’s DNS records are in place yet, and switch it on when they are. Without domainId: list the seller’s domains and their status.',
+    schema: S({ domainId: str('From connect_domain or the list') }),
+    run: async (ctx, a) => {
+      if (!a.domainId) return (await ctx.call('GET', '/domains')).domains.map((d) => ({ domainId: d.id, domain: d.domain, status: d.status, error: d.error || null }));
+      const d = await ctx.call('POST', `/domains/${a.domainId}/verify`);
+      return { domain: d.domain, status: d.status, error: d.error || null, live: d.status === 'active' ? `https://${d.domain}` : null };
+    },
+    summary: (r) => (Array.isArray(r) ? `Looked at your ${r.length} domain${r.length === 1 ? '' : 's'}` : r.status === 'active' ? `${r.domain} is live` : `${r.domain}: ${r.error || 'not ready yet'}`),
+  },
+  {
+    name: 'list_team', description: 'The seller’s team: members, their roles and status, and the roles available.', schema: S({}),
+    run: async (ctx) => { const d = await ctx.call('GET', '/team/members'); return { members: d.members.map((m) => ({ email: m.email, role: m.role, status: m.status })), roles: d.roles }; },
+    summary: (r) => `Looked at your team (${r.members.length})`,
+  },
+  {
+    name: 'invite_team_member',
+    description: 'Invite someone (a VA, designer, salesperson) to work in this account. role: admin (everything except billing), marketer (funnels, AI, automations, broadcasts, contacts, products), sales (contacts, orders, shipping, bookings), viewer (read-only reports). Pick the smallest role that does the job.',
+    schema: S({ email: str('Their email'), role: str('admin | marketer | sales | viewer') }, ['email', 'role']),
+    run: async (ctx, a) => { await ctx.call('POST', '/team/invite', { email: a.email, role: a.role }); return { ok: true, email: a.email, role: a.role }; },
+    summary: (r) => `Invited ${r.email} as ${r.role}`,
+  },
+  {
+    name: 'connect_webhook',
+    description: `Send events to another tool (a CRM, Zapier, Pabbly, Make, Google Sheets via a webhook URL): every new lead, order, booking etc. is POSTed there, signed. url = the https address the other tool gives. Pass url "" to disconnect. Events sent: ${EVENTS.join(', ')}.`,
+    schema: S({ url: str('https webhook address, or "" to disconnect') }),
+    run: async (ctx, a) => { if (a.url == null) throw new Error('Give the webhook address (or "" to disconnect)'); const s = await ctx.call('PUT', '/settings', { webhookUrl: String(a.url).trim() }); return { ok: true, url: s.webhookUrl || '' }; },
+    summary: (r) => (r.url ? `New leads, orders and bookings now go to ${new URL(r.url).hostname}` : 'Webhook disconnected'),
+  },
+  {
+    name: 'duplicate_funnel', description: 'Copy one of the seller’s funnels (all pages and settings) as a new draft — e.g. to reuse it for another offer; then edit the copy.',
+    schema: S({ funnelId: str('Funnel to copy') }, ['funnelId']), touchesResult: true,
+    run: async (ctx, a) => { const f = await ctx.call('POST', `/funnels/${a.funnelId}/duplicate`); return { ok: true, id: f.id, name: f.name }; },
+    summary: (r) => `Made a copy: “${r.name}”`,
+  },
 ];
 const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -449,6 +570,9 @@ const NEEDS_OK = {
   send_broadcast: (a) => (a.at ? `Schedule this broadcast for ${a.at}` : 'Send this broadcast now'),
   publish_funnel: (a) => (a.published === false ? 'Take this funnel offline' : 'Publish this funnel (make it live)'),
   remove_step: () => 'Delete a page from this funnel',
+  invite_team_member: (a) => `Give ${a.email} ${a.role} access to your account`,
+  connect_webhook: (a) => (a.url ? `Send every new lead, order and booking (with contact details) to ${String(a.url).slice(0, 80)}` : null),
+  set_tracking: (a) => `Install tracking on ${a.funnelId ? 'this funnel' : 'all your funnels'}: ${[a.fbPixel && `Meta Pixel ${a.fbPixel}`, a.ga4 && `GA4 ${a.ga4}`, a.googleAdsId && `Google Ads ${a.googleAdsId}`].filter(Boolean).join(', ') || 'remove ids'}`,
   update_business: (a) => `Change business settings (${Object.keys(a).join(', ') || 'none'})`,
   create_automation: (a) => (webhookIn(a.steps) ? `Create automation “${a.name}” — it sends contact data to a webhook` : a.activate ? `Create automation “${a.name}” and switch it on` : null),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
@@ -470,6 +594,8 @@ How to work:
 - Custom work for one client (consulting, coaching packages, agency retainers) → create_quote: a proposal with line items, an optional deposit and a private pay link; send it only when asked. list_quotes shows who has paid.
 - Contacts → find_contacts / tag_contacts. Broadcasts → draft_broadcast ALWAYS first and tell the user who it reaches; call send_broadcast only when the user explicitly says to send or schedule that draft.
 - Agencies → list_clients, copy_funnel_to_client. Account → update_business (time zone, WhatsApp, consent banner / tick box).
+- Testing → split_test (start with the changes for B, results once it has traffic, pick the winner). Tracking → set_tracking (pixel / GA4 / Google Ads ids; never ask for the Conversions API token in chat — that goes in Settings). Own domain → connect_domain, show the DNS records as a table, then check_domain. Team → list_team / invite_team_member with the smallest role that fits. Other tools / CRM → connect_webhook. Reuse a funnel → duplicate_funnel.
+- Payment gateway keys, passwords and tokens are never typed into chat: send the seller to Settings → Payments (or the screen named) for those.
 - Sellers can be anywhere: use the user's currency and time zone when they mention them (e.g. a US coach → $ and America/New_York); default to India (₹, IST) otherwise.
 - Never invent prices, dates or links the user didn't give — ask in one short question if something essential is missing.
 - Copy: specific, persuasive and local to the seller's market (Indian context — ₹, UPI, Indian names and cities — unless the business is elsewhere), no placeholders.
