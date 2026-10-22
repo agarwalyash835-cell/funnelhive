@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus, restorePending, safetyDir, dir as dataDir } from './db.js';
 import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE, DEFAULTS, companyMissing } from './platform.js';
 import { decrypt } from './messaging.js';
-import { s3Enabled, storageFromEnv, testStorage, listKeys, getObject } from './storage.js';
+import { s3Enabled, storageFromEnv, testStorage, listKeys, getObject, videoBucketReady, videoStorageFromEnv } from './storage.js';
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
 import { call as rzpCall } from './razorpay.js';
 import { deleteAccount } from './account.js';
@@ -176,8 +176,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   const settingsView = () => {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
-    const st = p.storage;
-    return { ...rest, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    const st = p.storage, vs = p.videoStorage;
+    return { ...rest, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady() }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -217,10 +217,10 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       patch.razorpay = next;
       changes.push('razorpay keys');
     }
-    // file storage (Wasabi, S3, R2…): checked with a real write before it's saved
-    if (b.storage) {
-      const s = b.storage, cur = platform().storage;
-      if (s.clear) patch.storage = { ...DEFAULTS.storage };
+    // file storage (Wasabi, S3, R2…) and video storage (R2): checked with a real write before they're saved
+    for (const field of ['storage', 'videoStorage']) if (b[field]) {
+      const s = b[field], cur = platform()[field];
+      if (s.clear) patch[field] = { ...DEFAULTS[field] };
       else {
         const next = { ...cur };
         for (const k of ['endpoint', 'region', 'bucket', 'key', 'publicUrl']) if (s[k] != null) next[k] = String(s[k]).trim().slice(0, 300);
@@ -234,14 +234,14 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         if (!secret) return res.status(400).json({ error: 'Enter the secret key' });
         try { await testStorage({ ...next, secret }); } catch (e) { return res.status(400).json({ error: `Couldn’t write to the bucket: ${e.message}` }); }
         if (s.secret) next.secretEnc = encrypt(secret);
-        patch.storage = next;
+        patch[field] = next;
       }
-      changes.push('file storage');
+      changes.push(field === 'storage' ? 'file storage' : 'video storage');
     }
     if (b.limits) { try { patch.limits = saveLimits(b.limits); changes.push('limits'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     if (b.stripe || b.intl) { try { await saveIntlSettings(b); changes.push('international billing'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     savePlatform((s) => Object.assign(s, patch));
-    audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay' && k !== 'storage'), ...changes].join(', '));
+    audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay' && k !== 'storage' && k !== 'videoStorage'), ...changes].join(', '));
     if (patch.storage?.endpoint) backupNow(); // the first off-site copy right away
     res.json(settingsView());
   }));

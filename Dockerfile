@@ -12,6 +12,8 @@ ENV NODE_ENV=production \
     PORT=4000 \
     DATA_DIR=/data
 WORKDIR /app
+# ffmpeg turns course videos into protected streams (server/video.js)
+RUN apk add --no-cache ffmpeg
 COPY server/package.json server/package-lock.json server/
 RUN npm ci --omit=dev --prefix server && npm cache clean --force
 COPY server/ server/

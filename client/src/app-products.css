@@ -425,3 +425,5 @@ fieldset.plain:disabled { opacity: .75; }
 .sc-img-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sc-img-row img { height: 44px; max-width: 120px; object-fit: contain; border-radius: 8px; border: 1px solid var(--c-line, #e6e8ef); background: #fff; }
 .sc-img-empty { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: var(--c-bg, #fafafb); border: 1px dashed var(--c-line, #e6e8ef); color: var(--c-muted, #6b7088); }
+.lib-locked { display: grid; place-items: center; align-content: center; gap: 12px; background: #14152a; color: #fff; text-align: center; padding: 20px; }
+.lib-locked p { margin: 0; }

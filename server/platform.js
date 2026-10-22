@@ -2,7 +2,7 @@
 // company details for GST invoices and the Razorpay account that collects subscriptions.
 import { T } from './db.js';
 import { encrypt, decrypt } from './messaging.js';
-import { useStorageSettings } from './storage.js';
+import { useStorageSettings, useVideoStorageSettings } from './storage.js';
 
 export const DEFAULTS = {
   brand: 'FunnelHive',
@@ -18,6 +18,7 @@ export const DEFAULTS = {
   company: { name: '', cin: '', gstin: '', address: '', state: '', phone: '', email: '', supportEmail: '', grievanceName: '', grievanceEmail: '', grievancePhone: '', invoicePrefix: 'FH' },
   razorpay: { keyId: '', secretEnc: '', webhookSecretEnc: '', planIds: {} },
   storage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // S3-compatible (Wasabi…): backups, uploads, product files
+  videoStorage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // course video pieces (Cloudflare R2: no download fees)
   signupsOpen: true,
   announcement: '',
   googleClientId: '', // "Continue with Google" (OAuth client ID from Google Cloud)
@@ -37,6 +38,7 @@ export function platform() {
     company: { ...DEFAULTS.company, ...s.company },
     razorpay: { ...DEFAULTS.razorpay, ...s.razorpay, planIds: { ...s.razorpay?.planIds } },
     storage: { ...DEFAULTS.storage, ...s.storage },
+    videoStorage: { ...DEFAULTS.videoStorage, ...s.videoStorage },
   };
   cacheAt = Date.now();
   return cache;
@@ -68,6 +70,7 @@ export { encrypt };
 
 // file storage entered in the admin panel (server env vars win — see storage.js)
 useStorageSettings(() => { const s = platform().storage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
+useVideoStorageSettings(() => { const s = platform().videoStorage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
 
 // Owners are the accounts listed in ADMIN_EMAILS (once their email is verified) or given the admin role
 export function isAdmin(u) {

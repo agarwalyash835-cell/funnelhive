@@ -30,7 +30,7 @@ export default function Library() {
         <div className="lib-brand"><span className="lib-logo">{(d.seller.name || 'L')[0]}</span><b>{d.seller.name}</b></div>
         <div className="lib-who">{d.seller.school && d.scope === 'library' && <a className="lib-btn" href={`${d.seller.school}?t=${encodeURIComponent(token)}`}>Open members area →</a>}{d.email}{d.scope === 'receipt' && <small>this purchase</small>}</div>
       </header>
-      {product ? <ProductView token={token} p={product} onBack={d.products.length > 1 ? () => setOpen(null) : null} onChange={load} /> : (
+      {product ? <ProductView token={token} school={d.seller.school} p={product} onBack={d.products.length > 1 ? () => setOpen(null) : null} onChange={load} /> : (
         <main className="lib-main">
           <h1>{d.name ? `Welcome back, ${d.name.split(' ')[0]}` : 'Your library'}</h1>
           <p className="lib-mute">{d.products.length} item{d.products.length === 1 ? '' : 's'} from {d.seller.name}{d.scope === 'receipt' ? ' in this purchase. Your full library link is in your email.' : '.'}</p>
@@ -70,7 +70,7 @@ function FileRow({ f }) {
   );
 }
 
-function ProductView({ token, p, onBack, onChange }) {
+function ProductView({ token, school, p, onBack, onChange }) {
   const lessons = p.lessons || [];
   const [cur, setCur] = useState(() => lessons.find((l) => !l.done && !l.locked)?.id || lessons[0]?.id);
   const lesson = lessons.find((l) => l.id === cur);
@@ -103,7 +103,8 @@ function ProductView({ token, p, onBack, onChange }) {
           </aside>
           <section className="lib-player">
             {lesson && !lesson.locked && <>
-              {lesson.video ? <video className="lib-video" src={lesson.video} controls controlsList="nodownload" playsInline preload="metadata" />
+              {lesson.hls ? <div className="lib-video lib-locked"><p>🔒 This video plays in the members area</p>{school && <a className="lib-btn" href={`${school}?t=${encodeURIComponent(token)}`}>▶ Watch it there</a>}</div>
+                : lesson.video ? <video className="lib-video" src={lesson.video} controls controlsList="nodownload" playsInline preload="metadata" />
                 : vs ? (vs.kind === 'video' ? <video className="lib-video" src={vs.src} controls playsInline /> : <iframe className="lib-video" src={vs.src} title={lesson.title} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />)
                 : null}
               <div className="lib-lh"><h2>{lesson.title}</h2><button className={`lib-btn ${lesson.done ? 'ghost' : ''}`} onClick={() => mark(lesson, !lesson.done)}>{lesson.done ? '✓ Completed' : 'Mark as complete'}</button></div>

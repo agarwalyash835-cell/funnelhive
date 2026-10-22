@@ -31,7 +31,8 @@ import { verifyGoogleToken, googleClientId } from './google.js';
 import { signupGuard, turnstileSiteKey, funnelLimitError, storageLimitError, addStorage } from './limits.js';
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
 import { registerProducts, deliver, resolveToken } from './products.js';
-import { registerSchool } from './school.js';
+import { registerSchool, studentAccess } from './school.js';
+import { registerVideo } from './video.js';
 import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId, cleanTrackingIds, trackingFor, funnelTrackingView } from './tracking.js';
 import { registerSales, issueInvoice, invoiceUrl, invoicingOf, cleanInvoicing, cleanBuyerGst, refundFromWebhook, INVOICING_DEFAULTS } from './sales.js';
 import { linkBase } from './products.js';
@@ -914,6 +915,7 @@ registerAdmin(app, { auth, wrap, signAs });
 registerAccount(app, { auth, rateLimit, isTest });
 registerProducts(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl });
 registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, credits });
+registerVideo(app, { secret: SECRET, wrap, rateLimit, isTest, activeFor: studentAccess });
 registerTracking(app, { auth, wrap });
 registerSales(app, { auth, wrap, secret: SECRET, appUrl });
 

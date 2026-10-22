@@ -11,6 +11,7 @@ import { studentLibrary, accessActive, cleanQuiz } from './products.js';
 import { aiEnabled, aiText, aiJson } from './ai.js';
 import { creditsShort, spendCredits } from './billing.js';
 import { brand } from './platform.js';
+import { ticket } from './video.js';
 
 const DAY = 86400000;
 const SESSION_DAYS = 60;
@@ -279,6 +280,18 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     if (firstPass) award(s, 2, 'quiz', `${p.id}:${lesson.id}`);
     const cert = p.certificate?.enabled && courseComplete(p, n) ? certView(issueCert(owner, T.students.get(s.id), p)) : null;
     res.json({ score, passed, pass: lesson.quiz.pass, results, cert });
+  });
+  // a protected lesson video: a signed link for this student (the player shows their email over it)
+  app.post('/api/learn/:handle/video', limiter, (req, res) => {
+    const owner = school(req, res); if (!owner) return;
+    const s = student(req, res, owner); if (!s) return;
+    const a = ownAccess(s, req.body?.accessId);
+    const p = a && T.products.get(a.productId);
+    const lesson = p?.lessons.find((l) => l.videoFileId === req.body?.fileId);
+    const f = lesson && p.files.find((x) => x.id === lesson.videoFileId);
+    if (!f || a.at + (lesson.dripDays || 0) * DAY > Date.now()) return res.status(404).json({ error: 'Video not found' });
+    if (f.hls?.status !== 'ready') return res.status(409).json({ error: 'This video is still being prepared — try again in a few minutes' });
+    res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, mark: s.email });
   });
   app.get('/api/learn/:handle/certificate/:pid', limiter, (req, res) => {
     const owner = school(req, res); if (!owner) return;
@@ -605,6 +618,12 @@ function removePost(p) {
     T.reacts.delWhere({ target: `post:${p.id}` });
     T.posts.del(p.id);
   });
+}
+
+// for the video player's links: this access row, still active, belonging to this (not removed) student
+export function studentAccess(accessId, studentId) {
+  const a = T.access.get(accessId), s = T.students.get(studentId);
+  return a && s && !s.banned && a.userId === s.userId && contactKey(a.email) === s.ckey && accessActive(a) ? a : null;
 }
 
 // a student erased with their contact (DPDP): their profile, sessions and points go; their posts read "Former member"

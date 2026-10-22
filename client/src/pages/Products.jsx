@@ -190,8 +190,20 @@ function uploadFile(productId, file, onProgress) {
   });
 }
 
+// a video's protected stream: being prepared, ready, or failed (with a retry)
+function StreamBadge({ p, f, onFiles }) {
+  const st = f.hls?.status;
+  const go = async () => { try { onFiles((await api(`/products/${p.id}/files/${f.id}/stream`, 'POST')).product); toast('Preparing the protected stream'); } catch (e) { toast(e.message); } };
+  if (st === 'ready') return <span className="pill ok" title="Encrypted streaming with the student’s email over the video — no download link">🔒 Protected</span>;
+  if (st === 'queued' || st === 'processing') return <span className="pill info"><span className="spin dark" /> {st === 'queued' ? 'Waiting to prepare' : 'Preparing protected stream'}</span>;
+  if (st === 'failed') return <span className="pill bad" title={f.hls.error}>Couldn’t prepare <button className="btn ghost sm" onClick={go}>Retry</button></span>;
+  return <button className="btn ghost sm" onClick={go}>🔒 Protect</button>;
+}
 function FilesPanel({ p, onFiles }) {
   const ref = useRef(null);
+  // while a video is being prepared, check back now and then
+  const preparing = p.files.some((f) => ['queued', 'processing'].includes(f.hls?.status));
+  useEffect(() => { if (!preparing) return; const t = setInterval(() => api(`/products/${p.id}`).then((x) => onFiles(x)).catch(() => {}), 15000); return () => clearInterval(t); }, [preparing, p.id]);
   const [queue, setQueue] = useState([]);
   const [over, setOver] = useState(false);
   const add = async (files) => {
@@ -223,7 +235,7 @@ function FilesPanel({ p, onFiles }) {
       {queue.map((q) => <div key={q.key} className="pr-up"><span>{q.name}</span><div className="meter"><div style={{ width: `${Math.round(q.pct * 100)}%` }} /></div><small>{Math.round(q.pct * 100)}%</small></div>)}
       {p.files.length > 0 && (
         <table className="tbl compact pr-files"><tbody>{p.files.map((f) => (
-          <tr key={f.id}><td><Icon name={/^video/.test(f.type) ? 'play' : 'clip'} size={15} /> {f.name}</td><td className="muted sm">{bytes(f.size)}</td>
+          <tr key={f.id}><td><Icon name={/^video/.test(f.type) ? 'play' : 'clip'} size={15} /> {f.name}{/^video/.test(f.type) && <> <StreamBadge p={p} f={f} onFiles={onFiles} /></>}</td><td className="muted sm">{bytes(f.size)}</td>
             <td className="r"><button className="icon-btn" title="Download" aria-label="Download" onClick={() => download(f)}><Icon name="download" size={15} /></button><button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => remove(f)}><Icon name="trash" size={15} /></button></td></tr>
         ))}</tbody></table>
       )}

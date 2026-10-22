@@ -19,6 +19,7 @@ import { randomToken, hashToken } from './security.js';
 import { buyerPlans } from './plans.js';
 import { stripeCreds } from './stripe.js';
 import { s3Enabled, putFile, deleteObject, copyObject, presign } from './storage.js';
+import { queueVideo, dropHls } from './video.js';
 import { domainOfFunnel } from './domains.js';
 import { GST_RATES, cleanHsn } from './sales.js';
 
@@ -127,12 +128,13 @@ export function copyProduct(p, toUserId, fromUserId = p.userId) {
 }
 export const productsOf = (userId) => T.products.all({ userId }, { order: 'at', desc: true });
 const ownProduct = (userId, id) => { const p = T.products.get(id); return p && p.userId === userId ? p : null; };
-const storageUsed = (userId) => q("SELECT COALESCE(SUM(json_extract(f.value, '$.size')), 0) AS n FROM products p, json_each(p.data, '$.files') f WHERE p.userId = ?").get(userId).n;
+// files plus their protected streaming copies
+const storageUsed = (userId) => q("SELECT COALESCE(SUM(COALESCE(json_extract(f.value, '$.size'), 0) + COALESCE(json_extract(f.value, '$.hls.bytes'), 0)), 0) AS n FROM products p, json_each(p.data, '$.files') f WHERE p.userId = ?").get(userId).n;
 const filePath = (userId, fileId) => path.join(FILE_DIR, userId, fileId);
 // where a product file lives: this server's disk, or the storage bucket (f.s3)
 const s3Key = (userId, fileId) => `products/${userId}/${fileId}`;
 const hasFile = (userId, f) => !!f && (fs.existsSync(filePath(userId, f.id)) || !!f.s3);
-const dropFile = (userId, f) => { fs.rmSync(filePath(userId, f.id), { force: true }); if (f.s3) deleteObject(s3Key(userId, f.id)).catch((e) => console.error('storage delete failed', e.message)); };
+const dropFile = (userId, f) => { fs.rmSync(filePath(userId, f.id), { force: true }); if (f.s3) deleteObject(s3Key(userId, f.id)).catch((e) => console.error('storage delete failed', e.message)); if (f.hls || /^video\//.test(f.type || '')) dropHls(userId, f).catch(() => {}); };
 
 // What the buyer sees of a product (no internals)
 const kindOf = (p) => (p.includes?.length && !p.lessons?.length && !p.files?.length && !p.links?.length ? 'bundle' : p.lessons?.length ? 'course' : p.files?.length ? 'download' : p.links?.length ? 'link' : 'empty');
@@ -278,7 +280,7 @@ function libraryView(ctx) {
         const opensAt = a.at + l.dripDays * DAY;
         if (opensAt > now) return { id: l.id, title: l.title, section: l.section, locked: true, opensAt };
         const vf = l.videoFileId && p.files.find((f) => f.id === l.videoFileId);
-        return { id: l.id, title: l.title, section: l.section, body: l.body, videoUrl: l.videoUrl, ...(l.quiz ? { quiz: { pass: l.quiz.pass, questions: l.quiz.questions.map((x) => ({ q: x.q, options: x.options })) }, quizResult: a.quiz?.[l.id] || null } : {}), video: vf ? signedFile(a.id, vf.id, true) : null, files: l.fileIds.map((id) => p.files.find((f) => f.id === id)).filter(Boolean).map(file), done: !!a.progress?.[l.id] };
+        return { id: l.id, title: l.title, section: l.section, body: l.body, videoUrl: l.videoUrl, ...(l.quiz ? { quiz: { pass: l.quiz.pass, questions: l.quiz.questions.map((x) => ({ q: x.q, options: x.options })) }, quizResult: a.quiz?.[l.id] || null } : {}), video: vf && vf.hls?.status !== 'ready' ? signedFile(a.id, vf.id, true) : null, ...(vf?.hls?.status === 'ready' ? { hls: { fileId: vf.id } } : {}), files: l.fileIds.map((id) => p.files.find((f) => f.id === id)).filter(Boolean).map(file), done: !!a.progress?.[l.id] };
       }),
     });
   }
@@ -380,8 +382,18 @@ export function registerProducts(app, { auth, wrap, rateLimit, isTest, secret, a
     }
     const saved = T.products.update(p.id, (x) => { x.files = [...(x.files || []), file]; x.updatedAt = Date.now(); });
     if (!saved) { fs.rmSync(dest, { force: true }); return res.status(404).json({ error: 'Product not found' }); }
-    res.json({ file, product: saved });
+    // a video becomes a protected stream in the background
+    const queued = queueVideo(req.user.id, p.id, file);
+    res.json({ file: queued ? { ...file, hls: { status: 'queued' } } : file, product: queued ? T.products.get(p.id) : saved });
   }));
+  // prepare (or retry) the protected stream of a video
+  app.post('/api/products/:pid/files/:fid/stream', auth, (req, res) => {
+    const p = ownProduct(req.user.id, req.params.pid);
+    const f = p?.files.find((x) => x.id === req.params.fid);
+    if (!f || !/^video\//.test(f.type)) return res.status(404).json({ error: 'Video not found' });
+    if (!queueVideo(req.user.id, p.id, f)) return res.status(503).json({ error: 'Protected streaming isn’t available on this server yet' });
+    res.json({ ok: true, product: T.products.get(p.id) });
+  });
   app.delete('/api/products/:pid/files/:fid', auth, (req, res) => {
     const p = ownProduct(req.user.id, req.params.pid);
     if (!p || !p.files.some((f) => f.id === req.params.fid)) return res.status(404).json({ error: 'File not found' });

@@ -146,6 +146,7 @@ const SCHEMA = {
   reacts: { cols: { target: 0, studentId: 0 }, unique: [['target', 'studentId']] }, // likes
   points: { cols: { userId: 0, studentId: 0, at: 0 }, index: [['userId', 'at'], ['studentId', 'at']] }, // gamification ledger
   certs: { cols: { userId: 0, studentId: 0, productId: 0, at: 0 }, unique: [['studentId', 'productId']], index: [['userId', 'at']] },
+  vjobs: { cols: { status: 0, fileId: 0, at: 0 }, index: [['status', 'at'], ['fileId']] }, // course videos waiting to become protected streams
   snotes: { cols: { studentId: 0, read: (n) => bool(n.read), at: 0 }, index: [['studentId', 'at']] }, // a student's notifications
 };
 const COLS = Object.fromEntries(Object.entries(SCHEMA).map(([t, d]) => [t, Object.keys(d.cols)]));

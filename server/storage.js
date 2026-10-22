@@ -75,24 +75,45 @@ export async function getFile(key, file) {
 }
 
 // a link anyone can use for a few minutes (private product files)
-export function presign(key, { expires = 300, filename } = {}) {
-  const e = env();
+export function presign(key, { expires = 300, filename } = {}, e = env()) {
   const extra = filename ? { 'response-content-disposition': `attachment; filename*=UTF-8''${enc(filename)}` } : {};
   return `${e.endpoint}${pathOf(e, key)}?${presignQuery({ host: new URL(e.endpoint).host, path: pathOf(e, key), amz: stamp(), expires, region: e.region, accessKey: e.key, secret: e.secret, extra })}`;
 }
 
 // every key under a prefix (ListObjectsV2, 1000 at a time)
-export async function listKeys(prefix) {
+export async function listKeys(prefix, e = env()) {
   const keys = [];
   let token = '';
   for (let i = 0; i < 100; i++) {
-    const xml = await (await request('GET', '', { query: { 'list-type': '2', prefix, ...(token ? { 'continuation-token': token } : {}) } })).text();
+    const xml = await (await request('GET', '', { query: { 'list-type': '2', prefix, ...(token ? { 'continuation-token': token } : {}) } }, e)).text();
     keys.push(...[...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1].replace(/&amp;/g, '&')));
     token = (/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(xml) || [])[1] || '';
     if (!token) break;
   }
   return keys;
 }
+// ---------- video storage: its own bucket for course video (Cloudflare R2 — no download fees) ----------
+// VIDEO_S3_ENDPOINT / _BUCKET / _REGION / _ACCESS_KEY / _SECRET_KEY, or Admin → Video storage. Without one, video
+// uses the file storage above (or this server's disk).
+let fromVideoSettings = () => null;
+export const useVideoStorageSettings = (fn) => { fromVideoSettings = fn; };
+export const videoStorageFromEnv = () => !!process.env.VIDEO_S3_ENDPOINT;
+const venv = () => (process.env.VIDEO_S3_ENDPOINT
+  ? clean({ endpoint: process.env.VIDEO_S3_ENDPOINT, bucket: process.env.VIDEO_S3_BUCKET, region: process.env.VIDEO_S3_REGION, key: process.env.VIDEO_S3_ACCESS_KEY, secret: process.env.VIDEO_S3_SECRET_KEY })
+  : clean(fromVideoSettings() || {}));
+export const videoBucketReady = () => { const e = venv(); return !!(e.endpoint && e.bucket && e.key && e.secret); };
+// one bucket's operations: 'video' (its own bucket) or 'files' (the main storage)
+export const bucket = (which) => {
+  const e = () => (which === 'video' ? venv() : env());
+  return {
+    putFile: (key, file, type) => request('PUT', key, { body: fs.createReadStream(file), type, headers: { 'content-length': fs.statSync(file).size } }, e()),
+    getObject: async (key) => Buffer.from(await (await request('GET', key, {}, e())).arrayBuffer()),
+    deleteObject: (key) => request('DELETE', key, {}, e()),
+    presign: (key, opts) => presign(key, opts, e()),
+    listKeys: (prefix) => listKeys(prefix, e()),
+  };
+};
+
 export async function deletePrefix(prefix) { for (const k of await listKeys(prefix)) await deleteObject(k).catch(() => {}); }
 
 // prove a storage account works before it's saved: write, read back and delete a small file

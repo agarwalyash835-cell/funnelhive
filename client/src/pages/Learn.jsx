@@ -294,7 +294,7 @@ function CoursePage({ handle, api, pid, lid, go, tutor }) {
       <section className="ln-lesson">
         <button className="ln-outline-btn" onClick={() => setSide(true)}>☰ Lessons · {done}/{lessons.length}</button>
         {side && <div className="ln-scrim" onClick={() => setSide(false)} />}
-        <Player lesson={cur} resumeAt={c.resume?.lessonId === cur.id ? c.resume.t : 0} onProgress={(t) => api('/progress', 'POST', { accessId: c.accessId, lessonId: cur.id, t }).catch(() => {})} />
+        <Player api={api} accessId={c.accessId} lesson={cur} resumeAt={c.resume?.lessonId === cur.id ? c.resume.t : 0} onProgress={(t) => api('/progress', 'POST', { accessId: c.accessId, lessonId: cur.id, t }).catch(() => {})} />
         <div className="ln-lh">
           <div><small className="ln-mute">{cur.section ? `${cur.section} · ` : ''}Lesson {i + 1} of {lessons.length}</small><h1>{cur.title}</h1></div>
           {!cur.quiz && <button className={`ln-btn ${cur.done ? 'ghost' : ''}`} onClick={() => mark(!cur.done)}>{cur.done ? '✓ Completed' : 'Mark complete'}</button>}
@@ -319,22 +319,58 @@ function CoursePage({ handle, api, pid, lid, go, tutor }) {
     </div>
   );
 }
-function Player({ lesson, resumeAt, onProgress }) {
+function Player({ lesson, resumeAt, onProgress, api, accessId }) {
   const ref = useRef(null);
   const last = useRef(0);
   const vs = lesson.videoUrl ? videoSource(lesson.videoUrl) : null;
   const src = lesson.video || (vs?.kind === 'video' ? vs.src : null);
   useEffect(() => { last.current = 0; }, [lesson.id]);
+  const events = {
+    onLoadedMetadata: (e) => { if (resumeAt > 5 && resumeAt < e.target.duration - 5) e.target.currentTime = resumeAt; },
+    onTimeUpdate: (e) => { const t = Math.floor(e.target.currentTime); if (Math.abs(t - last.current) >= 15) { last.current = t; onProgress(t); } },
+    onPause: (e) => onProgress(Math.floor(e.target.currentTime)),
+  };
+  if (lesson.hls) return <SecurePlayer key={lesson.id} api={api} accessId={accessId} fileId={lesson.hls.fileId} events={events} />;
   if (src) return (
     <div className="ln-video">
-      <video ref={ref} src={src} controls controlsList="nodownload" disablePictureInPicture playsInline preload="metadata" onContextMenu={(e) => e.preventDefault()}
-        onLoadedMetadata={(e) => { if (resumeAt > 5 && resumeAt < e.target.duration - 5) e.target.currentTime = resumeAt; }}
-        onTimeUpdate={(e) => { const t = Math.floor(e.target.currentTime); if (Math.abs(t - last.current) >= 15) { last.current = t; onProgress(t); } }}
-        onPause={(e) => onProgress(Math.floor(e.target.currentTime))} />
+      <video ref={ref} src={src} controls controlsList="nodownload" disablePictureInPicture playsInline preload="metadata" onContextMenu={(e) => e.preventDefault()} {...events} />
     </div>
   );
   if (vs?.src) return <div className="ln-video"><iframe src={vs.src} title={lesson.title} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen /></div>;
   return null;
+}
+// A protected lesson video: encrypted stream (hls.js, or Safari's own player) with the student's email drifting
+// across it, so a screen recording shows who shared it
+function SecurePlayer({ api, accessId, fileId, events }) {
+  const ref = useRef(null);
+  const [mark, setMark] = useState('');
+  const [pos, setPos] = useState({ x: 8, y: 10 });
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let hls, gone = false;
+    api('/video', 'POST', { accessId, fileId }).then(async (r) => {
+      if (gone) return;
+      setMark(r.mark);
+      const v = ref.current;
+      if (v.canPlayType('application/vnd.apple.mpegurl')) { v.src = r.src; return; }
+      const { default: Hls } = await import('hls.js');
+      if (gone) return;
+      if (!Hls.isSupported()) return setErr('This browser can’t play protected video — try Chrome or Safari');
+      hls = new Hls({ maxBufferLength: 30 });
+      hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setErr('The video couldn’t load — reopen the lesson'); });
+      hls.loadSource(r.src);
+      hls.attachMedia(v);
+    }).catch((e) => setErr(e.message));
+    return () => { gone = true; hls?.destroy(); };
+  }, [fileId]);
+  useEffect(() => { if (!mark) return; const t = setInterval(() => setPos({ x: 4 + Math.random() * 62, y: 6 + Math.random() * 78 }), 7000); return () => clearInterval(t); }, [mark]);
+  return (
+    <div className="ln-video" onContextMenu={(e) => e.preventDefault()}>
+      <video ref={ref} controls controlsList="nodownload noremoteplayback" disablePictureInPicture playsInline preload="metadata" {...events} />
+      {mark && <span className="ln-mark" style={{ left: `${pos.x}%`, top: `${pos.y}%` }} aria-hidden="true">{mark}</span>}
+      {err && <div className="ln-video-err">{err}</div>}
+    </div>
+  );
 }
 function Quiz({ api, c, lesson, onPassed }) {
   const qs = lesson.quiz.questions;

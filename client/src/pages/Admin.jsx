@@ -246,10 +246,29 @@ function Invoices() {
 }
 
 // S3-compatible storage (Wasabi, S3, R2…): daily off-site backups, uploaded images and product files
-function StoragePanel({ s, save }) {
-  const [v, setV] = useState({ endpoint: s.endpoint || 'https://s3.ap-southeast-1.wasabisys.com', region: s.region || '', bucket: s.bucket || '', key: s.key || '', secret: '', publicUrl: s.publicUrl || '' });
+function StoragePanel({ s, save, field = 'storage' }) {
+  const video = field === 'videoStorage';
+  const [v, setV] = useState({ endpoint: s.endpoint || (video ? '' : 'https://s3.ap-southeast-1.wasabisys.com'), region: s.region || '', bucket: s.bucket || '', key: s.key || '', secret: '', publicUrl: s.publicUrl || '' });
   const [busy, setBusy] = useState(false);
-  const go = async () => { setBusy(true); if (await save({ storage: v })) setV({ ...v, secret: '' }); setBusy(false); };
+  const go = async () => { setBusy(true); if (await save({ [field]: v })) setV({ ...v, secret: '' }); setBusy(false); };
+  if (video) return (
+    <Panel title="Video storage (protected course video)">
+      <p className="muted sm">Where encrypted course video is kept and streamed from. Use <b>Cloudflare R2</b> — it doesn’t charge for viewers watching. Without it, video goes to the file storage above (or this server). Videos keep playing from wherever they were prepared.</p>
+      <div className={`ai-card ${s.ready ? 'on' : ''}`}><Icon name="play" size={20} /><div><b>{s.ready ? `Connected · ${s.fromEnv ? 'from the server’s settings file' : s.bucket}` : 'Not connected — video uses the file storage'}</b></div></div>
+      {s.fromEnv ? <p className="hint">Set by VIDEO_S3_* variables on the server, which take priority over this form.</p> : (
+        <>
+          <div className="form2">
+            <label>Endpoint<input value={v.endpoint} onChange={(e) => setV({ ...v, endpoint: e.target.value.trim() })} placeholder="https://<account id>.r2.cloudflarestorage.com" /></label>
+            <label>Bucket<input value={v.bucket} onChange={(e) => setV({ ...v, bucket: e.target.value.trim().toLowerCase() })} placeholder="funnelhive-video" /></label>
+            <label>Access key ID<input value={v.key} onChange={(e) => setV({ ...v, key: e.target.value.trim() })} autoComplete="off" /></label>
+            <label>Secret access key {s.hasSecret && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.secret} onChange={(e) => setV({ ...v, secret: e.target.value })} autoComplete="new-password" /></label>
+          </div>
+          <p className="hint">In Cloudflare: R2 → Create bucket (keep it private) → Manage R2 API tokens → Create token with Object Read & Write on that bucket. Saving writes and deletes a small test file to check the keys.</p>
+          <div className="row"><button className="btn primary" disabled={busy || !v.bucket || !v.key || !v.endpoint} onClick={go}>{busy ? 'Checking the bucket…' : 'Save & test video storage'}</button>{s.ready && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Disconnect video storage?', text: 'New videos go to the file storage instead. Videos already prepared here keep playing only while the bucket exists.', confirm: 'Disconnect', danger: true })) && save({ videoStorage: { clear: true } })}>Disconnect</button>}</div>
+        </>
+      )}
+    </Panel>
+  );
   const off = s.offsite;
   return (
     <Panel title="File storage & off-site backups">
@@ -314,6 +333,7 @@ function PlatformSettings() {
       </Panel>
 
       <StoragePanel s={s.storage} save={save} />
+      <StoragePanel s={s.videoStorage} save={save} field="videoStorage" />
 
       <Panel title="Razorpay (collects subscriptions)">
         <p className="muted sm">Your own Razorpay account. Sellers connect theirs separately for their customers’ payments.</p>
