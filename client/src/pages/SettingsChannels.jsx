@@ -35,6 +35,7 @@ export function EmailPanel({ me }) {
   return (
     <Panel title="Email sending (SMTP)" actions={<span className={`pill ${ch.email.configured ? 'ok' : 'warn'}`}>{ch.email.configured ? `Connected · ${ch.email.via}` : 'Not set up'}</span>}>
       <p className="muted sm">Emails to your contacts — automations, cart reminders, one-to-one emails — are sent from your own mailbox or email service.</p>
+      {me?.admin && <div className="setup-warn"><div><p><b>Platform owner?</b> The sender for the whole platform (Resend — sign-in codes, password resets, students’ alerts) is set in <a href="/admin?tab=settings"><b>Admin → Plan & settings → Email sending</b></a>. This box is only your own mailbox and is optional.</p></div></div>}
       <label className="full">Provider<select value={preset[0]} onChange={(e) => { const p = SMTP_PRESETS.find((x) => x[0] === e.target.value); setV((x) => ({ ...x, host: p[2] || x.host, port: p[3], secure: p[3] === 465 })); }}>{SMTP_PRESETS.map((p) => <option key={p[0]} value={p[0]}>{p[1]}</option>)}</select></label>
       {preset[4] && <p className="hint">{preset[4]}</p>}
       <div className="form2">
