@@ -32,6 +32,7 @@ import { signupGuard, turnstileSiteKey, funnelLimitError, storageLimitError, add
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
 import { registerProducts, deliver, resolveToken } from './products.js';
 import { registerSchool, studentAccess } from './school.js';
+import { registerCrmKits } from './crmkits.js';
 import { registerVideo } from './video.js';
 import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId, cleanTrackingIds, trackingFor, funnelTrackingView } from './tracking.js';
 import { registerSales, issueInvoice, invoiceUrl, invoicingOf, cleanInvoicing, cleanBuyerGst, refundFromWebhook, INVOICING_DEFAULTS } from './sales.js';
@@ -915,6 +916,7 @@ registerAdmin(app, { auth, wrap, signAs });
 registerAccount(app, { auth, rateLimit, isTest });
 registerProducts(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl });
 registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, credits });
+registerCrmKits(app, { auth, wrap, rateLimit, isTest, credits });
 registerVideo(app, { secret: SECRET, wrap, rateLimit, isTest, activeFor: studentAccess });
 registerTracking(app, { auth, wrap });
 registerSales(app, { auth, wrap, secret: SECRET, appUrl });

@@ -233,6 +233,17 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Created the “${r.name}” pipeline`,
   },
   {
+    name: 'setup_crm', description: 'Switch the CRM to fit a kind of business (its words, fields, pipeline, board). Ready-made styles: general (coach/creator), realestate, clinic, consultant, education, fitness, finance. For any other business pass a description and a custom CRM is designed. Never deletes contacts or fields.',
+    schema: S({ style: str('A ready-made style id, or "custom"'), description: str('For custom: the business and how it sells') }, ['style']),
+    run: async (ctx, a) => {
+      let body = { id: a.style };
+      if (a.style === 'custom' || !a.style) body = { kit: (await ctx.call('POST', '/ai/crm-kit', { description: a.description || '' })).kit };
+      const r = await ctx.call('POST', '/crm/kit', body);
+      return { ok: true, name: r.current.name, icon: r.current.icon, labels: r.current.labels, fields: r.fields.filter((x) => [...r.current.columns, ...r.current.filters].includes(x.id)).map((x) => x.label), pipelineId: r.current.pipelineId };
+    },
+    summary: (r) => `Set up your ${r.icon} ${r.name} CRM`,
+  },
+  {
     name: 'get_analytics', description: 'Performance: visitors, leads, orders, revenue, conversion — overall (last N days) or for one funnel.',
     schema: S({ funnelId: str('Optional funnel id'), days: num('Days to look back (default 30)') }),
     run: async (ctx, a) => {

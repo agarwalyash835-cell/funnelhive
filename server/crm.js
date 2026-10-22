@@ -5,7 +5,7 @@ import { sendEmail, emailStatus, sendWhatsApp, whatsappStatus } from './messagin
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SESSION_GAP = 30 * 60000; // page views more than 30 min apart count as a new visit
-export const FIELD_TYPES = ['text', 'longtext', 'number', 'date', 'select', 'url', 'checkbox'];
+export const FIELD_TYPES = ['text', 'longtext', 'number', 'money', 'phone', 'date', 'select', 'url', 'checkbox'];
 const COLORS = ['#6366f1', '#0ea5e9', '#f59e0b', '#16a34a', '#94a3b8', '#ec4899', '#8b5cf6', '#ef4444', '#14b8a6'];
 const DEFAULT_STAGES = [['New lead', '#6366f1'], ['Contacted', '#0ea5e9'], ['Interested', '#f59e0b'], ['Customer', '#16a34a', 'won'], ['Lost', '#94a3b8', 'lost']];
 
@@ -124,14 +124,14 @@ const summary = (text) => `
     COALESCE(NULLIF(json_extract(meta, '$.phone'), ''), lphone, ophone, '') AS phone,` : ''}
     CASE WHEN n > 0 THEN 'customer' ELSE 'lead' END AS type, n AS orders, ltv,
     MAX(IFNULL(lls, 0), IFNULL(ols, 0), IFNULL(json_extract(meta, '$.activities[#-1].at'), 0), CASE WHEN lls IS NULL AND ols IS NULL THEN IFNULL(json_extract(meta, '$.at'), 0) ELSE 0 END) AS lastSeen,
-    json_extract(meta, '$.tags') AS tags, json_extract(meta, '$.stages') AS stages
+    json_extract(meta, '$.tags') AS tags, json_extract(meta, '$.stages') AS stages, json_extract(meta, '$.custom') AS custom
     FROM g WHERE lls IS NOT NULL OR ols IS NOT NULL OR json_extract(meta, '$.manual'))`;
 const SORTS = { recent: ['lastSeen', 'DESC'], ltv: ['ltv', 'DESC'], name: ["lower(name)", 'ASC'] };
 export const CONTACTS_PAGE_MAX = 1000;
 const cursorOut = (v, key) => Buffer.from(JSON.stringify([v, key])).toString('base64url');
 const cursorIn = (s) => { try { const c = JSON.parse(Buffer.from(String(s), 'base64url').toString()); return Array.isArray(c) && c.length === 2 && typeof c[1] === 'string' ? c : null; } catch { return null; } };
 
-// opts: { limit, cursor, q, type: lead|customer, tag, pipeline, stage, sort: recent|ltv|name, keysOnly }
+// opts: { limit, cursor, q, type: lead|customer, tag, pipeline, stage, sort: recent|ltv|name, keysOnly, cf: { fieldId: value }, sum: fieldId }
 // → { contacts, nextCursor, total, totalLtv, kpis: { total, customers, leads, avgLtv } }
 export function contactPage(userId, opts = {}) {
   const name = funnelNames(userId);
@@ -145,6 +145,15 @@ export function contactPage(userId, opts = {}) {
   // the same text the page always searched: name, email, phone and tags
   if (text) { where.push("instr(lower(name || ' ' || email || ' ' || phone || ' ' || IFNULL((SELECT group_concat(value, ' ') FROM json_each(c.tags)), '')), $q) > 0"); args.q = text; }
   if (opts.tag) { where.push('EXISTS (SELECT 1 FROM json_each(c.tags) WHERE lower(value) = $tag)'); args.tag = String(opts.tag).trim().toLowerCase(); }
+  // custom-field filters (the CRM kit's quick filters): { fieldId: value }
+  Object.entries(opts.cf || {}).slice(0, 5).forEach(([fid, v], i) => {
+    if (!/^[\w-]{1,20}$/.test(fid) || v == null || v === '') return;
+    where.push(`CAST(json_extract(custom, $cfp${i}) AS TEXT) = $cfv${i}`);
+    args[`cfp${i}`] = `$."${fid}"`; args[`cfv${i}`] = String(v).slice(0, 200);
+  });
+  // a number field's total over the matches (the board's column value, e.g. budgets)
+  const sumField = /^[\w-]{1,20}$/.test(opts.sum || '') ? opts.sum : null;
+  args.sump = sumField ? `$."${sumField}"` : '$.none';
   const p = opts.stage && pipelines.find((x) => x.id === opts.pipeline);
   if (opts.stage && !p) return { contacts: [], nextCursor: null, total: 0, totalLtv: 0, kpis: { total: 0, customers: 0, leads: 0, avgLtv: 0 } };
   if (p) {
@@ -156,12 +165,12 @@ export function contactPage(userId, opts = {}) {
   const after = cur ? `(${col} ${dir === 'DESC' ? '<' : '>'} $cv OR (${col} = $cv AND key ${dir === 'DESC' ? '<' : '>'} $ck))` : '1';
   if (cur) Object.assign(args, { cv: cur[0], ck: cur[1] });
   const rows = q(`WITH ${summary(text || col !== 'lastSeen' && col !== 'ltv')}, hits AS MATERIALIZED (SELECT * FROM c${where.length ? ` WHERE ${where.join(' AND ')}` : ''})
-    SELECT 0 AS kind, NULL AS key, NULL AS sv, (SELECT COUNT(*) FROM c) AS a, (SELECT COUNT(*) FROM c WHERE type = 'customer') AS b, (SELECT TOTAL(ltv) FROM c WHERE type = 'customer') AS d, (SELECT COUNT(*) FROM hits) AS e, (SELECT TOTAL(ltv) FROM hits) AS g
-    UNION ALL SELECT * FROM (SELECT 1, key, ${col}, NULL, NULL, NULL, NULL, NULL FROM hits WHERE ${after} ORDER BY ${col} ${dir}, key ${dir} LIMIT $limit)`).all(args);
+    SELECT 0 AS kind, NULL AS key, NULL AS sv, (SELECT COUNT(*) FROM c) AS a, (SELECT COUNT(*) FROM c WHERE type = 'customer') AS b, (SELECT TOTAL(ltv) FROM c WHERE type = 'customer') AS d, (SELECT COUNT(*) FROM hits) AS e, (SELECT TOTAL(ltv) FROM hits) AS g, (SELECT TOTAL(CAST(json_extract(custom, $sump) AS REAL)) FROM hits) AS h
+    UNION ALL SELECT * FROM (SELECT 1, key, ${col}, NULL, NULL, NULL, NULL, NULL, NULL FROM hits WHERE ${after} ORDER BY ${col} ${dir}, key ${dir} LIMIT $limit)`).all(args);
   const k = rows[0], page = rows.slice(1);
   const more = page.length > limit;
   if (more) page.pop();
-  const out = { nextCursor: more ? cursorOut(page.at(-1).sv, page.at(-1).key) : null, total: k.e, totalLtv: k.g, kpis: { total: k.a, customers: k.b, leads: k.a - k.b, avgLtv: k.b ? k.d / k.b : 0 } };
+  const out = { nextCursor: more ? cursorOut(page.at(-1).sv, page.at(-1).key) : null, total: k.e, totalLtv: k.g, ...(sumField ? { totalValue: k.h } : {}), kpis: { total: k.a, customers: k.b, leads: k.a - k.b, avgLtv: k.b ? k.d / k.b : 0 } };
   if (opts.keysOnly) return { ...out, keys: page.map((r) => r.key) };
   const built = page.length ? buildContacts(userId, page.map((r) => r.key), name).contacts : {};
   return { ...out, contacts: page.map((r) => built[r.key]).filter(Boolean).map((c) => listItem(c, pipelines)) };
@@ -206,7 +215,7 @@ const cleanCustom = (defs, input = {}) => {
     if (!(d.id in input)) continue;
     const v = input[d.id];
     if (d.type === 'checkbox') out[d.id] = !!v;
-    else if (d.type === 'number') { if (v !== '' && v != null && Number.isFinite(Number(v))) out[d.id] = Number(v); }
+    else if (d.type === 'number' || d.type === 'money') { const n = Number(String(v ?? '').replace(/[₹,\s]/g, '')); if (v !== '' && v != null && Number.isFinite(n)) out[d.id] = n; }
     else if (v != null && v !== '') out[d.id] = str(v, 2000);
   }
   return out;
@@ -276,6 +285,7 @@ function contactExport(u, key) {
   });
 }
 
+const jsonObj = (t) => { try { const o = JSON.parse(t || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch { return {}; } };
 export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }) {
   const mailLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 20, key: (req) => req.user.id, message: 'You are sending emails too quickly — please wait a minute.' });
   const userOf = (req) => req.user;
@@ -290,11 +300,11 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
   // ?limit=&cursor=&q=&type=&tag=&pipeline=&stage=&sort= → one page plus the totals (the Contacts page);
   // keys=1 → just the keys of every match (up to 5000, for "select all"). Without any of these: the whole
   // list as a plain array, as before (older callers and the tests)
-  const PAGED = ['limit', 'cursor', 'q', 'type', 'tag', 'stage', 'sort', 'keys'];
+  const PAGED = ['limit', 'cursor', 'q', 'type', 'tag', 'stage', 'sort', 'keys', 'cf', 'sum'];
   app.get('/api/contacts', auth, (req, res) => {
     if (PAGED.some((k) => req.query[k] != null)) {
       const s = (k) => (typeof req.query[k] === 'string' ? req.query[k].slice(0, 200) : '');
-      return res.json(contactPage(req.user.id, { limit: s('limit'), cursor: s('cursor'), q: s('q'), type: s('type'), tag: s('tag'), pipeline: s('pipeline'), stage: s('stage'), sort: s('sort'), keysOnly: s('keys') === '1' }));
+      return res.json(contactPage(req.user.id, { limit: s('limit'), cursor: s('cursor'), q: s('q'), type: s('type'), tag: s('tag'), pipeline: s('pipeline'), stage: s('stage'), sort: s('sort'), keysOnly: s('keys') === '1', cf: jsonObj(s('cf')), sum: s('sum') }));
     }
     const pipelines = pipelinesFor(req.user.id);
     const { contacts } = buildContacts(req.user.id);

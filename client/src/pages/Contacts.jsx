@@ -19,9 +19,11 @@ const waNumber = (p = '') => { const d = String(p).replace(/\D/g, ''); return d.
 const label = (c) => c.name || c.email || c.phone || 'Unknown';
 const initial = (c) => label(c)[0]?.toUpperCase() || '?';
 const keyUrl = (k) => `/contacts/${encodeURIComponent(k)}`;
-const FIELD_TYPE_LABELS = [['text', 'Short text'], ['longtext', 'Long text'], ['number', 'Number'], ['date', 'Date'], ['select', 'Dropdown'], ['url', 'Link'], ['checkbox', 'Yes / no']];
+const FIELD_TYPE_LABELS = [['text', 'Short text'], ['longtext', 'Long text'], ['number', 'Number'], ['money', 'Money (₹)'], ['phone', 'Phone'], ['date', 'Date'], ['select', 'Dropdown'], ['url', 'Link'], ['checkbox', 'Yes / no']];
 const PAGE = 100; // contacts per page of the list
-const fieldText = (f, v) => (v == null || v === '' ? '' : f.type === 'checkbox' ? (v ? 'Yes' : 'No') : f.type === 'date' ? new Date(v).toLocaleDateString('en-IN') : String(v));
+const fieldText = (f, v) => (v == null || v === '' ? '' : f.type === 'checkbox' ? (v ? 'Yes' : 'No') : f.type === 'date' ? new Date(v).toLocaleDateString('en-IN') : f.type === 'money' ? `₹${Number(v).toLocaleString('en-IN')}` : String(v));
+// big rupee amounts the way Indian businesses say them: ₹45 L, ₹1.2 Cr
+const lakh = (n) => (n >= 1e7 ? `₹${(n / 1e7).toFixed(n >= 1e8 ? 0 : 1)} Cr` : n >= 1e5 ? `₹${(n / 1e5).toFixed(n >= 1e6 ? 0 : 1)} L` : `₹${Math.round(n).toLocaleString('en-IN')}`);
 
 export default function Contacts() {
   const { key } = useParams();
@@ -36,6 +38,9 @@ export default function Contacts() {
   const [modal, setModal] = useState(null); // 'add' | 'import' | 'fields' | 'pipes'
   const [picked, setPicked] = useState(() => new Set());
   const [autos, setAutos] = useState([]);
+  const [kit, setKit] = useState(null); // the CRM style: words, columns, filters, value field
+  const [cf, setCf] = useState({}); // quick filters on the kit's fields
+  const [valueTotal, setValueTotal] = useState(null);
   useEffect(() => { api('/automations').then((d) => setAutos(d.automations.filter((a) => a.active))).catch(() => {}); }, []);
   // the server filters and pages the list (a page at a time; "Show more" fetches the next one)
   const [page, setPage] = useState(null); // { nextCursor, total, kpis }
@@ -44,15 +49,18 @@ export default function Contacts() {
   const [dq, setDq] = useState('');
   useEffect(() => { const t = setTimeout(() => setDq(q.trim()), 300); return () => clearTimeout(t); }, [q]);
   const seq = useRef(0);
-  const filterQs = () => `${type !== 'all' ? `&type=${type}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}`;
+  const cfOn = Object.fromEntries(Object.entries(cf).filter(([, v]) => v));
+  const filterQs = () => `${type !== 'all' ? `&type=${type}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}${Object.keys(cfOn).length ? `&cf=${encodeURIComponent(JSON.stringify(cfOn))}` : ''}`;
   const loadList = (keep = 0) => {
     const n = ++seq.current;
     return api(`/contacts?limit=${Math.min(1000, Math.max(PAGE, keep))}${filterQs()}`).then((d) => { if (n !== seq.current) return; setList(d.contacts); setPage(d); });
   };
-  const load = () => Promise.all([loadList(list?.length || 0), api('/pipelines'), api('/crm/fields')]).then(([, p, f]) => { setPipes(p); setFields(f); setBoardTick((t) => t + 1); });
+  const load = () => Promise.all([loadList(list?.length || 0), api('/pipelines'), api('/crm/fields'), api('/crm/kits')]).then(([, p, f, k]) => { setPipes(p); setFields(f); setKit(k.current); setBoardTick((t) => t + 1); });
+  // the kit's money field, totalled over everyone the filters match (e.g. budgets in the pipeline)
+  useEffect(() => { if (!kit?.valueField) return setValueTotal(null); api(`/contacts?limit=1&sum=${kit.valueField}${filterQs()}`).then((d) => setValueTotal(d.totalValue || 0)).catch(() => {}); }, [kit?.valueField, type, dq, JSON.stringify(cfOn), boardTick]);
   useEffect(() => { load(); }, []);
   const first = useRef(true);
-  useEffect(() => { if (first.current) { first.current = false; return; } setPicked(new Set()); loadList(); }, [type, dq]);
+  useEffect(() => { if (first.current) { first.current = false; return; } setPicked(new Set()); loadList(); }, [type, dq, JSON.stringify(cfOn)]);
   const showMore = async () => {
     if (!page?.nextCursor || more) return;
     setMore(true);
@@ -61,7 +69,12 @@ export default function Contacts() {
     setMore(false);
   };
   useEffect(() => { LS.set('ff_contacts_view', view); }, [view]);
-  const pipe = pipes.find((p) => p.id === pid) || pipes[0];
+  const pipe = pipes.find((p) => p.id === pid) || pipes.find((p) => p.id === kit?.pipelineId) || pipes[0];
+  const L = kit?.labels || { title: 'Contacts', one: 'contact', customers: 'Customers', leads: 'Leads', value: 'Lifetime value' };
+  const sales = kit ? kit.showSales !== false : true;
+  const byId = Object.fromEntries(fields.map((x) => [x.id, x]));
+  const cols = (kit?.columns || []).map((id) => byId[id]).filter(Boolean);
+  const filters = (kit?.filters || []).map((id) => byId[id]).filter((x) => x?.type === 'select');
   useEffect(() => { if (pipe) LS.set('ff_pipeline', pipe.id); }, [pipe?.id]);
 
   const rows = list || [];
@@ -107,7 +120,8 @@ export default function Contacts() {
   })));
 
   return (
-    <Layout title="Contacts" subtitle="Every lead and customer — with their full journey." wide={view === 'board'} actions={<>
+    <Layout title={L.title} subtitle={kit && kit.id !== 'general' ? `${kit.icon} ${kit.name} CRM — every ${L.one} with their full journey.` : 'Every lead and customer — with their full journey.'} wide={view === 'board'} actions={<>
+      <button className="btn ghost" onClick={() => setModal('kit')} title="Switch how your CRM looks for your kind of business"><span aria-hidden="true">{kit?.icon || '🎯'}</span> CRM style</button>
       <button className="btn ghost" onClick={() => setModal('fields')}><SlidersHorizontal size={16} /> Custom fields</button>
       <button className="btn ghost" onClick={exportCsv} disabled={!rows.length || exporting}><Icon name="download" size={16} /> {exporting ? 'Exporting…' : 'Export'}</button>
       <button className="btn ghost" onClick={() => setModal('import')}><Upload size={16} /> Import CSV</button>
@@ -116,27 +130,34 @@ export default function Contacts() {
       {!list ? <div className="skeleton" /> : (
         <>
           <div className="kpis k4">
-            <div className="kpi"><span className="kpi-l">Total contacts</span><b className="kpi-v">{num(kpis.total)}</b></div>
-            <div className="kpi"><span className="kpi-l">Customers</span><b className="kpi-v">{num(kpis.customers)}</b></div>
-            <div className="kpi"><span className="kpi-l">Leads (not yet bought)</span><b className="kpi-v">{num(kpis.leads)}</b></div>
-            <div className="kpi"><span className="kpi-l">Avg. lifetime value</span><b className="kpi-v">{inr(kpis.avgLtv)}</b></div>
+            <div className="kpi"><span className="kpi-l">Total {L.title.toLowerCase()}</span><b className="kpi-v">{num(kpis.total)}</b></div>
+            <div className="kpi"><span className="kpi-l">{L.customers}</span><b className="kpi-v">{num(kpis.customers)}</b></div>
+            <div className="kpi"><span className="kpi-l">{L.leads}</span><b className="kpi-v">{num(kpis.leads)}</b></div>
+            {kit?.valueField && valueTotal != null ? <div className="kpi"><span className="kpi-l">Total {L.value.toLowerCase()}</span><b className="kpi-v">{lakh(valueTotal)}</b></div> : <div className="kpi"><span className="kpi-l">Avg. lifetime value</span><b className="kpi-v">{inr(kpis.avgLtv)}</b></div>}
           </div>
           <div className="crm-bar">
             <div className="seg">
               <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}><LayoutList size={14} /> List</button>
               <button className={view === 'board' ? 'on' : ''} onClick={() => setView('board')}><Kanban size={14} /> Pipeline board</button>
             </div>
-            <div className="seg">{[['all', 'All'], ['customer', 'Customers'], ['lead', 'Leads']].map(([k, l]) => <button key={k} className={type === k ? 'on' : ''} onClick={() => setType(k)}>{l}</button>)}</div>
+            <div className="seg">{[['all', 'All'], ['customer', L.customers], ['lead', L.leads]].map(([k, l]) => <button key={k} className={type === k ? 'on' : ''} onClick={() => setType(k)}>{l}</button>)}</div>
             <div className="crm-pipe">
               <select value={pipe?.id || ''} onChange={(e) => setPid(e.target.value)} aria-label="Pipeline">{pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
               <button className="btn ghost sm" onClick={() => setModal('pipes')}><Icon name="settings" size={14} /> Pipelines</button>
             </div>
             <div className="search"><Icon name="search" size={16} /><input placeholder="Search name, email, phone, tag…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           </div>
+          {filters.length > 0 && (
+            <div className="crm-filters">{filters.map((x) => (
+              <select key={x.id} value={cf[x.id] || ''} onChange={(e) => setCf({ ...cf, [x.id]: e.target.value })} className={cf[x.id] ? 'on' : ''} aria-label={x.label}>
+                <option value="">{x.label}: any</option>{String(x.options || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            ))}{Object.keys(cfOn).length > 0 && <button className="link-btn" onClick={() => setCf({})}>Clear filters</button>}</div>
+          )}
 
-          {view === 'board' && pipe ? <Board pipe={pipe} filterQs={filterQs()} tick={boardTick} onOpen={open} onMoved={() => loadList(rows.length)} /> : (
+          {view === 'board' && pipe ? <Board pipe={pipe} filterQs={filterQs()} tick={boardTick} onOpen={open} onMoved={() => loadList(rows.length)} kit={kit} fields={byId} /> : (
             <Panel pad={false}>
-              {!rows.length ? <Empty icon="users" title="No contacts yet" text="Leads from opt-in forms and customers from checkouts appear here automatically — or add one yourself." /> : (
+              {!rows.length ? <Empty icon="users" title={Object.keys(cfOn).length || dq ? `No ${L.title.toLowerCase()} match` : `No ${L.title.toLowerCase()} yet`} text={Object.keys(cfOn).length || dq ? 'Try clearing the filters.' : `${L.leads} from your forms and ${L.customers.toLowerCase()} from checkouts appear here automatically — or add one yourself.`} /> : (
                 <div className="tbl-wrap">
                   {picked.size > 0 && (
                     <div className="bulkbar">
@@ -149,7 +170,7 @@ export default function Contacts() {
                     </div>
                   )}
                   <table className="tbl tbl-click">
-                    <thead><tr><th className="ck"><input type="checkbox" checked={allPicked} onChange={pickAll} title={`Select all ${total} shown by this filter`} aria-label="Select all" /></th><th>Contact</th><th>Stage</th><th>Status</th><th className="r">Orders</th><th className="r">Lifetime value</th><th>Source</th><th>Form answers</th><th className="r">Last activity</th></tr></thead>
+                    <thead><tr><th className="ck"><input type="checkbox" checked={allPicked} onChange={pickAll} title={`Select all ${total} shown by this filter`} aria-label="Select all" /></th><th>{L.one[0].toUpperCase() + L.one.slice(1)}</th><th>Stage</th>{cols.map((x) => <th key={x.id} className={x.type === 'money' || x.type === 'number' ? 'r' : ''}>{x.label.replace(/ \(₹\)$/, '')}</th>)}<th>Status</th>{sales && <><th className="r">Orders</th><th className="r">Lifetime value</th><th>Source</th><th>Form answers</th></>}<th className="r">Last activity</th></tr></thead>
                     <tbody>{rows.map((c) => {
                       const st = stageOf(c);
                       return (
@@ -157,10 +178,11 @@ export default function Contacts() {
                           <td className="ck" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={picked.has(c.key)} onChange={() => toggle(c.key)} aria-label={`Select ${label(c)}`} /></td>
                           <td><div className="who"><span className="who-av">{initial(c)}</span><div><b>{c.name || '—'}</b><small className="sub-t">{c.email}{c.email && c.phone && ' · '}{c.phone}</small></div></div></td>
                           <td>{st && <span className="stage-pill" style={{ '--sc': st.color }}><i />{st.name}</span>}</td>
-                          <td><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type}</span></td>
-                          <td className="r">{c.orders}</td><td className="r strong">{inr(c.ltv)}</td>
+                          {cols.map((x) => <td key={x.id} className={x.type === 'money' || x.type === 'number' ? 'r strong' : ''}>{fieldText(x, c.custom?.[x.id]) || <span className="muted">—</span>}</td>)}
+                          <td><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type === 'customer' ? L.customers.replace(/s$/, '') : L.leads.replace(/s$/, '').replace(/ie$/, 'y')}</span></td>
+                          {sales && <><td className="r">{c.orders}</td><td className="r strong">{inr(c.ltv)}</td>
                           <td><span className="src">{c.source}</span></td>
-                          <td>{c.fields ? <span className="answers" title={Object.entries(c.fields).map(([k, v]) => `${k}: ${v}`).join('\n')}>📝 {Object.keys(c.fields).length} {Object.keys(c.fields).length === 1 ? 'answer' : 'answers'}</span> : <span className="muted">—</span>}</td>
+                          <td>{c.fields ? <span className="answers" title={Object.entries(c.fields).map(([k, v]) => `${k}: ${v}`).join('\n')}>📝 {Object.keys(c.fields).length} {Object.keys(c.fields).length === 1 ? 'answer' : 'answers'}</span> : <span className="muted">—</span>}</td></>}
                           <td className="r muted">{ago(c.lastSeen)}</td>
                         </tr>
                       );
@@ -177,6 +199,7 @@ export default function Contacts() {
       {modal === 'add' && <AddContact onClose={() => setModal(null)} onDone={(k) => { setModal(null); load().then(() => open(k)); }} />}
       {modal === 'import' && <ImportContacts fields={fields} onClose={() => setModal(null)} onDone={load} />}
       {modal === 'fields' && <FieldsEditor fields={fields} onClose={() => setModal(null)} onSaved={(f) => { setFields(f); setModal(null); toast('Custom fields saved'); }} />}
+      {modal === 'kit' && <KitPicker current={kit} onClose={() => setModal(null)} onApplied={(r) => { setModal(null); setKit(r.current); setCf({}); if (r.current.pipelineId) setPid(r.current.pipelineId); load(); toast(`${r.current.icon} ${r.current.name} CRM is ready`); }} />}
       {modal === 'pipes' && <PipelinesEditor pipes={pipes} current={pipe?.id} onClose={() => setModal(null)} onSaved={(id) => { setModal(null); if (id) setPid(id); load(); }} />}
     </Layout>
   );
@@ -185,7 +208,9 @@ export default function Contacts() {
 // ---------------- kanban board ----------------
 // each column is its own server query (first 200 cards, with the stage's count and value)
 const BOARD_CARDS = 200;
-function Board({ pipe, filterQs, tick, onOpen, onMoved }) {
+function Board({ pipe, filterQs, tick, onOpen, onMoved, kit, fields = {} }) {
+  const vf = kit?.valueField && fields[kit.valueField];
+  const cardFields = (kit?.cardFields || []).map((id) => fields[id]).filter(Boolean);
   const [drag, setDrag] = useState(null);
   const [cols, setCols] = useState({}); // stageId → { items, total, ltv }
   const boardRef = useRef();
@@ -194,14 +219,15 @@ function Board({ pipe, filterQs, tick, onOpen, onMoved }) {
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     const n = ++seq.current;
-    Promise.all(pipe.stages.map((s) => api(`/contacts?limit=${BOARD_CARDS}&pipeline=${encodeURIComponent(pipe.id)}&stage=${encodeURIComponent(s.id)}${filterQs}`).then((d) => [s.id, { items: d.contacts, total: d.total, ltv: d.totalLtv }])))
+    Promise.all(pipe.stages.map((s) => api(`/contacts?limit=${BOARD_CARDS}&pipeline=${encodeURIComponent(pipe.id)}&stage=${encodeURIComponent(s.id)}${filterQs}${vf ? `&sum=${vf.id}` : ''}`).then((d) => [s.id, { items: d.contacts, total: d.total, ltv: vf ? d.totalValue || 0 : d.totalLtv }])))
       .then((list) => { if (n === seq.current) setCols(Object.fromEntries(list)); }).catch((e) => toast(e.message));
-  }, [pipe, filterQs, tick, retry]);
+  }, [pipe, filterQs, tick, retry, vf?.id]);
   const onMove = async (c, stageId) => {
     const from = c.stages?.[pipe.id];
     if (from === stageId) return;
     const moved = { ...c, stages: { ...c.stages, [pipe.id]: stageId } };
-    const shift = (col, add) => col && ({ items: add ? [moved, ...col.items] : col.items.filter((x) => x.key !== c.key), total: col.total + (add ? 1 : -1), ltv: col.ltv + (add ? c.ltv : -c.ltv) });
+    const worth = vf ? Number(c.custom?.[vf.id]) || 0 : c.ltv;
+    const shift = (col, add) => col && ({ items: add ? [moved, ...col.items] : col.items.filter((x) => x.key !== c.key), total: col.total + (add ? 1 : -1), ltv: col.ltv + (add ? worth : -worth) });
     setCols((m) => ({ ...m, [from]: shift(m[from], false), [stageId]: shift(m[stageId], true) }));
     try { await api(`/contacts/${encodeURIComponent(c.key)}`, 'PATCH', { stage: { pipelineId: pipe.id, stageId } }); onMoved?.(); } catch (e) { toast(e.message); setRetry((r) => r + 1); }
   };
@@ -239,13 +265,14 @@ function Board({ pipe, filterQs, tick, onOpen, onMoved }) {
         const items = col.items;
         return (
           <section key={s.id} className={`bcol ${drag?.over === s.id ? 'over' : ''}`} data-stage={s.id} style={{ '--sc': s.color }}>
-            <header><i /><b>{s.name}</b><span className="cnt">{col.total}</span><small>{inr(col.ltv)}</small></header>
+            <header><i /><b>{s.name}</b><span className="cnt">{col.total}</span><small title={vf ? `Total ${vf.label}` : 'Lifetime value'}>{vf ? lakh(col.ltv) : inr(col.ltv)}</small></header>
             <div className="bcards">
               {items.slice(0, BOARD_CARDS).map((c) => (
                 <article key={c.key} className={`bcard ${drag?.key === c.key ? 'ghosted' : ''}`} tabIndex={0}
                   onPointerDown={(e) => down(e, c)} onClick={() => { if (!suppress.current) onOpen(c.key); }} onKeyDown={(e) => e.key === 'Enter' && onOpen(c.key)}>
                   <div className="bc-top"><span className="who-av sm">{initial(c)}</span><b>{label(c)}</b>{c.type === 'customer' && <span className="pill ok">{inr(c.ltv)}</span>}</div>
                   {(c.email || c.phone) && <small className="bc-sub">{c.email || c.phone}</small>}
+                  {cardFields.some((x) => c.custom?.[x.id] != null && c.custom[x.id] !== '') && <div className="bc-fields">{cardFields.map((x) => (c.custom?.[x.id] != null && c.custom[x.id] !== '' ? <span key={x.id} title={x.label}>{x.type === 'money' ? lakh(Number(c.custom[x.id])) : fieldText(x, c.custom[x.id])}</span> : null))}</div>}
                   <div className="bc-foot">{(c.tags || []).slice(0, 2).map((t) => <span key={t} className="tag">{t}</span>)}<span className="muted">{ago(c.lastSeen)}</span></div>
                 </article>
               ))}
@@ -450,7 +477,7 @@ function Details({ c, ckey, fields, onSaved, onEditFields }) {
     if (f.type === 'checkbox') return <label className="tog"><input type="checkbox" checked={!!val} onChange={(e) => setCustom(f.id, e.target.checked)} /><span />{val ? 'Yes' : 'No'}</label>;
     if (f.type === 'select') return <select value={val} onChange={(e) => setCustom(f.id, e.target.value)}><option value="">—</option>{String(f.options || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => <option key={o}>{o}</option>)}</select>;
     if (f.type === 'longtext') return <textarea rows={3} value={val} onChange={(e) => setCustom(f.id, e.target.value)} />;
-    return <input type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : f.type === 'url' ? 'url' : 'text'} value={val} onChange={(e) => setCustom(f.id, e.target.value)} placeholder={f.type === 'url' ? 'https://…' : ''} />;
+    return <input type={f.type === 'number' || f.type === 'money' ? 'number' : f.type === 'date' ? 'date' : f.type === 'url' ? 'url' : f.type === 'phone' ? 'tel' : 'text'} inputMode={f.type === 'money' ? 'numeric' : undefined} value={val} onChange={(e) => setCustom(f.id, e.target.value)} placeholder={f.type === 'url' ? 'https://…' : f.type === 'money' ? '₹' : f.type === 'phone' ? '+91 98765 43210' : ''} />;
   };
   return (
     <div className="cp-details">
@@ -698,6 +725,77 @@ function PipelinesEditor({ pipes, current, onClose, onSaved }) {
           <span style={{ flex: 1 }} />
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <button className="btn primary" disabled={busy} onClick={save}>Save pipeline</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- CRM style: the CRM shaped for a kind of business, or designed by AI from a description ----------
+const TYPE_WORD = { text: 'text', longtext: 'notes', number: 'number', money: '₹', phone: 'phone', date: 'date', select: 'choice', url: 'link', checkbox: 'yes/no' };
+function KitPreview({ kit }) {
+  return (
+    <div className="kit-prev">
+      <div className="kit-row"><b>{kit.labels?.title}</b><span className="muted"> · {kit.labels?.customers} & {kit.labels?.leads?.toLowerCase()}{kit.valueField ? ` · board totals ${kit.labels?.value?.toLowerCase()}` : ''}</span></div>
+      {kit.pipeline && <div className="kit-stages" aria-label="Pipeline stages">{kit.pipeline.stages.map((s, i) => <span key={i} style={{ '--st': s.color }}>{s.name}</span>)}</div>}
+      {kit.fields?.length > 0 && <div className="kit-fields">{kit.fields.map((x) => <span key={x.id}>{x.label.replace(/ \(₹\)$/, '')} <small>{TYPE_WORD[x.type]}</small></span>)}</div>}
+    </div>
+  );
+}
+function KitPicker({ current, onClose, onApplied }) {
+  const [kits, setKits] = useState(null);
+  const [sel, setSel] = useState(current?.id && current.id !== 'custom' ? current.id : null);
+  const [tab, setTab] = useState(current?.id === 'custom' ? 'ai' : 'ready');
+  const [desc, setDesc] = useState('');
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api('/crm/kits').then((d) => setKits(d.kits)).catch((e) => toast(e.message)); }, []);
+  const chosen = tab === 'ai' ? draft : kits?.find((k) => k.id === sel);
+  const design = async () => {
+    setBusy(true);
+    try { const r = await api('/ai/crm-kit', 'POST', { description: desc }); setDraft(r.kit); } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const apply = async () => {
+    if (!chosen) return;
+    if (chosen.id === current?.id && chosen.id !== 'custom') return onClose();
+    setBusy(true);
+    try { onApplied(await api('/crm/kit', 'POST', tab === 'ai' ? { kit: draft } : { id: chosen.id })); } catch (e) { toast(e.message); setBusy(false); }
+  };
+  const IDEAS = ['Interior design studio — site measurements, design fee, 3D render approval, execution', 'Wedding photographer — event date, venue, package, advance paid', 'Coaching institute for NEET — student class, parent phone, demo class, batch', 'Car dealership — model, variant, test drive, finance, delivery'];
+  return (
+    <Modal title="CRM style" onClose={onClose} width={820}>
+      <div className="m-body">
+        <p className="hint" style={{ marginTop: 0 }}>Make your CRM speak your business — its words, fields, pipeline stages and board. Switch any time: <b>no contact or field is ever deleted</b>, only what’s shown changes.</p>
+        <div className="seg" style={{ marginBottom: 14 }}>
+          <button className={tab === 'ready' ? 'on' : ''} onClick={() => setTab('ready')}>Ready-made</button>
+          <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')}>✨ Describe yours — AI builds it</button>
+        </div>
+        {tab === 'ready' ? (
+          !kits ? <div className="spinner" /> : (
+            <div className="kit-grid">{kits.map((k) => (
+              <button key={k.id} className={`kit-card ${sel === k.id ? 'on' : ''}`} onClick={() => setSel(k.id)} aria-pressed={sel === k.id}>
+                <span className="kit-ic" aria-hidden="true">{k.icon}</span>
+                <b>{k.name}{current?.id === k.id && <span className="pill ok">Current</span>}</b>
+                <small>{k.desc}</small>
+              </button>
+            ))}</div>
+          )
+        ) : (
+          <div className="kit-ai">
+            <div className="fld"><label>Describe your business and how you sell</label>
+              <textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={1500} placeholder="e.g. We run a dental clinic in Pune. Patients find us on Google and Practo, book a consultation, then start a treatment plan like braces or implants…" />
+            </div>
+            {!draft && <div className="kit-ideas">{IDEAS.map((t) => <button key={t} className="kit-idea" onClick={() => setDesc(t)}>{t.split(' — ')[0]}</button>)}</div>}
+            <button className="btn soft" disabled={busy || desc.trim().length < 8} onClick={design}>{busy ? 'Designing…' : draft ? '↻ Redesign' : '✨ Design my CRM'}</button>
+            {current?.id === 'custom' && !draft && <p className="hint">You’re using “{current.icon} {current.name}”, designed earlier. Describe changes to design a new version.</p>}
+          </div>
+        )}
+        {chosen && (chosen.fields?.length > 0 || chosen.pipeline) && <><h5 className="cp-h5">{chosen.icon} {chosen.name} — what you’ll get</h5><KitPreview kit={chosen} /></>}
+        <div className="m-foot">
+          <span style={{ flex: 1 }} />
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={busy || !chosen} onClick={apply}>{chosen && chosen.id === current?.id && chosen.id !== 'custom' ? 'Keep this style' : `Use ${chosen ? chosen.name : 'this'} CRM`}</button>
         </div>
       </div>
     </Modal>
