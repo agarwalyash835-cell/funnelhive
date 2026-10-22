@@ -335,6 +335,15 @@ function AiCourse({ p, set, onClose }) {
 }
 
 // A certificate when a student finishes every lesson and passes every quiz
+function WatermarkPanel({ p, set }) {
+  return (
+    <Panel title="Video watermark">
+      <label className="tog" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={p.watermark !== false} onChange={(e) => set({ watermark: e.target.checked })} /><span /> Show each student’s email faintly on the course videos</label>
+      <p className="hint">It drifts across the video, so if someone screen-records and shares a lesson you can see whose account it came from. Barely noticeable while watching. Recommended for paid courses.</p>
+    </Panel>
+  );
+}
+
 function CertificatePanel({ p, set }) {
   const c = p.certificate || { enabled: false };
   const upd = (patch) => set({ certificate: { ...c, ...patch } });
@@ -475,6 +484,7 @@ function SettingsTab({ p, set, onDelete }) {
   return (
     <div className="pr-cols">
       <div className="pr-main">
+        {p.lessons?.length > 0 && <WatermarkPanel p={p} set={set} />}
         <CertificatePanel p={p} set={set} />
         <BundlePanel p={p} set={set} />
         <Panel title="Access">

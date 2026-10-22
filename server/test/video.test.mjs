@@ -47,6 +47,11 @@ test('an uploaded video becomes an encrypted stream only a signed-in buyer can p
   const v = await L('/video', 'POST', { accessId: course.accessId, fileId: fid }, tok);
   assert.equal(v.status, 200, JSON.stringify(v.data));
   assert.equal(v.data.mark, 'viewer@x.in', 'the watermark is the student');
+  // the seller can switch the watermark off for a course
+  const full = (await api(`/products/${p.id}`, 'GET', null, T)).data;
+  await api(`/products/${p.id}`, 'PUT', { ...full, watermark: false }, T);
+  assert.equal((await L('/video', 'POST', { accessId: course.accessId, fileId: fid }, tok)).data.mark, '', 'no watermark when switched off');
+  await api(`/products/${p.id}`, 'PUT', { ...full, watermark: true }, T);
   const master = await (await fetch(`${srv.base}${v.data.src}`)).text();
   const variant = master.split('\n').find((l) => l.startsWith('/api/hls/'));
   assert.ok(variant, JSON.stringify(master));

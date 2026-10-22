@@ -340,7 +340,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     if (!f || a.at + (lesson.dripDays || 0) * DAY > Date.now()) return res.status(404).json({ error: 'Video not found' });
     if (lessonGate(s, p, lesson.id)) return res.status(403).json({ error: `Reach level ${lesson.minLevel} to unlock this lesson` });
     if (f.hls?.status !== 'ready') return res.status(409).json({ error: 'This video is still being prepared — try again in a few minutes' });
-    res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, mark: s.email });
+    res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, mark: p.watermark === false ? '' : s.email });
   });
   app.get('/api/learn/:handle/certificate/:pid', limiter, (req, res) => {
     const owner = school(req, res); if (!owner) return;

@@ -65,6 +65,8 @@ function cleanProduct(b = {}, cur = {}) {
   if ('cover' in b) out.cover = imgUrl(b.cover);
   if ('accessDays' in b) out.accessDays = intIn(b.accessDays, 0, 3650);
   // a certificate when the course is finished (every lesson done, every quiz passed)
+  // the student's email drifting over protected video (on unless the seller switches it off)
+  if ('watermark' in b) out.watermark = b.watermark !== false;
   if ('certificate' in b) out.certificate = b.certificate && b.certificate.enabled ? { enabled: true, title: clip(b.certificate.title, 120), signer: clip(b.certificate.signer, 80), signerRole: clip(b.certificate.signerRole, 80) } : { enabled: false };
   if ('downloadLimit' in b) out.downloadLimit = intIn(b.downloadLimit, 0, 1000);
   // physical goods: country of origin, shown at checkout (empty = the seller's default in Settings, else India)
