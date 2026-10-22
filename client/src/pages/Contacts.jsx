@@ -5,6 +5,7 @@ import {
   ArrowRightLeft, X, Plus, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, Upload, Download,
 } from 'lucide-react';
 import { api } from '../api';
+import { KitIcon } from '../blockIcons';
 import { Layout, Panel, Icon, Empty, Modal, toast, inr, num, ago, downloadCSV, confirmDialog, promptDialog } from '../ui';
 
 const LS = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
@@ -120,8 +121,8 @@ export default function Contacts() {
   })));
 
   return (
-    <Layout title={L.title} subtitle={kit && kit.id !== 'general' ? `${kit.icon} ${kit.name} CRM — every ${L.one} with their full journey.` : 'Every lead and customer — with their full journey.'} wide={view === 'board'} actions={<>
-      <button className="btn ghost" onClick={() => setModal('kit')} title="Switch how your CRM looks for your kind of business"><span aria-hidden="true">{kit?.icon || '🎯'}</span> CRM style</button>
+    <Layout title={L.title} subtitle={kit && kit.id !== 'general' ? `${kit.name} CRM — every ${L.one} with their full journey.` : 'Every lead and customer — with their full journey.'} wide={view === 'board'} actions={<>
+      <button className="btn ghost" onClick={() => setModal('kit')} title="Switch how your CRM looks for your kind of business"><KitIcon type={kit?.id} size={15} /> CRM style</button>
       <button className="btn ghost" onClick={() => setModal('fields')}><SlidersHorizontal size={16} /> Custom fields</button>
       <button className="btn ghost" onClick={exportCsv} disabled={!rows.length || exporting}><Icon name="download" size={16} /> {exporting ? 'Exporting…' : 'Export'}</button>
       <button className="btn ghost" onClick={() => setModal('import')}><Upload size={16} /> Import CSV</button>
@@ -137,7 +138,7 @@ export default function Contacts() {
           </div>
           {kit && !kit.at && (
             <div className="kit-nudge">
-              <span aria-hidden="true">🏠 🩺 💼 🎓</span>
+              <span className="kit-nudge-ic" aria-hidden="true">{['realestate', 'clinic', 'consultant', 'education'].map((t) => <span key={t} className="ti-box sm"><KitIcon type={t} size={14} /></span>)}</span>
               <div><b>Make this CRM fit your business</b><small>Real estate, clinic, consultant, coaching, travel, events and more — or describe yours and AI builds it. Switch any time.</small></div>
               <button className="btn primary sm" onClick={() => setModal('kit')}>Choose CRM style</button>
             </div>
@@ -206,7 +207,7 @@ export default function Contacts() {
       {modal === 'add' && <AddContact onClose={() => setModal(null)} onDone={(k) => { setModal(null); load().then(() => open(k)); }} />}
       {modal === 'import' && <ImportContacts fields={fields} onClose={() => setModal(null)} onDone={load} />}
       {modal === 'fields' && <FieldsEditor fields={fields} onClose={() => setModal(null)} onSaved={(f) => { setFields(f); setModal(null); toast('Custom fields saved'); }} />}
-      {modal === 'kit' && <KitPicker current={kit} onClose={() => setModal(null)} onApplied={(r) => { setModal(null); setKit(r.current); setCf({}); if (r.current.pipelineId) setPid(r.current.pipelineId); load(); toast(`${r.current.icon} ${r.current.name} CRM is ready`); }} />}
+      {modal === 'kit' && <KitPicker current={kit} onClose={() => setModal(null)} onApplied={(r) => { setModal(null); setKit(r.current); setCf({}); if (r.current.pipelineId) setPid(r.current.pipelineId); load(); toast(`${r.current.name} CRM is ready`); }} />}
       {modal === 'pipes' && <PipelinesEditor pipes={pipes} current={pipe?.id} onClose={() => setModal(null)} onSaved={(id) => { setModal(null); if (id) setPid(id); load(); }} />}
     </Layout>
   );
@@ -776,13 +777,13 @@ function KitPicker({ current, onClose, onApplied }) {
         <p className="hint" style={{ marginTop: 0 }}>Make your CRM speak your business — its words, fields, pipeline stages and board. Switch any time: <b>no contact or field is ever deleted</b>, only what’s shown changes.</p>
         <div className="seg" style={{ marginBottom: 14 }}>
           <button className={tab === 'ready' ? 'on' : ''} onClick={() => setTab('ready')}>Ready-made</button>
-          <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')}>✨ Describe yours — AI builds it</button>
+          <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')}><KitIcon type="custom" size={14} /> Build with AI</button>
         </div>
         {tab === 'ready' ? (
           !kits ? <div className="spinner" /> : (
             <div className="kit-grid">{kits.map((k) => (
               <button key={k.id} className={`kit-card ${sel === k.id ? 'on' : ''}`} onClick={() => setSel(k.id)} aria-pressed={sel === k.id}>
-                <span className="kit-ic" aria-hidden="true">{k.icon}</span>
+                <span className="ti-box lg kit-ic"><KitIcon type={k.id} size={20} /></span>
                 <b>{k.name}{current?.id === k.id && <span className="pill ok">Current</span>}</b>
                 <small>{k.desc}</small>
               </button>
@@ -794,11 +795,11 @@ function KitPicker({ current, onClose, onApplied }) {
               <textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={1500} placeholder="e.g. We run a dental clinic in Pune. Patients find us on Google and Practo, book a consultation, then start a treatment plan like braces or implants…" />
             </div>
             {!draft && <div className="kit-ideas">{IDEAS.map((t) => <button key={t} className="kit-idea" onClick={() => setDesc(t)}>{t.split(' — ')[0]}</button>)}</div>}
-            <button className="btn soft" disabled={busy || desc.trim().length < 8} onClick={design}>{busy ? 'Designing…' : draft ? '↻ Redesign' : '✨ Design my CRM'}</button>
-            {current?.id === 'custom' && !draft && <p className="hint">You’re using “{current.icon} {current.name}”, designed earlier. Describe changes to design a new version.</p>}
+            <button className="btn soft" disabled={busy || desc.trim().length < 8} onClick={design}><KitIcon type="custom" size={15} /> {busy ? 'Designing…' : draft ? 'Redesign' : 'Design my CRM'}</button>
+            {current?.id === 'custom' && !draft && <p className="hint">You’re using “{current.name}”, designed earlier. Describe changes to design a new version.</p>}
           </div>
         )}
-        {chosen && (chosen.fields?.length > 0 || chosen.pipeline) && <><h5 className="cp-h5">{chosen.icon} {chosen.name} — what you’ll get</h5><KitPreview kit={chosen} /></>}
+        {chosen && (chosen.fields?.length > 0 || chosen.pipeline) && <><h5 className="cp-h5 kit-h"><span className="ti-box sm"><KitIcon type={chosen.id} size={14} /></span>{chosen.name} — what you’ll get</h5><KitPreview kit={chosen} /></>}
         <div className="m-foot">
           <span style={{ flex: 1 }} />
           <button className="btn ghost" onClick={onClose}>Cancel</button>
