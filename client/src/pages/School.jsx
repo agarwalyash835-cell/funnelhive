@@ -56,6 +56,10 @@ function Overview({ d, pick }) {
             <tbody>{d.courses.map((c) => <tr key={c.id}><td><b>{c.name}</b></td><td className="r">{c.lessons}</td><td className="r">{c.quizzes}</td><td>{c.certificate ? <span className="pill ok">On</span> : <span className="pill">Off</span>}</td><td className="r">{c.students}</td><td className="r"><Link className="btn ghost sm" to={`/products/${c.id}`}>Edit</Link></td></tr>)}</tbody>
           </table></div>}
       </Panel>
+      <Panel title="Your members area">
+        <div className="sc-links">{[d.url, ...(d.domainUrls || [])].map((u) => <div key={u} className="sc-link"><code>{u.replace(/^https?:\/\//, '')}</code><button className="btn ghost sm" onClick={() => copy(u)}><Icon name="copy" size={14} /> Copy</button><a className="btn ghost sm" href={u} target="_blank" rel="noreferrer" aria-label="Open"><Icon name="external" size={14} /></a></div>)}</div>
+        {!(d.domainUrls || []).length && <p className="hint">Connect your own domain in Settings → Domains and your members area opens there too.</p>}
+      </Panel>
       <Panel title="How students get in">
         <ul className="sc-how">
           <li><b>Buyers</b> of any product sign in at your link with their email — we email them a 6-digit code. No passwords.</li>
@@ -87,6 +91,7 @@ function SpaceModal({ space, courses, onClose, onSaved }) {
         <label className="fld full"><span>Description</span><input value={v.description} maxLength={300} onChange={(e) => setV({ ...v, description: e.target.value })} placeholder="What this space is for" /></label>
         <label className="fld full"><span>Who can see it</span><select value={v.access} onChange={(e) => setV({ ...v, access: e.target.value })}>{Object.entries(ACCESS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
         {v.access === 'products' && <div className="fld full"><span>Buyers of</span>{products.length ? <div className="chips">{products.map((p) => { const on = v.productIds.includes(p.id); return <button key={p.id} type="button" className={on ? 'on' : ''} onClick={() => setV({ ...v, productIds: on ? v.productIds.filter((x) => x !== p.id) : [...v.productIds, p.id] })}>{on ? '✓ ' : ''}{p.name}</button>; })}</div> : <small className="muted">Create a product first.</small>}<small className="hint">A paid inner circle: only people who bought one of these see this space.</small></div>}
+        <label className="fld full"><span>Unlocks at level</span><select value={v.minLevel || 1} onChange={(e) => setV({ ...v, minLevel: Number(e.target.value) })}><option value={1}>Open from the start</option>{[2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>Level {n}</option>)}</select><small className="hint">An “inner circle” members reach by being helpful — they see it locked until then.</small></label>
         <label className="fld full"><span>Who can post</span><select value={v.postBy} onChange={(e) => setV({ ...v, postBy: e.target.value })}><option value="members">Everyone who can see it</option><option value="admins">Only you and your team (announcements) — members can comment</option></select></label>
       </div>
       <div className="row end"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={busy || !v.name.trim()}>{busy ? <span className="spin" /> : space?.id ? 'Save' : 'Create space'}</button></div>
@@ -123,7 +128,7 @@ function CommunityAdmin({ d, reload }) {
   return (
     <div className="sc-comm">
       <aside className="sc-spaces">
-        {d.spaces.map((s) => <button key={s.id} className={s.id === sid ? 'on' : ''} onClick={() => setSid(s.id)}><span>{s.emoji}</span><b>{s.name}</b><small>{s.posts}</small></button>)}
+        {d.spaces.map((s) => <button key={s.id} className={s.id === sid ? 'on' : ''} onClick={() => setSid(s.id)}><span>{s.emoji}</span><b>{s.name}</b><small>{s.minLevel > 1 ? `🔒 L${s.minLevel} · ` : ''}{s.posts}</small></button>)}
         <button className="sc-add" onClick={() => setEdit({})}><Icon name="plus" size={14} /> New space</button>
       </aside>
       <section>

@@ -93,6 +93,7 @@ function cleanProduct(b = {}, cur = {}) {
       dripDays: intIn(l?.dripDays, 0, 3650),
       ...(cleanQuiz(l?.quiz) ? { quiz: cleanQuiz(l.quiz) } : {}),
       ...(l?.free ? { free: true } : {}), // a preview lesson anyone signed in can watch
+      ...(intIn(l?.minLevel, 1, 9) > 1 ? { minLevel: intIn(l.minLevel, 1, 9) } : {}), // opens when the student reaches this community level
     }));
   }
   // a bundle: buying this also unlocks these products (the seller's own; one level — checked when granting)

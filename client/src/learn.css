@@ -311,3 +311,4 @@
   .ln-cert { position: fixed; inset: 0; width: 100vw; height: 100vh; aspect-ratio: auto; box-shadow: none; border-radius: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 @media (prefers-reduced-motion: reduce) { .ln *, .ln-toast { animation: none !important; transition: none !important; } }
+.ln-lock { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--mute); background: var(--bg); padding: 1px 6px; border-radius: 6px; }

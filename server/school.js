@@ -86,8 +86,14 @@ export function canSee(s, space, owned = productIdsOf(s)) {
   if (space.access === 'products') return (space.productIds || []).some((id) => owned.has(id));
   return owned.size > 0;
 }
+// level gates: a space or a lesson can open only from a community level (earned with points)
+const levelOk = (s, min) => levelOf(s?.points || 0) >= (min || 1);
+export function lessonGate(s, product, lessonId) {
+  const l = product?.lessons?.find((x) => x.id === lessonId);
+  return l && !levelOk(s, l.minLevel) ? l.minLevel : 0;
+}
 const spacesOf = (userId) => T.spaces.all({ userId }, { order: 'at' }).filter((x) => !x.archived).sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.at - b.at);
-const spaceView = (x) => ({ id: x.id, name: x.name, emoji: x.emoji || '💬', description: x.description || '', access: x.access, productIds: x.productIds || [], postBy: x.postBy || 'members' });
+const spaceView = (x, s) => ({ id: x.id, name: x.name, emoji: x.emoji || '💬', description: x.description || '', access: x.access, productIds: x.productIds || [], postBy: x.postBy || 'members', minLevel: x.minLevel || 1, ...(s && !levelOk(s, x.minLevel) ? { locked: true } : {}) });
 
 // an author on a post or comment: a student, or the school itself (the owner / their team)
 function authorView(owner, a) {
@@ -215,8 +221,13 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const s = student(req, res, owner); if (!s) return;
     const lib = studentLibrary(owner.id, s.ckey);
     const owned = productIdsOf(s);
-    const spaces = spacesOf(owner.id).filter((x) => canSee(s, x, owned)).map(spaceView);
-    const visible = new Set(spaces.map((x) => x.id));
+    const spaces = spacesOf(owner.id).filter((x) => canSee(s, x, owned)).map((x) => spaceView(x, s));
+    const visible = new Set(spaces.filter((x) => !x.locked).map((x) => x.id));
+    // lessons above the student's level show as locked (title only)
+    for (const c of lib.products) {
+      const prod = T.products.get(c.productId);
+      if (c.lessons) c.lessons = c.lessons.map((l) => { const need = lessonGate(s, prod, l.id); return need ? { id: l.id, title: l.title, section: l.section, locked: true, needLevel: need } : l; });
+    }
     const recent = T.posts.all({ userId: owner.id }, { order: 'at', desc: true, limit: 40 }).filter((p) => visible.has(p.spaceId) && !p.hidden).slice(0, 5).map((p) => postView(owner, p, s));
     const unread = q('SELECT COUNT(*) AS n FROM snotes WHERE studentId = ? AND read = 0').get(s.id).n;
     const certs = T.certs.all({ studentId: s.id }).map(certView);
@@ -245,6 +256,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const p = a && T.products.get(a.productId);
     const lesson = p?.lessons.find((l) => l.id === req.body.lessonId);
     if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
+    if (lessonGate(s, p, lesson.id)) return res.status(403).json({ error: `Reach level ${lesson.minLevel} to unlock this lesson` });
     let firstTime = false;
     const n = T.access.update(a.id, (x) => {
       x.progress ||= {};
@@ -265,6 +277,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const p = a && T.products.get(a.productId);
     const lesson = p?.lessons.find((l) => l.id === req.body.lessonId);
     if (!lesson?.quiz) return res.status(404).json({ error: 'Quiz not found' });
+    if (lessonGate(s, p, lesson.id)) return res.status(403).json({ error: `Reach level ${lesson.minLevel} to unlock this lesson` });
     const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
     const results = lesson.quiz.questions.map((x, i) => ({ correct: Number(answers[i]) === x.answer, answer: x.answer, explain: x.explain }));
     const score = Math.round((results.filter((r) => r.correct).length / results.length) * 100);
@@ -290,6 +303,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const lesson = p?.lessons.find((l) => l.videoFileId === req.body?.fileId);
     const f = lesson && p.files.find((x) => x.id === lesson.videoFileId);
     if (!f || a.at + (lesson.dripDays || 0) * DAY > Date.now()) return res.status(404).json({ error: 'Video not found' });
+    if (lessonGate(s, p, lesson.id)) return res.status(403).json({ error: `Reach level ${lesson.minLevel} to unlock this lesson` });
     if (f.hls?.status !== 'ready') return res.status(409).json({ error: 'This video is still being prepared — try again in a few minutes' });
     res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, mark: s.email });
   });
@@ -350,17 +364,17 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   }));
 
   // --- community: spaces, posts, comments, likes ---
-  const ownSpace = (owner, s, id) => { const x = T.spaces.get(id); return x && x.userId === owner.id && canSee(s, x) ? x : null; };
+  const ownSpace = (owner, s, id) => { const x = T.spaces.get(id); return x && x.userId === owner.id && canSee(s, x) && levelOk(s, x.minLevel) ? x : null; };
   app.get('/api/learn/:handle/spaces/:sid/posts', limiter, (req, res) => {
     const owner = school(req, res); if (!owner) return;
     const s = student(req, res, owner); if (!s) return;
     const sp = ownSpace(owner, s, req.params.sid);
-    if (!sp) return res.status(404).json({ error: 'Space not found' });
+    if (!sp) { const x = T.spaces.get(req.params.sid); return x && x.userId === owner.id && canSee(s, x) ? res.status(403).json({ error: `Reach level ${x.minLevel} to unlock this space`, needLevel: x.minLevel }) : res.status(404).json({ error: 'Space not found' }); }
     const before = Number(req.query.before) || Infinity;
     const all = T.posts.all({ spaceId: sp.id }, { order: 'at', desc: true }).filter((p) => !p.hidden);
     const pinned = before === Infinity ? all.filter((p) => p.pinned) : [];
     const page = all.filter((p) => !p.pinned && p.at < before).slice(0, 20);
-    res.json({ space: spaceView(sp), posts: [...pinned, ...page].map((p) => postView(owner, p, s)), more: all.filter((p) => !p.pinned && p.at < before).length > 20 });
+    res.json({ space: spaceView(sp, s), posts: [...pinned, ...page].map((p) => postView(owner, p, s)), more: all.filter((p) => !p.pinned && p.at < before).length > 20 });
   });
   app.post('/api/learn/:handle/spaces/:sid/posts', writeLimiter, (req, res) => {
     const owner = school(req, res); if (!owner) return;
@@ -486,6 +500,8 @@ Rules: modules (sections) in a sensible order, 3-6 lessons each; add a quiz (3-5
     const courses = T.products.all({ userId: u.id }, { order: 'at', desc: true }).filter((p) => p.lessons?.length).map((p) => ({ id: p.id, name: p.name, lessons: p.lessons.length, quizzes: p.lessons.filter((l) => l.quiz).length, certificate: !!p.certificate?.enabled, students: q('SELECT COUNT(DISTINCT ckey) AS n FROM access WHERE userId = ? AND json_extract(data, \'$.productId\') = ?').get(u.id, p.id).n }));
     res.json({
       settings: schoolOf(u), handle, url: `${(process.env.APP_URL || appUrl(req)).replace(/\/+$/, '')}/learn/${handle}`, aiEnabled: aiEnabled(),
+      // the same members area on the seller's own connected domains
+      domainUrls: T.domains.all({ userId: u.id, status: 'active' }).map((d) => `https://${d.domain}/learn/${handle}`),
       stats: { students: T.students.count({ userId: u.id }), active7: q('SELECT COUNT(*) AS n FROM students WHERE userId = ? AND json_extract(data, \'$.lastSeenAt\') > ?').get(u.id, Date.now() - 7 * DAY).n, posts: T.posts.count({ userId: u.id }), certificates: T.certs.count({ userId: u.id }) },
       spaces, courses,
     });
@@ -510,6 +526,7 @@ Rules: modules (sections) in a sensible order, 3-6 lessons each; add a quiz (3-5
     if ('access' in b || !cur.id) out.access = ['open', 'buyers', 'products'].includes(b.access) ? b.access : 'buyers';
     if ('productIds' in b) out.productIds = (Array.isArray(b.productIds) ? b.productIds : []).map(String).filter((id) => T.products.get(id)?.userId === cur.userId).slice(0, 30);
     if ('postBy' in b || !cur.id) out.postBy = b.postBy === 'admins' ? 'admins' : 'members';
+    if ('minLevel' in b) out.minLevel = Math.max(1, Math.min(9, Math.round(Number(b.minLevel)) || 1));
     if ('order' in b) out.order = Math.round(Number(b.order)) || 0;
     return out;
   };

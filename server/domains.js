@@ -49,7 +49,7 @@ export const sitemapXml = (urls) => `<?xml version="1.0" encoding="UTF-8"?>\n<ur
 export const robotsTxt = (base) => `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`;
 // what buyers open from a live page (libraries, invoices, bookings, webinars, shared reports) — served on the
 // pages domain and on sellers' own domains alike, so the two lists can't drift apart
-const BUYER = 'access|invoice|booking|meet|webinar|legal|share|report', BUYER_API = 'public|access|access-recover|booking|meet|webinar-reg|report|share';
+const BUYER = 'access|invoice|booking|meet|webinar|legal|share|report|learn|cert', BUYER_API = 'public|access|access-recover|booking|meet|webinar-reg|report|share|learn|cert|hls';
 const BUYER_PATHS = new RegExp(`^/(${BUYER})(/|$)|^/api/(${BUYER_API})(/|$)`);
 // what may be served on the pages domain: funnel pages and what buyers open from them
 const PAGES_PATHS = new RegExp(`^/(f|${BUYER}|uploads|assets|t|u|favicon|robots\\.txt|sitemap)(/|$|\\.)|^/api/(${BUYER_API}|health|site|stripe/webhook|razorpay/webhook)(/|$)`);

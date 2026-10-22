@@ -95,6 +95,8 @@ const app = onDomain ? (
         <Route path="/invoice/:id" element={L(SaleInvoice)} />
         <Route path="/booking/:id" element={L(BookingManage)} />
         <Route path="/webinar/:id" element={L(WebinarJoin)} />
+        <Route path="/learn/:handle/*" element={L(Learn)} />
+        <Route path="/cert/:id" element={L(CertCheck)} />
         <Route path="/:step?" element={<Public />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

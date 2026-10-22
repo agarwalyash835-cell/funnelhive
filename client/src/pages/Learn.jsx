@@ -285,7 +285,7 @@ function CoursePage({ handle, api, pid, lid, go, tutor }) {
             {s.items.map((l) => (
               <button key={l.id} disabled={l.locked} className={`ln-les ${l.id === cur.id ? 'on' : ''} ${l.done ? 'done' : ''}`} onClick={() => { setSide(false); go(`course/${pid}/${l.id}`); }}>
                 <span className="ln-tick">{l.locked ? '🔒' : l.done ? '✓' : ''}</span>
-                <span className="ln-les-t">{l.title}{l.locked ? <small>Opens {day(l.opensAt)}</small> : l.quiz ? <small>Quiz{l.quizResult?.passed ? ' · passed' : ''}</small> : null}</span>
+                <span className="ln-les-t">{l.title}{l.locked ? <small>{l.needLevel ? `Unlocks at level ${l.needLevel}` : `Opens ${day(l.opensAt)}`}</small> : l.quiz ? <small>Quiz{l.quizResult?.passed ? ' · passed' : ''}</small> : null}</span>
               </button>
             ))}
           </div>
@@ -510,7 +510,7 @@ function Community({ api, sid, go }) {
   const [draft, setDraft] = useState({ title: '', body: '' });
   const [busy, setBusy] = useState(false);
   useEffect(() => { api('/home').then((d) => { setSpaces(d.spaces); if (!sid && d.spaces[0]) go(`community/${d.spaces[0].id}`); }).catch((e) => setErr(e.message)); }, []);
-  const load = (before) => api(`/spaces/${sid}/posts${before ? `?before=${before}` : ''}`).then((d) => setFeed((f) => (before ? { ...d, posts: [...f.posts, ...d.posts] } : d))).catch((e) => setErr(e.message));
+  const load = (before) => api(`/spaces/${sid}/posts${before ? `?before=${before}` : ''}`).then((d) => setFeed((f) => (before ? { ...d, posts: [...f.posts, ...d.posts] } : d))).catch((e) => (e.status === 403 ? setFeed({ locked: e.message, posts: [] }) : setErr(e.message)));
   useEffect(() => { if (sid) { setFeed(null); load(); } }, [sid]);
   const like = async (p) => { const x = await api('/like', 'POST', { target: `post:${p.id}`, on: !p.liked }).catch(() => null); if (x) setFeed((f) => ({ ...f, posts: f.posts.map((y) => (y.id === p.id ? { ...y, liked: x.liked, likes: x.likes } : y)) })); };
   const post = async (e) => {
@@ -524,10 +524,11 @@ function Community({ api, sid, go }) {
   const cur = spaces.find((s) => s.id === sid);
   return (
     <div className="ln-comm">
-      <aside className="ln-spaces">{spaces.map((s) => <button key={s.id} className={s.id === sid ? 'on' : ''} onClick={() => go(`community/${s.id}`)}><span>{s.emoji}</span>{s.name}</button>)}</aside>
+      <aside className="ln-spaces">{spaces.map((s) => <button key={s.id} className={s.id === sid ? 'on' : ''} onClick={() => go(`community/${s.id}`)}><span>{s.locked ? '🔒' : s.emoji}</span>{s.name}{s.locked && <small className="ln-lock">L{s.minLevel}</small>}</button>)}</aside>
       <section>
         {cur && <div className="ln-space-h"><h1>{cur.emoji} {cur.name}</h1>{cur.description && <p className="ln-mute">{cur.description}</p>}</div>}
-        {cur && cur.postBy !== 'admins' && (
+        {feed?.locked && <Empty icon="🔒" title={feed.locked} text="Earn points when people like your posts and comments, and when you finish lessons. Your level is on the Leaderboard tab." />}
+        {cur && !cur.locked && !feed?.locked && cur.postBy !== 'admins' && (
           open ? (
             <form className="ln-composer" onSubmit={post}>
               <input autoFocus value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Title (optional)" maxLength={200} />
@@ -536,7 +537,7 @@ function Community({ api, sid, go }) {
             </form>
           ) : <button className="ln-composer closed" onClick={() => setOpen(true)}>✏️ Write something…</button>
         )}
-        {!feed ? <div className="ln-skel" /> : feed.posts.length === 0 ? <Empty icon="🌱" title="Nothing here yet" text={cur?.postBy === 'admins' ? 'Announcements will appear here.' : 'Be the first to post.'} />
+        {!feed ? <div className="ln-skel" /> : feed.locked ? null : feed.posts.length === 0 ? <Empty icon="🌱" title="Nothing here yet" text={cur?.postBy === 'admins' ? 'Announcements will appear here.' : 'Be the first to post.'} />
           : <div className="ln-feed">{feed.posts.map((p) => <PostCard key={p.id} p={p} onOpen={() => go(`post/${p.id}`)} onLike={() => like(p)} />)}</div>}
         {feed?.more && <button className="ln-btn ghost block" onClick={() => load(feed.posts.filter((p) => !p.pinned).at(-1)?.at)}>Load more</button>}
       </section>

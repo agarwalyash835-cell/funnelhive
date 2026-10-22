@@ -367,7 +367,7 @@ function LessonsPanel({ p, set }) {
           <div key={l.id} className={`pr-lesson ${open === i ? 'open' : ''}`}>
             <div className="pr-lh" onClick={() => setOpen(open === i ? null : i)}>
               <span className="num">{i + 1}</span>
-              <div><b>{l.title || 'Untitled lesson'}</b><small className="muted">{[l.section, (l.videoUrl || l.videoFileId) && 'video', l.fileIds?.length && `${l.fileIds.length} file${l.fileIds.length > 1 ? 's' : ''}`, l.dripDays && `unlocks day ${l.dripDays}`, l.quiz && `quiz · ${l.quiz.questions.length} q`].filter(Boolean).join(' · ')}</small></div>
+              <div><b>{l.title || 'Untitled lesson'}</b><small className="muted">{[l.section, (l.videoUrl || l.videoFileId) && 'video', l.fileIds?.length && `${l.fileIds.length} file${l.fileIds.length > 1 ? 's' : ''}`, l.dripDays && `unlocks day ${l.dripDays}`, l.quiz && `quiz · ${l.quiz.questions.length} q`, l.minLevel > 1 && `🔒 level ${l.minLevel}`].filter(Boolean).join(' · ')}</small></div>
               <span className="row" onClick={(e) => e.stopPropagation()}>
                 {i > 0 && <button className="icon-btn xs" aria-label="Move up" onClick={() => move(i, -1)}>↑</button>}
                 {i < lessons.length - 1 && <button className="icon-btn xs" aria-label="Move down" onClick={() => move(i, 1)}>↓</button>}
@@ -385,6 +385,7 @@ function LessonsPanel({ p, set }) {
                   {p.files.length ? <div className="chips">{p.files.filter((f) => f.id !== l.videoFileId).map((f) => { const on = l.fileIds.includes(f.id); return <button key={f.id} type="button" className={on ? 'on' : ''} onClick={() => upd(i, { fileIds: on ? l.fileIds.filter((x) => x !== f.id) : [...l.fileIds, f.id] })}>{on ? '✓ ' : ''}{f.name}</button>; })}</div> : <small className="muted">Upload files above to attach them to lessons.</small>}
                 </div>
                 <label className="fld"><span>Unlocks after (days)</span><input type="number" min="0" max="3650" value={l.dripDays} onChange={(e) => upd(i, { dripDays: Number(e.target.value) || 0 })} /><small className="hint">0 = available immediately. Counted from the day of purchase.</small></label>
+                <label className="fld"><span>Unlocks at level <small className="muted">· community points</small></span><select value={l.minLevel || 1} onChange={(e) => upd(i, { minLevel: Number(e.target.value) })}><option value={1}>Any level</option>{[2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>Level {n}</option>)}</select><small className="hint">A bonus lesson students earn by being active in your community.</small></label>
                 <QuizEditor l={l} onChange={(quiz) => upd(i, { quiz })} />
               </div>
             )}

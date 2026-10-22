@@ -25,7 +25,7 @@ before(async () => {
     });
   }).listen(0);
   await new Promise((r) => setTimeout(r, 30));
-  srv = await startServer({ KIE_API_KEY: 'kie-test', KIE_BASE_URL: `http://127.0.0.1:${fake.address().port}` });
+  srv = await startServer({ KIE_API_KEY: 'kie-test', KIE_BASE_URL: `http://127.0.0.1:${fake.address().port}`, DOMAINS_FAKE_DNS: '1' });
   api = srv.api;
   T = (await register(api)).token;
   course = (await api('/products', 'POST', { name: 'Yoga Foundations' }, T)).data;
@@ -194,4 +194,46 @@ test('AI: a whole course from a topic, a quiz from a lesson, and Hive building a
   const ov = await call('school_overview', {});
   assert.ok(ov.url.endsWith(`/learn/${handle}`));
   assert.ok(ov.spaces.some((x) => x.name === 'Wins') && ov.courses.some((x) => x.id === made.id));
+});
+
+test('level gates: a bonus lesson and an inner-circle space open only once the student reaches the level', async () => {
+  const prod = (await api('/products', 'POST', { name: 'Gated course' }, T)).data;
+  await api(`/products/${prod.id}`, 'PUT', { lessons: [{ title: 'Open lesson', body: 'Hi' }, { title: 'Bonus', body: 'Secret stuff', minLevel: 2 }] }, T);
+  await api(`/products/${prod.id}/grant`, 'POST', { email: 'gate@x.in', name: 'Gita', notify: false }, T);
+  const inner = (await api('/school/spaces', 'POST', { name: 'Inner circle', access: 'buyers', minLevel: 2 }, T)).data;
+  assert.equal(inner.minLevel, 2);
+  const tok = await signIn('gate@x.in');
+  let c = (await L('/home', 'GET', null, tok)).data.courses.find((x) => x.productId === prod.id);
+  const bonus = c.lessons[1];
+  assert.deepEqual([bonus.locked, bonus.needLevel, bonus.body], [true, 2, undefined], 'title only, no content');
+  assert.equal((await L('/progress', 'POST', { accessId: c.accessId, lessonId: bonus.id, done: true }, tok)).status, 403);
+  const sp = (await L('/home', 'GET', null, tok)).data.spaces.find((x) => x.id === inner.id);
+  assert.equal(sp.locked, true, 'shown locked, not hidden');
+  const locked = await L(`/spaces/${inner.id}/posts`, 'GET', null, tok);
+  assert.equal(locked.status, 403);
+  assert.match(locked.data.error, /level 2/);
+  // finish the open lesson (1 point) and get likes until level 2 (5 points)
+  await L('/progress', 'POST', { accessId: c.accessId, lessonId: c.lessons[0].id, done: true }, tok);
+  const general = (await api('/school', 'GET', null, T)).data.spaces.find((x) => x.access === 'open');
+  const post = (await L(`/spaces/${general.id}/posts`, 'POST', { body: 'Hello!' }, tok)).data;
+  for (const e of ['l1@x.in', 'l2@x.in', 'l3@x.in', 'l4@x.in']) { const t = await signIn(e); await L('/like', 'POST', { target: `post:${post.id}` }, t); }
+  assert.equal((await L('', 'GET', null, tok)).data.me.level, 2);
+  c = (await L('/home', 'GET', null, tok)).data.courses.find((x) => x.productId === prod.id);
+  assert.equal(c.lessons[1].body, 'Secret stuff', 'unlocked');
+  assert.equal((await L(`/spaces/${inner.id}/posts`, 'GET', null, tok)).status, 200);
+});
+
+test('the members area also opens on the seller’s own domain', async () => {
+  const http = await import('node:http');
+  const get = (host, p) => new Promise((ok, no) => http.get({ host: '127.0.0.1', port: new URL(srv.base).port, path: p, headers: { host } }, (r) => { let b = ''; r.on('data', (x) => { b += x; }); r.on('end', () => ok({ status: r.statusCode, body: b })); }).on('error', no));
+  const f = (await api('/templates/yoga/use', 'POST', {}, T)).data;
+  await api(`/funnels/${f.id}`, 'PUT', { published: true }, T);
+  const d = (await api('/domains', 'POST', { domain: 'learn.mybrand.in', funnelId: f.id }, T)).data;
+  await api(`/domains/${d.id}/verify`, 'POST', {}, T);
+  const page = await get('learn.mybrand.in', `/learn/${handle}`);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /<div id="root">/, 'the app, not the funnel');
+  const apiRes = await get('learn.mybrand.in', `/api/learn/${handle}`);
+  assert.equal(JSON.parse(apiRes.body).school.name.length > 0, true);
+  assert.ok((await api('/school', 'GET', null, T)).data.domainUrls.includes(`https://learn.mybrand.in/learn/${handle}`));
 });
