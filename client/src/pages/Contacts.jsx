@@ -135,6 +135,13 @@ export default function Contacts() {
             <div className="kpi"><span className="kpi-l">{L.leads}</span><b className="kpi-v">{num(kpis.leads)}</b></div>
             {kit?.valueField && valueTotal != null ? <div className="kpi"><span className="kpi-l">Total {L.value.toLowerCase()}</span><b className="kpi-v">{lakh(valueTotal)}</b></div> : <div className="kpi"><span className="kpi-l">Avg. lifetime value</span><b className="kpi-v">{inr(kpis.avgLtv)}</b></div>}
           </div>
+          {kit && !kit.at && (
+            <div className="kit-nudge">
+              <span aria-hidden="true">🏠 🩺 💼 🎓</span>
+              <div><b>Make this CRM fit your business</b><small>Real estate, clinic, consultant, coaching, travel, events and more — or describe yours and AI builds it. Switch any time.</small></div>
+              <button className="btn primary sm" onClick={() => setModal('kit')}>Choose CRM style</button>
+            </div>
+          )}
           <div className="crm-bar">
             <div className="seg">
               <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}><LayoutList size={14} /> List</button>

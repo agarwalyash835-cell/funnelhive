@@ -86,6 +86,93 @@ export const KITS = [
     pipeline: { name: 'Advisory pipeline', stages: [S('New lead', '#6366f1'), S('Contacted', '#0ea5e9'), S('Needs analysis', '#8b5cf6'), S('Proposal shared', '#f59e0b'), S('Documents', '#ec4899'), S('Closed', '#16a34a', 'won'), S('Lost', '#94a3b8', 'lost')] },
     columns: ['fa_product', 'fa_amount', 'fa_follow', 'fa_docs'], cardFields: ['fa_product', 'fa_amount'], filters: ['fa_product', 'fa_income', 'fa_docs'], valueField: 'fa_amount', showSales: false,
   },
+  {
+    id: 'interior', name: 'Interior designer / architect', icon: '🛋️', desc: 'Site measurements, design fee, 3D approvals and execution.',
+    labels: { title: 'Projects', one: 'project', customers: 'Clients', leads: 'Enquiries', value: 'Project value' },
+    fields: [
+      sel('in_scope', 'Scope', 'Full home, Kitchen, Bedroom, Living room, Office, Commercial space, Renovation'), sel('in_home', 'Home type', '1 BHK, 2 BHK, 3 BHK, 4+ BHK, Villa, Office, Shop'),
+      f('in_value', 'Project value (₹)', 'money'), f('in_site', 'Site address'), f('in_measure', 'Site measurement', 'date'), f('in_handover', 'Handover by', 'date'),
+      sel('in_style', 'Style', 'Modern, Contemporary, Minimal, Traditional, Industrial, Luxury'), sel('in_from', 'Found us via', 'Instagram, Houzz, Google, Referral, Builder tie-up, Website'),
+    ],
+    pipeline: { name: 'Design projects', stages: [S('Enquiry', '#6366f1'), S('Site visit', '#0ea5e9'), S('Design & quote', '#8b5cf6'), S('3D approval', '#f59e0b'), S('Signed', '#16a34a', 'won'), S('In execution', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['in_scope', 'in_value', 'in_measure', 'in_handover'], cardFields: ['in_scope', 'in_value'], filters: ['in_scope', 'in_style', 'in_from'], valueField: 'in_value', showSales: false,
+  },
+  {
+    id: 'events', name: 'Wedding & event planner / photographer', icon: '💍', desc: 'Event dates, venues, packages and advances.',
+    labels: { title: 'Events', one: 'event', customers: 'Booked clients', leads: 'Enquiries', value: 'Package value' },
+    fields: [
+      sel('ev_type', 'Event', 'Wedding, Pre-wedding, Engagement, Birthday, Corporate, Baby shower, Other'), f('ev_date', 'Event date', 'date'), f('ev_venue', 'Venue / city'),
+      f('ev_guests', 'Guests', 'number'), sel('ev_pkg', 'Package', 'Basic, Standard, Premium, Custom'), f('ev_value', 'Package value (₹)', 'money'), f('ev_adv', 'Advance paid (₹)', 'money'),
+      sel('ev_from', 'Found us via', 'Instagram, WedMeGood, Google, Referral, Venue tie-up, Website'),
+    ],
+    pipeline: { name: 'Event bookings', stages: [S('Enquiry', '#6366f1'), S('Call / meeting', '#0ea5e9'), S('Quote sent', '#f59e0b'), S('Advance paid', '#16a34a', 'won'), S('Event done', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['ev_type', 'ev_date', 'ev_venue', 'ev_value'], cardFields: ['ev_date', 'ev_value'], filters: ['ev_type', 'ev_pkg', 'ev_from'], valueField: 'ev_value', showSales: false,
+  },
+  {
+    id: 'travel', name: 'Travel agency / tour operator', icon: '✈️', desc: 'Destinations, travel dates, travellers and quotes.',
+    labels: { title: 'Trips', one: 'trip', customers: 'Travellers', leads: 'Enquiries', value: 'Trip value' },
+    fields: [
+      f('tr_dest', 'Destination'), sel('tr_kind', 'Trip type', 'Honeymoon, Family, Group tour, Corporate, Pilgrimage, Adventure, Visa only'), f('tr_date', 'Travel date', 'date'),
+      f('tr_pax', 'Travellers', 'number'), f('tr_nights', 'Nights', 'number'), f('tr_value', 'Trip value (₹)', 'money'), sel('tr_scope', 'Domestic / international', 'Domestic, International'),
+      sel('tr_from', 'Found us via', 'Instagram, Google, Facebook ads, Referral, Walk-in, Website'),
+    ],
+    pipeline: { name: 'Trip bookings', stages: [S('Enquiry', '#6366f1'), S('Itinerary sent', '#0ea5e9'), S('Negotiation', '#f59e0b'), S('Booked', '#16a34a', 'won'), S('Travelled', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['tr_dest', 'tr_date', 'tr_pax', 'tr_value'], cardFields: ['tr_dest', 'tr_date'], filters: ['tr_kind', 'tr_scope', 'tr_from'], valueField: 'tr_value', showSales: false,
+  },
+  {
+    id: 'auto', name: 'Car / bike dealership', icon: '🚗', desc: 'Models, test drives, finance and deliveries.',
+    labels: { title: 'Leads', one: 'lead', customers: 'Owners', leads: 'Prospects', value: 'Deal value' },
+    fields: [
+      f('au_model', 'Model'), f('au_variant', 'Variant / colour'), sel('au_fuel', 'Fuel', 'Petrol, Diesel, CNG, Electric, Hybrid'), f('au_value', 'Deal value (₹)', 'money'),
+      f('au_test', 'Test drive', 'date'), sel('au_fin', 'Finance', 'Loan needed, Cash, Pre-approved'), sel('au_exch', 'Exchange', 'Yes, No'), f('au_deliv', 'Delivery date', 'date'),
+      sel('au_from', 'Enquiry from', 'Walk-in, CarDekho, CarWale, Facebook ads, Google ads, Referral, Website'),
+    ],
+    pipeline: { name: 'Vehicle sales', stages: [S('Enquiry', '#6366f1'), S('Test drive', '#0ea5e9'), S('Quotation', '#f59e0b'), S('Finance / docs', '#8b5cf6'), S('Booked', '#16a34a', 'won'), S('Delivered', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['au_model', 'au_value', 'au_test', 'au_fin'], cardFields: ['au_model', 'au_value'], filters: ['au_fuel', 'au_fin', 'au_from'], valueField: 'au_value', showSales: false,
+  },
+  {
+    id: 'professional', name: 'CA / lawyer / professional firm', icon: '⚖️', desc: 'Services, matters, fees, deadlines and documents.',
+    labels: { title: 'Clients', one: 'client', customers: 'Clients', leads: 'Enquiries', value: 'Fees' },
+    fields: [
+      sel('pf_service', 'Service', 'GST, Income tax, Audit, Company registration, Accounting, Legal notice, Litigation, Contracts, Trademark, Other'),
+      f('pf_matter', 'Matter / reference'), f('pf_fee', 'Fees (₹)', 'money'), f('pf_due', 'Deadline / hearing', 'date'),
+      sel('pf_docs', 'Documents', 'Pending, Partly received, Complete'), sel('pf_entity', 'Client type', 'Individual, Proprietorship, Partnership / LLP, Company, Trust / NGO'),
+    ],
+    pipeline: { name: 'Engagements', stages: [S('Enquiry', '#6366f1'), S('Consultation', '#0ea5e9'), S('Fee quote', '#f59e0b'), S('Engaged', '#16a34a', 'won'), S('In progress', '#8b5cf6'), S('Completed', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['pf_service', 'pf_fee', 'pf_due', 'pf_docs'], cardFields: ['pf_service', 'pf_due'], filters: ['pf_service', 'pf_docs', 'pf_entity'], valueField: 'pf_fee', showSales: false,
+  },
+  {
+    id: 'recruitment', name: 'Recruitment / staffing', icon: '🧑‍💼', desc: 'Candidates, roles, CTC, interviews and joining.',
+    labels: { title: 'Candidates', one: 'candidate', customers: 'Placed', leads: 'In process', value: 'Expected CTC' },
+    fields: [
+      f('rc_role', 'Role applied for'), f('rc_company', 'Client company'), f('rc_exp', 'Experience (years)', 'number'), f('rc_ctc', 'Expected CTC (₹)', 'money'),
+      sel('rc_notice', 'Notice period', 'Immediate, 15 days, 30 days, 60 days, 90 days'), f('rc_interview', 'Interview', 'date'), f('rc_city', 'City'), f('rc_cv', 'CV link', 'url'),
+    ],
+    pipeline: { name: 'Hiring', stages: [S('Sourced', '#6366f1'), S('Screened', '#0ea5e9'), S('Interview', '#f59e0b'), S('Offer', '#8b5cf6'), S('Joined', '#16a34a', 'won'), S('Dropped', '#94a3b8', 'lost')] },
+    columns: ['rc_role', 'rc_company', 'rc_ctc', 'rc_interview'], cardFields: ['rc_role', 'rc_notice'], filters: ['rc_notice'], valueField: 'rc_ctc', showSales: false,
+  },
+  {
+    id: 'homeservices', name: 'Solar / home services / installer', icon: '🔧', desc: 'Site surveys, quotes, installation and service dates.',
+    labels: { title: 'Jobs', one: 'job', customers: 'Customers', leads: 'Enquiries', value: 'Quote value' },
+    fields: [
+      sel('hs_service', 'Service', 'Solar rooftop, Water purifier, AC, Home automation, Pest control, Painting, Plumbing, Electrical, CCTV, Other'),
+      f('hs_address', 'Site address'), f('hs_survey', 'Site survey', 'date'), f('hs_value', 'Quote value (₹)', 'money'), f('hs_install', 'Installation date', 'date'),
+      f('hs_amc', 'Next service / AMC', 'date'), sel('hs_prop', 'Property', 'Independent house, Apartment, Society, Shop / office, Factory'),
+    ],
+    pipeline: { name: 'Installations', stages: [S('Enquiry', '#6366f1'), S('Site survey', '#0ea5e9'), S('Quote sent', '#f59e0b'), S('Order confirmed', '#16a34a', 'won'), S('Installed', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['hs_service', 'hs_survey', 'hs_value', 'hs_amc'], cardFields: ['hs_service', 'hs_value'], filters: ['hs_service', 'hs_prop'], valueField: 'hs_value', showSales: false,
+  },
+  {
+    id: 'hospitality', name: 'Hotel / homestay / restaurant', icon: '🏨', desc: 'Check-ins, guests, room or event bookings and repeat visits.',
+    labels: { title: 'Guests', one: 'guest', customers: 'Guests', leads: 'Enquiries', value: 'Booking value' },
+    fields: [
+      sel('ho_kind', 'Booking for', 'Stay, Table, Banquet / party, Corporate event, Catering'), f('ho_in', 'Check-in / date', 'date'), f('ho_out', 'Check-out', 'date'),
+      f('ho_pax', 'Guests', 'number'), f('ho_value', 'Booking value (₹)', 'money'), sel('ho_from', 'Booked via', 'Direct / website, Phone, Walk-in, MakeMyTrip, Booking.com, Airbnb, Zomato, Instagram'),
+      f('ho_pref', 'Preferences', 'longtext'),
+    ],
+    pipeline: { name: 'Bookings', stages: [S('Enquiry', '#6366f1'), S('Quote sent', '#0ea5e9'), S('Confirmed', '#16a34a', 'won'), S('Checked in', '#f59e0b'), S('Completed', '#14b8a6'), S('Cancelled', '#94a3b8', 'lost')] },
+    columns: ['ho_kind', 'ho_in', 'ho_pax', 'ho_value'], cardFields: ['ho_in', 'ho_value'], filters: ['ho_kind', 'ho_from'], valueField: 'ho_value', showSales: false,
+  },
 ];
 const kitById = (id) => KITS.find((k) => k.id === id) || null;
 

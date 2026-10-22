@@ -233,7 +233,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Created the “${r.name}” pipeline`,
   },
   {
-    name: 'setup_crm', description: 'Switch the CRM to fit a kind of business (its words, fields, pipeline, board). Ready-made styles: general (coach/creator), realestate, clinic, consultant, education, fitness, finance. For any other business pass a description and a custom CRM is designed. Never deletes contacts or fields.',
+    name: 'setup_crm', description: 'Switch the CRM to fit a kind of business (its words, fields, pipeline, board). Ready-made styles: general (coach/creator), realestate, clinic, consultant, education, fitness, finance, interior, events, travel, auto, professional (CA/lawyer), recruitment, homeservices (solar/installers), hospitality. For any other business pass a description and a custom CRM is designed. Never deletes contacts or fields.',
     schema: S({ style: str('A ready-made style id, or "custom"'), description: str('For custom: the business and how it sells') }, ['style']),
     run: async (ctx, a) => {
       let body = { id: a.style };

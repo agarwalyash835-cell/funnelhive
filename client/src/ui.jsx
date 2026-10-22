@@ -106,7 +106,7 @@ const PAGES = {
   '/products': ['box', 'Products', 'Courses, downloads and memberships buyers get access to'],
   '/school': ['bookmark', 'School', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
-  '/contacts': ['users', 'Contacts', 'Everyone who signed up or bought, with your pipeline'],
+  '/contacts': ['users', 'CRM', 'Your leads, customers and pipeline — styled for your business (real estate, clinic, consultant…)'],
   '/automations': ['flow', 'Automations', 'Follow-up emails and WhatsApp that run by themselves'],
   '/broadcasts': ['mail', 'Broadcasts', 'One-off emails to your list'],
   '/bookings': ['clock', 'Bookings', 'Your booking page, call types and calls'],

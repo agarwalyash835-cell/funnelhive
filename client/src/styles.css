@@ -2123,3 +2123,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .kit-fields { display: flex; flex-wrap: wrap; gap: 5px; }
 .kit-fields span { font-size: 12.5px; padding: 3px 9px; border-radius: 999px; background: var(--c-accent-soft); }
 .kit-fields small { color: var(--c-muted); font-size: 11px; }
+.kit-nudge { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; margin: 0 0 14px; border-radius: 12px; border: 1px dashed var(--c-accent); background: var(--c-accent-soft); }
+.kit-nudge > span { font-size: 20px; letter-spacing: 2px; }
+.kit-nudge > div { flex: 1; min-width: 200px; display: grid; gap: 2px; }
+.kit-nudge small { color: var(--c-muted); font-size: 12.5px; }
