@@ -11,6 +11,7 @@ import { studentLibrary, accessActive, cleanQuiz } from './products.js';
 import { aiEnabled, aiText, aiJson } from './ai.js';
 import { creditsShort, spendCredits } from './billing.js';
 import { brand } from './platform.js';
+import { waEvent } from './hive-wa.js';
 import { ticket } from './video.js';
 
 const DAY = 86400000;
@@ -60,7 +61,22 @@ function award(s, n, why, ref = '') {
   T.points.insert({ id: uid(), userId: s.userId, studentId: s.id, n, why, ref, at: Date.now() });
   T.students.update(s.id, (x) => { x.points = Math.max(0, (x.points || 0) + n); });
 }
-const notify = (studentId, note) => { if (studentId) T.snotes.insert({ id: uid(), studentId, read: false, at: Date.now(), ...note }); };
+// a student's notification: in the members area, plus an email (and WhatsApp once its template is approved) — at
+// most one alert every 30 minutes per student, and never when they've turned alerts off
+const ALERT_GAP = 30 * 60000;
+function notify(owner, studentId, note) {
+  if (!studentId) return;
+  const n = T.snotes.insert({ id: uid(), studentId, read: false, at: Date.now(), ...note });
+  const s = T.students.get(studentId);
+  if (!s || s.alertsOff || s.banned || Date.now() - (s.lastAlertAt || 0) < ALERT_GAP) return;
+  T.students.update(s.id, (x) => { x.lastAlertAt = Date.now(); });
+  const name = schoolName(owner);
+  const link = `${(process.env.APP_URL || '').replace(/\/+$/, '')}/learn/${handleOf(owner)}/${note.link || ''}`;
+  const text = `Hi ${first(s.name) || 'there'},\n\n${note.text}.\n\nRead it and reply here:\n${link}\n\nYou get these because you take part in ${name}. Turn them off any time in your profile.\n\n— ${name}`;
+  sendEmail(owner, { to: s.email, subject: `${note.text} — ${name}`, text }).catch(() => {});
+  const phone = s.phone || T.access.all({ userId: s.userId, ckey: s.ckey }).find((a) => a.phone)?.phone;
+  if (phone) waEvent(owner, 'community_reply', { to: phone, params: [first(s.name) || 'there', name, note.text], link, entityId: n.id, ckey: s.ckey }).catch(() => {});
+}
 
 // ---------- sessions (one per device; the oldest drops off past the school's device limit) ----------
 function startSession(owner, s, device) {
@@ -156,7 +172,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     if (Date.now() - (sess.lastSeenAt || 0) > 5 * 60000) { T.ssessions.update(sess.id, (x) => { x.lastSeenAt = Date.now(); }); T.students.update(s.id, (x) => { x.lastSeenAt = Date.now(); }); }
     return s;
   };
-  const meView = (owner, s) => ({ id: s.id, email: s.email, name: s.name, bio: s.bio || '', initials: initials(s.name || s.email), ...levelView(owner, s.points || 0) });
+  const meView = (owner, s) => ({ id: s.id, email: s.email, name: s.name, bio: s.bio || '', alerts: !s.alertsOff, initials: initials(s.name || s.email), ...levelView(owner, s.points || 0) });
   const publicSchool = (owner) => {
     const sc = schoolOf(owner);
     return { name: schoolName(owner), tagline: sc.tagline, logo: sc.logo, cover: sc.cover, color: sc.color || owner.settings?.brandColor || '#6366f1', openJoin: !!sc.openJoin, tutor: !!sc.tutor && aiEnabled(), levels: sc.levels, levelPoints: LEVELS, welcome: sc.welcome };
@@ -236,7 +252,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   app.put('/api/learn/:handle/me', writeLimiter, (req, res) => {
     const owner = school(req, res); if (!owner) return;
     const s = student(req, res, owner); if (!s) return;
-    const n = T.students.update(s.id, (x) => { if ('name' in req.body) x.name = clip(req.body.name, 80); if ('bio' in req.body) x.bio = clip(req.body.bio, 300); });
+    const n = T.students.update(s.id, (x) => { if ('name' in req.body) x.name = clip(req.body.name, 80); if ('bio' in req.body) x.bio = clip(req.body.bio, 300); if ('alerts' in req.body) x.alertsOff = !req.body.alerts; });
     res.json(meView(owner, n));
   });
   app.get('/api/learn/:handle/notifications', limiter, (req, res) => {
@@ -335,7 +351,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const target = lessonTarget(p.id, req.params.lid);
     const parent = req.body?.parentId && T.replies.get(req.body.parentId);
     const r = T.replies.insert({ id: uid(), userId: owner.id, target, parentId: parent?.target === target ? parent.id : null, body, author: { kind: 'student', id: s.id }, at: Date.now() });
-    if (parent?.author?.kind === 'student' && parent.author.id !== s.id) notify(parent.author.id, { kind: 'reply', text: `${s.name || 'Someone'} replied to your question`, link: `course/${p.id}/${req.params.lid}` });
+    if (parent?.author?.kind === 'student' && parent.author.id !== s.id) notify(owner, parent.author.id, { kind: 'reply', text: `${s.name || 'Someone'} replied to your question`, link: `course/${p.id}/${req.params.lid}` });
     res.json(replyView(owner, r, s));
   });
 
@@ -421,8 +437,8 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const parent = req.body?.parentId && T.replies.get(req.body.parentId);
     const r = T.replies.insert({ id: uid(), userId: owner.id, target: `post:${p.id}`, parentId: parent?.target === `post:${p.id}` ? parent.id : null, body, author: { kind: 'student', id: s.id }, at: Date.now() });
     const who = s.name || 'Someone';
-    if (p.author.kind === 'student' && p.author.id !== s.id) notify(p.author.id, { kind: 'comment', text: `${who} commented on your post`, link: `post/${p.id}` });
-    if (parent?.author?.kind === 'student' && parent.author.id !== s.id && parent.author.id !== p.author.id) notify(parent.author.id, { kind: 'reply', text: `${who} replied to your comment`, link: `post/${p.id}` });
+    if (p.author.kind === 'student' && p.author.id !== s.id) notify(owner, p.author.id, { kind: 'comment', text: `${who} commented on your post`, link: `post/${p.id}` });
+    if (parent?.author?.kind === 'student' && parent.author.id !== s.id && parent.author.id !== p.author.id) notify(owner, parent.author.id, { kind: 'reply', text: `${who} replied to your comment`, link: `post/${p.id}` });
     res.json(replyView(owner, r, s));
   });
   app.delete('/api/learn/:handle/comments/:id', writeLimiter, (req, res) => {
@@ -582,7 +598,7 @@ Rules: modules (sections) in a sensible order, 3-6 lessons each; add a quiz (3-5
     const body = clip(req.body?.body, 3000);
     if (!body) return res.status(400).json({ error: 'Write something first' });
     const r = T.replies.insert({ id: uid(), userId: req.user.id, target: `post:${p.id}`, parentId: null, body, author: ownerAuthor(req), at: Date.now() });
-    if (p.author.kind === 'student') notify(p.author.id, { kind: 'comment', text: `${schoolName(req.user)} replied to your post`, link: `post/${p.id}` });
+    if (p.author.kind === 'student') notify(req.user, p.author.id, { kind: 'comment', text: `${schoolName(req.user)} replied to your post`, link: `post/${p.id}` });
     res.json(replyView(req.user, r, null));
   });
   app.delete('/api/school/comments/:id', auth, (req, res) => {
@@ -607,7 +623,7 @@ Rules: modules (sections) in a sensible order, 3-6 lessons each; add a quiz (3-5
     if (!body) return res.status(400).json({ error: 'Write an answer first' });
     const a = T.replies.insert({ id: uid(), userId: req.user.id, target: r.target, parentId: r.id, body, author: ownerAuthor(req), at: Date.now() });
     const [, pid, lid] = r.target.split(':');
-    if (r.author.kind === 'student') notify(r.author.id, { kind: 'reply', text: `${schoolName(req.user)} answered your question`, link: `course/${pid}/${lid}` });
+    if (r.author.kind === 'student') notify(req.user, r.author.id, { kind: 'reply', text: `${schoolName(req.user)} answered your question`, link: `course/${pid}/${lid}` });
     res.json(replyView(req.user, a, null));
   });
   // students: who they are, how far along, points; remove (ban) or sign them out everywhere

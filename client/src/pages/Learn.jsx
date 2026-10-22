@@ -592,7 +592,7 @@ function Leaderboard({ api }) {
   );
 }
 function Profile({ api, me, onSaved }) {
-  const [v, setV] = useState({ name: me.name || '', bio: me.bio || '' });
+  const [v, setV] = useState({ name: me.name || '', bio: me.bio || '', alerts: me.alerts !== false });
   const [saved, setSaved] = useState(false);
   const [certs, setCerts] = useState([]);
   useEffect(() => { api('/home').then((d) => setCerts(d.certs)).catch(() => {}); }, []);
@@ -604,6 +604,7 @@ function Profile({ api, me, onSaved }) {
       <form className="ln-panel" onSubmit={save}>
         <label className="ln-field"><span>Name</span><input value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} maxLength={80} /></label>
         <label className="ln-field"><span>About you</span><textarea rows={3} value={v.bio} onChange={(e) => setV({ ...v, bio: e.target.value })} maxLength={300} placeholder="A line about yourself for the community" /></label>
+        <label className="ln-check"><input type="checkbox" checked={v.alerts} onChange={(e) => setV({ ...v, alerts: e.target.checked })} /><span>Email me (and WhatsApp) when someone replies to me or answers my question</span></label>
         <p className="ln-mute sm">Signed in as {me.email}</p>
         <button className="ln-btn">{saved ? 'Saved ✓' : 'Save'}</button>
       </form>

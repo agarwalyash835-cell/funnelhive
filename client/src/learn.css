@@ -312,3 +312,5 @@
 }
 @media (prefers-reduced-motion: reduce) { .ln *, .ln-toast { animation: none !important; transition: none !important; } }
 .ln-lock { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--mute); background: var(--bg); padding: 1px 6px; border-radius: 6px; }
+.ln-check { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 12px; font-size: 14px; color: var(--ink2); cursor: pointer; }
+.ln-check input { width: 18px !important; height: 18px; margin-top: 2px; accent-color: var(--acc); flex: none; padding: 0; }

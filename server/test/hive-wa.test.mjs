@@ -136,7 +136,7 @@ test('templates: the standard set is submitted (existing ones skipped) and appro
   const r = await api('/channels/whatsapp/hive/templates/setup', 'POST', {}, T);
   assert.equal(r.status, 200, JSON.stringify(r.data));
   const posts = fake.reqs.filter((x) => x.method === 'POST' && x.path === '/templates');
-  assert.equal(posts.length, 10, 'the one already on Hive isn’t submitted again');
+  assert.equal(posts.length, 11, 'the one already on Hive isn’t submitted again');
   assert.equal(r.data.result.order_receipt, 'SUBMITTED');
   assert.equal(r.data.result.quote_sent, 'APPROVED');
   for (const p of posts) {
@@ -152,7 +152,7 @@ test('templates: the standard set is submitted (existing ones skipped) and appro
   assert.equal(byEv.quote_sent, 'APPROVED', 'one that already existed is picked up, not duplicated');
   // again: nothing new is submitted while they're in review
   const again = await api('/channels/whatsapp/hive/templates/setup', 'POST', {}, T);
-  assert.equal(fake.reqs.filter((x) => x.method === 'POST' && x.path === '/templates').length, 10);
+  assert.equal(fake.reqs.filter((x) => x.method === 'POST' && x.path === '/templates').length, 11);
   assert.ok(Object.values(again.data.result).every((s) => ['PENDING', 'APPROVED'].includes(s)), JSON.stringify(again.data.result));
 
   assert.equal((await hook('template.status', { name: 'fh_order_receipt', status: 'APPROVED' }, { sig: 'sha256=00' })).status, 401, 'bad signature');
@@ -344,7 +344,7 @@ test('setup again: a REJECTED template is edited and resubmitted (or deleted and
   assert.deepEqual([v.status, v.reason], ['REJECTED', 'INVALID_FORMAT']);
   const r = (await api(S, 'POST', {}, T)).data;
   assert.equal(r.result.order_shipped, 'SUBMITTED');
-  assert.equal(Object.values(r.result).filter((s) => s === 'APPROVED').length, 10, JSON.stringify(r.result));
+  assert.equal(Object.values(r.result).filter((s) => s === 'APPROVED').length, 11, JSON.stringify(r.result));
   assert.ok(fake.reqs.some((x) => x.method === 'POST' && x.path === `/templates/${ship.id}`), 'edited in place');
   assert.equal(r.templates.find((t) => t.event === 'order_shipped').status, 'PENDING');
 

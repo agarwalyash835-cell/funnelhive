@@ -237,3 +237,10 @@ test('the members area also opens on the seller’s own domain', async () => {
   assert.equal(JSON.parse(apiRes.body).school.name.length > 0, true);
   assert.ok((await api('/school', 'GET', null, T)).data.domainUrls.includes(`https://learn.mybrand.in/learn/${handle}`));
 });
+
+test('students can turn reply alerts off and on', async () => {
+  const tok = await signIn('alerts@x.in');
+  assert.equal((await L('', 'GET', null, tok)).data.me.alerts, true, 'on by default');
+  assert.equal((await L('/me', 'PUT', { alerts: false }, tok)).data.alerts, false);
+  assert.equal((await L('', 'GET', null, tok)).data.me.alerts, false);
+});
