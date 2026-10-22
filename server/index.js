@@ -1783,7 +1783,7 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 if (indexHtml) {
   // the build's files carry a content hash in their names (/assets/index-AbC123.js): cache them for a year;
   // everything else (index.html, favicon…) is revalidated so a new deploy shows up straight away
-  app.use(express.static(dist, { index: false, setHeaders: (res, file) => { if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); } }));
+  app.use(express.static(dist, { index: false, setHeaders: (res, file) => { if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); else if (/learn-sw\.js$/.test(file)) res.setHeader('Cache-Control', 'no-cache'); } })); // the members-area app's service worker updates at once
   app.get('*', (_, res) => res.set('Cache-Control', 'no-cache').type('html').send(indexHtml));
 }
 

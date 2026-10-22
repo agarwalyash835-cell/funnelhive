@@ -42,6 +42,51 @@ const Name = ({ a }) => <b className="ln-name">{a?.name}{a?.badge && <em classNa
 function Spinner() { return <span className="ln-spin" aria-label="Loading" />; }
 function Empty({ icon, title, text, children }) { return <div className="ln-empty"><div className="ln-empty-ic">{icon}</div><h3>{title}</h3>{text && <p>{text}</p>}{children}</div>; }
 
+// ---------- the installable app ----------
+// Chrome / Android offer "install" once; we keep the offer for our own button
+let installOffer = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installOffer = e; window.dispatchEvent(new Event('ff:installable')); });
+}
+const standalone = () => typeof window !== 'undefined' && (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true);
+const iOS = () => typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent) && !/crios|fxios/i.test(navigator.userAgent);
+function useInstall() {
+  const [can, setCan] = useState(() => !!installOffer);
+  useEffect(() => { const h = () => setCan(true); window.addEventListener('ff:installable', h); return () => window.removeEventListener('ff:installable', h); }, []);
+  if (standalone()) return null;
+  if (can) return { kind: 'prompt', go: async () => { installOffer.prompt(); const r = await installOffer.userChoice.catch(() => null); if (r?.outcome === 'accepted') { installOffer = null; setCan(false); } } };
+  if (iOS()) return { kind: 'ios' };
+  return null;
+}
+// the school's own app identity: manifest, theme colour, home-screen icon; the service worker for fast, offline-aware loading
+function useAppShell(handle, school) {
+  useEffect(() => {
+    if (!school) return;
+    const put = (sel, make) => { let el = document.head.querySelector(sel); if (!el) { el = make(); document.head.appendChild(el); } return el; };
+    put('link[rel="manifest"]', () => Object.assign(document.createElement('link'), { rel: 'manifest' })).href = `/api/learn/${handle}/manifest.webmanifest`;
+    put('meta[name="theme-color"]', () => Object.assign(document.createElement('meta'), { name: 'theme-color' })).content = school.color || '#6366f1';
+    put('link[rel="apple-touch-icon"]', () => Object.assign(document.createElement('link'), { rel: 'apple-touch-icon' })).href = school.logo || `/api/learn/${handle}/icon.svg`;
+    put('meta[name="apple-mobile-web-app-capable"]', () => Object.assign(document.createElement('meta'), { name: 'apple-mobile-web-app-capable' })).content = 'yes';
+    put('meta[name="apple-mobile-web-app-title"]', () => Object.assign(document.createElement('meta'), { name: 'apple-mobile-web-app-title' })).content = school.name;
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/learn-sw.js', { scope: '/learn/' }).catch(() => {});
+  }, [handle, school?.name, school?.color, school?.logo]);
+}
+function InstallBanner({ school }) {
+  const install = useInstall();
+  const key = 'ff_learn_install_hidden';
+  const [hidden, setHidden] = useState(() => { try { return !!localStorage.getItem(key); } catch { return false; } });
+  if (!install || hidden) return null;
+  const hide = () => { setHidden(true); try { localStorage.setItem(key, '1'); } catch {} };
+  return (
+    <div className="ln-install">
+      <span className="ln-install-ic">📲</span>
+      <div><b>Get the {school.name} app</b><small>{install.kind === 'ios' ? 'Tap the Share button, then “Add to Home Screen”.' : 'Open your courses in one tap, full screen.'}</small></div>
+      {install.kind === 'prompt' && <button className="ln-btn sm" onClick={install.go}>Install</button>}
+      <button className="ln-x" aria-label="Hide" onClick={hide}>×</button>
+    </div>
+  );
+}
+
 // ---------- the app ----------
 export default function Learn() {
   const { handle, '*': rest = '' } = useParams();
@@ -73,6 +118,7 @@ export default function Learn() {
       .then((r) => r.json()).then((d) => { if (d.token) { setTok(handle, d.token); setSignedIn(true); nav(`/learn/${handle}`, { replace: true }); } }).catch(() => {}).finally(() => setLinking(false));
   }, []);
   useEffect(() => { if (info?.school?.name) document.title = info.school.name; }, [info?.school?.name]);
+  useAppShell(handle, info?.school);
   const accent = info?.school?.color || '#6366f1';
   if (err) return <div className="ln" style={{ '--acc': accent }}><Empty icon="🔒" title="School not found" text={err} /></div>;
   if (!info || linking || (signedIn && !info.me && getTok(handle))) return <div className="ln ln-loading" style={{ '--acc': accent }}><Spinner /></div>;
@@ -145,6 +191,7 @@ function SignIn({ handle, school, onDone }) {
 // ---------- the frame: top bar, tabs, notifications ----------
 const TABS = [['home', 'Home', '🏠'], ['community', 'Community', '💬'], ['leaderboard', 'Leaderboard', '🏆', 'Leaders'], ['profile', 'Profile', '👤']];
 function Shell({ handle, school, me, section, go, api, onSignOut, children }) {
+  const install = useInstall();
   const [bell, setBell] = useState(null);
   const [unread, setUnread] = useState(0);
   const [menu, setMenu] = useState(false);
@@ -171,6 +218,7 @@ function Shell({ handle, school, me, section, go, api, onSignOut, children }) {
               <div className="ln-pop small" onClick={() => setMenu(false)}>
                 <div className="ln-pop-me"><b>{me.name || me.email}</b><small>Level {me.level} · {me.levelName}</small></div>
                 <button onClick={() => go('profile')}>Profile & certificates</button>
+                {install?.kind === 'prompt' && <button onClick={install.go}>📲 Install the app</button>}
                 <button onClick={onSignOut}>Sign out</button>
               </div>
             )}
@@ -211,6 +259,7 @@ function Home({ api, school, go }) {
         <div><h1>{d.me.name ? `Welcome back, ${d.me.name.split(' ')[0]} 👋` : 'Welcome 👋'}</h1>{school.welcome ? <p className="ln-mute">{linkify(school.welcome)}</p> : <p className="ln-mute">Pick up where you left off, or say hello in the community.</p>}</div>
         <LevelCard me={d.me} />
       </section>
+      <InstallBanner school={school} />
       {resume && (
         <button className="ln-resume" onClick={() => go(`course/${resume.productId}/${resume.resume?.lessonId || resume.lessons.find((l) => !l.done && !l.locked)?.id || ''}`)}>
           <div className="ln-resume-cover" style={resume.cover ? { backgroundImage: `url("${resume.cover}")` } : undefined}>{!resume.cover && '▶'}</div>

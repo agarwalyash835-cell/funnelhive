@@ -244,3 +244,14 @@ test('students can turn reply alerts off and on', async () => {
   assert.equal((await L('/me', 'PUT', { alerts: false }, tok)).data.alerts, false);
   assert.equal((await L('', 'GET', null, tok)).data.me.alerts, false);
 });
+
+test('the members area installs as an app with the school’s name, colour and icon', async () => {
+  const m = await (await fetch(`${srv.base}/api/learn/${handle}/manifest.webmanifest`)).json();
+  assert.equal(m.display, 'standalone');
+  assert.equal(m.start_url, `/learn/${handle}`);
+  assert.ok(m.name.length > 0 && m.short_name.length <= 12);
+  assert.ok(m.icons.some((i) => i.purpose === 'maskable'));
+  const svg = await fetch(`${srv.base}/api/learn/${handle}/icon.svg`);
+  assert.match(svg.headers.get('content-type'), /svg/);
+  assert.match(await svg.text(), /^<svg[\s\S]+<\/svg>$/);
+});

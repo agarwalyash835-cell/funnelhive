@@ -184,6 +184,25 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const s = student(req, res, owner, { quiet: true });
     res.set('Cache-Control', 'no-store').json({ school: publicSchool(owner), me: s ? meView(owner, s) : null });
   });
+  // the installable app (add to home screen): the school's name, colour and icon
+  app.get('/api/learn/:handle/manifest.webmanifest', limiter, (req, res) => {
+    const owner = school(req, res); if (!owner) return;
+    const sc = publicSchool(owner), h = req.params.handle, icon = `/api/learn/${h}/icon.svg`;
+    const short = sc.name.length > 12 ? sc.name.split(/\s+/)[0].slice(0, 12) : sc.name;
+    res.set('Cache-Control', 'public, max-age=600').type('application/manifest+json').send(JSON.stringify({
+      name: sc.name, short_name: short, description: sc.tagline || `Courses and community — ${sc.name}`,
+      id: `/learn/${h}`, start_url: `/learn/${h}`, scope: `/learn/${h}`, display: 'standalone', orientation: 'portrait', background_color: '#f6f6fa', theme_color: sc.color,
+      icons: [...(sc.logo ? [{ src: sc.logo, sizes: 'any', purpose: 'any' }] : []), { src: icon, sizes: 'any', type: 'image/svg+xml', purpose: 'any' }, { src: `${icon}?m=1`, sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }],
+    }));
+  });
+  app.get('/api/learn/:handle/icon.svg', limiter, (req, res) => {
+    const owner = school(req, res); if (!owner) return;
+    const sc = publicSchool(owner);
+    const letter = (sc.name.trim()[0] || 'S').toUpperCase().replace(/[<>&"']/g, '');
+    const color = /^#[0-9a-f]{6}$/i.test(sc.color) ? sc.color : '#6366f1';
+    const r = req.query.m ? 0 : 112; // maskable icons fill the whole square
+    res.set('Cache-Control', 'public, max-age=600').type('image/svg+xml').send(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="${r}" fill="${color}"/><text x="256" y="256" dy=".35em" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="260" font-weight="800" fill="#fff">${letter}</text></svg>`);
+  });
   // a sign-in code by email — only to people who belong (bought, signed up, or the school is open to all)
   app.post('/api/learn/:handle/code', codeLimiter, wrap(async (req, res) => {
     const owner = school(req, res); if (!owner) return;
