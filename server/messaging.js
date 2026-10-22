@@ -27,12 +27,25 @@ export function decrypt(blob) {
 }
 
 // ---------- email ----------
+// the platform's own sender (Resend), entered in Admin → Email sending; server env vars win
+var mailSettings; // var (no initialiser) + function declarations: platform.js registers this during a circular import, before this file runs
+export function useMailSettings(fn) { mailSettings = fn; }
+export function resendKey() { return process.env.RESEND_API_KEY || mailSettings?.()?.resendKey || ''; }
+export function mailFrom() { return process.env.MAIL_FROM || mailSettings?.()?.from || 'FunnelHive <no-reply@funnelhive.app>'; }
+// a seller's emails go out from the platform address under the seller's own name ("Asha Yoga" <no-reply@…>)
+const fromAs = (name) => { const addr = (/<([^>]+)>/.exec(mailFrom()) || [])[1] || mailFrom(); return name ? `"${String(name).replace(/["<>]/g, '')}" <${addr}>` : mailFrom(); };
+export async function resendSend(key, payload) {
+  const r = await fetch(`${process.env.RESEND_BASE_URL || 'https://api.resend.com'}/emails`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.message || `Email provider error ${r.status}`); e.status = r.status; throw e; }
+  return d;
+}
 const envSmtp = () => (process.env.SMTP_HOST ? { host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : Number(process.env.SMTP_PORT) === 465, user: process.env.SMTP_USER || '', pass: process.env.SMTP_PASS || '' } : null);
 const userSmtp = (u) => { const e = u?.channels?.email; return e?.host ? { host: e.host, port: e.port, secure: e.secure, user: e.user, pass: decrypt(e.passEnc) } : null; };
 export function emailStatus(u) {
   if (userSmtp(u)) return { configured: true, via: 'your SMTP' };
   if (envSmtp()) return { configured: true, via: 'server SMTP' };
-  if (process.env.RESEND_API_KEY) return { configured: true, via: 'Resend' };
+  if (resendKey()) return { configured: true, via: 'Resend' };
   return { configured: false };
 }
 const transports = new Map();
@@ -60,14 +73,9 @@ export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverr
     const info = await transportFor(smtp).sendMail({ from, to, subject, text: body, html: htmlOf(body, track), replyTo: e.replyTo || undefined, headers });
     return { status: 'sent', id: info.messageId };
   }
-  if (process.env.RESEND_API_KEY) {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: process.env.MAIL_FROM || 'FunnelHive <no-reply@funnelhive.app>', to, subject, text: body, html: htmlOf(body, track), reply_to: e.replyTo || u?.email, headers }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!r.ok) throw new Error(`Email provider error ${r.status}`);
-    return { status: 'sent', id: (await r.json().catch(() => ({}))).id };
+  if (resendKey()) {
+    const d = await resendSend(resendKey(), { from: u ? fromAs(fromName) : mailFrom(), to, subject, text: body, html: htmlOf(body, track), reply_to: e.replyTo || u?.email, headers });
+    return { status: 'sent', id: d.id };
   }
   return { status: 'not-configured' };
 }

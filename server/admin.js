@@ -6,7 +6,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus, restorePending, safetyDir, dir as dataDir } from './db.js';
 import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE, DEFAULTS, companyMissing } from './platform.js';
-import { decrypt } from './messaging.js';
+import { decrypt, mailFrom, resendSend } from './messaging.js';
 import { s3Enabled, storageFromEnv, testStorage, listKeys, getObject, videoBucketReady, videoStorageFromEnv } from './storage.js';
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
 import { call as rzpCall } from './razorpay.js';
@@ -69,7 +69,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         uptimeSec: Math.round((now - startedAt) / 1000), processes: Number(process.env.WEB_CONCURRENCY) || 1, dbBytes: dbBytes(), backups: backupFiles().slice(0, 7), offsite: offsiteStatus(), restoreDrill: T.platform.get('restoreDrill') || null,
         memoryMb: Math.round(process.memoryUsage().rss / 1e6), loadavg: os.loadavg().map((x) => +x.toFixed(2)), node: process.version,
         paymentsReady: !!(platformRzp() || platformStripe()), paymentsMode: platformRzp()?.mode || platformStripe()?.mode || null,
-        payments: [platformRzp() && `Razorpay (${platformRzp().mode})`, platformStripe() && `Stripe (${platformStripe().mode})`].filter(Boolean), emailReady: !!(process.env.SMTP_HOST || process.env.RESEND_API_KEY),
+        payments: [platformRzp() && `Razorpay (${platformRzp().mode})`, platformStripe() && `Stripe (${platformStripe().mode})`].filter(Boolean), emailReady: mailEnabled(),
       },
     });
   });
@@ -177,7 +177,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
     const st = p.storage, vs = p.videoStorage;
-    return { ...rest, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady() }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady() }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -238,10 +238,25 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       }
       changes.push(field === 'storage' ? 'file storage' : 'video storage');
     }
+    // the platform's email sender (Resend): checked by sending a real test email to the admin before it's saved
+    if (b.mail) {
+      const m = b.mail, cur = platform().mail;
+      if (m.clear) patch.mail = { ...DEFAULTS.mail };
+      else {
+        const from = String(m.from ?? cur.from).trim().slice(0, 200);
+        if (!/^([^<>"]{1,80} <)?[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}>?$/i.test(from) || from.includes('<') !== from.endsWith('>')) return res.status(400).json({ error: 'The sender looks like: FunnelHive <no-reply@yourdomain.com>' });
+        const key = m.key ? String(m.key).trim() : decrypt(cur.keyEnc);
+        if (!/^re_\w{8,}$/.test(key || '')) return res.status(400).json({ error: 'Paste your Resend API key (it starts with re_)' });
+        try { await resendSend(key, { from, to: req.user.email, subject: 'Your email sending works ✓', text: `This test came from ${from} through Resend. Sign-in codes, password resets and students’ alerts will now be delivered.` }); }
+        catch (e) { return res.status(400).json({ error: e.status === 401 || e.status === 403 ? `Resend refused: ${e.message} — check the key, and that the domain in the sender is verified in Resend` : `Couldn’t send the test email: ${e.message}` }); }
+        patch.mail = { from, keyEnc: m.key ? encrypt(key) : cur.keyEnc };
+      }
+      changes.push('email sending');
+    }
     if (b.limits) { try { patch.limits = saveLimits(b.limits); changes.push('limits'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     if (b.stripe || b.intl) { try { await saveIntlSettings(b); changes.push('international billing'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     savePlatform((s) => Object.assign(s, patch));
-    audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay' && k !== 'storage' && k !== 'videoStorage'), ...changes].join(', '));
+    audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay' && k !== 'storage' && k !== 'videoStorage' && k !== 'mail'), ...changes].join(', '));
     if (patch.storage?.endpoint) backupNow(); // the first off-site copy right away
     res.json(settingsView());
   }));

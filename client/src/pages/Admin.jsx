@@ -292,6 +292,29 @@ function StoragePanel({ s, save, field = 'storage' }) {
   );
 }
 
+// the platform's own email sender (Resend): sign-in codes, password resets, students' alerts
+function MailPanel({ m, save }) {
+  const [v, setV] = useState({ from: m.hasKey || m.fromEnv ? m.from : '', key: '' });
+  const [busy, setBusy] = useState(false);
+  const go = async () => { setBusy(true); if (await save({ mail: v })) { setV({ ...v, key: '' }); toast('Test email sent — check your inbox'); } setBusy(false); };
+  return (
+    <Panel title="Email sending">
+      <p className="muted sm">Sends sign-in codes, password resets, receipts and students’ alerts — and sellers’ emails when they haven’t connected their own. Uses <b>Resend</b> (free for 3,000 emails a month). Sellers’ emails go out under their own business name from this address.</p>
+      <div className={`ai-card ${m.ready ? 'on' : ''}`}><Icon name="mail" size={20} /><div><b>{m.ready ? `Sending · ${m.fromEnv ? 'Resend key from the server’s settings file' : m.smtpEnv && !m.hasKey ? 'server SMTP' : m.from}` : 'Not set up — no emails are being delivered'}</b>{!m.ready && <p className="muted sm">Students can’t get sign-in codes and sellers can’t reset passwords until this is set up.</p>}</div></div>
+      {m.fromEnv ? <p className="hint">Set by RESEND_API_KEY on the server, which takes priority over this form.</p> : (
+        <>
+          <div className="form2">
+            <label>Sender<input value={v.from} onChange={(e) => setV({ ...v, from: e.target.value })} placeholder="FunnelHive <no-reply@theaihive.tech>" /></label>
+            <label>Resend API key {m.hasKey && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.key} onChange={(e) => setV({ ...v, key: e.target.value.trim() })} placeholder="re_…" autoComplete="new-password" /></label>
+          </div>
+          <p className="hint">In Resend: Domains → Add your domain and add its DNS records until it shows Verified → API Keys → Create (Sending access). The sender must be on that verified domain. Saving sends a test email to you, so a wrong key or unverified domain is caught here.</p>
+          <div className="row"><button className="btn primary" disabled={busy || !v.from || (!v.key && !m.hasKey)} onClick={go}>{busy ? 'Sending a test…' : 'Save & send test email'}</button>{m.hasKey && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Stop sending email?', text: 'Sign-in codes and password resets will stop being delivered.', confirm: 'Disconnect', danger: true })) && save({ mail: { clear: true } })}>Disconnect</button>}</div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 function PlatformSettings() {
   const [s, setS] = useState(null);
   const [rz, setRz] = useState({ keyId: '', keySecret: '', webhookSecret: '' });
@@ -332,6 +355,7 @@ function PlatformSettings() {
         <button className="btn primary" onClick={() => save({ plans: s.plans, agency: s.agency, trialDays: s.trialDays, gstRate: s.gstRate, aiCredits: s.aiCredits, graceDays: s.graceDays, pagesOfflineAfterDays: s.pagesOfflineAfterDays, pricesIncludeGst: s.pricesIncludeGst, limits: s.limits })}>Save pricing</button>
       </Panel>
 
+      {s.mail && <MailPanel m={s.mail} save={save} />}
       <StoragePanel s={s.storage} save={save} />
       <StoragePanel s={s.videoStorage} save={save} field="videoStorage" />
 

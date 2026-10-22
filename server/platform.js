@@ -1,7 +1,7 @@
 // Platform-wide settings the owner manages from the admin panel: brand, price, trial, AI credits,
 // company details for GST invoices and the Razorpay account that collects subscriptions.
 import { T } from './db.js';
-import { encrypt, decrypt } from './messaging.js';
+import { encrypt, decrypt, useMailSettings } from './messaging.js';
 import { useStorageSettings, useVideoStorageSettings } from './storage.js';
 
 export const DEFAULTS = {
@@ -19,6 +19,7 @@ export const DEFAULTS = {
   razorpay: { keyId: '', secretEnc: '', webhookSecretEnc: '', planIds: {} },
   storage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // S3-compatible (Wasabi…): backups, uploads, product files
   videoStorage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // course video pieces (Cloudflare R2: no download fees)
+  mail: { from: '', keyEnc: '' }, // the platform's email sender (Resend): sign-in codes, resets, students' alerts
   signupsOpen: true,
   announcement: '',
   googleClientId: '', // "Continue with Google" (OAuth client ID from Google Cloud)
@@ -39,6 +40,7 @@ export function platform() {
     razorpay: { ...DEFAULTS.razorpay, ...s.razorpay, planIds: { ...s.razorpay?.planIds } },
     storage: { ...DEFAULTS.storage, ...s.storage },
     videoStorage: { ...DEFAULTS.videoStorage, ...s.videoStorage },
+    mail: { ...DEFAULTS.mail, ...s.mail },
   };
   cacheAt = Date.now();
   return cache;
@@ -70,6 +72,7 @@ export { encrypt };
 
 // file storage entered in the admin panel (server env vars win — see storage.js)
 useStorageSettings(() => { const s = platform().storage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
+useMailSettings(() => { const m = platform().mail; return m.keyEnc ? { resendKey: decrypt(m.keyEnc), from: m.from } : null; });
 useVideoStorageSettings(() => { const s = platform().videoStorage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
 
 // Owners are the accounts listed in ADMIN_EMAILS (once their email is verified) or given the admin role
