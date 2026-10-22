@@ -86,3 +86,20 @@ test('AI designs a custom CRM, cleaned; Hive switches styles', async () => {
   const c = await call('setup_crm', { style: 'custom', description: 'Interior design studio' });
   assert.equal(c.name, 'Interior studio', JSON.stringify(c));
 });
+
+test('Hive reads and updates the CRM: field and stage search, field updates, stage moves, notes', async () => {
+  await api('/crm/kit', 'POST', { id: 'realestate' }, T);
+  const tok = (await api('/hive/tokens', 'POST', { name: 't2' }, T)).data.token;
+  const call = async (name, args) => { const r = await (await fetch(`${srv.base}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })).json(); return r.result.isError ? { error: r.result.content[0].text } : JSON.parse(r.result.content[0].text); };
+  const two = await call('find_contacts', { fields: { BHK: '2 bhk' } });
+  assert.equal(two.count, 2, JSON.stringify(two));
+  assert.equal(two.pipeline, 'Property sales');
+  assert.equal(two.contacts[0].fields.BHK, '2 BHK');
+  const up = await call('update_contact', { key: 'b@example.com', fields: { 'Site visit': '2026-10-30', Nope: 1 }, stage: 'negotiation', note: 'Wants a corner flat' });
+  assert.equal(up.moved, 'Negotiation', JSON.stringify(up));
+  assert.deepEqual(up.unknownFields, ['Nope']);
+  const neg = await call('find_contacts', { stage: 'Negotiation' });
+  assert.deepEqual(neg.contacts.map((x) => x.email), ['b@example.com']);
+  assert.equal(neg.contacts[0].fields['Site visit'], '2026-10-30');
+  assert.ok((await call('update_contact', { key: 'b@example.com', stage: 'Moon' })).error);
+});

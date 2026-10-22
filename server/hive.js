@@ -385,16 +385,44 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
 
   // ---------- contacts & broadcasts ----------
   {
-    name: 'find_contacts', description: 'Search contacts by text (name / email / phone), tag, or type (lead | customer). Returns a count and up to 20.',
-    schema: S({ query: str('Text to match'), tag: str('Has this tag'), type: str('lead | customer') }),
+    name: 'find_contacts', description: 'Search the CRM by text (name / email / phone), tag, type (lead | customer), pipeline stage name, or custom field values (e.g. {"BHK": "3 BHK", "Preferred location": "Baner"} — matched by field name, contains). Returns a count and up to 25 with their custom fields (by name) and stage. Use it to answer questions like "who has a site visit this week" or "total budget of 3 BHK leads".',
+    schema: S({ query: str('Text to match'), tag: str('Has this tag'), type: str('lead | customer'), stage: str('Stage name in the CRM pipeline'), fields: obj('Custom field filters { "Field name": "value" }') }),
     run: async (ctx, a) => {
-      const d = await ctx.call('GET', '/contacts');
+      const [d, defs, kits, pipes] = await Promise.all([ctx.call('GET', '/contacts'), ctx.call('GET', '/crm/fields'), ctx.call('GET', '/crm/kits'), ctx.call('GET', '/pipelines')]);
       const all = d.contacts || d;
+      const pipe = pipes.find((p) => p.id === kits.current?.pipelineId) || pipes[0];
+      const stageName = (x) => pipe?.stages.find((st) => st.id === x.stages?.[pipe.id])?.name || '';
+      const named = (x) => Object.fromEntries(defs.filter((fd) => x.custom?.[fd.id] != null && x.custom[fd.id] !== '').map((fd) => [fd.label, x.custom[fd.id]]));
       const q = String(a.query || '').toLowerCase();
-      const hit = all.filter((x) => (!q || `${x.name} ${x.email} ${x.phone}`.toLowerCase().includes(q)) && (!a.tag || (x.tags || []).some((t) => t.toLowerCase() === a.tag.toLowerCase())) && (!a.type || x.type === a.type));
-      return { count: hit.length, contacts: hit.slice(0, 20).map((x) => ({ key: x.key, name: x.name, email: x.email, phone: x.phone, type: x.type, tags: x.tags, orders: x.orders, ltv: x.ltv })) };
+      const want = Object.entries(a.fields || {}).map(([label, v]) => [defs.find((fd) => fd.label.toLowerCase() === String(label).toLowerCase() || fd.id === label), String(v).toLowerCase()]).filter(([fd]) => fd);
+      const hit = all.filter((x) => (!q || `${x.name} ${x.email} ${x.phone}`.toLowerCase().includes(q)) && (!a.tag || (x.tags || []).some((t) => t.toLowerCase() === a.tag.toLowerCase())) && (!a.type || x.type === a.type)
+        && (!a.stage || stageName(x).toLowerCase() === String(a.stage).toLowerCase()) && want.every(([fd, v]) => String(x.custom?.[fd.id] ?? '').toLowerCase().includes(v)));
+      return { count: hit.length, pipeline: pipe?.name, contacts: hit.slice(0, 25).map((x) => ({ key: x.key, name: x.name, email: x.email, phone: x.phone, type: x.type, stage: stageName(x), fields: named(x), tags: x.tags, orders: x.orders, ltv: x.ltv })) };
     },
     summary: (r) => `Found ${r.count} contact${r.count === 1 ? '' : 's'}`,
+  },
+  {
+    name: 'update_contact', description: 'Update one CRM record by its key (from find_contacts): set custom fields by name (e.g. {"Site visit": "2026-10-30", "Budget (₹)": 8500000}), move it to a pipeline stage by name, and/or add a note.',
+    schema: S({ key: str('Contact key'), fields: obj('{ "Field name": value }'), stage: str('Stage name to move to'), note: str('A note to add to the timeline') }, ['key']),
+    run: async (ctx, a) => {
+      const [defs, kits, pipes] = await Promise.all([ctx.call('GET', '/crm/fields'), ctx.call('GET', '/crm/kits'), ctx.call('GET', '/pipelines')]);
+      const key = encodeURIComponent(a.key);
+      const custom = {}, unknown = [];
+      for (const [label, v] of Object.entries(a.fields || {})) { const fd = defs.find((x) => x.label.toLowerCase() === String(label).toLowerCase() || x.id === label); if (fd) custom[fd.id] = v; else unknown.push(label); }
+      const body = {};
+      if (Object.keys(custom).length) body.custom = custom;
+      let moved = null;
+      if (a.stage) {
+        const pipe = pipes.find((p) => p.id === kits.current?.pipelineId) || pipes[0];
+        const st = pipe?.stages.find((x) => x.name.toLowerCase() === String(a.stage).toLowerCase());
+        if (!st) return { error: `No stage “${a.stage}” — stages: ${pipe?.stages.map((x) => x.name).join(', ')}` };
+        body.stage = { pipelineId: pipe.id, stageId: st.id }; moved = st.name;
+      }
+      if (Object.keys(body).length) await ctx.call('PATCH', `/contacts/${key}`, body);
+      if (a.note) await ctx.call('POST', `/contacts/${key}/activity`, { type: 'note', text: String(a.note).slice(0, 2000) });
+      return { ok: true, key: a.key, updated: Object.keys(custom).length, moved, noted: !!a.note, ...(unknown.length ? { unknownFields: unknown } : {}) };
+    },
+    summary: (r) => (r.error ? r.error : `Updated ${r.key}${r.moved ? ` → ${r.moved}` : ''}`),
   },
   {
     name: 'tag_contacts', description: 'Add (or remove) a tag on contacts — by their keys (emails) from find_contacts. Adding a tag starts “tag added” automations.',

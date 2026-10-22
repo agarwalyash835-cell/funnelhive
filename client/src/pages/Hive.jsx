@@ -1,6 +1,6 @@
 // Hive AI — chat on the left, the funnel being built on the right ("Lovable for funnels")
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Sparkles, Send, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil } from 'lucide-react';
 import { api } from '../api';
 import { Layout, toast, ago, confirmDialog, loadFailed } from '../ui';
@@ -141,6 +141,15 @@ export default function Hive() {
 
   const step = funnel?.steps.find((s) => s.id === stepId) || funnel?.steps[0];
   const ready = status?.ready;
+  // a question asked from elsewhere in the app (e.g. the CRM's Ask Hive bar): /hive?ask=…
+  const [params, setParams] = useSearchParams();
+  const asked = useRef(false);
+  useEffect(() => {
+    const q = params.get('ask');
+    if (!status || !q || asked.current) return;
+    asked.current = true; setParams({}, { replace: true });
+    if (ready) send(q); else setInput(q);
+  }, [status]);
   const empty = !msgs.length && !live;
 
   return (

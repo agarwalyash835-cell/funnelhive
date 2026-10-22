@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Mail, Phone, MessageCircle, StickyNote, PhoneCall, ShoppingBag, Eye, LogIn, UserPlus, TrendingUp, TrendingDown, PackagePlus, ShoppingCart,
-  ArrowRightLeft, X, Plus, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, Upload, Download,
+  ArrowRightLeft, X, Plus, Sparkles, ArrowUp, Users, BadgeCheck, Sprout, IndianRupee, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, Upload, Download,
 } from 'lucide-react';
 import { api } from '../api';
 import { KitIcon } from '../blockIcons';
@@ -19,6 +19,9 @@ const dayLabel = (t) => {
 const waNumber = (p = '') => { const d = String(p).replace(/\D/g, ''); return d.length === 10 ? `91${d}` : d; };
 const label = (c) => c.name || c.email || c.phone || 'Unknown';
 const initial = (c) => label(c)[0]?.toUpperCase() || '?';
+// each person gets their own avatar colour (stable: from their name)
+const AV = ['#6366f1', '#0ea5e9', '#14b8a6', '#16a34a', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444', '#0891b2', '#b45309'];
+const avStyle = (c) => { let h = 0; for (const ch of label(c)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return { '--av': AV[h % AV.length] }; };
 const keyUrl = (k) => `/contacts/${encodeURIComponent(k)}`;
 const FIELD_TYPE_LABELS = [['text', 'Short text'], ['longtext', 'Long text'], ['number', 'Number'], ['money', 'Money (₹)'], ['phone', 'Phone'], ['date', 'Date'], ['select', 'Dropdown'], ['url', 'Link'], ['checkbox', 'Yes / no']];
 const PAGE = 100; // contacts per page of the list
@@ -77,6 +80,11 @@ export default function Contacts() {
   const cols = (kit?.columns || []).map((id) => byId[id]).filter(Boolean);
   const filters = (kit?.filters || []).map((id) => byId[id]).filter((x) => x?.type === 'select');
   useEffect(() => { if (pipe) LS.set('ff_pipeline', pipe.id); }, [pipe?.id]);
+  // a newly chosen CRM style (here, by Hive or on another device) opens on its own pipeline
+  useEffect(() => {
+    if (!kit?.at || !kit.pipelineId || LS.get('ff_kit_at', '') === String(kit.at)) return;
+    LS.set('ff_kit_at', String(kit.at)); setPid(kit.pipelineId);
+  }, [kit?.at]);
 
   const rows = list || [];
   const total = page?.total ?? rows.length;
@@ -128,14 +136,16 @@ export default function Contacts() {
       <button className="btn ghost" onClick={() => setModal('import')}><Upload size={16} /> Import CSV</button>
       <button className="btn primary" onClick={() => setModal('add')}><UserPlus size={16} /> Add contact</button>
     </>}>
+      <AskHive kit={kit} L={L} />
       {!list ? <div className="skeleton" /> : (
         <>
           <div className="kpis k4">
-            <div className="kpi"><span className="kpi-l">Total {L.title.toLowerCase()}</span><b className="kpi-v">{num(kpis.total)}</b></div>
-            <div className="kpi"><span className="kpi-l">{L.customers}</span><b className="kpi-v">{num(kpis.customers)}</b></div>
-            <div className="kpi"><span className="kpi-l">{L.leads}</span><b className="kpi-v">{num(kpis.leads)}</b></div>
-            {kit?.valueField && valueTotal != null ? <div className="kpi"><span className="kpi-l">Total {L.value.toLowerCase()}</span><b className="kpi-v">{lakh(valueTotal)}</b></div> : <div className="kpi"><span className="kpi-l">Avg. lifetime value</span><b className="kpi-v">{inr(kpis.avgLtv)}</b></div>}
+            <div className="kpi crm-kpi" style={{ '--k': '#6366f1' }}><span className="crm-kpi-ic"><Users size={17} /></span><span className="kpi-l">Total {L.title.toLowerCase()}</span><b className="kpi-v">{num(kpis.total)}</b></div>
+            <div className="kpi crm-kpi" style={{ '--k': '#16a34a' }}><span className="crm-kpi-ic"><BadgeCheck size={17} /></span><span className="kpi-l">{L.customers}</span><b className="kpi-v">{num(kpis.customers)}</b></div>
+            <div className="kpi crm-kpi" style={{ '--k': '#f59e0b' }}><span className="crm-kpi-ic"><Sprout size={17} /></span><span className="kpi-l">{L.leads}</span><b className="kpi-v">{num(kpis.leads)}</b></div>
+            <div className="kpi crm-kpi" style={{ '--k': '#ec4899' }}><span className="crm-kpi-ic"><IndianRupee size={17} /></span>{kit?.valueField && valueTotal != null ? <><span className="kpi-l">Total {L.value.toLowerCase()}</span><b className="kpi-v">{lakh(valueTotal)}</b></> : <><span className="kpi-l">Avg. lifetime value</span><b className="kpi-v">{inr(kpis.avgLtv)}</b></>}</div>
           </div>
+          {view === 'list' && pipe && kpis.total > 0 && <StageStrip pipe={pipe} filterQs={filterQs()} tick={boardTick} onOpen={() => setView('board')} />}
           {kit && !kit.at && (
             <div className="kit-nudge">
               <span className="kit-nudge-ic" aria-hidden="true">{['realestate', 'clinic', 'consultant', 'education'].map((t) => <span key={t} className="ti-box sm"><KitIcon type={t} size={14} /></span>)}</span>
@@ -184,7 +194,7 @@ export default function Contacts() {
                       return (
                         <tr key={c.key} tabIndex={0} onClick={() => open(c.key)} onKeyDown={(e) => e.key === 'Enter' && open(c.key)} className={`${key === c.key ? 'on' : ''} ${picked.has(c.key) ? 'picked' : ''}`}>
                           <td className="ck" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={picked.has(c.key)} onChange={() => toggle(c.key)} aria-label={`Select ${label(c)}`} /></td>
-                          <td><div className="who"><span className="who-av">{initial(c)}</span><div><b>{c.name || '—'}</b><small className="sub-t">{c.email}{c.email && c.phone && ' · '}{c.phone}</small></div></div></td>
+                          <td><div className="who"><span className="who-av" style={avStyle(c)}>{initial(c)}</span><div><b>{c.name || '—'}</b><small className="sub-t">{c.email}{c.email && c.phone && ' · '}{c.phone}</small></div></div></td>
                           <td>{st && <span className="stage-pill" style={{ '--sc': st.color }}><i />{st.name}</span>}</td>
                           {cols.map((x) => <td key={x.id} className={x.type === 'money' || x.type === 'number' ? 'r strong' : ''}>{fieldText(x, c.custom?.[x.id]) || <span className="muted">—</span>}</td>)}
                           <td><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type === 'customer' ? L.customers.replace(/s$/, '') : L.leads.replace(/s$/, '').replace(/ie$/, 'y')}</span></td>
@@ -278,7 +288,7 @@ function Board({ pipe, filterQs, tick, onOpen, onMoved, kit, fields = {} }) {
               {items.slice(0, BOARD_CARDS).map((c) => (
                 <article key={c.key} className={`bcard ${drag?.key === c.key ? 'ghosted' : ''}`} tabIndex={0}
                   onPointerDown={(e) => down(e, c)} onClick={() => { if (!suppress.current) onOpen(c.key); }} onKeyDown={(e) => e.key === 'Enter' && onOpen(c.key)}>
-                  <div className="bc-top"><span className="who-av sm">{initial(c)}</span><b>{label(c)}</b>{c.type === 'customer' && <span className="pill ok">{inr(c.ltv)}</span>}</div>
+                  <div className="bc-top"><span className="who-av sm" style={avStyle(c)}>{initial(c)}</span><b>{label(c)}</b>{c.type === 'customer' && <span className="pill ok">{inr(c.ltv)}</span>}</div>
                   {(c.email || c.phone) && <small className="bc-sub">{c.email || c.phone}</small>}
                   {cardFields.some((x) => c.custom?.[x.id] != null && c.custom[x.id] !== '') && <div className="bc-fields">{cardFields.map((x) => (c.custom?.[x.id] != null && c.custom[x.id] !== '' ? <span key={x.id} title={x.label}>{x.type === 'money' ? lakh(Number(c.custom[x.id])) : fieldText(x, c.custom[x.id])}</span> : null))}</div>}
                   <div className="bc-foot">{(c.tags || []).slice(0, 2).map((t) => <span key={t} className="tag">{t}</span>)}<span className="muted">{ago(c.lastSeen)}</span></div>
@@ -318,7 +328,7 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
         {err ? <div className="cp-body"><Empty icon="users" title="Contact not found" text={err}><button className="btn ghost" onClick={onClose}>Back to contacts</button></Empty></div> : !c ? <div className="cp-body"><div className="skeleton" /></div> : (
           <>
             <header className="cp-head">
-              <span className="who-av lg">{initial(c)}</span>
+              <span className="who-av lg" style={avStyle(c)}>{initial(c)}</span>
               <div className="cp-id"><h2>{label(c)}</h2><div><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type}</span>{c.unsubscribed && <span className="pill warn" title="Clicked unsubscribe — automated emails are skipped">unsubscribed</span>}<button className={`pill btnpill ${c.optIn ? 'ok' : ''}`} title={c.optIn ? 'Agreed to marketing — gets broadcasts. Click if they withdrew.' : 'No marketing consent on record — broadcasts skip them. Click only if they agreed.'} onClick={async () => { try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'PATCH', { optIn: !c.optIn }); refresh(); } catch (e) { toast(e.message); } }}>{c.optIn ? 'opted in' : 'not opted in'}</button>{(c.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}</div></div>
               <button className="icon-btn danger" title="Erase this contact’s data (privacy request)" onClick={async () => {
                 if ((await promptDialog({ title: `Erase everything about ${label(c)}?`, text: 'Sign-ups, messages, bookings and product access are deleted; orders and invoices are kept for tax records without their name and contact details. This can’t be undone.', label: 'Type ERASE to confirm', confirmWord: 'ERASE', confirm: 'Erase', danger: true })) !== 'ERASE') return;
@@ -807,5 +817,62 @@ function KitPicker({ current, onClose, onApplied }) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+// ---------- Ask Hive: questions about the CRM, answered (and acted on) by Hive AI ----------
+const ASK_IDEAS = {
+  general: ['Who are my top 10 customers by spend?', 'Leads from the last 7 days who haven’t bought', 'Tag everyone who bought twice as “loyal”'],
+  realestate: ['Who has a site visit this week?', 'Total budget of 3 BHK prospects', 'Move Rohan to Negotiation and note “wants a corner flat”'],
+  clinic: ['Which patients have an appointment tomorrow?', 'Patients due for a follow-up this month', 'Draft a WhatsApp reminder for next week’s appointments'],
+  consultant: ['Which deals are in Proposal sent?', 'Total deal value in Negotiation', 'Who haven’t I followed up with in 2 weeks?'],
+  education: ['Who booked a demo class this week?', 'Enquiries for the NEET batch', 'Draft a fee reminder for pending admissions'],
+  fitness: ['Whose membership renews this month?', 'Trials that didn’t join yet', 'Draft a renewal offer for expiring members'],
+  finance: ['Clients with documents pending', 'Total ticket size of home-loan leads', 'Follow-ups due this week'],
+  interior: ['Projects waiting for 3D approval', 'Total value of signed projects', 'Site measurements this week'],
+  events: ['Events in the next 30 days', 'Enquiries without a quote yet', 'Total package value of booked weddings'],
+  travel: ['Trips departing this month', 'International enquiries to follow up', 'Total value of booked trips'],
+  auto: ['Test drives scheduled this week', 'Prospects who need a loan', 'Deliveries due this month'],
+  professional: ['Deadlines and hearings this week', 'Clients with documents pending', 'Total fees of engaged clients'],
+  recruitment: ['Interviews this week', 'Immediate joiners for the open roles', 'Candidates at offer stage'],
+  homeservices: ['Site surveys this week', 'Customers due for service (AMC)', 'Quotes sent but not confirmed'],
+  hospitality: ['Check-ins this week', 'Banquet enquiries to follow up', 'Total booking value this month'],
+};
+function AskHive({ kit, L }) {
+  const nav = useNavigate();
+  const [q, setQ] = useState('');
+  const ideas = ASK_IDEAS[kit?.id] || [`Which ${L.leads.toLowerCase()} need a follow-up?`, `Total ${L.value.toLowerCase()} in the pipeline`, `Move a ${L.one} to the next stage`];
+  const go = (text) => { const t = String(text || '').trim(); if (t) nav(`/hive?ask=${encodeURIComponent(t)}`); };
+  return (
+    <div className="ask-hive">
+      <div className="ask-hive-top">
+        <span className="ask-hive-ic"><Sparkles size={18} /></span>
+        <form onSubmit={(e) => { e.preventDefault(); go(q); }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Ask Hive AI about your ${L.title.toLowerCase()} — find, total, update, follow up…`} aria-label="Ask Hive AI" maxLength={500} />
+          <button className="ask-hive-go" disabled={!q.trim()} aria-label="Ask Hive AI"><ArrowUp size={17} /></button>
+        </form>
+      </div>
+      <div className="ask-hive-ideas">{ideas.map((t) => <button key={t} onClick={() => go(t)}>{t}</button>)}</div>
+    </div>
+  );
+}
+
+// ---------- the pipeline at a glance: how many sit in each stage ----------
+function StageStrip({ pipe, filterQs, tick, onOpen }) {
+  const [counts, setCounts] = useState(null);
+  useEffect(() => {
+    let live = true;
+    Promise.all(pipe.stages.map((s) => api(`/contacts?limit=1&pipeline=${encodeURIComponent(pipe.id)}&stage=${encodeURIComponent(s.id)}${filterQs}`).then((d) => d.total).catch(() => 0)))
+      .then((r) => { if (live) setCounts(r); });
+    return () => { live = false; };
+  }, [pipe, filterQs, tick]);
+  if (!counts) return <div className="stage-strip ghost" />;
+  const total = counts.reduce((a, b) => a + b, 0);
+  return (
+    <button className="stage-strip" onClick={onOpen} title="Open the pipeline board">
+      <span className="ss-h"><b>{pipe.name}</b><small>{total} in the pipeline · open board →</small></span>
+      <span className="ss-bar">{pipe.stages.map((s, i) => counts[i] > 0 && <i key={s.id} style={{ flex: counts[i], background: s.color }} />)}{!total && <i style={{ flex: 1 }} />}</span>
+      <span className="ss-legend">{pipe.stages.map((s, i) => <span key={s.id} className={counts[i] ? '' : 'zero'}><i style={{ background: s.color }} />{s.name} <b>{counts[i]}</b></span>)}</span>
+    </button>
   );
 }

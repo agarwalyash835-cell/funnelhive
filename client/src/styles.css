@@ -2129,3 +2129,38 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .kit-nudge-ic { display: flex; gap: 4px; }
 .kit-nudge > div { flex: 1; min-width: 200px; display: grid; gap: 2px; }
 .kit-nudge small { color: var(--c-muted); font-size: 12.5px; }
+
+/* CRM: livelier look */
+.who-av[style] { background: color-mix(in srgb, var(--av) 15%, #fff); color: var(--av); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--av) 22%, transparent); }
+.crm-kpi { position: relative; overflow: hidden; padding-left: 62px; min-height: 76px; justify-content: center; }
+.crm-kpi::after { content: ''; position: absolute; right: -28px; top: -28px; width: 90px; height: 90px; border-radius: 50%; background: radial-gradient(closest-side, color-mix(in srgb, var(--k) 16%, transparent), transparent); pointer-events: none; }
+.crm-kpi-ic { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--k); background: color-mix(in srgb, var(--k) 13%, #fff); }
+.ask-hive { position: relative; margin: 0 0 16px; padding: 14px 16px 12px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--c-accent) 28%, var(--c-line)); background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, #8b5cf6 12%, transparent), transparent 55%), radial-gradient(120% 140% at 100% 100%, color-mix(in srgb, var(--c-accent) 14%, transparent), transparent 55%), var(--c-surface); box-shadow: var(--sh-1); }
+.ask-hive-top { display: flex; align-items: center; gap: 12px; }
+.ask-hive-ic { width: 36px; height: 36px; border-radius: 11px; flex: none; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #8b5cf6, var(--c-accent)); box-shadow: 0 6px 16px -6px color-mix(in srgb, #8b5cf6 60%, transparent); animation: ah-glow 4s ease-in-out infinite; }
+@keyframes ah-glow { 50% { box-shadow: 0 6px 22px -4px color-mix(in srgb, var(--c-accent) 55%, transparent); } }
+.ask-hive form { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: var(--c-surface); border: 1px solid var(--c-line); border-radius: 12px; padding: 4px 4px 4px 12px; transition: border-color .15s, box-shadow .15s; }
+.ask-hive form:focus-within { border-color: var(--c-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 15%, transparent); }
+.ask-hive input { border: 0; padding: 7px 0; background: transparent; box-shadow: none !important; min-width: 0; }
+.ask-hive-go { flex: none; width: 34px; height: 34px; border-radius: 9px; border: 0; display: grid; place-items: center; color: #fff; background: var(--c-ink); cursor: pointer; transition: opacity .15s, transform .15s; }
+.ask-hive-go:disabled { opacity: .3; cursor: default; }
+.ask-hive-go:not(:disabled):hover { transform: translateY(-1px); }
+.ask-hive-ideas { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 0 48px; }
+.ask-hive-ideas button { font: inherit; font-size: 12.5px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--c-line); background: color-mix(in srgb, var(--c-surface) 80%, transparent); color: var(--c-ink); cursor: pointer; transition: border-color .15s, background .15s; }
+.ask-hive-ideas button:hover { border-color: var(--c-accent); background: var(--c-accent-soft); }
+.stage-strip { display: grid; gap: 9px; width: 100%; text-align: left; margin: 14px 0; padding: 13px 16px; border-radius: var(--r-lg); border: 1px solid var(--c-line); background: var(--c-surface); box-shadow: var(--sh-1); color: inherit; font: inherit; cursor: pointer; transition: border-color .15s; }
+.stage-strip:hover { border-color: color-mix(in srgb, var(--c-accent) 40%, var(--c-line)); }
+.stage-strip.ghost { height: 92px; cursor: default; }
+.ss-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ss-h b { font-size: 13.5px; }
+.ss-h small { color: var(--c-muted); font-size: 12px; }
+.ss-bar { display: flex; gap: 3px; height: 10px; border-radius: 99px; overflow: hidden; background: var(--c-line-2); }
+.ss-bar i { display: block; min-width: 6px; border-radius: 99px; transition: flex .4s ease; }
+.ss-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--c-muted); }
+.ss-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.ss-legend > span.zero { opacity: .55; }
+.ss-legend i { width: 8px; height: 8px; border-radius: 3px; }
+.ss-legend b { color: var(--c-ink); font-weight: 650; }
+.bcol header { background: linear-gradient(180deg, color-mix(in srgb, var(--sc) 9%, transparent), transparent); border-radius: 13px 13px 0 0; }
+.bcard { border-left: 3px solid color-mix(in srgb, var(--sc) 70%, transparent); }
+@media (max-width: 640px) { .ask-hive-ideas { margin-left: 0; } .crm-kpi { padding-left: 16px; padding-top: 56px; } .crm-kpi-ic { top: 14px; transform: none; } }
