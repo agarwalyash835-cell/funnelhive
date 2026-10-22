@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react';
 import { api, setToken } from '../api';
 import { Panel, Icon, toast, ago } from '../ui';
 
+// the setup as a QR code for Google Authenticator / Authy / Microsoft Authenticator (drawn in the browser — the key never leaves it)
+function TfaQr({ url }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => { let live = true; import('qrcode').then((m) => m.toDataURL(url, { margin: 1, width: 220, errorCorrectionLevel: 'M' })).then((d) => live && setSrc(d)).catch(() => {}); return () => { live = false; }; }, [url]);
+  return src ? <img className="tfa-qr" src={src} width="180" height="180" alt="QR code to scan with your authenticator app" /> : <div className="tfa-qr skeleton" />;
+}
+
 export default function SecurityPanel({ me, onChange }) {
   const [pw, setPw] = useState({ current: '', password: '' });
   const [setup, setSetup] = useState(null);
@@ -35,11 +42,17 @@ export default function SecurityPanel({ me, onChange }) {
           <div className="row"><input className="code-in" inputMode="numeric" placeholder="6-digit code" value={code} onChange={(e) => setCode(e.target.value)} /><button className="btn ghost danger" onClick={disable} disabled={code.length < 6}>Turn off</button></div>
         ) : setup ? (
           <div className="tfa-setup">
-            <ol>
-              <li>Open your authenticator app and choose <b>Enter a setup key</b>.</li>
-              <li>Account: <code>{me?.email}</code> · Key: <code className="key">{setup.secret.match(/.{1,4}/g).join(' ')}</code> <button className="icon-btn xs" title="Copy key" aria-label="Copy key" onClick={() => { navigator.clipboard?.writeText(setup.secret); toast('Key copied'); }}><Icon name="copy" size={12} /></button></li>
-              <li>Enter the 6-digit code it shows:</li>
-            </ol>
+            <div className="tfa-scan">
+              {setup.otpauth && <TfaQr url={setup.otpauth} />}
+              <div>
+                <b>Scan this with your phone</b>
+                <p className="muted sm">In Google Authenticator tap <b>+</b> → <b>Scan a QR code</b>. On this phone? Tap <a href={setup.otpauth}>add to my authenticator app</a>.</p>
+              </div>
+            </div>
+            <details className="tfa-manual"><summary>Can’t scan? Type the key instead</summary>
+              <p className="muted sm">Choose <b>Enter a setup key</b>, pick <b>Time based</b>. Account: <code>{me?.email}</code> · Key: <code className="key">{setup.secret.match(/.{1,4}/g).join(' ')}</code> <button className="icon-btn xs" title="Copy key" aria-label="Copy key" onClick={() => { navigator.clipboard?.writeText(setup.secret); toast('Key copied'); }}><Icon name="copy" size={12} /></button></p>
+            </details>
+            <p className="sm"><b>Then enter the 6-digit code your app shows</b> <span className="muted">(only from this latest QR code — earlier attempts won’t work)</span>:</p>
             <div className="row"><input className="code-in" inputMode="numeric" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} /><button className="btn primary" onClick={enable} disabled={code.length < 6}>Turn on</button></div>
           </div>
         ) : <button className="btn ghost" onClick={start2fa}><Icon name="check" size={15} /> Set up 2-step verification</button>}

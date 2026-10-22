@@ -2164,3 +2164,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .bcol header { background: linear-gradient(180deg, color-mix(in srgb, var(--sc) 9%, transparent), transparent); border-radius: 13px 13px 0 0; }
 .bcard { border-left: 3px solid color-mix(in srgb, var(--sc) 70%, transparent); }
 @media (max-width: 640px) { .ask-hive-ideas { margin-left: 0; } .crm-kpi { padding-left: 16px; padding-top: 56px; } .crm-kpi-ic { top: 14px; transform: none; } }
+.tfa-scan { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 6px 0 10px; }
+.tfa-scan > div { flex: 1; min-width: 200px; }
+.tfa-qr { width: 180px; height: 180px; border-radius: 12px; border: 1px solid var(--c-line); background: #fff; padding: 6px; image-rendering: pixelated; }
+.tfa-manual { margin: 0 0 10px; font-size: 13px; }
+.tfa-manual summary { cursor: pointer; color: var(--c-accent); font-weight: 600; }
