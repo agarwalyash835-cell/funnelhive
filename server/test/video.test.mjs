@@ -88,6 +88,9 @@ test('with a video bucket (R2) set, the pieces go there and play from signed buc
   await new Promise((r) => setTimeout(r, 30));
   const s = await startServer({ VIDEO_TICK_MS: '200', VIDEO_S3_ENDPOINT: `http://127.0.0.1:${s3.address().port}`, VIDEO_S3_BUCKET: 'vids', VIDEO_S3_REGION: 'auto', VIDEO_S3_ACCESS_KEY: 'k', VIDEO_S3_SECRET_KEY: 's' });
   try {
+    // the player (hls.js) fetches the pieces from the bucket, so the members area's policy must allow its address
+    const policy = (await fetch(`${s.base}/learn/x`)).headers.get('content-security-policy') || '';
+    assert.match(policy, new RegExp(`connect-src [^;]*http://127\\.0\\.0\\.1:${s3.address().port}`), policy);
     const tok = (await register(s.api)).token;
     const prod = (await s.api('/products', 'POST', { name: 'R2 course' }, tok)).data;
     const up = await fetch(`${s.base}/api/products/${prod.id}/files`, { method: 'POST', headers: { authorization: `Bearer ${tok}`, 'x-file-name': 'c.mp4', 'x-file-type': 'video/mp4', 'content-length': String(fs.statSync(mp4).size) }, body: fs.readFileSync(mp4) }).then((r) => r.json());

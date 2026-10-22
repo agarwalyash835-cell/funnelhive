@@ -115,6 +115,11 @@ if (JOBS && process.env.NODE_ENV !== 'test') setInterval(() => { try { q('DELETE
 const PAY = ['https://checkout.razorpay.com', 'https://js.stripe.com', 'https://*.js.stripe.com'];
 const PIXELS = ['https://connect.facebook.net', 'https://www.googletagmanager.com', 'https://www.googleadservices.com', 'https://googleads.g.doubleclick.net', 'https://www.google.com'];
 const SIGNIN = ['https://accounts.google.com', 'https://challenges.cloudflare.com'];
+// the storage buckets the browser fetches signed links from (course video pieces): added to connect-src.
+// var + function declaration: platform.js registers this while modules are still loading
+var connectHosts;
+export function useConnectHosts(fn) { connectHosts = fn; }
+const bucketHosts = () => { try { return connectHosts?.() || []; } catch { return []; } };
 export const newNonce = () => crypto.randomBytes(16).toString('base64');
 export function csp(kind = 'app', { nonce, frameAncestors = "'self'" } = {}) {
   const app = kind === 'app';
@@ -125,7 +130,7 @@ export function csp(kind = 'app', { nonce, frameAncestors = "'self'" } = {}) {
     'font-src': app ? ["'self'", 'data:', 'https://fonts.gstatic.com'] : ["'self'", 'data:', 'https:'],
     'img-src': ["'self'", 'data:', 'blob:', 'https:'],
     'media-src': ["'self'", 'data:', 'blob:', 'https:'],
-    'connect-src': app ? ["'self'", 'https://*.razorpay.com', 'https://*.stripe.com', ...SIGNIN, 'https://*.ingest.sentry.io', 'https://*.ingest.de.sentry.io'] : ["'self'", 'https:', ...(kind === 'embed' ? ['wss:'] : [])],
+    'connect-src': app ? ["'self'", 'https://*.razorpay.com', 'https://*.stripe.com', ...SIGNIN, 'https://*.ingest.sentry.io', 'https://*.ingest.de.sentry.io', ...bucketHosts()] : ["'self'", 'https:', ...(kind === 'embed' ? ['wss:'] : [])],
     // video blocks take any https address (YouTube, Vimeo, Loom, Drive…); checkouts open their own frames
     'frame-src': ["'self'", 'https:', 'data:', 'blob:'],
     'worker-src': ["'self'", 'blob:'],

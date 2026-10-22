@@ -101,6 +101,8 @@ export const videoStorageFromEnv = () => !!process.env.VIDEO_S3_ENDPOINT;
 const venv = () => (process.env.VIDEO_S3_ENDPOINT
   ? clean({ endpoint: process.env.VIDEO_S3_ENDPOINT, bucket: process.env.VIDEO_S3_BUCKET, region: process.env.VIDEO_S3_REGION, key: process.env.VIDEO_S3_ACCESS_KEY, secret: process.env.VIDEO_S3_SECRET_KEY })
   : clean(fromVideoSettings() || {}));
+// where signed links point (the browser fetches them): the buckets' origins, for the page's connect-src
+export const bucketOrigins = () => [env(), venv()].map((e) => { try { return e.endpoint ? new URL(e.endpoint).origin : null; } catch { return null; } }).filter((o, i, a) => o && a.indexOf(o) === i);
 export const videoBucketReady = () => { const e = venv(); return !!(e.endpoint && e.bucket && e.key && e.secret); };
 // one bucket's operations: 'video' (its own bucket) or 'files' (the main storage)
 export const bucket = (which) => {

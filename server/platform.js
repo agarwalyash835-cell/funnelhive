@@ -2,7 +2,8 @@
 // company details for GST invoices and the Razorpay account that collects subscriptions.
 import { T } from './db.js';
 import { encrypt, decrypt, useMailSettings } from './messaging.js';
-import { useStorageSettings, useVideoStorageSettings } from './storage.js';
+import { useStorageSettings, useVideoStorageSettings, bucketOrigins } from './storage.js';
+import { useConnectHosts } from './security.js';
 
 export const DEFAULTS = {
   brand: 'FunnelHive',
@@ -72,6 +73,7 @@ export { encrypt };
 
 // file storage entered in the admin panel (server env vars win — see storage.js)
 useStorageSettings(() => { const s = platform().storage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
+useConnectHosts(bucketOrigins);
 useMailSettings(() => { const m = platform().mail; return m.keyEnc ? { resendKey: decrypt(m.keyEnc), from: m.from } : null; });
 useVideoStorageSettings(() => { const s = platform().videoStorage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
 
