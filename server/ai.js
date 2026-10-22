@@ -169,6 +169,9 @@ function extractJson(text) {
 }
 
 // Ask for JSON; one automatic retry when the answer isn't valid JSON
+// general-purpose calls for other modules (the school: AI tutor, course and quiz writer)
+export const aiText = (system, user, history = []) => complete(system, [...history, { role: 'user', content: user }], { json: false });
+export const aiJson = (system, user) => ask(system, user);
 async function ask(system, user, history = []) {
   const messages = [...history, { role: 'user', content: user }];
   const text = await complete(system, messages);

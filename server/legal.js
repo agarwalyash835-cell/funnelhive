@@ -6,6 +6,7 @@
 //     anonymised
 import crypto from 'node:crypto';
 import { T, q, tx } from './db.js';
+import { eraseStudent } from './school.js';
 import { invoicingOf } from './sales.js';
 import { brand } from './platform.js';
 
@@ -118,6 +119,7 @@ export function eraseContact(userId, key) {
     }
     n.notifications = q("DELETE FROM notifications WHERE userId = ? AND (json_extract(data, '$.ckey') = ? OR (? <> '' AND instr(lower(data), ?) > 0))").run(userId, k, email, email).changes;
     n.conversions = q('DELETE FROM conversions WHERE userId = ? AND instr(data, ?) > 0').run(userId, crypto.createHash('sha256').update(k).digest('hex')).changes;
+    n.student = eraseStudent(userId, k); // their members-area profile, sessions and points
     n.leads = T.leads.delWhere({ userId, ckey: k });
     n.abandoned = T.abandoned.delWhere({ userId, ckey: k });
     n.crm = T.crm.delWhere({ userId, key: k });

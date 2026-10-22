@@ -136,6 +136,17 @@ const SCHEMA = {
   audit: { cols: { actorId: 0, userId: 0, at: 0 }, index: [['at'], ['userId', 'at']] },
   sessions: { cols: { userId: 0, expiresAt: 0 }, index: [['userId', 'expiresAt'], ['expiresAt']] }, // signed-in devices (security.js)
   platform: { cols: {} },
+  // ---- school: the members area (students, courses, community) ----
+  students: { cols: { userId: 0, ckey: 0, at: 0 }, unique: [['userId', 'ckey']], index: [['userId', 'at']] }, // a seller's student: one per email
+  ssessions: { cols: { studentId: 0, hash: 0, expiresAt: 0 }, unique: [['hash']], index: [['studentId'], ['expiresAt']] }, // signed-in student devices
+  scodes: { cols: { key: 0, expiresAt: 0 }, unique: [['key']], index: [['expiresAt']] }, // one-time sign-in codes
+  spaces: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // community spaces (channels)
+  posts: { cols: { userId: 0, spaceId: 0, at: 0 }, index: [['spaceId', 'at'], ['userId', 'at']] },
+  replies: { cols: { userId: 0, target: 0, at: 0 }, index: [['target', 'at'], ['userId', 'at']] }, // comments on a post or a lesson
+  reacts: { cols: { target: 0, studentId: 0 }, unique: [['target', 'studentId']] }, // likes
+  points: { cols: { userId: 0, studentId: 0, at: 0 }, index: [['userId', 'at'], ['studentId', 'at']] }, // gamification ledger
+  certs: { cols: { userId: 0, studentId: 0, productId: 0, at: 0 }, unique: [['studentId', 'productId']], index: [['userId', 'at']] },
+  snotes: { cols: { studentId: 0, read: (n) => bool(n.read), at: 0 }, index: [['studentId', 'at']] }, // a student's notifications
 };
 const COLS = Object.fromEntries(Object.entries(SCHEMA).map(([t, d]) => [t, Object.keys(d.cols)]));
 

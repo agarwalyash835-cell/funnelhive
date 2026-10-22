@@ -473,6 +473,56 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     },
     summary: (r) => (r.placed ? `Made an image and put it in the ${r.section} section` : `Made an image (${r.aspect})`),
   },
+  // ---- the school: courses, quizzes, community ----
+  {
+    name: 'school_overview', description: 'The seller’s school (members area): its link, students, community spaces (ids) and courses (ids, lessons, quizzes, certificate).', schema: S({}),
+    run: async (ctx) => { const d = await ctx.call('GET', '/school'); return { url: d.url, settings: { name: d.settings.name, openJoin: d.settings.openJoin, tutor: d.settings.tutor }, stats: d.stats, spaces: d.spaces.map(({ id, name, access, posts }) => ({ id, name, access, posts })), courses: d.courses }; },
+    summary: (r) => `Looked at your school (${r.stats.students} students, ${r.courses.length} courses)`,
+  },
+  {
+    name: 'create_course',
+    description: 'Write a complete online course with AI — modules, full lessons with real teaching, and quizzes — and save it as a product students get in the members area (costs 5 AI credits). Then attach it to a checkout with configure_checkout productId. certificate: true gives a certificate when they finish.',
+    schema: S({ topic: str('What it teaches'), audience: str('Who it’s for'), level: str('beginner | intermediate | advanced'), lessons: num('About how many lessons (3–30)'), language: str('e.g. English, Hindi, Hinglish'), notes: str('Optional: the creator’s own outline or notes to follow'), certificate: bool('Certificate on completion'), accessDays: num('0 = lifetime') }, ['topic']),
+    run: async (ctx, a) => {
+      const c = await ctx.call('POST', '/ai/course', { topic: a.topic, audience: a.audience, level: a.level, lessons: a.lessons, language: a.language, notes: a.notes });
+      let p = await ctx.call('POST', '/products', { name: c.name, description: c.description, accessDays: a.accessDays || 0 });
+      p = await ctx.call('PUT', `/products/${p.id}`, { lessons: c.lessons, ...(a.certificate ? { certificate: { enabled: true, title: `Certificate of completion — ${c.name}`.slice(0, 120) } } : {}) });
+      return { ok: true, id: p.id, name: p.name, lessons: p.lessons.length, quizzes: p.lessons.filter((l) => l.quiz).length, modules: [...new Set(p.lessons.map((l) => l.section))] };
+    },
+    summary: (r) => `Wrote the course “${r.name}” — ${r.lessons} lessons, ${r.quizzes} quizzes`,
+  },
+  {
+    name: 'add_quiz', description: 'Add an AI-written quiz (from the lesson’s own text) to one lesson of a course. Get ids from list_products / school_overview, lesson ids from get_course.',
+    schema: S({ productId: str('Course (product) id'), lessonId: str('Lesson id'), count: num('Questions (2–10, default 4)'), pass: num('Pass mark % (default 70)') }, ['productId', 'lessonId']),
+    run: async (ctx, a) => {
+      const p = await ctx.call('GET', `/products/${a.productId}`);
+      const l = p.lessons.find((x) => x.id === a.lessonId);
+      if (!l) throw new Error('No lesson with that id in this course');
+      const quiz = await ctx.call('POST', '/ai/quiz', { title: l.title, text: l.body, count: a.count });
+      if (a.pass != null) quiz.pass = Math.max(0, Math.min(100, Math.round(a.pass)));
+      await ctx.call('PUT', `/products/${p.id}`, { lessons: p.lessons.map((x) => (x.id === l.id ? { ...x, quiz } : x)) });
+      return { ok: true, lesson: l.title, questions: quiz.questions.length };
+    },
+    summary: (r) => `Added a ${r.questions}-question quiz to “${r.lesson}”`,
+  },
+  {
+    name: 'get_course', description: 'One course’s lessons (ids, titles, modules, which have quizzes) and certificate setting.', schema: S({ productId: str('Course (product) id') }, ['productId']),
+    run: async (ctx, a) => { const p = await ctx.call('GET', `/products/${a.productId}`); return { id: p.id, name: p.name, certificate: !!p.certificate?.enabled, lessons: p.lessons.map((l) => ({ id: l.id, title: l.title, section: l.section, quiz: !!l.quiz, words: String(l.body || '').split(/\s+/).filter(Boolean).length })) }; },
+    summary: (r) => `Opened the course “${r.name}”`,
+  },
+  {
+    name: 'create_space',
+    description: 'Add a community space (a channel) to the school. access: open (anyone who joins the school), buyers (anyone who bought something), products (only buyers of productIds — e.g. a paid inner circle). postBy: members (anyone can post) or admins (announcements).',
+    schema: S({ name: str('e.g. General, Wins, Q&A, Announcements'), emoji: str('One emoji'), description: str('One line'), access: str('open | buyers | products'), productIds: arr('For access "products"', { type: 'string' }), postBy: str('members | admins') }, ['name']),
+    run: async (ctx, a) => { const x = await ctx.call('POST', '/school/spaces', a); return { ok: true, id: x.id, name: x.name, access: x.access }; },
+    summary: (r) => `Created the space “${r.name}” (${r.access})`,
+  },
+  {
+    name: 'post_to_community', description: 'Post in a community space as the school (an announcement, a welcome, a weekly challenge). pinned keeps it on top.',
+    schema: S({ spaceId: str('From school_overview'), title: str('Title'), body: str('The post'), pinned: bool('Pin it') }, ['spaceId', 'body']),
+    run: async (ctx, a) => { const p = await ctx.call('POST', `/school/spaces/${a.spaceId}/posts`, { title: a.title || '', body: a.body, pinned: !!a.pinned }); return { ok: true, id: p.id, title: p.title }; },
+    summary: (r) => `Posted “${r.title || 'a post'}” in your community`,
+  },
   // ---- split tests, tracking, domains, team, webhooks, copies ----
   {
     name: 'split_test',
@@ -615,6 +665,7 @@ const NEEDS_OK = {
   send_broadcast: (a) => (a.at ? `Schedule this broadcast for ${a.at}` : 'Send this broadcast now'),
   publish_funnel: (a) => (a.published === false ? 'Take this funnel offline' : 'Publish this funnel (make it live)'),
   remove_step: () => 'Delete a page from this funnel',
+  post_to_community: (a) => `Post in your community${a.pinned ? ' (pinned)' : ''}: “${String(a.title || a.body || '').slice(0, 60)}”`,
   invite_team_member: (a) => `Give ${a.email} ${a.role} access to ${a.funnelIds?.length ? `${a.funnelIds.length} of your funnels only` : 'your account'}`,
   connect_webhook: (a) => (a.url ? `Send every new lead, order and booking (with contact details) to ${String(a.url).slice(0, 80)}` : null),
   set_tracking: (a) => `Install tracking on ${a.funnelId ? 'this funnel' : 'all your funnels'}: ${[a.fbPixel && `Meta Pixel ${a.fbPixel}`, a.ga4 && `GA4 ${a.ga4}`, a.googleAdsId && `Google Ads ${a.googleAdsId}`].filter(Boolean).join(', ') || 'remove ids'}`,
@@ -640,6 +691,7 @@ How to work:
 - Contacts → find_contacts / tag_contacts. Broadcasts → draft_broadcast ALWAYS first and tell the user who it reaches; call send_broadcast only when the user explicitly says to send or schedule that draft.
 - Agencies → list_clients, copy_funnel_to_client. Account → update_business (time zone, WhatsApp, consent banner / tick box).
 - Website (home / about / services / contact for a business, not a sales funnel) → create_website with copy you write; then edit pages like any funnel. A funnel’s buttons and menu can open another page with buttonAction / ctaAction "page" and the page name in the link field.
+- Courses & community (the school / members area) → create_course writes a full course with quizzes (5 credits; say so), add_quiz, get_course; create_space and post_to_community for the community; school_overview for the link to share. Attach a course to a checkout with configure_checkout productId.
 - Images → generate_image (hero photos, section images, ad creatives in 1:1 / 4:5 / 9:16) — tell the user it uses 10 AI credits; ad copy and hooks → write_marketing_copy.
 - Testing → split_test (start with the changes for B, results once it has traffic, pick the winner). Tracking → set_tracking (pixel / GA4 / Google Ads ids; never ask for the Conversions API token in chat — that goes in Settings). Own domain → connect_domain, show the DNS records as a table, then check_domain. Team → list_team / invite_team_member with the smallest role that fits. Other tools / CRM → connect_webhook. Reuse a funnel → duplicate_funnel.
 - Payment gateway keys, passwords and tokens are never typed into chat: send the seller to Settings → Payments (or the screen named) for those.

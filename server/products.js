@@ -46,6 +46,16 @@ export function linkBase(funnelId, fallback) {
 }
 
 // ---------- products ----------
+// a lesson's quiz: 1–30 questions, each with 2–6 options and the right one; pass mark in %
+export function cleanQuiz(z) {
+  if (!z || !Array.isArray(z.questions)) return null;
+  const questions = z.questions.slice(0, 30).map((x) => {
+    const options = (Array.isArray(x?.options) ? x.options : []).map((o) => clip(o, 300)).filter(Boolean).slice(0, 6);
+    const answer = Math.round(Number(x?.answer));
+    return { q: clip(x?.q, 500), options, answer: answer >= 0 && answer < options.length ? answer : 0, explain: clip(x?.explain, 600) };
+  }).filter((x) => x.q && x.options.length >= 2);
+  return questions.length ? { questions, pass: intIn(z.pass ?? 70, 0, 100) } : null;
+}
 function cleanProduct(b = {}, cur = {}) {
   const out = { ...cur };
   if ('name' in b || !cur.id) { out.name = clip(b.name, 120); if (!out.name) return { error: 'Give the product a name' }; }
@@ -53,6 +63,8 @@ function cleanProduct(b = {}, cur = {}) {
   if ('note' in b) out.note = clip(b.note, 4000);
   if ('cover' in b) out.cover = imgUrl(b.cover);
   if ('accessDays' in b) out.accessDays = intIn(b.accessDays, 0, 3650);
+  // a certificate when the course is finished (every lesson done, every quiz passed)
+  if ('certificate' in b) out.certificate = b.certificate && b.certificate.enabled ? { enabled: true, title: clip(b.certificate.title, 120), signer: clip(b.certificate.signer, 80), signerRole: clip(b.certificate.signerRole, 80) } : { enabled: false };
   if ('downloadLimit' in b) out.downloadLimit = intIn(b.downloadLimit, 0, 1000);
   // physical goods: country of origin, shown at checkout (empty = the seller's default in Settings, else India)
   if ('origin' in b) out.origin = clip(b.origin, 60);
@@ -78,6 +90,8 @@ function cleanProduct(b = {}, cur = {}) {
       body: clip(l?.body, 20000),
       fileIds: (Array.isArray(l?.fileIds) ? l.fileIds : []).filter((x) => fileIds.has(x)).slice(0, 30),
       dripDays: intIn(l?.dripDays, 0, 3650),
+      ...(cleanQuiz(l?.quiz) ? { quiz: cleanQuiz(l.quiz) } : {}),
+      ...(l?.free ? { free: true } : {}), // a preview lesson anyone signed in can watch
     }));
   }
   // a bundle: buying this also unlocks these products (the seller's own; one level — checked when granting)
@@ -264,7 +278,7 @@ function libraryView(ctx) {
         const opensAt = a.at + l.dripDays * DAY;
         if (opensAt > now) return { id: l.id, title: l.title, section: l.section, locked: true, opensAt };
         const vf = l.videoFileId && p.files.find((f) => f.id === l.videoFileId);
-        return { id: l.id, title: l.title, section: l.section, body: l.body, videoUrl: l.videoUrl, video: vf ? signedFile(a.id, vf.id, true) : null, files: l.fileIds.map((id) => p.files.find((f) => f.id === id)).filter(Boolean).map(file), done: !!a.progress?.[l.id] };
+        return { id: l.id, title: l.title, section: l.section, body: l.body, videoUrl: l.videoUrl, ...(l.quiz ? { quiz: { pass: l.quiz.pass, questions: l.quiz.questions.map((x) => ({ q: x.q, options: x.options })) }, quizResult: a.quiz?.[l.id] || null } : {}), video: vf ? signedFile(a.id, vf.id, true) : null, files: l.fileIds.map((id) => p.files.find((f) => f.id === id)).filter(Boolean).map(file), done: !!a.progress?.[l.id] };
       }),
     });
   }
@@ -498,5 +512,21 @@ function sendStored(res, userId, f, inline) {
   if (!fs.existsSync(filePath(userId, f.id)) && f.s3) return res.redirect(302, presign(s3Key(userId, f.id), { expires: 300, filename: inline ? undefined : f.name }));
   res.sendFile(filePath(userId, f.id), { acceptRanges: true, headers: {} }, (err) => { if (err && !res.headersSent) res.status(err.status || 500).end(); });
 }
+
+// ---------- for the school (the members area) ----------
+// everything one student has from one seller, as the library shows it, plus where they left off
+export function studentLibrary(userId, ckey) {
+  const rows = T.access.all({ userId, ckey }, { order: 'at', desc: true });
+  const view = libraryView({ scope: 'library', userId, rows });
+  for (const p of view.products) {
+    const a = rows.find((x) => x.id === p.accessId);
+    const prod = T.products.get(p.productId);
+    p.resume = a?.resume || null;
+    p.certificate = prod?.certificate?.enabled ? { title: prod.certificate.title || '' } : null;
+  }
+  return view;
+}
+export const accessActive = (a, now = Date.now()) => active(a, now);
+export const productKind = (p) => kindOf(p);
 
 export const removeProductFiles = (userId) => fs.rmSync(path.join(FILE_DIR, userId), { recursive: true, force: true });

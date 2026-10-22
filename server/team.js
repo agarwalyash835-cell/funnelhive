@@ -31,8 +31,8 @@ const ANY = /^\/api\/(me$|team\/(workspaces|switch|leave|accept)$|hive\/status$|
 // secrets and account-wide settings: admins only (GET /api/channels itself only says what's connected)
 const SECRET = /^\/api\/(settings|webhooks|keys|adspend\/meta|v1\/hooks|hive\/tokens|channels\/|domains|demo|conversions\/[^/]+\/retry)/;
 const WRITE = {
-  marketer: /^\/api\/(funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|contacts|pipelines|crm\/|products|calendars|webinars|bookings)/,
-  sales: /^\/api\/(contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$)/,
+  marketer: /^\/api\/(funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
+  sales: /^\/api\/(contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$|school\/(questions|posts|comments|students))/,
   viewer: null,
 };
 // reading anything AI-driven goes through the AI routes, which act as the owner: not for sales / viewers
