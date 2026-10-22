@@ -47,7 +47,7 @@ import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
 import { registerFulfilment, cleanAddress } from './fulfilment.js';
 import { registerBroadcasts } from './broadcasts.js';
-import { registerTeam, enterWorkspace, allows } from './team.js';
+import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows } from './team.js';
 import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan, needsAfa, AFA_NOTE } from './plans.js';
 import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
 import { registerObserve, requestMetrics, reportError } from './observe.js';
@@ -157,6 +157,9 @@ const auth = (req, res, next) => {
       req.actor = req.user; req.role = w.member.role; req.user = w.owner;
       const reqPath = req.originalUrl.split('?')[0].toLowerCase();
       if (!OWN_SESSION.test(reqPath) && !allows(req.role, req.method, reqPath)) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
+      // limited to some funnels: those funnels and what building them needs, nothing account-wide (team.js)
+      req.funnelScope = funnelScope(w.member);
+      if (req.funnelScope && !OWN_SESSION.test(reqPath) && !scopeAllows(req.funnelScope, req.method, reqPath, req.body)) return res.status(403).json({ error: 'You only have access to some funnels in this workspace — ask the owner', funnelScope: true });
       if (Date.now() - (w.member.lastSeenAt || 0) > 10 * 60000) T.members.update(w.member.id, (m) => { m.lastSeenAt = Date.now(); });
     }
     withDefaults(req.user);
@@ -422,7 +425,7 @@ app.get('/api/me', auth, (req, res) => {
     billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && isAdmin(req.user), brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
     uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
     impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
-    workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role } : null,
+    workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
     teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
     // the sidebar: which optional tools this account has started using (they join the menu), and what needs attention
     nav: {
@@ -625,7 +628,7 @@ const createFunnel = (userId, data) => {
 app.get('/api/funnels', auth, (req, res) => {
   const since = Date.now() - 30 * DAY;
   const stats = totalsByFunnel(req.user.id, since, Date.now());
-  res.json(T.funnels.all({ userId: req.user.id }, { order: 'updatedAt', desc: true }).map((f) => ({
+  res.json(T.funnels.all({ userId: req.user.id }, { order: 'updatedAt', desc: true }).filter((f) => !req.funnelScope || req.funnelScope.has(f.id)).map((f) => ({
     id: f.id, name: f.name, slug: f.slug, published: f.published, theme: f.theme, previewKey: previewKey(f), steps: f.steps.map((s) => ({ id: s.id, name: s.name, type: s.type })), hero: f.steps[0]?.blocks.find((b) => b.type === 'hero') || null, createdAt: f.createdAt, updatedAt: f.updatedAt, stats: stats(f.id),
   })));
 });
@@ -833,6 +836,7 @@ app.delete('/api/funnels/:id', auth, (req, res) => {
 const range = (req) => reportRange(Math.min(365, Math.max(1, Number(req.query.days) || 30)), Date.now(), offsetAt(sellerTz(req.user)) * 60000);
 
 app.get('/api/analytics/overview', auth, (req, res) => {
+  if (req.funnelScope) return res.json(scopedOverview(req));
   const { days, from, to } = range(req);
   const scope = { userId: req.user.id };
   const funnels = T.funnels.all({ userId: req.user.id });
@@ -845,6 +849,31 @@ app.get('/api/analytics/overview', auth, (req, res) => {
     recentOrders: T.orders.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 8 }).map((o) => ({ ...o, funnel: name[o.funnelId] || `${o.funnelName || 'Deleted funnel'} (deleted)` })),
   });
 });
+
+// the overview for a teammate limited to some funnels: the same report, added up over just those funnels
+function scopedOverview(req) {
+  const { days, from, to, off } = range(req);
+  const funnels = T.funnels.all({ userId: req.user.id }).filter((f) => req.funnelScope.has(f.id));
+  const name = Object.fromEntries(funnels.map((f) => [f.id, f.name]));
+  const per = totalsByFunnel(req.user.id, from, to);
+  const add = (a, b) => { for (const k of Object.keys(b)) if (typeof b[k] === 'number') a[k] = (a[k] || 0) + b[k]; return a; };
+  const merge = (lists, key) => { const m = {}; for (const r of lists.flat()) { const k = key(r); m[k] = m[k] ? add(m[k], r) : { ...r }; } return Object.values(m).sort((a, b) => b.revenue - a.revenue || (b.views || 0) - (a.views || 0)); };
+  const sum = (fn) => {
+    const t = funnels.reduce((a, f) => add(a, fn({ funnelId: f.id })), { views: 0, visitors: 0, leads: 0, orders: 0, revenue: 0 });
+    return { views: t.views, visitors: t.visitors, leads: t.leads, orders: t.orders, revenue: t.revenue, aov: t.orders ? Math.round(t.revenue / t.orders) : 0, conversion: t.visitors ? +((t.orders / t.visitors) * 100).toFixed(2) : 0, epv: t.visitors ? +(t.revenue / t.visitors).toFixed(2) : 0 };
+  };
+  const each = funnels.map((f) => series({ funnelId: f.id }, from, days, off));
+  const series_ = (each[0] || series({ funnelId: '' }, from, days, off)).map((d, i) => ({ ...d, ...Object.fromEntries(['views', 'leads', 'orders', 'revenue'].map((k) => [k, each.reduce((a, x) => a + x[i][k], 0)])) }));
+  return {
+    days, totals: sum((s) => totals(s, from, to)), prev: sum((s) => totals(s, from - days * DAY, from)), series: series_,
+    sources: merge(funnels.map((f) => sources({ funnelId: f.id }, from)), (r) => r.source),
+    byKind: funnels.reduce((a, f) => add(a, revenueByKind({ funnelId: f.id }, from)), { main: 0, bump: 0, upsell: 0, downsell: 0, crosssell: 0 }),
+    campaigns: merge(funnels.map((f) => campaigns({ funnelId: f.id }, from, to)), (r) => [r.source, r.medium, r.campaign, r.content].join('|')),
+    refunded: funnels.reduce((a, f) => a + refundsTotal({ funnelId: f.id }, from, to), 0), adSpend: 0,
+    funnels: funnels.map((f) => ({ id: f.id, name: f.name, published: f.published, ...per(f.id) })).sort((a, b) => b.revenue - a.revenue),
+    recentOrders: funnels.length ? T.orders.all({ funnelId: funnels.map((f) => f.id) }, { order: 'at', desc: true, limit: 8 }).map((o) => ({ ...o, funnel: name[o.funnelId] })) : [],
+  };
+}
 
 app.get('/api/funnels/:id/analytics', auth, (req, res) => {
   const f = owned(req, res);

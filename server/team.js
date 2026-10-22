@@ -5,6 +5,7 @@
 //   marketer  — funnels, pages, AI, automations, broadcasts, contacts, products, webinars, bookings; reads orders
 //   sales     — contacts and pipelines, orders (shipping / COD, no refunds), bookings, buyer access; reads the rest
 //   viewer    — read-only, no settings or secrets
+// A member can also be limited to some funnels (funnelIds, "this project only"): see scopeAllows.
 import { T, q, uid } from './db.js';
 import { randomToken, hashToken } from './security.js';
 import { sendMail, appUrl, mailEnabled } from './mail.js';
@@ -52,6 +53,35 @@ export function allows(role, method, path) {
   return !!WRITE[role]?.test(path);
 }
 
+// A member limited to some funnels (m.funnelIds) works on just those: their pages, revisions, analytics (with
+// that funnel's own leads and orders), tracking, legal details and domains, plus what building them needs —
+// images, saved sections, templates to look at, the product and calendar lists for checkout and booking
+// blocks. Everything account-wide is closed to them: contacts, the Orders page, CRM, broadcasts,
+// automations, products and settings, Hive AI (it acts on the whole account), API keys, and making new
+// funnels (they couldn't open them). The dashboard's overview only counts their funnels. Their role still
+// applies on top (a viewer limited to one funnel only reads it).
+export const funnelScope = (m) => (Array.isArray(m?.funnelIds) && m.funnelIds.length ? new Set(m.funnelIds) : null);
+const SCOPED_READ = /^\/api\/(funnels|saved|templates(\/[^/]+)?|products|calendars|ai\/agents|analytics\/overview|domains)$/;
+const SCOPED_WRITE = /^\/api\/(uploads|saved(\/[^/]+)?|ai\/image)$/;
+export function scopeAllows(scope, method, path, body) {
+  if (ANY.test(path)) return true;
+  const f = path.match(/^\/api\/funnels\/([^/]+)(\/.*)?$/);
+  if (f) return scope.has(f[1]) && !/^\/(duplicate|copy-to)$/.test(f[2] || ''); // a copy would be a funnel outside their list
+  if (/^\/api\/ai\/(edit|chat|agent)$/.test(path)) return scope.has(body?.funnelId);
+  const d = path.match(/^\/api\/domains\/([^/]+)(\/verify)?$/);
+  if (d) { const dom = T.domains.get(d[1]); return !!dom && scope.has(dom.funnelId) && (method !== 'PUT' || scope.has(body?.funnelId)); }
+  if (path === '/api/domains' && method === 'POST') return scope.has(body?.funnelId);
+  return method === 'GET' ? SCOPED_READ.test(path) : SCOPED_WRITE.test(path);
+}
+// funnelIds from the owner's team screen or Hive AI: their own funnels only; empty / null = every funnel
+function cleanFunnelIds(ownerId, v) {
+  if (v == null || (Array.isArray(v) && !v.length)) return { ids: null };
+  if (!Array.isArray(v) || v.length > 200 || v.some((x) => typeof x !== 'string')) return { error: 'funnelIds must be a list of funnel ids' };
+  const ids = [...new Set(v)];
+  if (ids.some((id) => T.funnels.get(id)?.userId !== ownerId)) return { error: 'Pick funnels from this account' };
+  return { ids };
+}
+
 // The auth middleware's workspace step: returns the owner to act as, or an error
 export function enterWorkspace(actor, ownerId) {
   const m = T.members.find({ ownerId, userId: actor.id, status: 'active' });
@@ -59,7 +89,7 @@ export function enterWorkspace(actor, ownerId) {
   return owner ? { owner, member: m } : null;
 }
 
-const view = (m) => ({ id: m.id, email: m.email, name: m.userId ? T.users.get(m.userId)?.name || '' : '', role: m.role, status: m.status, at: m.at, acceptedAt: m.acceptedAt || null, lastSeenAt: m.lastSeenAt || null, invitedBy: m.invitedBy || null });
+const view = (m) => ({ id: m.id, email: m.email, name: m.userId ? T.users.get(m.userId)?.name || '' : '', role: m.role, funnelIds: m.funnelIds || null, status: m.status, at: m.at, acceptedAt: m.acceptedAt || null, lastSeenAt: m.lastSeenAt || null, invitedBy: m.invitedBy || null });
 const bizName = (u) => u.settings?.businessName || u.name || u.email;
 
 export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
@@ -78,21 +108,31 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     const role = req.body?.role;
     if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
     if (!ROLES[role]) return res.status(400).json({ error: 'Pick a role' });
+    const scope = cleanFunnelIds(req.user.id, req.body?.funnelIds);
+    if (scope.error) return res.status(400).json({ error: scope.error });
     if (email === req.user.email) return res.status(400).json({ error: 'That’s you — you already own this workspace' });
     if (T.members.count({ ownerId: req.user.id }) >= TEAM_MAX) return res.status(400).json({ error: `Your team can have up to ${TEAM_MAX} people` });
     if (T.members.exists({ ownerId: req.user.id, email })) return res.status(409).json({ error: 'They’re already on your team (or invited)' });
     const token = `${uid()}.${randomToken()}`;
     let m;
-    try { m = T.members.insert({ id: token.split('.')[0], ownerId: req.user.id, email, role, status: 'invited', userId: null, inviteHash: hashToken(token), inviteExp: Date.now() + INVITE_DAYS * 86400000, at: Date.now() }); } catch { return res.status(409).json({ error: 'They’re already on your team (or invited)' }); }
+    try { m = T.members.insert({ id: token.split('.')[0], ownerId: req.user.id, email, role, status: 'invited', userId: null, ...(scope.ids ? { funnelIds: scope.ids } : {}), inviteHash: hashToken(token), inviteExp: Date.now() + INVITE_DAYS * 86400000, at: Date.now() }); } catch { return res.status(409).json({ error: 'They’re already on your team (or invited)' }); }
     await sendInvite(req, req.user, m, token);
     res.json({ ...view(m), ...(isTest ? { token } : {}), ...(mailEnabled() ? {} : { link: `${appUrl(req)}/team/accept?token=${token}` }) });
   });
-  // owners change roles, resend, remove
+  // owners change roles and which funnels someone works on, resend, remove
   const ownMember = (req, res) => { const m = T.members.get(req.params.mid); if (!m || m.ownerId !== req.user.id) { res.status(404).json({ error: 'Not on your team' }); return null; } return m; };
   app.put('/api/team/members/:mid', auth, (req, res) => {
     const m = ownMember(req, res); if (!m) return;
-    if (!ROLES[req.body?.role]) return res.status(400).json({ error: 'Pick a role' });
-    res.json(view(T.members.update(m.id, (x) => { x.role = req.body.role; })));
+    const b = req.body || {};
+    if (('role' in b || !('funnelIds' in b)) && !ROLES[b.role]) return res.status(400).json({ error: 'Pick a role' });
+    const scope = 'funnelIds' in b ? cleanFunnelIds(req.user.id, b.funnelIds) : null;
+    if (scope?.error) return res.status(400).json({ error: scope.error });
+    // keys they made for the whole account would outlast a narrower access, so those stop working
+    if (scope?.ids && m.userId) revokeKeysBy(m.ownerId, m.userId);
+    res.json(view(T.members.update(m.id, (x) => {
+      if ('role' in b) x.role = b.role;
+      if (scope) { if (scope.ids) x.funnelIds = scope.ids; else delete x.funnelIds; }
+    })));
   });
   app.post('/api/team/members/:mid/resend', auth, inviteLimiter, async (req, res) => {
     const m = ownMember(req, res); if (!m) return;

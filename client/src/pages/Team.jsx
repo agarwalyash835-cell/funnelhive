@@ -18,8 +18,10 @@ export function TeamPanel() {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('marketer');
   const [busy, setBusy] = useState(false);
+  const [funnels, setFunnels] = useState([]);
+  const [pick, setPick] = useState(null); // { id, ids }: choosing which funnels a member works on
   const load = () => api('/team/members').then(setD).catch(() => setD(false));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api('/funnels').then(setFunnels).catch(() => {}); }, []);
   if (d === false) return null;
   const invite = async (e) => {
     e.preventDefault();
@@ -28,6 +30,8 @@ export function TeamPanel() {
     setBusy(false);
   };
   const act = async (fn, msg) => { try { await fn(); if (msg) toast(msg); load(); } catch (x) { toast(x.message); } };
+  const access = (m) => (m.funnelIds ? `${m.funnelIds.length} funnel${m.funnelIds.length > 1 ? 's' : ''} only` : 'All funnels');
+  const saveFunnels = () => { const p = pick; setPick(null); act(() => api(`/team/members/${p.id}`, 'PUT', { funnelIds: p.ids.length ? p.ids : null }), 'Access updated'); };
   return (
     <Panel title="Team">
       <p className="muted sm">Invite your staff, agency or VA. Everyone signs in with their own email and password, and only sees what their role allows. Billing and deleting the account stay with you.</p>
@@ -40,20 +44,30 @@ export function TeamPanel() {
       )}
       {!d ? <div className="skeleton" /> : (
         <table className="tbl compact team-tbl"><tbody>
-          <tr><td><b>{d.owner.name}</b><small className="sub-t">{d.owner.email}</small></td><td><span className="pill ok">Owner</span></td><td /></tr>
-          {d.members.map((m) => (
+          <tr><td><b>{d.owner.name}</b><small className="sub-t">{d.owner.email}</small></td><td><span className="pill ok">Owner</span></td><td>All funnels</td><td /></tr>
+          {d.members.map((m) => [
             <tr key={m.id}>
               <td><b>{m.name || m.email}</b><small className="sub-t">{m.name ? m.email : ''}{m.status === 'invited' ? ` · invited ${ago(m.at)}` : m.lastSeenAt ? ` · active ${ago(m.lastSeenAt)}` : ''}</small></td>
               <td>{d.canManage && m.role !== 'agency' ? <select value={m.role} onChange={(e) => act(() => api(`/team/members/${m.id}`, 'PUT', { role: e.target.value }), 'Role updated')}>{Object.keys(d.roles).map((k) => <option key={k} value={k}>{ROLE_NAME[k]}</option>)}</select> : ROLE_NAME[m.role]}{m.status === 'invited' && <span className="pill warn">pending</span>}</td>
+              <td>{d.canManage && m.role !== 'agency' ? <button className="btn ghost sm" title="Which funnels they can work on" onClick={() => setPick(pick?.id === m.id ? null : { id: m.id, ids: m.funnelIds || [] })}>{access(m)}</button> : m.funnelIds ? access(m) : ''}</td>
               <td className="r">{d.canManage && <div className="row end">
                 {m.status === 'invited' && <button className="btn ghost sm" onClick={() => act(async () => { const r = await api(`/team/members/${m.id}/resend`, 'POST'); shareLink(r.link, m.email, true); })}>Resend</button>}
                 <button className="icon-btn" title="Remove" aria-label="Remove" onClick={async () => (await confirmDialog({ title: `Remove ${m.email} from your team?`, text: 'They lose access immediately.', confirm: 'Remove', danger: true })) && act(() => api(`/team/members/${m.id}`, 'DELETE'), 'Removed')}><Icon name="trash" size={15} /></button>
               </div>}</td>
-            </tr>
-          ))}
+            </tr>,
+            pick?.id === m.id && (
+              <tr key={`${m.id}-funnels`}><td colSpan={4}>
+                <p className="muted sm">Tick the funnels they can work on. They’ll see only those — not your contacts, orders page, automations or settings. Tick none for every funnel.</p>
+                <div className="row wrap">{funnels.map((f) => (
+                  <label key={f.id} className="row"><input type="checkbox" checked={pick.ids.includes(f.id)} onChange={(e) => setPick({ ...pick, ids: e.target.checked ? [...pick.ids, f.id] : pick.ids.filter((x) => x !== f.id) })} />{f.name}</label>
+                ))}{!funnels.length && <span className="muted sm">No funnels yet.</span>}</div>
+                <div className="row end"><button className="btn ghost sm" onClick={() => setPick(null)}>Cancel</button><button className="btn primary sm" onClick={saveFunnels}>Save access</button></div>
+              </td></tr>
+            ),
+          ])}
         </tbody></table>
       )}
-      {d && <p className="hint">Admin: everything except billing and the team · Marketer: funnels, AI, automations, broadcasts, contacts, products · Sales & support: contacts, orders &amp; shipping, bookings · Viewer: read-only reports. Up to {d.max} people.</p>}
+      {d && <p className="hint">Admin: everything except billing and the team · Marketer: funnels, AI, automations, broadcasts, contacts, products · Sales & support: contacts, orders &amp; shipping, bookings · Viewer: read-only reports. Limit anyone to some funnels (e.g. a designer for one project) with the funnels button. Up to {d.max} people.</p>}
     </Panel>
   );
 }

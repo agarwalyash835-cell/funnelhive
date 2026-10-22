@@ -123,15 +123,16 @@ const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
 const NAV_KEY = 'ff_nav';
 const navPrefs = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
-// account pages a person may open here (a team member doesn't see the owner's billing, and so on)
+// pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
 const allowed = (to, me) => {
   if (to === '/admin') return !!me?.admin;
   if (!me?.workspace) return !(to === '/billing' && me?.billing?.agencyManaged);
   if (to === '/billing' || to === '/agency') return false;
+  if (me.workspace.funnelIds) return to === '/' || to === '/funnels'; // limited to some funnels: nothing account-wide
   return to !== '/settings' || ['admin', 'agency'].includes(me.workspace.role);
 };
 // a tool is in the menu when it's an everyday page, you use it, you pinned it, or you're on it — unless you hid it
-const inMenu = (to, me, p, here) => !p.hidden.includes(to) && (CORE.includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || here === to);
+const inMenu = (to, me, p, here) => allowed(to, me) && !p.hidden.includes(to) && (CORE.includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || here === to);
 const badgeOf = (to, me) => (to === '/orders' && me?.nav?.ship ? [me.nav.ship, t('{n} to ship', { n: me.nav.ship })] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, t(me.nav.calls > 1 ? '{n} calls in the next 24 hours' : '{n} call in the next 24 hours', { n: me.nav.calls })] : null);
 
 function SideNav({ me, onGo }) {
@@ -141,7 +142,7 @@ function SideNav({ me, onGo }) {
   const save = (n) => { setP(n); try { localStorage.setItem(NAV_KEY, JSON.stringify(n)); } catch {} };
   const toggleGroup = (g) => save({ ...p, closed: p.closed.includes(g) ? p.closed.filter((x) => x !== g) : [...p.closed, g] });
   const setShown = (to, on) => save({ ...p, pinned: on ? [...new Set([...p.pinned, to])] : p.pinned.filter((x) => x !== to), hidden: on ? p.hidden.filter((x) => x !== to) : [...new Set([...p.hidden, to])] });
-  const waiting = OPTIONAL.filter((to) => !inMenu(to, me, p, here));
+  const waiting = OPTIONAL.filter((to) => allowed(to, me) && !inMenu(to, me, p, here));
   const link = (to) => {
     const [ic, label] = PAGES[to], b = badgeOf(to, me);
     return <NavLink key={to} to={to} end={to === '/'} onClick={onGo}><Icon name={ic} /><span className="nav-l">{t(label)}</span>{b && <span className="nav-badge" title={b[1]}>{b[0]}</span>}</NavLink>;
@@ -165,7 +166,7 @@ function SideNav({ me, onGo }) {
         {more && (
           <div className="nav-pop" role="dialog" aria-label={t('More tools')}>
             <p className="nav-pop-h">{t('Tools join your menu once you start using them. Tick one to keep it there.')}</p>
-            {OPTIONAL.map((to) => {
+            {OPTIONAL.filter((to) => allowed(to, me)).map((to) => {
               const [ic, label, desc] = PAGES[to], on = inMenu(to, me, p, null);
               return (
                 <div key={to} className="nav-tool">
@@ -222,7 +223,7 @@ function Jump({ me }) {
   useEffect(() => { if (open) { setQ(''); setSel(0); if (!funnels) api('/funnels').then(setFunnels).catch(() => setFunnels([])); } }, [open]);
   if (!open) return null;
   const s = q.trim().toLowerCase();
-  const pages = Object.entries(PAGES).filter(([to]) => !ACCOUNT.includes(to) || allowed(to, me)).map(([to, [ic, label, desc]]) => ({ to, ic, label: t(label), desc: t(desc) }));
+  const pages = Object.entries(PAGES).filter(([to]) => allowed(to, me)).map(([to, [ic, label, desc]]) => ({ to, ic, label: t(label), desc: t(desc) }));
   const fl = (funnels || []).map((f) => ({ to: `/funnels/${f.id}`, ic: 'funnel', label: f.name, desc: t(f.published ? 'Funnel · live' : 'Funnel · draft') }));
   const hits = [...pages, ...fl].filter((x) => !s || `${x.label} ${x.desc}`.toLowerCase().includes(s)).slice(0, 9);
   const go = (x) => { if (!x) return; setOpen(false); nav(x.to); };

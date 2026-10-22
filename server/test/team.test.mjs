@@ -110,3 +110,61 @@ test('admins manage almost everything but not billing or the team; removing some
   const m = list.members.find((x) => x.role === 'sales');
   assert.equal((await api(`/team/members/${m.id}`, 'DELETE', null, other.token)).status, 404);
 });
+
+test('a member limited to some funnels sees and works on only those, and nothing account-wide', async () => {
+  const g = (await api('/templates/coding/use', 'POST', {}, owner.token)).data; // a second funnel they mustn't see
+  const other = await register(api);
+  const theirs = (await api('/templates/yoga/use', 'POST', {}, other.token)).data;
+  // owners pick funnels from their own account only
+  const me = await register(api);
+  assert.equal((await api('/team/invite', 'POST', { email: me.email, role: 'marketer', funnelIds: [theirs.id] }, owner.token)).status, 400);
+  assert.equal((await api('/team/invite', 'POST', { email: me.email, role: 'marketer', funnelIds: 'all' }, owner.token)).status, 400);
+  const inv = (await api('/team/invite', 'POST', { email: me.email, role: 'marketer', funnelIds: [f.id] }, owner.token)).data;
+  assert.deepEqual(inv.funnelIds, [f.id]);
+  const d = (await api('/team/accept', 'POST', { token: inv.token }, me.token)).data;
+  const ws = d.token;
+  assert.deepEqual((await api('/me', 'GET', null, ws)).data.workspace.funnelIds, [f.id]);
+  // lists show their funnel only
+  assert.deepEqual((await api('/funnels', 'GET', null, ws)).data.map((x) => x.id), [f.id]);
+  const ov = await api('/analytics/overview', 'GET', null, ws);
+  assert.equal(ov.status, 200, JSON.stringify(ov.data));
+  assert.deepEqual(ov.data.funnels.map((x) => x.id), [f.id]);
+  assert.equal(ov.data.series.length, 30);
+  assert.ok(ov.data.recentOrders.every((o) => o.funnelId === f.id));
+  // their funnel: open, edit, revisions, analytics (its own leads and orders), tracking
+  for (const p of ['', '/revisions', '/analytics', '/tracking', '/legal-check']) assert.equal((await api(`/funnels/${f.id}${p}`, 'GET', null, ws)).status, 200, `GET ${p}`);
+  assert.equal((await api(`/funnels/${f.id}`, 'PUT', { name: 'Yoga by the designer' }, ws)).status, 200);
+  assert.equal((await api('/uploads', 'POST', { type: 'image/png', data: '' }, ws)).status, 400, 'uploading images reaches the route');
+  // any other funnel: 403, whatever the route
+  for (const [method, p, body] of [['GET', `/funnels/${g.id}`], ['PUT', `/funnels/${g.id}`, { name: 'x' }], ['GET', `/funnels/${g.id}/revisions`], ['GET', `/funnels/${g.id}/analytics`], ['GET', `/funnels/${g.id}/tracking`], ['PUT', `/funnels/${g.id}/tracking`, {}], ['DELETE', `/funnels/${g.id}`], ['POST', '/ai/chat', { funnelId: g.id, message: 'hi' }], ['POST', '/domains', { domain: 'x.example.in', funnelId: g.id }]]) {
+    assert.equal((await api(p, method, body, ws)).status, 403, `${method} ${p}`);
+  }
+  // new funnels and copies would sit outside their list; account-wide data is closed
+  for (const [method, p, body] of [['POST', '/funnels', { name: 'x' }], ['POST', '/templates/yoga/use', {}], ['POST', `/funnels/${f.id}/duplicate`, {}], ['POST', '/funnels/import', {}], ['GET', '/contacts'], ['GET', '/orders'], ['GET', '/automations'], ['GET', '/broadcasts'], ['POST', '/products', { name: 'x' }], ['POST', '/hive/chat', { message: 'hi' }], ['GET', '/hive/threads'], ['GET', '/reports/sales']]) {
+    assert.equal((await api(p, method, body, ws)).status, 403, `${method} ${p}`);
+  }
+  assert.equal((await api('/products', 'GET', null, ws)).status, 200, 'the product list for checkout blocks');
+  // the owner widens it to every funnel, and the open session follows at once
+  assert.equal((await api(`/team/members/${inv.id}`, 'PUT', { funnelIds: [f.id, g.id] }, owner.token)).data.role, 'marketer');
+  assert.equal((await api(`/funnels/${g.id}`, 'GET', null, ws)).status, 200);
+  assert.equal((await api(`/team/members/${inv.id}`, 'PUT', { funnelIds: null }, owner.token)).data.funnelIds, null);
+  assert.equal((await api('/contacts', 'GET', null, ws)).status, 200);
+  assert.equal((await api('/funnels', 'GET', null, ws)).data.length >= 2, true);
+  assert.equal((await api(`/team/members/${inv.id}`, 'PUT', { funnelIds: [g.id] }, owner.token)).status, 200);
+  assert.equal((await api(`/funnels/${f.id}`, 'GET', null, ws)).status, 403);
+  assert.equal((await api(`/team/members/${inv.id}`, 'PUT', { role: 'boss' }, owner.token)).status, 400);
+});
+
+test('Hive AI invites a member for some funnels only', async () => {
+  const tok = (await api('/hive/tokens', 'POST', { name: 'test' }, owner.token)).data.token;
+  const call = async (name, args) => {
+    const r = await (await fetch(`${srv.base}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })).json();
+    const text = r.result?.content?.[0]?.text || '';
+    return r.result?.isError ? { error: text } : JSON.parse(text);
+  };
+  const r = await call('invite_team_member', { email: 'designer@x.in', role: 'marketer', funnelIds: [f.id] });
+  assert.equal(r.funnels, 1, JSON.stringify(r));
+  const m = (await call('list_team', {})).members.find((x) => x.email === 'designer@x.in');
+  assert.deepEqual(m.funnelIds, [f.id]);
+  assert.match((await call('invite_team_member', { email: 'd2@x.in', role: 'marketer', funnelIds: ['nope'] })).error, /funnels/i);
+});

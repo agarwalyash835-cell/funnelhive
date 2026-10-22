@@ -118,7 +118,8 @@ export function registerDomains(app, { auth }) {
   const own = (req, res) => { const d = T.domains.get(req.params.did); if (!d || d.userId !== req.user.id) { res.status(404).json({ error: 'Domain not found' }); return null; } return d; };
   const ownFunnel = (req, id) => { const f = id && T.funnels.get(id); return f && f.userId === req.user.id ? f : null; };
 
-  app.get('/api/domains', auth, (req, res) => res.json({ domains: T.domains.all({ userId: req.user.id }, { order: 'createdAt' }).map(out), target: cnameTarget() || null, serverIp: serverIp() || null }));
+  // a teammate limited to some funnels sees those funnels' domains (team.js)
+  app.get('/api/domains', auth, (req, res) => res.json({ domains: T.domains.all({ userId: req.user.id }, { order: 'createdAt' }).filter((d) => !req.funnelScope || req.funnelScope.has(d.funnelId)).map(out), target: cnameTarget() || null, serverIp: serverIp() || null }));
   app.post('/api/domains', auth, (req, res) => {
     const domain = normalizeDomain(req.body.domain);
     if (!HOST_RE.test(domain)) return res.status(400).json({ error: 'Enter a domain like offer.yourbrand.in' });
