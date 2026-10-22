@@ -26,6 +26,9 @@ const Orders = lazy(() => import('./pages/Orders'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Products = lazy(() => import('./pages/Products'));
 const Library = lazy(() => import('./pages/Library'));
+const Learn = lazy(() => import('./pages/Learn'));
+const School = lazy(() => import('./pages/School'));
+const CertCheck = named(() => import('./pages/Learn'), 'CertCheck');
 const SaleInvoice = lazy(() => import('./pages/SaleInvoice'));
 const Bookings = lazy(() => import('./pages/Bookings'));
 const BookingManage = lazy(() => import('./pages/BookingManage'));
@@ -82,7 +85,7 @@ function LangRoot({ children }) {
 
 // A seller's own domain only ever shows their funnel
 const onDomain = typeof window !== 'undefined' && !!window.__FF_DOMAIN__;
-const onFunnel = onDomain || /^\/f\/[^/]/.test(location.pathname);
+const onFunnel = onDomain || /^\/(f|learn|cert)\/[^/]/.test(location.pathname);
 
 const app = onDomain ? (
   <BrowserRouter>
@@ -126,7 +129,10 @@ const app = onDomain ? (
         <Route path="/invoice/:id" element={L(SaleInvoice)} />
         <Route path="/bookings" element={P(Bookings)} />
         <Route path="/meet/:handle/:cal?" element={L(MeetPage)} />
+        <Route path="/learn/:handle/*" element={L(Learn)} />
+        <Route path="/cert/:id" element={L(CertCheck)} />
         <Route path="/booking/:id" element={L(BookingManage)} />
+        <Route path="/school" element={P(School)} />
         <Route path="/quotes" element={P(Quotes)} />
         <Route path="/q/:id" element={L(QuotePublic)} />
         <Route path="/webinars" element={P(Webinars)} />

@@ -285,7 +285,7 @@ function libraryView(ctx) {
   const theme = ctx.rows.find((a) => a.theme)?.theme || null;
   return {
     scope: ctx.scope, email: ctx.rows[0]?.email || '', name: ctx.rows.find((a) => a.name)?.name || '',
-    seller: { id: ctx.userId, name: owner?.settings?.businessName || owner?.name || '', whatsapp: owner?.settings?.supportWhatsapp || '', email: owner?.channels?.email?.replyTo || '' },
+    seller: { id: ctx.userId, name: owner?.settings?.businessName || owner?.name || '', whatsapp: owner?.settings?.supportWhatsapp || '', email: owner?.channels?.email?.replyTo || '', school: owner?.bookingHandle ? `/learn/${owner.bookingHandle}` : null },
     theme, products, plans: buyerPlans(ctx.userId, ctx.rows[0]?.email),
   };
 }

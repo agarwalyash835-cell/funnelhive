@@ -90,7 +90,7 @@ function ProductEditor({ id }) {
   const save = async () => {
     setBusy(true);
     try {
-      const x = await api(`/products/${id}`, 'PUT', { name: p.name, description: p.description, note: p.note, cover: p.cover, links: p.links, lessons: p.lessons, includes: p.includes || [], accessDays: p.accessDays, downloadLimit: p.downloadLimit, hsn: p.hsn || '', gstRate: p.gstRate ?? '', origin: p.origin || '' });
+      const x = await api(`/products/${id}`, 'PUT', { name: p.name, description: p.description, note: p.note, cover: p.cover, links: p.links, lessons: p.lessons, includes: p.includes || [], certificate: p.certificate || { enabled: false }, accessDays: p.accessDays, downloadLimit: p.downloadLimit, hsn: p.hsn || '', gstRate: p.gstRate ?? '', origin: p.origin || '' });
       const next = { ...x, usage: p.usage };
       setP(next); setSaved(JSON.stringify(next)); toast('Product saved');
     } catch (e) { toast(e.message); }
@@ -248,21 +248,114 @@ function LinksPanel({ p, set }) {
   );
 }
 
+// A lesson's quiz: questions with options, the right one ticked, an optional explanation; AI can write it from the lesson
+function QuizEditor({ l, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const z = l.quiz;
+  const setQ = (i, patch) => onChange({ ...z, questions: z.questions.map((q, n) => (n === i ? { ...q, ...patch } : q)) });
+  const blankQ = () => ({ q: '', options: ['', ''], answer: 0, explain: '' });
+  const ai = async () => {
+    if (String(l.body || '').trim().length < 40) return toast('Write the lesson notes first — the quiz is made from them');
+    setBusy(true);
+    try { onChange(await api('/ai/quiz', 'POST', { title: l.title, text: l.body, count: 4 })); toast('Quiz written — check it over'); } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  if (!z) return (
+    <div className="fld full"><span>Quiz</span>
+      <div className="row"><button type="button" className="btn ghost sm" onClick={() => onChange({ pass: 70, questions: [blankQ()] })}><Icon name="plus" size={14} /> Add a quiz</button>
+        <button type="button" className="btn ghost sm" onClick={ai} disabled={busy}>{busy ? <span className="spin dark" /> : <Icon name="sparkles" size={14} />} Write with AI</button></div>
+      <small className="hint">Students must pass it to finish the lesson. Answers are checked on our server — never shown before they try.</small>
+    </div>
+  );
+  return (
+    <div className="fld full pr-quiz"><span>Quiz · pass mark <input className="pr-pass" type="number" min="0" max="100" value={z.pass} onChange={(e) => onChange({ ...z, pass: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />%
+      <button type="button" className="btn ghost sm" onClick={ai} disabled={busy}>{busy ? <span className="spin dark" /> : <Icon name="sparkles" size={12} />} Rewrite with AI</button>
+      <button type="button" className="btn ghost sm danger" onClick={() => onChange(null)}>Remove quiz</button></span>
+      {z.questions.map((q, i) => (
+        <div key={i} className="pr-qq">
+          <div className="row"><b>{i + 1}.</b><input value={q.q} maxLength={500} placeholder="Question" onChange={(e) => setQ(i, { q: e.target.value })} />{z.questions.length > 1 && <button type="button" className="icon-btn xs danger" aria-label="Remove question" onClick={() => onChange({ ...z, questions: z.questions.filter((_, n) => n !== i) })}><Icon name="x" size={12} /></button>}</div>
+          {q.options.map((o, k) => (
+            <label key={k} className={`pr-qo ${q.answer === k ? 'on' : ''}`}>
+              <input type="radio" name={`ans-${l.id}-${i}`} checked={q.answer === k} onChange={() => setQ(i, { answer: k })} title="The right answer" />
+              <input value={o} maxLength={300} placeholder={`Option ${k + 1}`} onChange={(e) => setQ(i, { options: q.options.map((x, n) => (n === k ? e.target.value : x)) })} />
+              {q.options.length > 2 && <button type="button" className="icon-btn xs" aria-label="Remove option" onClick={() => setQ(i, { options: q.options.filter((_, n) => n !== k), answer: q.answer === k ? 0 : q.answer > k ? q.answer - 1 : q.answer })}><Icon name="x" size={11} /></button>}
+            </label>
+          ))}
+          <div className="row">{q.options.length < 6 && <button type="button" className="btn ghost sm" onClick={() => setQ(i, { options: [...q.options, ''] })}>+ Option</button>}
+            <input className="pr-explain" value={q.explain || ''} maxLength={600} placeholder="Why it’s right (shown after they answer) — optional" onChange={(e) => setQ(i, { explain: e.target.value })} /></div>
+        </div>
+      ))}
+      {z.questions.length < 30 && <button type="button" className="btn ghost sm" onClick={() => onChange({ ...z, questions: [...z.questions, blankQ()] })}><Icon name="plus" size={14} /> Add question</button>}
+      <small className="hint">Tick the circle next to the right answer.</small>
+    </div>
+  );
+}
+
+// "Write the course with AI": topic → modules, full lessons and quizzes, added to this product for you to edit
+function AiCourse({ p, set, onClose }) {
+  const [v, setV] = useState({ topic: p.name || '', audience: '', level: 'beginner', lessons: 10, language: 'English', notes: '' });
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    try {
+      const c = await api('/ai/course', 'POST', v);
+      const lessons = c.lessons.map((l, i) => ({ id: `n${Date.now().toString(36)}${i}`, videoUrl: '', videoFileId: '', fileIds: [], dripDays: 0, ...l }));
+      set({ lessons: [...(p.lessons || []), ...lessons], ...(!p.description && c.description ? { description: c.description } : {}) });
+      toast(`${lessons.length} lessons added — review them, add your videos, then Save`);
+      onClose();
+    } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  return (
+    <Modal title="Write the course with AI" onClose={busy ? () => {} : onClose} width={560}>
+      <div className="form2">
+        <label className="fld full"><span>What does the course teach?</span><input autoFocus value={v.topic} maxLength={500} onChange={(e) => setV({ ...v, topic: e.target.value })} placeholder="e.g. Stock market basics for salaried beginners" /></label>
+        <label className="fld full"><span>Who is it for?</span><input value={v.audience} maxLength={300} onChange={(e) => setV({ ...v, audience: e.target.value })} placeholder="e.g. Working professionals in India, 25–40" /></label>
+        <label className="fld"><span>Level</span><select value={v.level} onChange={(e) => setV({ ...v, level: e.target.value })}><option value="beginner">Beginner</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option></select></label>
+        <label className="fld"><span>About how many lessons</span><input type="number" min="3" max="30" value={v.lessons} onChange={(e) => setV({ ...v, lessons: Number(e.target.value) || 10 })} /></label>
+        <label className="fld"><span>Language</span><select value={v.language} onChange={(e) => setV({ ...v, language: e.target.value })}>{['English', 'Hindi', 'Hinglish', 'Tamil', 'Telugu', 'Marathi', 'Bengali', 'Gujarati', 'Kannada', 'Malayalam'].map((x) => <option key={x}>{x}</option>)}</select></label>
+        <label className="fld full"><span>Your outline or notes <small className="muted">· optional — the AI follows them</small></span><textarea rows={4} maxLength={6000} value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} placeholder="Paste your module list, a workshop transcript, or bullet points…" /></label>
+      </div>
+      <p className="hint">Writes modules, full lessons and a quiz at the end of each module (5 AI credits). Lessons are added below the ones you have — nothing is saved until you press Save.</p>
+      <div className="row end"><button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button><button className="btn primary" onClick={go} disabled={busy || v.topic.trim().length < 4}>{busy ? <><span className="spin" /> Writing… (about a minute)</> : <><Icon name="sparkles" size={15} /> Write the course</>}</button></div>
+    </Modal>
+  );
+}
+
+// A certificate when a student finishes every lesson and passes every quiz
+function CertificatePanel({ p, set }) {
+  const c = p.certificate || { enabled: false };
+  const upd = (patch) => set({ certificate: { ...c, ...patch } });
+  return (
+    <Panel title="Certificate">
+      <label className="tog" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={!!c.enabled} onChange={(e) => upd({ enabled: e.target.checked })} /><span /> Give a certificate when a student finishes this course</label>
+      {c.enabled && <div className="form2" style={{ marginTop: 12 }}>
+        <label className="fld full"><span>Title</span><input value={c.title || ''} maxLength={120} onChange={(e) => upd({ title: e.target.value })} placeholder="Certificate of completion" /></label>
+        <label className="fld"><span>Signed by</span><input value={c.signer || ''} maxLength={80} onChange={(e) => upd({ signer: e.target.value })} placeholder="Your name" /></label>
+        <label className="fld"><span>Their role</span><input value={c.signerRole || ''} maxLength={80} onChange={(e) => upd({ signerRole: e.target.value })} placeholder="Founder & coach" /></label>
+      </div>}
+      <p className="hint">Finished = every lesson done and every quiz passed. Each certificate has a number anyone can check online, and students can add it to LinkedIn.</p>
+    </Panel>
+  );
+}
+
 function LessonsPanel({ p, set }) {
   const lessons = p.lessons || [];
   const [open, setOpen] = useState(null);
+  const [ai, setAi] = useState(false);
   const upd = (i, patch) => set({ lessons: lessons.map((l, n) => (n === i ? { ...l, ...patch } : l)) });
   const move = (i, d) => { const a = [...lessons]; [a[i], a[i + d]] = [a[i + d], a[i]]; set({ lessons: a }); };
   const add = () => { set({ lessons: [...lessons, { id: `n${Date.now().toString(36)}`, title: `Lesson ${lessons.length + 1}`, section: lessons.at(-1)?.section || '', videoUrl: '', videoFileId: '', body: '', fileIds: [], dripDays: 0 }] }); setOpen(lessons.length); };
   const videos = p.files.filter((f) => /^video\//.test(f.type));
   return (
-    <Panel title={`Course lessons${lessons.length ? ` (${lessons.length})` : ''}`} actions={<button className="btn ghost sm" onClick={add}><Icon name="plus" size={14} /> Add lesson</button>}>
+    <Panel title={`Course lessons${lessons.length ? ` (${lessons.length})` : ''}`} actions={<span className="row"><button className="btn ghost sm" onClick={() => setAi(true)}><Icon name="sparkles" size={14} /> Write course with AI</button><button className="btn ghost sm" onClick={add}><Icon name="plus" size={14} /> Add lesson</button></span>}>
+      {ai && <AiCourse p={p} set={set} onClose={() => setAi(false)} />}
       {!lessons.length ? <p className="muted sm">Turn this product into a course: each lesson can have a video (YouTube, Vimeo, Loom, Google Drive or an uploaded file), notes and downloads. Buyers get a course player with progress tracking. Use “unlocks after” to drip lessons out over time.</p> : (
         <div className="pr-lessons">{lessons.map((l, i) => (
           <div key={l.id} className={`pr-lesson ${open === i ? 'open' : ''}`}>
             <div className="pr-lh" onClick={() => setOpen(open === i ? null : i)}>
               <span className="num">{i + 1}</span>
-              <div><b>{l.title || 'Untitled lesson'}</b><small className="muted">{[l.section, (l.videoUrl || l.videoFileId) && 'video', l.fileIds?.length && `${l.fileIds.length} file${l.fileIds.length > 1 ? 's' : ''}`, l.dripDays && `unlocks day ${l.dripDays}`].filter(Boolean).join(' · ')}</small></div>
+              <div><b>{l.title || 'Untitled lesson'}</b><small className="muted">{[l.section, (l.videoUrl || l.videoFileId) && 'video', l.fileIds?.length && `${l.fileIds.length} file${l.fileIds.length > 1 ? 's' : ''}`, l.dripDays && `unlocks day ${l.dripDays}`, l.quiz && `quiz · ${l.quiz.questions.length} q`].filter(Boolean).join(' · ')}</small></div>
               <span className="row" onClick={(e) => e.stopPropagation()}>
                 {i > 0 && <button className="icon-btn xs" aria-label="Move up" onClick={() => move(i, -1)}>↑</button>}
                 {i < lessons.length - 1 && <button className="icon-btn xs" aria-label="Move down" onClick={() => move(i, 1)}>↓</button>}
@@ -280,6 +373,7 @@ function LessonsPanel({ p, set }) {
                   {p.files.length ? <div className="chips">{p.files.filter((f) => f.id !== l.videoFileId).map((f) => { const on = l.fileIds.includes(f.id); return <button key={f.id} type="button" className={on ? 'on' : ''} onClick={() => upd(i, { fileIds: on ? l.fileIds.filter((x) => x !== f.id) : [...l.fileIds, f.id] })}>{on ? '✓ ' : ''}{f.name}</button>; })}</div> : <small className="muted">Upload files above to attach them to lessons.</small>}
                 </div>
                 <label className="fld"><span>Unlocks after (days)</span><input type="number" min="0" max="3650" value={l.dripDays} onChange={(e) => upd(i, { dripDays: Number(e.target.value) || 0 })} /><small className="hint">0 = available immediately. Counted from the day of purchase.</small></label>
+                <QuizEditor l={l} onChange={(quiz) => upd(i, { quiz })} />
               </div>
             )}
           </div>
@@ -357,7 +451,7 @@ function BundlePanel({ p, set }) {
       <p className="hint" style={{ marginTop: 0 }}>Sell several products as one: buyers of <b>{p.name}</b> also get every product ticked here, for as long as their access to this one lasts. A refund takes them all back.</p>
       {!all ? <div className="skeleton" style={{ height: 40 }} /> : choices.length === 0 ? <p className="hint">Create the products first, then tick them here.</p> : (
         <div className="pr-bundle" style={{ display: 'grid', gap: 6 }}>
-          {choices.map((x) => <label key={x.id} className="tog" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={inc.includes(x.id)} onChange={() => toggle(x.id)} /><span>{x.name}</span></label>)}
+          {choices.map((x) => <label key={x.id} className="pr-check"><input type="checkbox" checked={inc.includes(x.id)} onChange={() => toggle(x.id)} /><span>{x.name}</span></label>)}
         </div>
       )}
     </Panel>
@@ -368,6 +462,7 @@ function SettingsTab({ p, set, onDelete }) {
   return (
     <div className="pr-cols">
       <div className="pr-main">
+        <CertificatePanel p={p} set={set} />
         <BundlePanel p={p} set={set} />
         <Panel title="Access">
           <div className="form2">

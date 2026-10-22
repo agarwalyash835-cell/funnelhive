@@ -28,7 +28,7 @@ export default function Library() {
     <div className="lib" style={{ '--acc': accent }}>
       <header className="lib-h">
         <div className="lib-brand"><span className="lib-logo">{(d.seller.name || 'L')[0]}</span><b>{d.seller.name}</b></div>
-        <div className="lib-who">{d.email}{d.scope === 'receipt' && <small>this purchase</small>}</div>
+        <div className="lib-who">{d.seller.school && d.scope === 'library' && <a className="lib-btn" href={`${d.seller.school}?t=${encodeURIComponent(token)}`}>Open members area →</a>}{d.email}{d.scope === 'receipt' && <small>this purchase</small>}</div>
       </header>
       {product ? <ProductView token={token} p={product} onBack={d.products.length > 1 ? () => setOpen(null) : null} onChange={load} /> : (
         <main className="lib-main">

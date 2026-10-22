@@ -104,6 +104,7 @@ const PAGES = {
   '/orders': ['cart', 'Orders', 'Sales, refunds, shipping and abandoned checkouts'],
   '/reports': ['chart', 'Reports', 'Revenue, refunds, cohorts and lifetime value'],
   '/products': ['box', 'Products', 'Courses, downloads and memberships buyers get access to'],
+  '/school': ['bookmark', 'School', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
   '/contacts': ['users', 'Contacts', 'Everyone who signed up or bought, with your pipeline'],
   '/automations': ['flow', 'Automations', 'Follow-up emails and WhatsApp that run by themselves'],
@@ -116,8 +117,8 @@ const PAGES = {
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
-const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/products', '/quotes']], ['Audience', ['/contacts', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
-const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/contacts'];
+const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/products', '/school', '/quotes']], ['Audience', ['/contacts', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
+const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/school', '/contacts'];
 const OPTIONAL = GROUPS.flatMap(([, l]) => l).filter((to) => !CORE.includes(to));
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };

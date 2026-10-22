@@ -30,7 +30,7 @@ export const LEVELS = [0, 5, 20, 65, 155, 515, 2015, 8015, 33015];
 export const levelOf = (pts) => { let l = 1; for (let i = 0; i < LEVELS.length; i++) if (pts >= LEVELS[i]) l = i + 1; return l; };
 const levelView = (u, pts) => {
   const lvl = levelOf(pts), names = schoolOf(u).levels;
-  return { level: lvl, levelName: names[lvl - 1] || `Level ${lvl}`, points: pts, next: lvl < LEVELS.length ? LEVELS[lvl] : null };
+  return { level: lvl, levelName: names[lvl - 1] || `Level ${lvl}`, points: pts, from: LEVELS[lvl - 1], next: lvl < LEVELS.length ? LEVELS[lvl] : null };
 };
 
 // ---------- students ----------
