@@ -2169,3 +2169,4 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .tfa-qr { width: 180px; height: 180px; border-radius: 12px; border: 1px solid var(--c-line); background: #fff; padding: 6px; image-rendering: pixelated; }
 .tfa-manual { margin: 0 0 10px; font-size: 13px; }
 .tfa-manual summary { cursor: pointer; color: var(--c-accent); font-weight: 600; }
+.cors-rule { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: 8px; padding: 10px 12px; font-size: 12px; overflow-x: auto; margin: 8px 0; white-space: pre; }

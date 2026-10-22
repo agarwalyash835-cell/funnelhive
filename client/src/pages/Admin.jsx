@@ -246,6 +246,19 @@ function Invoices() {
 }
 
 // S3-compatible storage (Wasabi, S3, R2…): daily off-site backups, uploaded images and product files
+// browsers fetch signed links straight from the bucket (course video, downloads): it needs this CORS rule
+const CORS_RULE = JSON.stringify([{ AllowedOrigins: ['*'], AllowedMethods: ['GET', 'HEAD'], AllowedHeaders: ['*'], ExposeHeaders: ['Content-Length', 'Content-Range'], MaxAgeSeconds: 86400 }], null, 2);
+function CorsWarn({ s, video }) {
+  if (!s.ready || s.fromEnv || s.cors !== false) return null;
+  return (
+    <div className="setup-warn"><Icon name="bolt" size={16} /><div>
+      <p><b>Videos won’t play in browsers yet — the bucket is missing a CORS rule.</b> {video ? 'In Cloudflare: R2 → your bucket → Settings → CORS Policy → Add, paste this and save.' : 'Add this CORS rule in your storage provider’s bucket settings (Wasabi: bucket → Settings → CORS; R2: Settings → CORS Policy).'} Then press Save & test again (the secret can stay empty).</p>
+      <pre className="cors-rule">{CORS_RULE}</pre>
+      <button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(CORS_RULE); toast('CORS rule copied'); }}>Copy the rule</button>
+    </div></div>
+  );
+}
+
 function StoragePanel({ s, save, field = 'storage' }) {
   const video = field === 'videoStorage';
   const [v, setV] = useState({ endpoint: s.endpoint || (video ? '' : 'https://s3.ap-southeast-1.wasabisys.com'), region: s.region || '', bucket: s.bucket || '', key: s.key || '', secret: '', publicUrl: s.publicUrl || '' });
@@ -255,6 +268,7 @@ function StoragePanel({ s, save, field = 'storage' }) {
     <Panel title="Video storage (protected course video)">
       <p className="muted sm">Where encrypted course video is kept and streamed from. Use <b>Cloudflare R2</b> — it doesn’t charge for viewers watching. Without it, video goes to the file storage above (or this server). Videos keep playing from wherever they were prepared.</p>
       <div className={`ai-card ${s.ready ? 'on' : ''}`}><Icon name="play" size={20} /><div><b>{s.ready ? `Connected · ${s.fromEnv ? 'from the server’s settings file' : s.bucket}` : 'Not connected — video uses the file storage'}</b></div></div>
+      <CorsWarn s={s} video />
       {s.fromEnv ? <p className="hint">Set by VIDEO_S3_* variables on the server, which take priority over this form.</p> : (
         <>
           <div className="form2">
@@ -274,6 +288,7 @@ function StoragePanel({ s, save, field = 'storage' }) {
     <Panel title="File storage & off-site backups">
       <p className="muted sm">An S3-compatible bucket (Wasabi, AWS S3, Cloudflare R2…). Once connected, a copy of the database goes there after every backup (every 6 hours, 90 days kept), and new uploaded images and product files are stored there instead of on this server.</p>
       <div className={`ai-card ${s.ready ? 'on' : ''}`}><Icon name="box" size={20} /><div><b>{s.ready ? `Connected · ${s.fromEnv ? 'from the server’s settings file' : s.bucket}` : 'Not connected — everything stays on this server only'}</b><p className="muted sm">{off ? (off.ok ? `Last off-site backup: ${off.file} · ${new Date(off.at).toLocaleString('en-IN')}` : `Last off-site backup failed: ${off.error}`) : s.ready ? 'The first off-site backup runs within a few minutes.' : 'Wasabi → Buckets → Create bucket, then Access Keys → Create new access key.'}</p></div></div>
+      <CorsWarn s={s} />
       {s.fromEnv ? <p className="hint">Set by S3_* variables on the server, which take priority over this form.</p> : (
         <>
           <div className="form2">

@@ -177,7 +177,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
     const st = p.storage, vs = p.videoStorage;
-    return { ...rest, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady() }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -232,7 +232,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         if (!next.region) next.region = (/s3\.([a-z0-9-]+)\.wasabisys\.com/.exec(next.endpoint) || [])[1] || 'auto';
         const secret = s.secret ? String(s.secret).trim() : decrypt(cur.secretEnc);
         if (!secret) return res.status(400).json({ error: 'Enter the secret key' });
-        try { await testStorage({ ...next, secret }); } catch (e) { return res.status(400).json({ error: `Couldn’t write to the bucket: ${e.message}` }); }
+        try { next.cors = (await testStorage({ ...next, secret }))?.cors ?? null; } catch (e) { return res.status(400).json({ error: `Couldn’t write to the bucket: ${e.message}` }); }
         if (s.secret) next.secretEnc = encrypt(secret);
         patch[field] = next;
       }

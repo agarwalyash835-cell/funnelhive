@@ -121,6 +121,16 @@ export async function testStorage(c) {
   const e = clean(c), key = `funnelhive-check-${Date.now()}.txt`;
   await request('PUT', key, { body: 'ok', type: 'text/plain' }, e);
   const back = await (await request('GET', key, {}, e)).text();
+  // browsers (the course video player) fetch signed links straight from the bucket: that needs a CORS rule on it
+  const cors = await corsAllows(presign(key, { expires: 120 }, e));
   await request('DELETE', key, {}, e);
   if (back !== 'ok') throw new Error('the file read back didn’t match');
+  return { cors };
+}
+export async function corsAllows(url, origin = 'https://example.com') {
+  try {
+    const r = await fetch(url, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'GET' }, signal: AbortSignal.timeout(10000) });
+    const a = r.headers.get('access-control-allow-origin');
+    return r.ok && (a === '*' || a === origin);
+  } catch { return false; }
 }
