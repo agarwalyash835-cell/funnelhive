@@ -27,6 +27,8 @@ export function statusLine(a) {
 
 export default function Billing() {
   const [b, setB] = useState(null);
+  const [use, setUse] = useState(null);
+  useEffect(() => { api('/usage').then(setUse).catch(() => {}); }, []);
   const [period, setPeriod] = useState('yearly');
   const [tier, setTier] = useState('pro');
   const interval = tier === 'agency' ? `agency_${period}` : period;
@@ -132,6 +134,17 @@ export default function Billing() {
               <p className="hint">A full AI funnel uses 5 credits; an AI edit, chat message or Hive AI message uses 1. Credits renew on the 1st of each month.</p>
             </div>
           </Panel>
+          {use && (
+            <Panel title="Usage">
+              {[['Funnels', use.usage.funnels, use.limits.funnels, ''], ['Storage', use.usage.storageMB, use.limits.storageMB, ' MB']].map(([l, n, max, unit]) => { const p = max ? Math.min(100, Math.round((n / max) * 100)) : 0; return (
+                <div key={l} className="credits" style={{ marginBottom: 10 }}>
+                  <div className="credits-n">{l}: <b>{num(n)}{unit}</b> of {num(max)}{unit}</div>
+                  <div className="meter"><span style={{ width: `${p}%` }} className={p > 90 ? 'hot' : ''} /></div>
+                </div>
+              ); })}
+              <p className="hint">Storage counts images and files ({num(use.usage.filesMB)} MB) and your pages with their restore points ({num(use.usage.pagesMB)} MB). Course videos in protected streaming don’t count here.</p>
+            </Panel>
+          )}
           <Panel title="Invoices" pad={false}>
             {b.invoices.length ? (
               <table className="tbl compact"><thead><tr><th>Invoice</th><th>Date</th><th>Plan</th><th className="r">Amount</th><th /></tr></thead>

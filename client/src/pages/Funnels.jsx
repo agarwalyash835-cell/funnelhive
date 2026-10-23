@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Icon, Empty, CreateFunnel, inr, num, toast , Modal , pagesOrigin, confirmDialog } from '../ui';
-import { Page } from '../blocks';
+import { PagePreview } from '../blocks';
 import { StepIcon } from '../blockIcons';
 
 
@@ -45,7 +45,7 @@ export default function Funnels() {
           {shown.map((f) => (
             <article className="fcard" key={f.id}>
               <Link to={`/funnels/${f.id}`} className="fthumb">
-                {f.hero ? <div className="thumb-in"><Page blocks={[f.hero]} theme={f.theme} ctx={{ live: false }} /></div> : <div className="fthumb-ph"><Icon name="layout" size={30} /></div>}
+                {f.hero ? <PagePreview block={f.hero} theme={f.theme} /> : <div className="fthumb-ph"><Icon name="layout" size={30} /></div>}
                 <span className={`pill float ${f.published ? 'ok' : ''}`}>{f.published ? '● Live' : 'Draft'}</span>
               </Link>
               <div className="fbody">

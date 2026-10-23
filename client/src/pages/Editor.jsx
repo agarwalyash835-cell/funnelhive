@@ -1203,6 +1203,11 @@ export default function Editor() {
               {MID_FUNNEL.includes(step.type) || f.seo?.noindex
                 ? <label className="tog"><input type="checkbox" checked disabled /><span />Hidden from search engines<small className="hint"> · {f.seo?.noindex ? 'the whole funnel is hidden' : 'always, for this kind of page'}</small></label>
                 : <label className="tog"><input type="checkbox" checked={!!step.seo?.noindex} onChange={(e) => patchStep({ seo: { ...step.seo, noindex: e.target.checked } })} /><span />Hide this page from search engines</label>}
+              {['upsell', 'downsell', 'thankyou'].includes(step.type) && f.steps.indexOf(step) > 0 && (<>
+                <h5>Who can open this page</h5>
+                <label className="tog"><input type="checkbox" checked={!step.open} onChange={(e) => patchStep({ open: !e.target.checked })} /><span />Only people who bought (or signed up) in this funnel</label>
+                <p className="hint">{step.open ? 'Anyone with the link can open this page — fine for a page with nothing private on it.' : 'Someone who opens the link without buying is sent back to the start, so a shared link never gives away your bonus, download link or group invite.'}</p>
+              </>)}
               <h5>Pop-ups <small>· {(step.popups || []).length} of {POPUP_MAX}</small></h5>
               <p className="hint">Each pop-up is built from sections like the page. Visitors can always close it, and nobody who has already signed up sees it again.</p>
               {(step.popups || []).map((p, i) => {

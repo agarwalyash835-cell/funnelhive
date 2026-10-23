@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, loggedIn } from '../api';
-import { Page } from '../blocks';
+import { Page, PagePreview } from '../blocks';
 import { Layout, Icon, loadFailed } from '../ui';
 
 const TYPES = [['all', 'All funnels'], ['sales', 'Sales pages'], ['vsl', 'VSL + application'], ['webinar', 'Webinars'], ['lead', 'Lead generation'], ['website', 'Websites']];
@@ -43,7 +43,7 @@ export function TemplateGallery() {
         {shown.map((t) => (
           <article className="tcard" key={t.id}>
             <Link className="thumb" to={`/t/${t.id}`}>
-              <div className="thumb-in"><Page blocks={[t.hero]} theme={t.theme} ctx={{ live: false }} /></div>
+              <PagePreview block={t.hero} theme={t.theme} />
               <span className="thumb-hover"><Icon name="eye" size={16} /> Preview</span>
             </Link>
             <div className="tbody">

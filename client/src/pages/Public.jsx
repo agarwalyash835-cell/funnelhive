@@ -161,7 +161,21 @@ export default function Public() {
 
   if (f?.currency) CURRENCY = f.currency;
   const idx = f ? Math.max(0, f.steps.findIndex((s) => s.slug === stepSlug)) : 0;
-  const step = f?.steps[idx];
+  // upsell / downsell / thank-you pages come locked (server: lockOf): their content is fetched with this
+  // visitor's order or sign-up pass; without one they go back to the start of the funnel
+  const [opened, setOpened] = useState({});
+  const raw = f?.steps[idx];
+  const step = raw?.locked ? opened[raw.id] : raw;
+  useEffect(() => {
+    if (!raw?.locked || opened[raw.id]) return;
+    const o = store.get(`ff_order_${slug}${preview ? '_preview' : ''}`, sessionStorage) || '', p = store.get(`ff_pass_${slug}`, sessionStorage) || '';
+    fetch(`/api/public/${slug}/step/${raw.id}${preview ? `${preview}&` : '?'}o=${encodeURIComponent(o)}&p=${encodeURIComponent(p)}`).then(async (r) => {
+      if (r.ok) { const full = await r.json(); setOpened((x) => ({ ...x, [raw.id]: full })); return; }
+      const first = f.steps[0];
+      nav(onDomain ? '/' : `/f/${slug}${preview}`, { replace: true });
+      if (first?.id === raw.id) setErr('This page is not available right now.');
+    }).catch(() => setErr('Network problem — check your connection and try again'));
+  }, [raw?.id]);
 
   // A/B split: each visitor is assigned a variant once per step and keeps it
   const variant = useMemo(() => {
@@ -271,6 +285,7 @@ export default function Public() {
         const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id });
         if (r?.error) throw new Error(r.error);
         store.set(sk('ff_email'), data.email, sessionStorage);
+        if (r?.pass) store.set(`ff_pass_${slug}`, r.pass, sessionStorage); // opens the thank-you page that follows
         if (data.name) store.set(sk('ff_name'), data.name, sessionStorage);
         if (data.phone) store.set(sk('ff_phone'), data.phone, sessionStorage);
         remember(r);
@@ -286,6 +301,7 @@ export default function Public() {
         const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id });
         if (r.error) throw new Error(r.error);
         if (data.email) store.set(sk('ff_email'), data.email, sessionStorage);
+        if (r.pass) store.set(`ff_pass_${slug}`, r.pass, sessionStorage);
         if (data.name) store.set(sk('ff_name'), data.name, sessionStorage);
         if (data.phone) store.set(sk('ff_phone'), data.phone, sessionStorage);
         remember(r);

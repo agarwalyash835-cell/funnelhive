@@ -3,7 +3,7 @@
 // shared sender, during the free trial) broadcast emails a day. Admin → Plan & settings sets the defaults; Admin →
 // a seller can raise them for that account. Sign-ups get a honeypot, a disposable-inbox check, a per-IP daily cap
 // and, when TURNSTILE_SECRET_KEY is set, Cloudflare Turnstile.
-import { T, hit } from './db.js';
+import { T, hit, q } from './db.js';
 import { platform } from './platform.js';
 import { accessFor } from './billing.js';
 
@@ -20,9 +20,31 @@ export function limitsFor(u) {
     broadcastDaily: trial ? p.broadcastTrialDaily : null, // null: only the shared sender's own cap
   };
 }
+// pages: the funnels' content and their restore points — kept in the database, so they count like files do
+export const FUNNEL_MAX_BYTES = 2 * MB; // a whole funnel; real ones are 10–50 KB
+export const pagesBytes = (userId) => q('SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM funnels WHERE userId = ?').get(userId).n + q('SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM revisions WHERE userId = ?').get(userId).n;
+const mb = (b) => Math.round((b / MB) * 10) / 10;
 export function usageFor(u) {
-  return { funnels: T.funnels.count({ userId: u.id }), storageMB: Math.round(((u.storageBytes || 0) / MB) * 10) / 10 };
+  const pages = pagesBytes(u.id);
+  return { funnels: T.funnels.count({ userId: u.id }), storageMB: mb((u.storageBytes || 0) + pages), filesMB: mb(u.storageBytes || 0), pagesMB: mb(pages) };
 }
+// room for this many more bytes of pages: the oldest restore points go first (never the last 5 of a funnel);
+// → an error message when even that isn't enough
+export function makePageRoom(u, bytes) {
+  if (!u || accessFor(u).admin || bytes <= 0) return null;
+  const cap = limitsFor(u).storageMB * MB;
+  let over = (u.storageBytes || 0) + pagesBytes(u.id) + bytes - cap;
+  if (over <= 0) return null;
+  const old = q('SELECT id, LENGTH(data) AS n FROM revisions r WHERE userId = ? AND (SELECT COUNT(*) FROM revisions x WHERE x.funnelId = r.funnelId AND x.at > r.at) >= 5 ORDER BY at').all(u.id);
+  const drop = [];
+  for (const r of old) { if (over <= 0) break; drop.push(r.id); over -= r.n; }
+  if (drop.length) q(`DELETE FROM revisions WHERE id IN (${drop.map(() => '?').join(',')})`).run(...drop);
+  return over > 0 ? storageMessage(u) : null;
+}
+const storageMessage = (u) => {
+  const { storageMB, trial } = limitsFor(u);
+  return trial ? `The free trial includes ${storageMB} MB of storage (images, files and pages) — subscribe for more space` : `You’ve used your ${storageMB} MB of storage (images, files and pages) — delete what you don’t need, or contact support to raise it`;
+};
 // → an error message when the seller can't create another funnel (agency client accounts count on their own)
 export function funnelLimitError(u) {
   if (!u || accessFor(u).admin) return null;
@@ -32,9 +54,9 @@ export function funnelLimitError(u) {
 }
 export function storageLimitError(u, bytes) {
   if (!u || accessFor(u).admin) return null;
-  const { storageMB, trial } = limitsFor(u);
-  if ((u.storageBytes || 0) + bytes <= storageMB * MB) return null;
-  return trial ? `The free trial includes ${storageMB} MB of images — subscribe for more space` : `You’ve used your ${storageMB} MB of image storage — contact support to raise it`;
+  const { storageMB } = limitsFor(u);
+  if ((u.storageBytes || 0) + pagesBytes(u.id) + bytes <= storageMB * MB) return null;
+  return storageMessage(u);
 }
 export const addStorage = (userId, bytes) => T.users.update(userId, (x) => { x.storageBytes = Math.max(0, (x.storageBytes || 0) + bytes); });
 export function saveLimits(b) {

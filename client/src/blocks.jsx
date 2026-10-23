@@ -1845,6 +1845,20 @@ export const RADIUS = { sharp: ['2px', '2px', '2px'], soft: ['14px', '10px', '10
 export const TEXT_SIZES = { sm: '15.5px', md: '17px', lg: '18.5px' };
 const TEXT_SCALE = { sm: 0.94, md: 1.06, lg: 1.14 };
 // popups: this step's pop-ups (live pages); popupPreview + onClosePreview: one pop-up shown as-is, without its trigger (editor)
+// A card's page preview (Templates, Funnels, Dashboard): drawn — and its fonts loaded — only once the card is
+// near the screen, so a grid of 100+ cards doesn't build 100+ pages up front
+export function PagePreview({ block, theme }) {
+  const ref = useRef(null);
+  const [seen, setSeen] = useState(typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    if (seen || !ref.current) return;
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setSeen(true); io.disconnect(); } }, { rootMargin: '400px 0px' });
+    io.observe(ref.current.parentElement || ref.current); // the scaled preview box is 0 tall until drawn; its frame isn't
+    return () => io.disconnect();
+  }, [seen]);
+  return <div className="thumb-in" ref={ref} style={seen ? undefined : { background: theme?.bg || 'var(--c-line-2)' }}>{seen && <Page blocks={[block]} theme={theme} ctx={{ live: false }} />}</div>;
+}
+
 export function Page({ blocks, theme, ctx, popups, popupPreview, onClosePreview }) {
   const style = theme?.style || 'aurora';
   const hf = FONT_CHOICES[theme?.headingFont], bf = FONT_CHOICES[theme?.bodyFont], rad = RADIUS[theme?.radius];

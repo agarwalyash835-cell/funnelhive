@@ -28,7 +28,7 @@ import { platform, isAdmin, brand, publicCompany } from './platform.js';
 import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
 import { verifyGoogleToken, googleClientId } from './google.js';
-import { signupGuard, turnstileSiteKey, funnelLimitError, storageLimitError, addStorage } from './limits.js';
+import { signupGuard, turnstileSiteKey, funnelLimitError, storageLimitError, addStorage, makePageRoom, FUNNEL_MAX_BYTES, limitsFor, usageFor } from './limits.js';
 import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhookSecret, checkWebhookUrl } from './webhooks.js';
 import { registerProducts, deliver, resolveToken } from './products.js';
 import { registerSchool, studentAccess } from './school.js';
@@ -636,6 +636,8 @@ app.get('/api/funnels', auth, (req, res) => {
   })));
 });
 
+// what the seller has used of their plan's limits (Plan & billing → Usage)
+app.get('/api/usage', auth, (req, res) => { const u = T.users.get(req.user.id); res.json({ limits: limitsFor(u), usage: usageFor(u) }); });
 const funnelCap = (req, res, next) => { const e = funnelLimitError(req.user); return e ? res.status(403).json({ error: e, limit: 'funnels' }) : next(); };
 app.post('/api/funnels', auth, funnelCap, (req, res) => {
   const name = (typeof req.body.name === 'string' && req.body.name.trim().slice(0, 120)) || 'Untitled funnel';
@@ -698,8 +700,19 @@ app.put('/api/funnels/:id', auth, (req, res) => {
   // a step's "hide from search engines" is stored as a plain true, or not at all
   if ('steps' in b) for (const s of b.steps) if (s.seo && typeof s.seo === 'object') { if (s.seo.noindex) s.seo.noindex = true; else delete s.seo.noindex; }
   if ('steps' in b) for (const s of b.steps) cleanPopups(s);
+  // a step kept open without a purchase / sign-up (lockOf): a plain true, or not at all
+  if ('steps' in b) for (const s of b.steps) if (s && typeof s === 'object') { if (s.open) s.open = true; else delete s.open; }
   if (req.body.baseVersion != null && Number(req.body.baseVersion) !== f.version) {
     return res.status(409).json({ error: 'This funnel was changed somewhere else (another tab, device or teammate).', funnel: withKey(f) });
+  }
+  // size: one funnel stays under FUNNEL_MAX_BYTES, and growth counts towards the seller's storage (the oldest
+  // restore points make room first). Saves that don't grow the funnel always go through.
+  if (['name', 'steps', 'theme'].some((k) => k in b)) {
+    const size = (x) => Buffer.byteLength(JSON.stringify(x));
+    const was = size(f), next = size({ ...f, ...Object.fromEntries(['name', 'steps', 'theme'].filter((k) => k in b).map((k) => [k, b[k]])) });
+    if (next > FUNNEL_MAX_BYTES) return res.status(413).json({ error: `This funnel is too large (${(next / 1048576).toFixed(1)} MB; the limit is ${FUNNEL_MAX_BYTES / 1048576} MB). Split it into two funnels, or remove some sections.`, limit: 'funnelSize' });
+    const room = next > was ? makePageRoom(T.users.get(f.userId), next) : null; // the new version, plus the restore point (the old one) it may add
+    if (room) return res.status(403).json({ error: room, limit: 'storage' });
   }
   tx(() => {
     const contentChange = ['name', 'steps', 'theme'].some((k) => k in req.body && JSON.stringify(req.body[k]) !== JSON.stringify(f[k]));
@@ -1159,11 +1172,44 @@ function productOrigins(steps, userId) {
 
 // a funnel sells in one currency: its checkout's (₹ by default)
 const funnelIso = (f) => isoOf(f.steps.flatMap((s) => allBlocks(s)).find((b) => b.type === 'checkout')?.props?.currency);
-function publicData(f, owner = T.users.get(f.userId)) {
+// ---------- locked steps ----------
+// Upsell, downsell and thank-you pages only make sense after a purchase (or a sign-up): their content stays on the
+// server until the visitor shows the order from this funnel ('paid') or a sign-up pass ('lead'), so a shared link
+// can't open the bonus, the download link or the group invite. A seller can keep a step open on purpose (step.open).
+const LOCKABLE = new Set(['upsell', 'downsell', 'thankyou']);
+const hasBlock = (s, types) => allBlocks(s).some((b) => types.includes(b.type));
+function lockOf(f, step) {
+  const i = f.steps.indexOf(step);
+  if (i <= 0 || !LOCKABLE.has(step.type) || step.open) return null;
+  const before = f.steps.slice(0, i);
+  if (before.some((s) => s.type === 'checkout' || hasBlock(s, ['checkout']))) return 'paid';
+  if (before.some((s) => hasBlock(s, ['booking']))) return null; // a booking confirms on the page itself
+  if (before.some((s) => hasBlock(s, ['optin', 'form']))) return 'lead';
+  return null;
+}
+const PASS_DAYS = 30;
+const passSig = (fid, level, exp) => crypto.createHmac('sha256', SECRET).update(`step.${fid}.${level}.${exp}`).digest('base64url').slice(0, 22);
+const stepPass = (f, level) => { const exp = Date.now() + PASS_DAYS * 86400000; return `${level}.${exp}.${passSig(f.id, level, exp)}`; };
+function passLevel(f, pass) {
+  const [level, exp, sig] = String(pass || '').split('.');
+  if (!['lead', 'paid'].includes(level) || !(Number(exp) > Date.now()) || typeof sig !== 'string' || sig.length !== 22) return null;
+  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(passSig(f.id, level, exp))) ? level : null;
+}
+// what the visitor showed: an order placed in this funnel (paid, or cash on delivery) or a pass
+function proofLevel(f, req) {
+  const o = typeof req.query.o === 'string' && req.query.o.length <= 64 ? T.orders.get(req.query.o) : null;
+  if (o && o.funnelId === f.id && ['paid', 'cod', 'pending'].includes(o.status)) return 'paid';
+  return passLevel(f, req.query.p);
+}
+const unlocks = (need, have) => !need || have === 'paid' || (need === 'lead' && have === 'lead');
+// the editor's preview (with its key) sees every step as it is
+const fullView = (f, req) => isPreview(req) && validPreviewKey(f, req.query.pv);
+
+function publicData(f, owner = T.users.get(f.userId), { full = false } = {}) {
   const inv = invoicingOf(owner);
   // tracking: the funnel's own ids where it has them, else the workspace's; stripe: the checkout pays by
   // Stripe (same rule as pay/start), so it offers the "Save my card" tick
-  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f), seller: sellerOf(f, owner, inv) } : {}), steps: productOrigins(resolveWhatsApp(f.steps, owner?.settings?.supportWhatsapp), f.userId), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(owner && stripeCreds(owner) && (funnelIso(f) !== 'INR' || !rzpCreds(owner)) ? { stripe: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}) };
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f), seller: sellerOf(f, owner, inv) } : {}), steps: productOrigins(resolveWhatsApp(full ? f.steps : f.steps.map((s) => { const need = lockOf(f, s); return need ? { ...s, blocks: [], ...(s.ab ? { ab: { ...s.ab, blocks: [] } } : {}), popups: [], locked: need } : s; }), owner?.settings?.supportWhatsapp), f.userId), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(owner && stripeCreds(owner) && (funnelIso(f) !== 'INR' || !rzpCreds(owner)) ? { stripe: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}) };
 }
 // the page footer: who sells this, where they are, and their policies (Consumer Protection (E-Commerce) Rules 2020).
 // Same details as the legal pages: the funnel's own business details first, then the workspace's
@@ -1173,7 +1219,18 @@ function sellerOf(f, owner, inv = invoicingOf(owner)) {
 }
 app.get('/api/public/:slug', (req, res) => {
   const f = pub(req, res);
-  if (f) res.json(publicData(f));
+  if (f) res.json(publicData(f, undefined, { full: fullView(f, req) }));
+});
+// a locked step's content, for a visitor who shows the order or sign-up it needs
+app.get('/api/public/:slug/step/:stepId', (req, res) => {
+  const f = pub(req, res);
+  if (!f) return;
+  const step = f.steps.find((s) => s.id === req.params.stepId);
+  if (!step) return res.status(404).json({ error: 'Page not found' });
+  const need = lockOf(f, step);
+  if (!fullView(f, req) && !unlocks(need, proofLevel(f, req))) return res.status(403).json({ error: need === 'paid' ? 'This page opens after you buy' : 'This page opens after you sign up', locked: need });
+  const owner = T.users.get(f.userId);
+  res.set('Cache-Control', 'private, no-store').json(productOrigins(resolveWhatsApp([step], owner?.settings?.supportWhatsapp), f.userId)[0]);
 });
 // Real numbers for the live-viewers, stock and recent-buyer blocks — never invented. Visitors to this step in the
 // last 30 minutes, the seller's stock less real orders since they set it, and the last 10 real buyers
@@ -1268,7 +1325,7 @@ app.post('/api/public/:slug/lead', (req, res) => {
     trackServer(f.userId, { name: 'Lead', funnelId: f.id, id: eventId, buyer: lead, tk: cleanTk(req.body.tk, req) });
     notify(f.userId, { kind: 'lead', title: `${qualified === undefined ? 'New lead' : qualified ? 'New application (qualified)' : 'New application (not a fit)'} · ${lead.name || cleanEmail || cleanPhone} · ${f.name}`, body: [cleanEmail, cleanPhone].filter(Boolean).join(' · '), link: `/contacts/${encodeURIComponent(contactKey(cleanEmail, cleanPhone))}`, ckey: contactKey(cleanEmail, cleanPhone) });
   }
-  res.json({ ok: true, eventId, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
+  res.json({ ok: true, eventId, ...(qualified !== false ? { pass: stepPass(f, 'lead') } : {}), ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
 });
 
 // An abandoned checkout: an email, or only a valid phone number (WhatsApp follow-up), and no order yet.
@@ -1692,7 +1749,7 @@ app.get(['/f/:slug', '/f/:slug/:step'], (req, res, next) => {
   const preview = isPreview(req);
   // an unknown or unpublished funnel is a real 404 (not a 200 page search engines would index)
   if (!f || !draftOk(f, req)) return res.status(404).set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace('<!--ff-head-->', '<meta name="robots" content="noindex">'));
-  renderFunnel(req, res, f, req.params.step, { preview });
+  renderFunnel(req, res, f, req.params.step, { preview, full: fullView(f, req) });
 });
 // robots.txt + sitemap of every live funnel on the pages address (funnels on a seller's own domain are listed there instead)
 const liveBase = (req) => pagesBase() || appUrl(req);
@@ -1715,16 +1772,16 @@ app.get('/api/embed-frame', (req, res) => {
   res.set('Content-Security-Policy', `sandbox allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation; ${csp('embed')}`);
   res.set('Cache-Control', 'public, max-age=3600').type('html').send(EMBED_SHELL);
 });
-function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } = {}) {
+function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false, full = false } = {}) {
   if (!indexHtml) return res.status(503).type('text').send('The app is not built yet');
   const owner = ownerOf(f);
   if (!accessFor(owner).pagesLive) return res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not available</title><p style="font:16px system-ui;padding:40px;text-align:center">This page isn’t available right now.</p>');
   const base = domain ? `https://${domain}` : appUrl(req);
-  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, f.tracking || null, f.seo || null, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin), !!rzpCreds(owner), !!stripeCreds(owner), owner ? sellerOf(f, owner) : null, f.steps.flatMap((s) => allBlocks(s)).filter((b) => b.type === 'checkout' && b.props?.productId).map((b) => T.products.get(b.props.productId)?.origin || '')]); // the seller footer and product origins follow their edits
+  const key = JSON.stringify([f.id, f.version || 0, f.updatedAt, f.slug, stepSlug || '', domain, domainOfFunnel(f.id), preview, full, base, owner?.settings?.supportWhatsapp || '', owner?.settings?.tracking || {}, f.tracking || null, f.seo || null, !!(owner?.settings?.invoicing?.enabled && owner?.settings?.invoicing?.gstin), !!rzpCreds(owner), !!stripeCreds(owner), owner ? sellerOf(f, owner) : null, f.steps.flatMap((s) => allBlocks(s)).filter((b) => b.type === 'checkout' && b.props?.productId).map((b) => T.products.get(b.props.productId)?.origin || '')]); // the seller footer and product origins follow their edits
   let page = cacheGet(key);
   if (!page) {
     // a custom-HTML block anywhere in the funnel (steps change without a reload) needs the embed policy (security.js)
-    page = { html: renderHtml(f, owner, stepSlug, { domain, preview, base }), embed: JSON.stringify(f.steps).includes('"type":"html"') };
+    page = { html: renderHtml(f, owner, stepSlug, { domain, preview, base, full }), embed: JSON.stringify(f.steps).includes('"type":"html"') };
     cacheSet(key, page);
   }
   // a step hidden from search engines (or a checkout / upsell / thank-you step) says so in a header too
@@ -1734,8 +1791,8 @@ function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false } 
   res.set('Content-Security-Policy', csp(page.embed ? 'embed' : 'page', { nonce }));
   res.set('Cache-Control', 'no-cache').type('html').send(page.embed ? page.html : page.html.replaceAll('<script>', `<script nonce="${nonce}">`));
 }
-function renderHtml(f, owner, stepSlug, { domain, preview, base }) {
-  const data = publicData(f, owner);
+function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false }) {
+  const data = publicData(f, owner, { full });
   const step = data.steps.find((s) => s.slug === stepSlug) || data.steps[0];
   const hero = step.blocks.find((b) => b.type === 'hero')?.props || data.steps[0].blocks.find((b) => b.type === 'hero')?.props || {};
   // Same rule as the browser: SEO title → this step's headline → step + funnel name

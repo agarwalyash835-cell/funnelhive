@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, DRAFT_EXAMPLES, confirmDialog } from '../ui';
-import { Page } from '../blocks';
+import { PagePreview } from '../blocks';
 import { AreaChart, Sparkline, HBars } from '../charts';
 
 const METRICS = [
@@ -183,7 +183,7 @@ function FunnelCards({ list }) {
       <div className="lv-grid">
         {list.slice(0, 6).map((f) => (
           <Link key={f.id} to={`/funnels/${f.id}`} className="lv-card">
-            <div className="lv-thumb">{f.hero ? <div className="thumb-in"><Page blocks={[f.hero]} theme={f.theme} ctx={{ live: false }} /></div> : <div className="fthumb-ph"><Icon name="layout" size={26} /></div>}</div>
+            <div className="lv-thumb">{f.hero ? <PagePreview block={f.hero} theme={f.theme} /> : <div className="fthumb-ph"><Icon name="layout" size={26} /></div>}</div>
             <div className="lv-meta"><b>{f.name}</b><span><i className={`dot ${f.published ? 'on' : ''}`} />{f.published ? 'Live' : 'Draft'} · edited {ago(f.updatedAt)}</span></div>
           </Link>
         ))}

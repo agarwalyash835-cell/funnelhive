@@ -108,7 +108,8 @@ test('public runtime: checkout + bump + coupon, upsell, cross-sell', async () =>
   const up = pub.steps.find((s) => s.type === 'upsell');
   const o2 = (await api(`/public/${funnel.slug}/order`, 'POST', { stepId: up.id, orderId: o.orderId })).data;
   assert.equal(o2.orderId, o.orderId);
-  const ty = pub.steps.find((s) => s.type === 'thankyou');
+  // the thank-you page is locked until the buyer shows their order (step-locks.test.mjs)
+  const ty = (await api(`/public/${funnel.slug}/step/${pub.steps.find((s) => s.type === 'thankyou').id}?o=${o.orderId}`)).data;
   const cs = ty.blocks.find((b) => b.type === 'crosssell');
   const o3 = (await api(`/public/${funnel.slug}/order`, 'POST', { stepId: ty.id, orderId: o.orderId, blockId: cs.id, itemIndex: 0 })).data;
   assert.equal(o3.total, o2.total + Number(cs.props.items[0].price));
