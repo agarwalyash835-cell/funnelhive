@@ -2380,4 +2380,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .app-st { display: flex; align-items: center; justify-content: space-between; }
 .app-help { font-size: 12.5px; color: var(--c-ink-2); }
 .app-help summary { cursor: pointer; color: #b45309; font-weight: 600; }
+.meta-setup { display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed var(--c-line, #e5e7eb); padding-top: 10px; }
+.meta-setup label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; }
+.meta-setup .btn { align-self: flex-start; }
 .app-help ol { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }

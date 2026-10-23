@@ -1,10 +1,12 @@
 // Ad spend for true ROAS: what each campaign cost, next to the leads and sales it brought (matched by UTM campaign).
 //   - Meta: a Marketing API token + ad account id; spend per campaign per day is pulled daily (last 30 days)
+//     — or, with no token, through the seller's Meta connection in Settings → Apps & ads (Composio)
 //   - Google Ads (or any network): a CSV export (date, campaign, cost) uploaded from the dashboard
 // Campaign names are matched loosely (case / spaces / dashes ignored) to utm_campaign, so "Diwali Sale" in
 // Ads Manager meets ?utm_campaign=diwali-sale.
 import { T, q, tx, uid, JOBS } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
+import { composioReady, runAs } from './composio.js';
 
 const GRAPH = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com').replace(/\/$/, '');
 const VER = 'v21.0';
@@ -29,7 +31,25 @@ async function graph(path, token) {
   if (!r.ok) throw new Error(d.error?.message || `Meta ${r.status}`);
   return d;
 }
+// spend through the seller's Meta connection (Settings → Apps & ads), when there's no Marketing API token
+async function syncMetaApp(u, days) {
+  const m = u.channels.metaApp, rows = [];
+  const args = { object_id: `act_${m.account}`, level: 'campaign', fields: ['campaign_name', 'spend', 'date_start'], time_increment: 1, limit: 500, time_range: { since: ymd(Date.now() - (days - 1) * DAY), until: ymd(Date.now()) } };
+  try {
+    for (let i = 0, after; i < 20; i++) {
+      const d = await runAs(u.id, 'METAADS_GET_INSIGHTS', after ? { ...args, after } : args);
+      for (const x of d.data || []) rows.push({ date: x.date_start, campaign: x.campaign_name, spend: Number(x.spend) || 0 });
+      after = d.paging?.next && d.paging?.cursors?.after;
+      if (!after) break;
+    }
+  } catch (e) { T.users.update(u.id, (x) => { if (x.channels?.metaApp) x.channels.metaApp.error = e.message; }); throw e; }
+  const n = store(u.id, 'meta', rows.filter((r) => r.date && r.campaign));
+  T.users.update(u.id, (x) => { if (x.channels?.metaApp) x.channels.metaApp = { ...x.channels.metaApp, syncedAt: Date.now(), error: '' }; });
+  return n;
+}
+const appSpend = (u) => !u.channels?.metaAds?.tokenEnc && composioReady() && u.channels?.metaApp?.account;
 export async function syncMeta(u, days = 30) {
+  if (appSpend(u)) return syncMetaApp(u, days);
   const m = u.channels?.metaAds;
   if (!m?.tokenEnc || !m.account) return 0;
   const token = decrypt(m.tokenEnc), until = ymd(Date.now()), since = ymd(Date.now() - (days - 1) * DAY);
@@ -99,7 +119,8 @@ export function registerAdSpend(app, { auth, wrap }) {
   app.get('/api/adspend', auth, (req, res) => {
     const m = req.user.channels?.metaAds || {};
     const last = q("SELECT json_extract(data, '$.platform') AS p, MAX(json_extract(data, '$.date')) AS d, COUNT(*) AS n FROM adspend WHERE userId = ? GROUP BY p").all(req.user.id);
-    res.json({ meta: { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, platforms: last });
+    const a = appSpend(req.user) ? req.user.channels.metaApp : null;
+    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, platforms: last });
   });
   app.put('/api/adspend/meta', auth, wrap(async (req, res) => {
     const b = req.body || {};
@@ -126,10 +147,12 @@ export function registerAdSpend(app, { auth, wrap }) {
 
   // daily Meta sync for everyone connected
   const job = async () => {
-    for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.channels.metaAds.tokenEnc') IS NOT NULL").all()) {
+    for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.channels.metaAds.tokenEnc') IS NOT NULL OR json_extract(data, '$.channels.metaApp.account') IS NOT NULL").all()) {
       const u = JSON.parse(row.data);
-      if (Date.now() - (u.channels.metaAds.syncedAt || 0) < 20 * 3600000) continue;
-      try { await syncMeta(u, 7); } catch (e) { T.users.update(u.id, (x) => { x.channels.metaAds.error = e.message; }); }
+      const app = appSpend(u);
+      if (!app && !u.channels.metaAds?.tokenEnc) continue;
+      if (Date.now() - ((app ? u.channels.metaApp : u.channels.metaAds).syncedAt || 0) < 20 * 3600000) continue;
+      try { await syncMeta(u, 7); } catch (e) { if (!app) T.users.update(u.id, (x) => { x.channels.metaAds.error = e.message; }); }
     }
   };
   if (JOBS && process.env.NODE_ENV !== 'test') { setTimeout(job, 120000).unref(); setInterval(job, 3 * 3600000).unref(); }

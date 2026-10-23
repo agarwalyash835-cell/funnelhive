@@ -201,10 +201,11 @@ function ServerTracking({ pixel, ga4 }) {
   const save = async (patch) => { try { setSt(await api('/channels/tracking', 'PUT', patch)); setF({ metaToken: '', ga4Secret: '', metaTestCode: patch.metaTestCode ?? f.metaTestCode }); toast('Server-side tracking saved'); } catch (e) { toast(e.message); } };
   return (
     <div className="srv-track">
-      <h4>Server-side tracking <span className={`pill ${st.metaToken || st.ga4Secret ? 'ok' : ''}`}>{st.metaToken || st.ga4Secret ? 'on' : 'off'}</span></h4>
+      <h4>Server-side tracking <span className={`pill ${st.metaToken || st.viaApps || st.ga4Secret ? 'ok' : ''}`}>{st.metaToken || st.viaApps || st.ga4Secret ? 'on' : 'off'}</span></h4>
       <p className="muted sm">Recovers the conversions the browser pixel misses (ad blockers, iOS, closed tabs). Events share ids with the pixel, so nothing is counted twice.</p>
+      {st.viaApps && !st.metaToken && <p className="hint ok-t">Meta: on — sent through your Meta connection (Apps &amp; ads). No token needed.</p>}
       <div className="form2">
-        <label>Meta Conversions API token {st.metaToken && <small className="ok-t">· connected</small>}<input type="password" value={f.metaToken} onChange={(e) => setF({ ...f, metaToken: e.target.value })} placeholder={st.metaToken ? '•••••••• (saved — paste a new one to replace)' : 'Events Manager → pixel → Settings → Generate access token'} disabled={!pixel} /></label>
+        <label>Meta Conversions API token {st.viaApps && !st.metaToken && <small className="muted">· optional, not needed</small>}{st.metaToken && <small className="ok-t">· connected</small>}<input type="password" value={f.metaToken} onChange={(e) => setF({ ...f, metaToken: e.target.value })} placeholder={st.metaToken ? '•••••••• (saved — paste a new one to replace)' : 'Events Manager → pixel → Settings → Generate access token'} disabled={!pixel} /></label>
         <label>Meta test event code <small className="muted">· optional, while testing</small><input value={f.metaTestCode} onChange={(e) => setF({ ...f, metaTestCode: e.target.value })} placeholder="TEST12345" disabled={!pixel} /></label>
         <label>GA4 Measurement Protocol secret {st.ga4Secret && <small className="ok-t">· connected</small>}<input type="password" value={f.ga4Secret} onChange={(e) => setF({ ...f, ga4Secret: e.target.value })} placeholder={st.ga4Secret ? '•••••••• (saved)' : 'GA4 Admin → Data streams → Measurement Protocol API secrets'} disabled={!ga4} /></label>
       </div>

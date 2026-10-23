@@ -7,7 +7,7 @@ import http from 'node:http';
 import { startServer, register, enable2fa } from './helpers.mjs';
 
 let fake, srv, api, ADMIN, T, sellerId;
-const calls = [];
+const calls = [], sent = [];
 let connected = []; // what the stand-in Composio holds
 before(async () => {
   fake = http.createServer((req, res) => {
@@ -29,12 +29,17 @@ before(async () => {
         { slug: 'METAADS_GET_INSIGHTS', name: 'Get insights', description: 'Campaign performance insights', input_parameters: { properties: { object_id: {} } } },
         { slug: 'METAADS_CREATE_CAMPAIGN', name: 'Create campaign', description: 'Create a campaign', input_parameters: { properties: { name: {}, status: {} } } },
       ] : [{ slug: 'GOOGLEADS_SEARCH_STREAM_GAQL', name: 'Search', description: 'Google Ads report' }] });
+      const slug = p.split('/').pop();
+      if (slug === 'METAADS_GET_AD_ACCOUNTS') return send(200, { successful: true, data: { data: [{ id: 'act_1111111', account_id: '1111111', name: 'Asha Studio' }] } });
+      if (slug === 'METAADS_LIST_AD_ACCOUNT_PIXELS') return send(200, { successful: true, data: { pixels: [{ id: '2222222', name: 'Main pixel' }] } });
+      if (slug === 'METAADS_SEND_CONVERSION_EVENTS') { sent.push(body); return send(200, { successful: true, data: { events_received: body.arguments.events.length } }); }
+      if (slug === 'METAADS_GET_INSIGHTS' && body.arguments.level === 'campaign') return send(200, { successful: true, data: { data: [{ date_start: '2026-10-20', campaign_name: 'Diwali Sale', spend: '1500.50' }, { date_start: '2026-10-21', campaign_name: 'Diwali Sale', spend: '900' }] } });
       if (p.startsWith('/tools/execute/')) return send(200, { successful: true, data: { slug: p.split('/').pop(), args: body.arguments, user: body.user_id }, error: null });
       send(404, { error: { message: 'not found' } });
     });
   }).listen(0);
   await new Promise((r) => setTimeout(r, 30));
-  srv = await startServer({ COMPOSIO_BASE_URL: `http://127.0.0.1:${fake.address().port}`, ADMIN_EMAILS: 'owner@cmp.test', APP_URL: 'https://app.example.in' });
+  srv = await startServer({ COMPOSIO_BASE_URL: `http://127.0.0.1:${fake.address().port}`, ADMIN_EMAILS: 'owner@cmp.test', APP_URL: 'https://app.example.in', AUTOMATION_TICK_MS: '50', AUTOMATION_TIME_SCALE: '0.001' });
   api = srv.api;
   ADMIN = (await register(api, 'owner@cmp.test')).token;
   const link = srv.log().match(/To: owner@cmp\.test[\s\S]*?\/verify\?token=([a-f0-9.]+)/);
@@ -85,4 +90,49 @@ test('Hive finds and runs the seller’s actions; new campaigns are forced pause
   // disconnect
   await api('/integrations/connections/ca_1', 'DELETE', null, T);
   assert.equal((await api('/integrations/run', 'POST', { slug: 'METAADS_GET_INSIGHTS', arguments: {} }, T)).status, 400);
+});
+
+const until = async (fn, ms = 5000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v || Date.now() > end) return v; await new Promise((r) => setTimeout(r, 60)); } };
+test('one Meta connection: pick the ad account and pixel, and the pixel, conversions, the “Send to Meta” step and ad spend all use it', async () => {
+  await api('/integrations/metaads/connect', 'POST', {}, T);
+  const opts = (await api('/integrations/meta', 'GET', null, T)).data;
+  assert.deepEqual(opts.accounts.map((a) => a.id), ['1111111']);
+  assert.equal(opts.account, '1111111', 'a single ad account is picked for them');
+  assert.deepEqual(opts.pixels.map((p) => p.id), ['2222222']);
+  assert.equal((await api('/integrations/meta', 'PUT', { account: '1111111', pixel: '9999999' }, T)).status, 400, 'a pixel from elsewhere is refused');
+  const saved = (await api('/integrations/meta', 'PUT', { account: '1111111', pixel: '2222222' }, T)).data;
+  assert.equal(saved.pixelOnPages, true);
+  assert.equal((await api('/settings', 'GET', null, T)).data?.tracking?.fbPixel ?? (await api('/me', 'GET', null, T)).data.settings.tracking.fbPixel, '2222222', 'the pixel goes on the pages');
+  assert.equal((await api('/channels/tracking', 'GET', null, T)).data.viaApps, true);
+  // spend pulled in the background, through the same connection
+  assert.ok(await until(async () => (await api('/adspend', 'GET', null, T)).data.platforms?.some((p) => p.p === 'meta' && p.n === 2)), 'spend synced');
+  assert.equal((await api('/adspend', 'GET', null, T)).data.meta.via, 'apps');
+
+  // the automation step: a contact reaching “qualified” is sent to Meta, hashed, through Composio
+  const c = (await api('/automations', 'POST', { name: 'Qualified → Meta', trigger: { type: 'tag', tag: 'qualified' }, steps: [{ type: 'meta', event: 'QualifiedLead' }, { type: 'meta', event: 'Purchase', value: '4999' }] }, T)).data;
+  const on = await api(`/automations/${c.id}`, 'PUT', { active: true }, T);
+  assert.equal(on.status, 200, JSON.stringify(on.data));
+  assert.equal(on.data.warnings?.length ?? 0, 0, 'no “Meta isn’t connected” warning');
+  await api('/contacts', 'POST', { email: 'Ravi@Example.in', phone: '98765 43210', name: 'Ravi Kumar' }, T);
+  await api(`/contacts/${encodeURIComponent('ravi@example.in')}`, 'PATCH', { tags: ['qualified'] }, T);
+  assert.ok(await until(() => sent.length >= 2), 'both events went out');
+  const [q1, p1] = sent.map((b) => b.arguments);
+  assert.equal(sent[0].user_id, `fh_${sellerId}`);
+  assert.equal(q1.pixel_or_dataset_id, '2222222');
+  assert.equal(q1.confirm_production, true);
+  const e = q1.events[0];
+  assert.equal(e.event_name, 'QualifiedLead');
+  assert.equal(e.action_source, 'system_generated');
+  assert.match(e.customer_data.email_sha256[0], /^[a-f0-9]{64}$/);
+  assert.match(e.customer_data.phone_sha256[0], /^[a-f0-9]{64}$/);
+  assert.ok(!JSON.stringify(sent).includes('ravi@example.in') && !JSON.stringify(sent).includes('9876543210'), 'never sent in the clear');
+  assert.deepEqual(p1.events[0].custom_data, { value: 4999, currency: 'INR' });
+  assert.ok(await until(async () => (await api('/conversions', 'GET', null, T)).data.filter((d) => d.status === 'sent').length >= 2), 'logged as sent');
+
+  // disconnecting Meta stops it all
+  const conn = (await api('/integrations', 'GET', null, T)).data.connections.find((x) => x.app === 'metaads');
+  await api(`/integrations/connections/${conn.id}`, 'DELETE', null, T);
+  assert.equal((await api('/channels/tracking', 'GET', null, T)).data.viaApps, false);
+  const got = (await api('/automations', 'GET', null, T)).data.channels.meta;
+  assert.equal(got, false);
 });

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Clock, Mail, MessageCircle, Tag, ArrowRightLeft, Webhook, BellRing, Zap, Plus, Trash2, ChevronUp, ChevronDown, Copy, UserPlus,
   ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass, KeyRound, StickyNote, GripVertical, Search, X, GraduationCap, BadgeCheck, Award, MessagesSquare, Eye, FileX,
-  CalendarCheck, CalendarX, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX,
+  CalendarCheck, CalendarX, Target, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX,
 } from 'lucide-react';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
@@ -16,6 +16,8 @@ const AI_IDEAS = [
   'Stuck deals — when a contact sits in a stage for 5 days, alert me and send them a friendly check-in email',
   'Thank buyers — after a purchase, wait 7 days, ask for a review by email and tag them happy-customer',
 ];
+// events the “Send to Meta” step can send (Meta's standard names, plus your own)
+const META_EVENTS = { QualifiedLead: 'Qualified lead', Lead: 'Lead', Schedule: 'Booked a call / visit', Contact: 'Contacted', SubmitApplication: 'Submitted application', CompleteRegistration: 'Registered', Purchase: 'Purchase (with value)', custom: 'Custom event…' };
 const BRANCH_KEYS = { condition: ['yes', 'no'], split: ['a', 'b'] };
 const BRANCH_TITLE = { yes: '✓ Yes', no: '✕ No', a: 'Path A', b: 'Path B' };
 const flatSteps = (list, out = []) => { for (const s of list || []) { out.push(s); for (const b of BRANCH_KEYS[s.type] || []) flatSteps(s[b], out); } return out; };
@@ -28,6 +30,7 @@ const STEP = {
   stage: { label: 'Move pipeline stage', icon: ArrowRightLeft, color: '#0ea5e9' },
   field: { label: 'Update a contact field', icon: PenLine, color: '#14b8a6' },
   note: { label: 'Add a note', icon: StickyNote, color: '#a16207' },
+  meta: { label: 'Send to Meta', icon: Target, color: '#1877f2' },
   access: { label: 'Give / remove course access', icon: KeyRound, color: '#7c3aed' },
   enroll: { label: 'Start another automation', icon: Workflow, color: '#0f766e' },
   notify: { label: 'Email me', icon: BellRing, color: '#ec4899' },
@@ -67,13 +70,13 @@ const STEP_GROUPS = [
   ['CRM', ['tag', 'stage', 'field', 'note']],
   ['Courses & products', ['access']],
   ['Timing & logic', ['wait', 'condition', 'split', 'enroll', 'exit']],
-  ['Apps & integrations', ['webhook']],
+  ['Apps & integrations', ['meta', 'webhook']],
 ];
 const STEP_HELP = {
   email: 'An email from you, personalised', whatsapp: 'An approved template, or a reply within 24 hours', notify: 'An alert to you with the contact’s details',
   tag: 'Add or remove a tag', stage: 'Move them to a pipeline stage', field: 'Set a CRM field — e.g. Site visit = +3 days', note: 'Write on the contact’s timeline',
   access: 'Give or take away a course or product', wait: 'Pause for a while, or until a time of day', condition: 'Branch on tags, stage, fields, purchases…',
-  split: 'Send people down A or B at random', enroll: 'Hand them to another automation', exit: 'Stop here for this contact', webhook: 'Send their details to Zapier, Pabbly or Sheets',
+  split: 'Send people down A or B at random', enroll: 'Hand them to another automation', exit: 'Stop here for this contact', meta: 'Tell Meta this lead qualified or bought — ads find more like them', webhook: 'Send their details to Zapier, Pabbly or Sheets',
 };
 const COURSE_TRIGGERS = ['student_joined', 'quiz_passed', 'course_completed', 'community_post'];
 const tempId = () => `n${Math.random().toString(36).slice(2, 10)}`;
@@ -85,6 +88,7 @@ const newStep = (type) => ({ id: tempId(), ...({
   stage: { type, pipelineId: '', stageId: '' },
   field: { type, fieldId: '', value: '' },
   note: { type, text: '' },
+  meta: { type, event: 'QualifiedLead', name: '', value: '' },
   access: { type, productId: '', action: 'grant', notify: true },
   enroll: { type, automationId: '' },
   notify: { type, subject: 'New activity: {{name}}', body: '' },
@@ -382,6 +386,7 @@ function Builder({ id }) {
     if (s.type === 'enroll') return !s.automationId ? 'Choose an automation' : '';
     if (s.type === 'note') return !String(s.text || '').trim() ? 'Write the note' : '';
     if (s.type === 'webhook') return !s.url ? 'Enter the webhook URL' : '';
+    if (s.type === 'meta') return s.event === 'custom' && !String(s.name || '').trim() ? 'Name the event' : '';
     if (s.type === 'condition') return !s.rules.length ? 'Add a rule' : '';
     return '';
   };
@@ -408,6 +413,7 @@ function Builder({ id }) {
       case 'access': { const p = products.find((x) => x.id === s.productId); return p ? `${s.action === 'revoke' ? 'Remove' : 'Give'} ${p.name}` : 'Choose a product'; }
       case 'enroll': return meta.automations?.find((x) => x.id === s.automationId)?.name || 'Choose an automation';
       case 'note': return (s.text || 'Write a note').slice(0, 60);
+      case 'meta': return `${s.event === 'custom' ? s.name || 'Custom event' : META_EVENTS[s.event] || s.event}${s.value ? ` · ₹${s.value}` : ''}`;
       case 'webhook': return s.url ? s.url.replace(/^https?:\/\//, '').slice(0, 40) : 'Enter a URL';
       case 'condition': return `${s.rules.length} rule${s.rules.length === 1 ? '' : 's'} · ${s.match === 'any' ? 'any' : 'all'} must match`;
       case 'split': return `${s.percent}% A · ${100 - s.percent}% B`;
@@ -514,6 +520,13 @@ function Builder({ id }) {
         <p className="hint">The contact enters it from its first step — handy to hand a buyer over to an onboarding sequence.</p>
       </>}
       {s.type === 'note' && <label>Note on the contact’s timeline<textarea rows={4} placeholder="e.g. Asked about the loan — call back on Monday" {...fp(path, i, s, 'text')} /></label>}
+      {s.type === 'meta' && <>
+        <label>Event<select value={s.event} onChange={(e) => update(path, i, { event: e.target.value })}>{Object.entries(META_EVENTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        {s.event === 'custom' && <label>Event name<input placeholder="e.g. SiteVisitDone" value={s.name || ''} onChange={(e) => update(path, i, { name: e.target.value.replace(/[^\w]/g, '') })} /></label>}
+        <label>Value in ₹ <small className="muted">(optional)</small><input placeholder={s.event === 'Purchase' ? 'e.g. 4999 or {{amount}}' : 'e.g. 500'} {...fp(path, i, s, 'value')} /></label>
+        <p className="hint">Sends this contact (email and phone, hashed) to your Meta pixel as a server event. Meta matches it to the ad they came from, so campaigns optimised for this event find more people like your best leads.</p>
+        {!meta.channels?.meta && <p className="hint warn">Connect Meta Ads and pick a pixel in <Link to="/settings#apps">Settings → Apps &amp; ads</Link> — until then this step is skipped.</p>}
+      </>}
       {s.type === 'webhook' && <><label>URL<input placeholder="https://hooks.zapier.com/…" value={s.url} onChange={(e) => update(path, i, { url: e.target.value })} /></label><p className="hint">Sends the contact’s details (signed, retried) — e.g. to Zapier, Pabbly or Google Sheets.</p></>}
       {s.type === 'exit' && <p className="hint top">The automation ends here for this contact — nothing after this step runs.</p>}
       {s.type === 'split' && <>

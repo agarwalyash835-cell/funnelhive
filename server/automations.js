@@ -11,6 +11,8 @@ import { accessFor } from './billing.js';
 import { sellerTz, zoned, localYmd, addDays } from './tz.js';
 import { broadcastSeen } from './broadcasts.js';
 import { waOptedOut } from './hive-wa.js';
+import { sendCrmEvent, metaReady } from './tracking.js';
+export const META_STEP_EVENTS = ['Lead', 'QualifiedLead', 'Schedule', 'Contact', 'SubmitApplication', 'CompleteRegistration', 'Purchase', 'custom'];
 
 export const TRIGGERS = {
   lead: 'Someone signs up (opt-in or form)',
@@ -40,7 +42,7 @@ export const TRIGGERS = {
   inbound: 'A webhook is received (Zapier, Pabbly, Make, Google Forms…)',
   manual: 'Only when I add a contact to it',
 };
-const STEP_TYPES = ['wait', 'email', 'whatsapp', 'tag', 'stage', 'field', 'access', 'enroll', 'note', 'webhook', 'notify', 'condition', 'split', 'exit'];
+const STEP_TYPES = ['wait', 'email', 'whatsapp', 'tag', 'stage', 'field', 'access', 'enroll', 'note', 'meta', 'webhook', 'notify', 'condition', 'split', 'exit'];
 const COURSE_EVENTS = ['student_joined', 'quiz_passed', 'course_completed', 'community_post'];
 // branch names inside a step: If/else → yes/no, A/B split → a/b
 const BRANCHES = { condition: ['yes', 'no'], split: ['a', 'b'] };
@@ -139,6 +141,10 @@ function cleanStep(s, depth = 0) {
     case 'access': return { id, type, productId: str(s.productId, 20), action: s.action === 'revoke' ? 'revoke' : 'grant', notify: s.notify !== false };
     case 'enroll': return { id, type, automationId: str(s.automationId, 20) };
     case 'note': return { id, type, text: str(s.text, 2000) };
+    case 'meta': { // send a CRM event to Meta (Conversions API) so ads optimise for leads that turn into customers
+      const ev = META_STEP_EVENTS.includes(s.event) ? s.event : 'custom';
+      return { id, type, event: ev, name: ev === 'custom' ? str(s.name, 40).replace(/[^\w]/g, '').trim() : '', value: str(s.value, 200).trim() };
+    }
     case 'webhook': return { id, type, url: str(s.url, 500).trim() };
     default: return null;
   }
@@ -188,12 +194,14 @@ function problems(a, u) {
     if (s.type === 'access' && T.products.get(s.productId)?.userId !== a.userId) p.push(`${n}: choose the product or course`);
     if (s.type === 'enroll' && (!s.automationId || s.automationId === a.id || T.automations.get(s.automationId)?.userId !== a.userId)) p.push(`${n}: choose another automation to start`);
     if (s.type === 'note' && !s.text.trim()) p.push(`${n}: write the note`);
+    if (s.type === 'meta' && s.event === 'custom' && !s.name) p.push(`${n}: name the event to send to Meta (e.g. QualifiedLead)`);
     if (s.type === 'webhook' && !s.url) p.push(`${n}: enter the webhook URL`);
   });
   const warn = [];
   const steps = flat;
   if (steps.some((s) => s.type === 'email' || s.type === 'notify') && !emailStatus(u).configured) warn.push('Email sending isn’t set up yet — email steps will be skipped until you add SMTP details in Settings.');
   if (steps.some((s) => s.type === 'whatsapp') && !whatsappStatus(u).configured) warn.push('WhatsApp isn’t connected yet — WhatsApp steps will be skipped until you add your API details in Settings.');
+  if (steps.some((s) => s.type === 'meta') && !metaReady(u)) warn.push('Meta isn’t connected yet — “Send to Meta” steps will be skipped until you connect Meta Ads and pick a pixel in Settings → Apps & ads.');
   if (steps.some((s) => s.type === 'whatsapp' && s.mode === 'text')) warn.push('Plain WhatsApp text only delivers if the contact messaged you in the last 24 hours — use an approved template for automated messages.');
   return { errors: p, warnings: warn };
 }
@@ -466,6 +474,16 @@ async function runStep(a, r, s, u) {
       tl('note', fill(s.text, ctx).slice(0, 200), `by automation “${a.name}”`);
       return { result: 'done', detail: 'Note added' };
     }
+    case 'meta': {
+      if (!ctx.email && !ctx.phone) return { result: 'skipped', detail: 'No email or phone to match on' };
+      const name = s.event === 'custom' ? s.name : s.event;
+      const value = Number(fill(s.value, ctx).replace(/[^\d.]/g, '')) || 0;
+      // one event per run and step: Meta drops a repeat with the same event_id
+      const d = sendCrmEvent(r.userId, { name, value, buyer: { email: ctx.email, phone: ctx.phone, name: ctx.name }, id: `auto_${r.id}_${s.id}` });
+      if (!d) return { result: 'skipped', detail: 'Meta isn’t connected (Settings → Apps & ads)' };
+      tl('note', `Sent to Meta: ${name}${value ? ` (₹${value})` : ''}`, `by automation “${a.name}”`);
+      return { result: 'sent', detail: `${name}${value ? ` · ₹${value}` : ''}` };
+    }
     case 'webhook': {
       await checkWebhookUrl(s.url);
       fireWebhook(r.userId, 'automation.step', { automation: a.name, contact: { name: ctx.name, email: ctx.email, phone: ctx.phone }, funnel: ctx.funnel, product: ctx.product }, s.url);
@@ -694,7 +712,7 @@ steps run top to bottom; each is one of:
   {"type":"email","subject":"…","body":"…"} · {"type":"notify","subject":"…","body":"…"} (an alert to the business owner)
   {"type":"whatsapp","mode":"text","text":"…"} (only reaches people who messaged in the last 24 h — prefer email for cold follow-ups)
   {"type":"tag","tag":"…","action":"add|remove"} · {"type":"stage","pipelineId":"…","stageId":"…"} · {"type":"field","fieldId":"…","value":"… (dates: today / +3 days)"}
-  {"type":"note","text":"…"} · {"type":"access","productId":"…","action":"grant|revoke","notify":true} · {"type":"enroll","automationId":"…"}
+  {"type":"note","text":"…"} · {"type":"meta","event":"QualifiedLead|Lead|Schedule|Contact|SubmitApplication|CompleteRegistration|Purchase|custom","name":"(custom only)","value":"(optional ₹ or {{amount}})"} — tells Meta ads this contact qualified/bought · {"type":"access","productId":"…","action":"grant|revoke","notify":true} · {"type":"enroll","automationId":"…"}
   {"type":"webhook","url":"https://…"} · {"type":"exit"}
   {"type":"condition","match":"all|any","rules":[{"field":"tag|stage|custom|bought|has|source|amount","op":"is|not|equals|contains|gt|lt|filled|empty","value":"…","fieldId":"…","pipelineId":"…","stageId":"…"}],"yes":[steps],"no":[steps]}
   {"type":"split","percent":50,"a":[steps],"b":[steps]}
@@ -734,7 +752,7 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
   app.get('/api/automations', auth, (req, res) => res.json({
     automations: T.automations.all({ userId: req.user.id }).sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0)).map(view),
     triggers: TRIGGERS, variables: VARIABLES, ruleFields: RULE_FIELDS,
-    channels: { email: emailStatus(req.user).configured, whatsapp: whatsappStatus(req.user).configured },
+    channels: { email: emailStatus(req.user).configured, whatsapp: whatsappStatus(req.user).configured, meta: metaReady(req.user) },
   }));
   app.get('/api/automations/:aid', auth, (req, res) => {
     const a = own(req, res);

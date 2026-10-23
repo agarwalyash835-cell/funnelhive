@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { T, q, uid, JOBS, contactKey } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
 import { registerGads } from './gads.js';
+import { metaLink, runAs } from './composio.js';
 
 const META = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com/v21.0').replace(/\/$/, '');
 const GA4 = () => process.env.GA4_MP_URL || 'https://www.google-analytics.com/mp/collect';
@@ -94,7 +95,8 @@ export const funnelTrackingView = (f) => {
 // ---------- seller settings (tokens are stored encrypted, never sent to browsers) ----------
 export function capiStatus(u) {
   const c = u?.channels?.capi || {};
-  return { metaToken: !!c.metaTokenEnc, metaTestCode: c.metaTestCode || '', ga4Secret: !!c.ga4SecretEnc, pixel: u?.settings?.tracking?.fbPixel || '', ga4: u?.settings?.tracking?.ga4 || '' };
+  const link = metaLink(u);
+  return { metaToken: !!c.metaTokenEnc, viaApps: !!link && link.pixel === (u?.settings?.tracking?.fbPixel || ''), metaTestCode: c.metaTestCode || '', ga4Secret: !!c.ga4SecretEnc, pixel: u?.settings?.tracking?.fbPixel || '', ga4: u?.settings?.tracking?.ga4 || '' };
 }
 // Server-side events go to the same pixel / stream the funnel's pages fire in the browser — never another one.
 // A funnel with its own pixel uses its own token (or the workspace's when it is the workspace's pixel);
@@ -103,8 +105,11 @@ const creds = (u, f) => {
   const c = u?.channels?.capi || {}, w = u?.settings?.tracking || {}, t = trackingFor(u, f);
   const own = f?.tracking?.metaTokenEnc;
   const metaToken = own && f.tracking.fbPixel ? own : t.fbPixel === w.fbPixel ? c.metaTokenEnc : '';
+  // no token, but the pixel is the one picked in Settings → Apps & ads: send through the seller's Meta connection
+  const link = !metaToken && t.fbPixel ? metaLink(u) : null;
   return {
-    meta: t.fbPixel && metaToken ? { pixel: t.fbPixel, token: decrypt(metaToken), test: t.fbPixel === w.fbPixel ? c.metaTestCode || '' : '' } : null,
+    meta: t.fbPixel && metaToken ? { pixel: t.fbPixel, token: decrypt(metaToken), test: t.fbPixel === w.fbPixel ? c.metaTestCode || '' : '' }
+      : link && link.pixel === t.fbPixel ? { pixel: t.fbPixel, via: 'composio', test: c.metaTestCode || '' } : null,
     ga4: t.ga4 && t.ga4 === w.ga4 && c.ga4SecretEnc ? { id: t.ga4, secret: decrypt(c.ga4SecretEnc) } : null,
   };
 };
@@ -159,7 +164,43 @@ export function trackServer(userId, event) {
     return d;
   }).concat(prune(userId));
 }
+// A CRM event from an automation's “Send to Meta” step (e.g. QualifiedLead when a lead reaches a stage, Purchase
+// for an offline sale): the contact's hashed email / phone / id, sent server to server, so Meta can match it to the ad
+// that brought them and optimise for people like them. Goes to the workspace pixel, by token or the Meta connection.
+export function sendCrmEvent(userId, { name, value, buyer, id }) {
+  const u = T.users.get(userId);
+  const c = creds(u, null);
+  if (!c.meta) return null;
+  const at = Date.now();
+  const custom = Number(value) > 0 || name === 'Purchase' ? { value: Math.max(0, Number(value) || 0), currency: 'INR' } : null;
+  const d = T.conversions.insert({ id: uid(), userId, provider: 'meta', event: name, body: { data: [{ event_name: name, event_time: Math.floor(at / 1000), event_id: id, action_source: 'system_generated', user_data: metaUser(buyer || {}, null), ...(custom ? { custom_data: custom } : {}) }], ...(c.meta.test ? { test_event_code: c.meta.test } : {}) }, eventId: id, status: 'pending', attempts: 0, nextAt: at, at });
+  attempt(d.id);
+  prune(userId);
+  return d;
+}
+export const metaReady = (u) => !!creds(u, null).meta;
 function prune(userId) { q(`DELETE FROM conversions WHERE id IN (SELECT id FROM conversions WHERE userId = ? AND status != 'pending' ORDER BY at DESC LIMIT -1 OFFSET ${KEEP})`).run(userId); return []; }
+
+// A Conversions API body as the Composio Meta action takes it: the same already-hashed ids, under its field names
+// (it never hashes a *_sha256 value again), and only the custom_data fields it accepts.
+const HASHED = { em: 'email_sha256', ph: 'phone_sha256', external_id: 'external_id_sha256' };
+export function composioEvents(meta, body) {
+  const events = (body?.data || []).map((e) => {
+    const u = e.user_data || {}, cd = {};
+    for (const [k, to] of Object.entries(HASHED)) if (u[k]?.length) cd[to] = u[k];
+    if (u.fn?.[0]) cd.first_name_sha256 = u.fn[0];
+    if (u.ln?.[0]) cd.last_name_sha256 = u.ln[0];
+    if (u.country?.[0]) cd.country_code_sha256 = u.country[0];
+    for (const k of ['fbp', 'fbc', 'client_ip_address', 'client_user_agent']) if (u[k]) cd[k] = u[k];
+    const c = e.custom_data || {}, custom = {};
+    for (const k of ['value', 'currency', 'order_id', 'content_ids', 'content_type']) if (c[k] != null && c[k] !== '') custom[k] = c[k];
+    if (Array.isArray(c.contents) && c.contents.length) custom.contents = c.contents.map((x) => ({ id: String(x.id), quantity: x.quantity || 1, item_price: Number(x.item_price) || 0 }));
+    // website events need a page and a browser; without them (e.g. a payment webhook) Meta takes it as a system event
+    const web = e.action_source === 'website' && e.event_source_url && u.client_user_agent;
+    return { event_name: e.event_name, event_time: e.event_time, ...(e.event_id ? { event_id: String(e.event_id) } : {}), action_source: web ? 'website' : e.action_source === 'website' ? 'system_generated' : e.action_source, ...(web ? { event_source_url: e.event_source_url } : {}), customer_data: cd, ...(Object.keys(custom).length ? { custom_data: custom } : {}) };
+  });
+  return { pixel_or_dataset_id: String(meta.pixel), events, partner_agent: 'funnelhive', ...(meta.test ? { test_event_code: meta.test } : { confirm_production: true }) };
+}
 
 // ---------- sending ----------
 const inFlight = new Set();
@@ -175,8 +216,12 @@ export async function attempt(id) {
     try {
       let url;
       if (d.funnelId && !f) throw Object.assign(new Error('The funnel was deleted'), { final: true }); // its pixel is unknown now
-      if (d.provider === 'meta') { if (!c.meta) throw Object.assign(new Error('Meta Conversions API is no longer connected'), { final: true }); url = `${META()}/${c.meta.pixel}/events?access_token=${encodeURIComponent(c.meta.token)}`; }
+      if (d.provider === 'meta') { if (!c.meta) throw Object.assign(new Error('Meta Conversions API is no longer connected'), { final: true }); if (!c.meta.via) url = `${META()}/${c.meta.pixel}/events?access_token=${encodeURIComponent(c.meta.token)}`; }
       else { if (!c.ga4) throw Object.assign(new Error('GA4 Measurement Protocol is no longer connected'), { final: true }); url = `${GA4()}?measurement_id=${encodeURIComponent(c.ga4.id)}&api_secret=${encodeURIComponent(c.ga4.secret)}`; }
+      if (d.provider === 'meta' && c.meta.via === 'composio') {
+        await runAs(d.userId, 'METAADS_SEND_CONVERSION_EVENTS', composioEvents(c.meta, d.body));
+        r0.lastStatus = 200; r0.status = 'sent'; r0.sentAt = Date.now(); r0.lastError = undefined;
+      } else {
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d.body), signal: AbortSignal.timeout(10000) });
       r0.lastStatus = r.status;
       if (r.ok) { r0.status = 'sent'; r0.sentAt = Date.now(); r0.lastError = undefined; }
@@ -184,6 +229,7 @@ export async function attempt(id) {
         const j = await r.json().catch(() => ({}));
         r0.lastError = String(j?.error?.message || `HTTP ${r.status}`).slice(0, 300);
         if (r.status >= 400 && r.status < 500 && r.status !== 429) r0.final = true; // a bad token or payload won't fix itself
+      }
       }
     } catch (e) { r0.lastError = e.name === 'TimeoutError' ? 'Timed out after 10s' : String(e.message).slice(0, 300); if (e.final) r0.final = true; }
     d = T.conversions.update(id, (x) => {
