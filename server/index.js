@@ -920,7 +920,7 @@ registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerRazorpaySettings(app, { auth, wrap });
 registerDomains(app, { auth });
-registerAutomations(app, { auth, secret: SECRET, appUrl, rateLimit, isTest });
+registerAutomations(app, { auth, secret: SECRET, appUrl, rateLimit, isTest, credits });
 registerBroadcasts(app, { auth, rateLimit, isTest });
 registerTeam(app, { auth, sign, rateLimit, isTest });
 registerPlans(app, { auth, resolveToken });

@@ -9,6 +9,13 @@ import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
 import { Layout, Panel, Empty, Modal, toast, ago, num, useWaTemplates, WaTemplateSelect, WaTemplateInfo, confirmDialog, promptDialog } from '../ui';
 
+// one-click ideas for “Build with Hive AI” (the part before — is the button)
+const AI_IDEAS = [
+  'Welcome series — when someone signs up, send a welcome email now, a tip after 2 days and a WhatsApp nudge at 10 am on day 3; stop if they buy',
+  'Course nudge — when a student signs in for the first time, email them how to start; if they haven’t finished the course in 14 days, remind them',
+  'Stuck deals — when a contact sits in a stage for 5 days, alert me and send them a friendly check-in email',
+  'Thank buyers — after a purchase, wait 7 days, ask for a review by email and tag them happy-customer',
+];
 const BRANCH_KEYS = { condition: ['yes', 'no'], split: ['a', 'b'] };
 const BRANCH_TITLE = { yes: '✓ Yes', no: '✕ No', a: 'Path A', b: 'Path B' };
 const flatSteps = (list, out = []) => { for (const s of list || []) { out.push(s); for (const b of BRANCH_KEYS[s.type] || []) flatSteps(s[b], out); } return out; };
@@ -147,6 +154,13 @@ function List() {
   const nav = useNavigate();
   const [d, setD] = useState(null);
   const [pick, setPick] = useState(false);
+  const [aiText, setAiText] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const buildAi = async () => {
+    setAiBusy(true);
+    try { const a = await api('/ai/automation', 'POST', { description: aiText }); toast(a.check?.errors?.length ? 'Built — check the cards marked with a red dot, then turn it on' : 'Built — have a look, then turn it on'); nav(`/automations/${a.id}`); } catch (e) { toast(e.message); }
+    setAiBusy(false);
+  };
   const load = () => api('/automations').then(setD);
   useEffect(() => { load(); }, []);
   // ready-made automations for the seller's CRM style (real estate, clinic…), with their own stage and field ids
@@ -189,15 +203,25 @@ function List() {
         </>
       )}
       {pick && (
-        <Modal title="New automation" onClose={() => setPick(false)} width={720}>
+        <Modal title="New automation" onClose={() => setPick(false)} width={760}>
+          <div className="m-body au-start">
+            <div className="au-ai">
+              <div className="au-ai-h"><span className="au-ai-ic"><Sparkles size={18} /></span><div><b>Build with Hive AI</b><small>Say what should happen — Hive builds it with your own stages, fields and courses. It opens paused so you can check it.</small></div></div>
+              <textarea rows={3} value={aiText} onChange={(e) => setAiText(e.target.value)} maxLength={1500} placeholder="e.g. When a lead’s site visit is tomorrow, email them the location at 10 am and remind me to call. If they don’t book in 3 days, tag them cold." />
+              <div className="au-ai-bar">
+                <div className="au-ai-ideas">{AI_IDEAS.map((t) => <button key={t} onClick={() => setAiText(t)}>{t.split(' — ')[0]}</button>)}</div>
+                <button className="btn primary" disabled={aiBusy || aiText.trim().length < 10} onClick={buildAi}><Sparkles size={15} /> {aiBusy ? 'Building…' : 'Build it'}</button>
+              </div>
+            </div>
+            <button className="au-scratch" onClick={() => create({ name: 'New automation', trigger: { type: 'lead' }, steps: [] })}><span className="au-ti"><Plus size={18} /></span><b>Start from scratch</b><small>Pick a trigger and drag in your own steps.</small></button>
+          </div>
           {kitAuto?.recipes?.length > 0 && <div className="m-body recipes kit">
             <h5 className="recipes-h">For your {kitAuto.kit} CRM</h5>
             {kitAuto.recipes.map((r) => { const I = r.a.trigger.type === 'stuck' ? Hourglass : CalendarDays; return <button key={r.key} className="recipe" onClick={() => create(r.a)}><span className="au-ti"><I size={18} /></span><b>{r.title}</b><small>{r.text}</small></button>; })}
           </div>}
           <div className="m-body recipes">
-            {kitAuto?.recipes?.length > 0 && <h5 className="recipes-h">For every business</h5>}
+            <h5 className="recipes-h">{kitAuto?.recipes?.length > 0 ? 'Ready-made for every business' : 'Or start from a ready-made recipe'}</h5>
             {RECIPES.map((r) => <button key={r.key} className="recipe" onClick={() => create(r.a)}><span className="au-ti"><r.icon size={18} /></span><b>{r.title}</b><small>{r.text}</small></button>)}
-            <button className="recipe blank" onClick={() => create({ name: 'New automation', trigger: { type: 'lead' }, steps: [] })}><span className="au-ti"><Plus size={18} /></span><b>Start from scratch</b><small>Choose a trigger and add your own steps.</small></button>
           </div>
         </Modal>
       )}
@@ -679,6 +703,9 @@ function Builder({ id }) {
                 <span className="zf-ic"><selPanel.icon size={16} /></span>
                 <b>{selPanel.title}</b>
                 {selPanel.s && ['email', 'notify', 'whatsapp'].includes(selPanel.s.type) && <button className="btn ghost sm" onClick={() => testStep(selPanel.s)} title="Send this message to yourself with sample data"><Send size={13} /> Test</button>}
+                {/* moving without dragging: phones and tablets can't drag, keyboards can't either */}
+                {selected && <button className="icon-btn" title="Move up" aria-label="Move step up" disabled={selected.i === 0} onClick={() => mutate((st) => { const l = listRef(st, selected.path); [l[selected.i - 1], l[selected.i]] = [l[selected.i], l[selected.i - 1]]; })}><ChevronUp size={16} /></button>}
+                {selected && <button className="icon-btn" title="Move down" aria-label="Move step down" disabled={selected.i === listRef(a.steps, selected.path).length - 1} onClick={() => mutate((st) => { const l = listRef(st, selected.path); [l[selected.i + 1], l[selected.i]] = [l[selected.i], l[selected.i + 1]]; })}><ChevronDown size={16} /></button>}
                 {selected && <button className="icon-btn" title="Duplicate" aria-label="Duplicate step" onClick={() => dup(selected.path, selected.i)}><Copy size={15} /></button>}
                 {selected && <button className="icon-btn danger" title="Remove" aria-label="Remove step" onClick={() => del(selected.path, selected.i, selected.s)}><Trash2 size={15} /></button>}
                 <button className="icon-btn" title="Close" aria-label="Close" onClick={() => setSel(null)}><X size={16} /></button>

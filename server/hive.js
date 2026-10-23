@@ -201,8 +201,8 @@ export const TOOLS = [
   },
   {
     name: 'create_automation', description: `Create an automation (follow-ups by email/WhatsApp etc.).
-trigger: {type: ${Object.keys(TRIGGERS).join('|')}, funnelId?, delayMin? (abandoned, minutes), pipelineId+stageId (stage), tag (tag), fieldId+offsetDays+time+yearly (date)}.
-steps (run top to bottom): {type:'wait', amount, unit:'minutes'|'hours'|'days'} | {type:'wait', mode:'until', time:'10:00'} | {type:'email', subject, body} | {type:'whatsapp', mode:'template', template, language, params:'{{first_name}}, {{checkout_link}}'} | {type:'whatsapp', mode:'text', text} | {type:'tag', tag, action:'add'|'remove'} | {type:'stage', pipelineId, stageId} | {type:'notify', subject, body} (email to the seller) | {type:'webhook', url} | {type:'condition', match:'all'|'any', rules:[{field, op, value, ...}], yes:[steps], no:[steps]} | {type:'split', percent, a:[steps], b:[steps]} | {type:'exit'}.
+trigger: {type: ${Object.keys(TRIGGERS).join('|')}, funnelId?, delayMin? (abandoned, minutes), pipelineId+stageId (stage), pipelineId+stageId+days (stuck), tag (tag), fieldId+value? (field), fieldId+offsetDays+time+yearly (date), productId? (student_joined|quiz_passed|course_completed)}.
+steps (run top to bottom): {type:'wait', amount, unit:'minutes'|'hours'|'days'} | {type:'wait', mode:'until', time:'10:00'} | {type:'email', subject, body} | {type:'whatsapp', mode:'template', template, language, params:'{{first_name}}, {{checkout_link}}'} | {type:'whatsapp', mode:'text', text} | {type:'tag', tag, action:'add'|'remove'} | {type:'stage', pipelineId, stageId} | {type:'field', fieldId, value (dates: today / +3 days)} | {type:'note', text} | {type:'access', productId, action:'grant'|'revoke', notify} | {type:'enroll', automationId} | {type:'notify', subject, body} (email to the seller) | {type:'webhook', url} | {type:'condition', match:'all'|'any', rules:[{field, op, value, ...}], yes:[steps], no:[steps]} | {type:'split', percent, a:[steps], b:[steps]} | {type:'exit'}.
 Condition rule fields: bought (op is/not, funnelId?, value=product contains), tag (is/not, value), stage (is/not, pipelineId, stageId), has (is/not, value phone|email), source (equals/not_equals/contains, value), custom (fieldId, op equals/contains/gt/lt/empty/filled, value), amount (gt/lt/equals), funnel (is/not, funnelId), unsubscribed (is/not), opened / clicked (is/not, stepId? of an email step).
 Variables in messages: ${VARIABLES.map((v) => `{{${v}}}`).join(' ')} ({{access_link}} = the buyer's library of purchased products, {{invoice_link}} = their GST invoice).
 Set activate=true to switch it on (fails with a clear reason if a step is incomplete).`,
@@ -226,6 +226,11 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     name: 'list_pipelines', description: 'Sales pipelines and their stages (ids) — needed for stage triggers/steps.', schema: S({}),
     run: async (ctx) => (await ctx.call('GET', '/pipelines')).map((p) => ({ id: p.id, name: p.name, stages: p.stages.map((s) => ({ id: s.id, name: s.name })) })),
     summary: () => 'Checked your pipelines',
+  },
+  {
+    name: 'list_crm_fields', description: 'The CRM’s custom fields (id, label, type, options) — needed for field / date triggers, the update-field step and custom-field conditions.', schema: S({}),
+    run: async (ctx) => (await ctx.call('GET', '/crm/fields')).map((f) => ({ id: f.id, label: f.label, type: f.type, ...(f.options ? { options: f.options } : {}) })),
+    summary: () => 'Checked your CRM fields',
   },
   {
     name: 'create_pipeline', description: 'Create a sales pipeline with stages.',

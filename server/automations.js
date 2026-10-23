@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import { T, q, tx, uid, JOBS, ordersByPhone } from './db.js';
 import { sendEmail, sendWhatsApp, emailStatus, whatsappStatus } from './messaging.js';
-import { logActivity, contactKey, ensureMeta, metaFor, stageFor, cleanCustom } from './crm.js';
+import { logActivity, contactKey, ensureMeta, metaFor, stageFor, cleanCustom, pipelinesFor } from './crm.js';
 import { funnelUrl } from './domains.js';
 import { enqueue as fireWebhook, checkWebhookUrl } from './webhooks.js';
 import { accessFor } from './billing.js';
@@ -684,7 +684,35 @@ function snapshot(a, note) {
   T.autoversions.insert({ id: uid(), automationId: a.id, userId: a.userId, at: Date.now(), auto: !note, note: note || '', name: a.name, trigger: a.trigger, steps: structuredClone(a.steps), stopOnPurchase: a.stopOnPurchase, allowRepeat: a.allowRepeat });
   q(`DELETE FROM autoversions WHERE id IN (SELECT id FROM autoversions WHERE automationId = ? ORDER BY at DESC LIMIT -1 OFFSET ${VERSIONS_KEPT})`).run(a.id);
 }
-export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTest }) {
+// ---------- "Build with Hive AI": an automation designed from a sentence, with this seller's own ids ----------
+const AI_SPEC = `You design marketing / CRM automations for a small Indian business. Reply with ONLY JSON:
+{"name": "short name", "trigger": {...}, "steps": [...], "stopOnPurchase": true|false}
+trigger.type is one of: ${Object.keys(TRIGGERS).join(', ')}.
+  Extra trigger fields: funnelId (lead/purchase/offer/abandoned, optional) · delayMin (abandoned) · pipelineId + stageId (stage) · pipelineId + stageId + days (stuck) · tag (tag) · fieldId + value (field; value optional) · fieldId + offsetDays (negative = before) + time "HH:MM" + yearly (date) · productId (student_joined / quiz_passed / course_completed, optional).
+steps run top to bottom; each is one of:
+  {"type":"wait","amount":2,"unit":"minutes|hours|days"} · {"type":"wait","mode":"until","time":"10:00"}
+  {"type":"email","subject":"…","body":"…"} · {"type":"notify","subject":"…","body":"…"} (an alert to the business owner)
+  {"type":"whatsapp","mode":"text","text":"…"} (only reaches people who messaged in the last 24 h — prefer email for cold follow-ups)
+  {"type":"tag","tag":"…","action":"add|remove"} · {"type":"stage","pipelineId":"…","stageId":"…"} · {"type":"field","fieldId":"…","value":"… (dates: today / +3 days)"}
+  {"type":"note","text":"…"} · {"type":"access","productId":"…","action":"grant|revoke","notify":true} · {"type":"enroll","automationId":"…"}
+  {"type":"webhook","url":"https://…"} · {"type":"exit"}
+  {"type":"condition","match":"all|any","rules":[{"field":"tag|stage|custom|bought|has|source|amount","op":"is|not|equals|contains|gt|lt|filled|empty","value":"…","fieldId":"…","pipelineId":"…","stageId":"…"}],"yes":[steps],"no":[steps]}
+  {"type":"split","percent":50,"a":[steps],"b":[steps]}
+Message variables: ${VARIABLES.map((v) => `{{${v}}}`).join(' ')} and contact fields as {{f_<field id>}}.
+Rules: use ONLY ids from the business context below; warm, short, Indian-English messages signed {{business}}; waits at sensible hours ("until 10:00" before WhatsApp); never invent prices or links; 2–8 steps unless asked for more.`;
+function aiContext(userId) {
+  const u = userOf(userId);
+  return JSON.stringify({
+    pipelines: pipelinesFor(userId).map((p) => ({ id: p.id, name: p.name, stages: p.stages.map((s) => ({ id: s.id, name: s.name })) })),
+    fields: (u?.crmFields || []).map((f) => ({ id: f.id, label: f.label, type: f.type, ...(f.options ? { options: f.options } : {}) })),
+    products: T.products.all({ userId }).slice(0, 60).map((p) => ({ id: p.id, name: p.name, course: (p.lessons || []).length > 0 })),
+    funnels: T.funnels.all({ userId }).slice(0, 60).map((f) => ({ id: f.id, name: f.name })),
+    automations: T.automations.all({ userId }).map((a) => ({ id: a.id, name: a.name })),
+    business: u?.settings?.businessName || u?.name || '',
+  });
+}
+
+export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTest, credits = () => (req, res, next) => next() }) {
   SECRET = secret;
   const own = (req, res) => { const a = T.automations.get(req.params.aid); if (!a || a.userId !== req.user.id) { res.status(404).json({ error: 'Automation not found' }); return null; } return a; };
   const build = (req, cur = {}) => {
@@ -713,6 +741,19 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
     if (!a) return;
     const runs = T.runs.all({ automationId: a.id }, { order: 'at', desc: true, limit: 50 }).map((r) => ({ id: r.id, key: r.key, name: r.ctx.name, email: r.ctx.email, phone: r.ctx.phone, status: r.status, pos: r.pos, nextAt: r.nextAt, at: r.at, log: r.log.slice(-6) }));
     res.json({ ...view(a), runs, check: problems(a, req.user), hookUrl: a.hookToken ? `${appUrl(req)}/api/hooks/automation/${a.hookToken}` : null, splitResults: splitResults(a), emailResults: emailResults(a) });
+  });
+  app.post('/api/ai/automation', auth, rateLimit({ windowMs: 60000, max: isTest ? 100 : 6, key: (req) => req.user.id }), credits('edit'), async (req, res) => {
+    const { aiEnabled, aiJson } = await import('./ai.js'); // loaded when used: ai.js sits elsewhere in the import graph
+    if (!aiEnabled()) return res.status(503).json({ error: 'Hive AI isn’t switched on yet' });
+    const d = str(req.body?.description, 1500).trim();
+    if (d.length < 10) return res.status(400).json({ error: 'Describe what should happen in a sentence or two' });
+    if (T.automations.count({ userId: req.user.id }) >= MAX_PER_USER) return res.status(400).json({ error: `You can have up to ${MAX_PER_USER} automations` });
+    let out;
+    try { out = await aiJson(AI_SPEC, `Business context: ${aiContext(req.user.id)}\n\nWhat they want: ${d}`); } catch { return res.status(502).json({ error: 'Hive AI couldn’t build it just now — please try again' }); }
+    if (!out || typeof out !== 'object' || !Array.isArray(out.steps) || !out.steps.length) return res.status(502).json({ error: 'Hive AI couldn’t build it — try describing it a little differently' });
+    // cleaned exactly like an automation saved in the builder; created paused so the seller reviews it first
+    const a = T.automations.insert({ id: uid(), userId: req.user.id, ...build({ body: out, user: req.user }), active: false, stats: { started: 0, completed: 0 }, createdAt: Date.now(), origin: appUrl(req), madeBy: 'ai' });
+    res.json({ ...view(a), check: problems(a, req.user) });
   });
   app.post('/api/automations', auth, (req, res) => {
     if (T.automations.count({ userId: req.user.id }) >= MAX_PER_USER) return res.status(400).json({ error: `You can have up to ${MAX_PER_USER} automations` });

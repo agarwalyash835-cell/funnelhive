@@ -2344,3 +2344,20 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .zf-branch .zf-card, .zf-branch .zf-conn { width: 270px; }
   .zf-grid { grid-template-columns: 1fr; }
 }
+
+/* New automation: Build with Hive AI / Start from scratch */
+.au-start { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 12px; padding-bottom: 0; }
+.au-ai { display: grid; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--c-honey) 55%, var(--c-line)); background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--c-honey) 14%, transparent), transparent 60%), var(--c-surface); }
+.au-ai-h { display: flex; gap: 10px; align-items: flex-start; }
+.au-ai-h > div { display: grid; gap: 2px; }
+.au-ai-h small { color: var(--c-muted); font-size: 12.5px; line-height: 1.4; }
+.au-ai-ic { width: 34px; height: 34px; flex: none; border-radius: 10px; display: grid; place-items: center; color: #1c1917; background: linear-gradient(140deg, #ffd27a, var(--c-honey)); }
+.au-ai textarea { resize: vertical; min-height: 76px; }
+.au-ai-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.au-ai-ideas { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.au-ai-ideas button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 1px dashed var(--c-line); background: transparent; color: var(--c-ink-2); cursor: pointer; }
+.au-ai-ideas button:hover { border-style: solid; border-color: var(--c-honey); }
+.au-scratch { display: grid; align-content: center; justify-items: start; gap: 6px; padding: 14px; border-radius: 16px; border: 1.5px dashed var(--c-line); background: var(--c-surface); text-align: left; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s; }
+.au-scratch:hover { border-color: var(--c-ink-2); }
+.au-scratch small { color: var(--c-muted); font-size: 12.5px; }
+@media (max-width: 640px) { .au-start { grid-template-columns: 1fr; } }
