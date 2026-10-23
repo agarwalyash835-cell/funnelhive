@@ -837,6 +837,11 @@ const ASK_IDEAS = {
   recruitment: ['Interviews this week', 'Immediate joiners for the open roles', 'Candidates at offer stage'],
   homeservices: ['Site surveys this week', 'Customers due for service (AMC)', 'Quotes sent but not confirmed'],
   hospitality: ['Check-ins this week', 'Banquet enquiries to follow up', 'Total booking value this month'],
+  store: ['COD orders waiting to be confirmed', 'Customers due to reorder this week', 'Who hasn’t been asked for a review?'],
+  abroad: ['Application deadlines this month', 'Students with documents pending', 'Canada enquiries for the September intake'],
+  wellness: ['Sessions this week', 'Clients consulted but without a package', 'Draft a follow-up for last week’s consultations'],
+  saas: ['Trials ending this week', 'Demos booked for tomorrow', 'Total annual value in Proposal'],
+  ngo: ['Monthly donors who lapsed', 'Donors waiting for an 80G receipt', 'Total donated this month'],
 };
 function AskHive({ kit, L }) {
   const nav = useNavigate();

@@ -176,7 +176,12 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
   };
   app.get('/api/q/:qid', limiter, (req, res) => {
     let q = pub(req, res); if (!q) return;
-    if (q.status === 'sent' || q.status === 'draft') { if (!req.query.preview) q = T.quotes.update(q.id, (x) => { x.status = 'viewed'; x.viewedAt ||= Date.now(); }); }
+    if (q.status === 'sent' || q.status === 'draft') {
+      if (!req.query.preview) {
+        q = T.quotes.update(q.id, (x) => { x.status = 'viewed'; x.viewedAt ||= Date.now(); });
+        fireAutomation(q.userId, 'quote_viewed', { email: q.client?.email, phone: q.client?.phone, name: q.client?.name, product: q.title, source: 'quote' });
+      }
+    }
     res.set('Cache-Control', 'no-store').json(publicView(q));
   });
   app.post('/api/q/:qid/decline', limiter, (req, res) => {
@@ -184,6 +189,7 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     if (paidOf(q) > 0) return res.status(400).json({ error: 'This quote has already been paid' });
     const x = T.quotes.update(q.id, (y) => { y.status = 'declined'; y.declineReason = clip(req.body?.reason, 500); y.updatedAt = Date.now(); });
     const owner = T.users.get(q.userId);
+    fireAutomation(q.userId, 'quote_declined', { email: q.client?.email, phone: q.client?.phone, name: q.client?.name, product: q.title, source: 'quote' });
     notify(q.userId, { kind: 'quote_declined', title: `Quote declined · ${q.client.name || q.client.email} · ${q.number}`, body: x.declineReason || q.title, link: '/quotes' });
     sendEmail(owner, { to: owner.email, subject: `${q.client.name || 'Your client'} declined ${q.number}`, text: `${q.client.name || q.client.email} declined “${q.title}” (${q.number}).${x.declineReason ? `\n\nReason: ${x.declineReason}` : ''}` }).catch(() => {});
     res.json(publicView(x));

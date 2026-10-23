@@ -173,6 +173,62 @@ export const KITS = [
     pipeline: { name: 'Bookings', stages: [S('Enquiry', '#6366f1'), S('Quote sent', '#0ea5e9'), S('Confirmed', '#16a34a', 'won'), S('Checked in', '#f59e0b'), S('Completed', '#14b8a6'), S('Cancelled', '#94a3b8', 'lost')] },
     columns: ['ho_kind', 'ho_in', 'ho_pax', 'ho_value'], cardFields: ['ho_in', 'ho_value'], filters: ['ho_kind', 'ho_from'], valueField: 'ho_value', showSales: false,
   },
+  {
+    id: 'store', name: 'D2C brand / online store', icon: '🛍️', desc: 'Orders, COD confirmation, deliveries, repeat buyers and reviews.',
+    labels: { title: 'Customers', one: 'customer', customers: 'Buyers', leads: 'Shoppers', value: 'Order value' },
+    fields: [
+      f('st_product', 'Product interested in'), f('st_city', 'City'), sel('st_pay', 'Payment', 'Prepaid, Cash on delivery'),
+      f('st_delivery', 'Expected delivery', 'date'), f('st_reorder', 'Reorder due', 'date'), sel('st_review', 'Review', 'Not asked, Asked, Given'),
+      sel('st_from', 'Came from', 'Instagram, Facebook ads, Google, WhatsApp, Influencer, Marketplace, Referral'),
+    ],
+    pipeline: { name: 'Orders', stages: [S('Interested', '#6366f1'), S('COD to confirm', '#f59e0b'), S('Ordered', '#0ea5e9'), S('Delivered', '#16a34a', 'won'), S('Repeat buyer', '#14b8a6'), S('Returned / RTO', '#94a3b8', 'lost')] },
+    columns: ['st_product', 'st_pay', 'st_delivery', 'st_review'], cardFields: ['st_product', 'st_pay'], filters: ['st_pay', 'st_review', 'st_from'], valueField: null, showSales: true,
+  },
+  {
+    id: 'abroad', name: 'Study abroad / immigration', icon: '🎓', desc: 'Countries, courses, test scores, applications and visas.',
+    labels: { title: 'Students', one: 'student', customers: 'Enrolled', leads: 'Enquiries', value: 'Service fee' },
+    fields: [
+      sel('ab_country', 'Country', 'Canada, UK, USA, Australia, Germany, Ireland, New Zealand, Dubai, Other'), f('ab_course', 'Course / visa type'),
+      sel('ab_intake', 'Intake', 'Jan, May, Sep, Other'), sel('ab_test', 'English test', 'Not taken, IELTS, PTE, TOEFL, Duolingo'), f('ab_score', 'Test score'),
+      f('ab_budget', 'Budget (₹)', 'money'), f('ab_fee', 'Service fee (₹)', 'money'), f('ab_deadline', 'Application deadline', 'date'),
+      sel('ab_visa', 'Visa status', 'Not started, Documents, Applied, Approved, Refused'),
+    ],
+    pipeline: { name: 'Applications', stages: [S('Enquiry', '#6366f1'), S('Counselling', '#0ea5e9'), S('Documents', '#8b5cf6'), S('Applied', '#f59e0b'), S('Offer letter', '#ec4899'), S('Visa approved', '#16a34a', 'won'), S('Dropped', '#94a3b8', 'lost')] },
+    columns: ['ab_country', 'ab_intake', 'ab_test', 'ab_deadline'], cardFields: ['ab_country', 'ab_intake'], filters: ['ab_country', 'ab_intake', 'ab_visa'], valueField: 'ab_fee', showSales: false,
+  },
+  {
+    id: 'wellness', name: 'Astrology / healing / wellness', icon: '🔮', desc: 'Consultations, birth details, sessions and packages.',
+    labels: { title: 'Clients', one: 'client', customers: 'Clients', leads: 'Enquiries', value: 'Package value' },
+    fields: [
+      sel('we_service', 'Service', 'Astrology, Numerology, Tarot, Vastu, Reiki, Life coaching, Counselling, Yoga / meditation, Other'),
+      f('we_dob', 'Date of birth', 'date'), f('we_tob', 'Time of birth'), f('we_pob', 'Place of birth'), f('we_concern', 'Concern', 'longtext'),
+      f('we_session', 'Next session', 'date'), sel('we_package', 'Package', 'Single session, 3 sessions, Monthly, Yearly'), f('we_value', 'Package value (₹)', 'money'),
+    ],
+    pipeline: { name: 'Consultations', stages: [S('Enquiry', '#6366f1'), S('Consultation booked', '#0ea5e9'), S('Consulted', '#8b5cf6'), S('Package bought', '#16a34a', 'won'), S('Follow-up', '#f59e0b'), S('Not proceeding', '#94a3b8', 'lost')] },
+    columns: ['we_service', 'we_session', 'we_package', 'we_value'], cardFields: ['we_service', 'we_session'], filters: ['we_service', 'we_package'], valueField: 'we_value', showSales: false,
+  },
+  {
+    id: 'saas', name: 'SaaS / software', icon: '💻', desc: 'Demos, trials, plans, seats and renewals.',
+    labels: { title: 'Accounts', one: 'account', customers: 'Customers', leads: 'Trials & leads', value: 'Annual value' },
+    fields: [
+      f('sa_company', 'Company'), sel('sa_size', 'Team size', '1–10, 11–50, 51–200, 201–1000, 1000+'), f('sa_demo', 'Demo', 'date'),
+      f('sa_trial', 'Trial ends', 'date'), sel('sa_plan', 'Plan', 'Free, Starter, Growth, Pro, Enterprise'), f('sa_seats', 'Seats', 'number'),
+      f('sa_value', 'Annual value (₹)', 'money'), f('sa_renew', 'Renewal date', 'date'),
+    ],
+    pipeline: { name: 'SaaS sales', stages: [S('Lead', '#6366f1'), S('Demo booked', '#0ea5e9'), S('Trial', '#8b5cf6'), S('Proposal', '#f59e0b'), S('Customer', '#16a34a', 'won'), S('Churned / lost', '#94a3b8', 'lost')] },
+    columns: ['sa_company', 'sa_plan', 'sa_trial', 'sa_value'], cardFields: ['sa_company', 'sa_plan'], filters: ['sa_size', 'sa_plan'], valueField: 'sa_value', showSales: false,
+  },
+  {
+    id: 'ngo', name: 'NGO / donations', icon: '🤝', desc: 'Donors, causes, recurring gifts, 80G receipts and volunteers.',
+    labels: { title: 'Supporters', one: 'supporter', customers: 'Donors', leads: 'Supporters', value: 'Donated' },
+    fields: [
+      sel('ng_cause', 'Cause', 'Education, Health, Food, Animals, Environment, Disaster relief, General'), f('ng_amount', 'Donated (₹)', 'money'),
+      sel('ng_type', 'Giving', 'One-time, Monthly, Yearly'), sel('ng_80g', '80G receipt', 'Not needed, Pending, Sent'),
+      f('ng_next', 'Next gift / reminder', 'date'), sel('ng_role', 'Role', 'Donor, Volunteer, Both'),
+    ],
+    pipeline: { name: 'Donor journey', stages: [S('New supporter', '#6366f1'), S('First gift', '#16a34a', 'won'), S('Monthly donor', '#14b8a6'), S('Lapsed', '#f59e0b'), S('Not interested', '#94a3b8', 'lost')] },
+    columns: ['ng_cause', 'ng_amount', 'ng_type', 'ng_80g'], cardFields: ['ng_cause', 'ng_amount'], filters: ['ng_cause', 'ng_type', 'ng_80g'], valueField: 'ng_amount', showSales: true,
+  },
 ];
 const kitById = (id) => KITS.find((k) => k.id === id) || null;
 
@@ -255,6 +311,11 @@ const KIT_AUTOMATIONS = {
   recruitment: { date: ['rc_interview', -1, 'Interview reminder', 'the day before an interview', 'your interview is tomorrow ({{f_rc_interview}}). All the best — reply if anything changes.'], stuck: ['Offer', 3, 'Offer waiting for a decision'] },
   homeservices: { date: ['hs_amc', -7, 'Service / AMC due', 'a week before the next service', 'your next service is due on {{f_hs_amc}}. Reply to book a convenient slot.'], stuck: ['Quote sent', 4, 'Quote not answered'] },
   hospitality: { date: ['ho_in', -1, 'Arrival reminder', 'the day before check-in', 'we’re looking forward to welcoming you tomorrow ({{f_ho_in}}). Reply with your arrival time.'], stuck: ['Quote sent', 2, 'Booking quote not answered'] },
+  store: { date: ['st_reorder', -2, 'Reorder reminder', '2 days before a reorder is due', 'running low? Your reorder is due around {{f_st_reorder}} — reply and we’ll ship it right away.'], stuck: ['COD to confirm', 1, 'COD order not confirmed'] },
+  abroad: { date: ['ab_deadline', -7, 'Application deadline coming up', 'a week before an application deadline', 'the application deadline is {{f_ab_deadline}}. Please send any pending documents this week.'], stuck: ['Documents', 5, 'Documents pending too long'] },
+  wellness: { date: ['we_session', -1, 'Session reminder', 'the day before a session', 'your session is tomorrow ({{f_we_session}}). Please keep your questions ready.'], stuck: ['Consulted', 4, 'Consulted but no package yet'] },
+  saas: { date: ['sa_trial', -3, 'Trial ending soon', '3 days before a trial ends', 'your trial ends on {{f_sa_trial}}. Want a quick call to set things up for your team?'], stuck: ['Proposal', 5, 'Proposal not answered'] },
+  ngo: { date: ['ng_next', -1, 'Giving reminder', 'the day before a planned gift', 'thank you for standing with us. Your next gift is planned for {{f_ng_next}} — every rupee helps.'], stuck: ['Lapsed', 30, 'Lapsed donor — win back'] },
 };
 // the current CRM style's automations, with this seller's own pipeline, stage and field ids (null when it has none)
 export function kitAutomations(u) {

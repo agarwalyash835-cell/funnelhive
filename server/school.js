@@ -8,6 +8,7 @@ import { hashToken, randomToken } from './security.js';
 import { sendEmail } from './messaging.js';
 import { handleOf } from './bookings.js';
 import { studentLibrary, accessActive, cleanQuiz } from './products.js';
+import { fire as fireAutomation } from './automations.js';
 import { aiEnabled, aiText, aiJson } from './ai.js';
 import { creditsShort, spendCredits } from './billing.js';
 import { brand } from './platform.js';
@@ -48,7 +49,10 @@ export function ensureStudent(userId, { email, name = '', phone = '' }) {
     }
     // a name from their purchases or sign-ups when they didn't give one
     const known = name || T.access.all({ userId, ckey }).find((a) => a.name)?.name || T.leads.find({ userId, ckey })?.name || '';
-    return T.students.insert({ id: uid(), userId, ckey, email: String(email).trim().toLowerCase(), name: clip(known, 80), phone: clip(phone, 30), bio: '', points: 0, banned: false, at: Date.now(), lastSeenAt: Date.now() });
+    const fresh = T.students.insert({ id: uid(), userId, ckey, email: String(email).trim().toLowerCase(), name: clip(known, 80), phone: clip(phone, 30), bio: '', points: 0, banned: false, at: Date.now(), lastSeenAt: Date.now() });
+    // after the transaction: "A student signs in to the members area for the first time"
+    setImmediate(() => fireAutomation(userId, 'student_joined', { email: fresh.email, phone: fresh.phone, name: fresh.name, source: 'course' }));
+    return fresh;
   });
 }
 const accessRows = (s) => T.access.all({ userId: s.userId, ckey: s.ckey });
@@ -142,6 +146,12 @@ function leaderboard(owner, days, me) {
 
 // ---------- certificates ----------
 // finished = every lesson done and every quiz passed
+// "A student finishes a course": the first time every lesson is done and every quiz passed (with or without a certificate)
+function markComplete(owner, s, product, access) {
+  if (!access || access.completedAt || !courseComplete(product, access)) return;
+  T.access.update(access.id, (x) => { x.completedAt ||= Date.now(); });
+  fireAutomation(owner.id, 'course_completed', { email: s.email, phone: s.phone, name: s.name, productId: product.id, product: product.name, source: 'course' });
+}
 export function courseComplete(product, access) {
   const lessons = product.lessons || [];
   return lessons.length > 0 && lessons.every((l) => access.progress?.[l.id] && (!l.quiz || access.quiz?.[l.id]?.passed));
@@ -302,6 +312,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
       x.lastSeenAt = Date.now();
     });
     if (firstTime) award(s, 1, 'lesson', `${p.id}:${lesson.id}`);
+    markComplete(owner, s, p, n);
     const cert = p.certificate?.enabled && courseComplete(p, n) ? certView(issueCert(owner, T.students.get(s.id), p)) : null;
     res.json({ ok: true, complete: courseComplete(p, n), cert });
   });
@@ -325,7 +336,8 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
       x.quiz[lesson.id] = { score: Math.max(score, prev?.score || 0), passed: passed || !!prev?.passed, tries: (prev?.tries || 0) + 1, at: Date.now() };
       if (passed) { x.progress ||= {}; x.progress[lesson.id] ||= Date.now(); }
     });
-    if (firstPass) award(s, 2, 'quiz', `${p.id}:${lesson.id}`);
+    if (firstPass) { award(s, 2, 'quiz', `${p.id}:${lesson.id}`); fireAutomation(owner.id, 'quiz_passed', { email: s.email, phone: s.phone, name: s.name, productId: p.id, product: `${p.name} — ${lesson.title}`, source: 'course' }); }
+    markComplete(owner, s, p, n);
     const cert = p.certificate?.enabled && courseComplete(p, n) ? certView(issueCert(owner, T.students.get(s.id), p)) : null;
     res.json({ score, passed, pass: lesson.quiz.pass, results, cert });
   });
@@ -420,6 +432,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const title = clip(req.body?.title, 200), body = clip(req.body?.body, 10000);
     if (!title && !body) return res.status(400).json({ error: 'Write something first' });
     const p = T.posts.insert({ id: uid(), userId: owner.id, spaceId: sp.id, title, body, images: [], author: { kind: 'student', id: s.id }, pinned: false, at: Date.now() });
+    fireAutomation(owner.id, 'community_post', { email: s.email, phone: s.phone, name: s.name, product: title || clip(body, 80), source: 'community' });
     res.json(postView(owner, p, s));
   });
   const ownPost = (owner, s, id) => { const p = T.posts.get(id); return p && p.userId === owner.id && !p.hidden && ownSpace(owner, s, p.spaceId) ? p : null; };

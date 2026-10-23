@@ -31,10 +31,17 @@ export const TRIGGERS = {
   field: 'A contact field changes (e.g. Home loan → Needed)',
   stuck: 'A contact stays in a pipeline stage too long',
   date: 'A date in a contact field arrives (birthday, renewal…)',
+  student_joined: 'A student signs in to the members area for the first time',
+  quiz_passed: 'A student passes a quiz',
+  course_completed: 'A student finishes a course (certificate earned)',
+  community_post: 'A student posts in the community',
+  quote_viewed: 'A client opens a quote',
+  quote_declined: 'A client declines a quote',
   inbound: 'A webhook is received (Zapier, Pabbly, Make, Google Forms…)',
   manual: 'Only when I add a contact to it',
 };
-const STEP_TYPES = ['wait', 'email', 'whatsapp', 'tag', 'stage', 'field', 'webhook', 'notify', 'condition', 'split', 'exit'];
+const STEP_TYPES = ['wait', 'email', 'whatsapp', 'tag', 'stage', 'field', 'access', 'enroll', 'note', 'webhook', 'notify', 'condition', 'split', 'exit'];
+const COURSE_EVENTS = ['student_joined', 'quiz_passed', 'course_completed', 'community_post'];
 // branch names inside a step: If/else → yes/no, A/B split → a/b
 const BRANCHES = { condition: ['yes', 'no'], split: ['a', 'b'] };
 const BRANCH_LABEL = { yes: 'Yes', no: 'No', a: 'Path A', b: 'Path B' };
@@ -76,6 +83,7 @@ function cleanTrigger(t = {}, userId) {
   if (type === 'abandoned') out.delayMin = Math.min(10080, Math.max(5, Math.round(Number(t.delayMin) || 30)));
   if (type === 'stage') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); }
   if (type === 'tag') out.tag = str(t.tag, 30).trim();
+  if (COURSE_EVENTS.includes(type) && t.productId && T.products.get(t.productId)?.userId === userId) out.productId = t.productId; // blank = any course
   if (type === 'field') { out.fieldId = str(t.fieldId, 20); out.value = str(t.value, 200).trim(); } // value: blank = any change
   if (type === 'stuck') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); out.days = Math.max(1, Math.min(365, Math.round(Number(t.days) || 7))); }
   if (type === 'date') {
@@ -128,6 +136,9 @@ function cleanStep(s, depth = 0) {
     case 'tag': return { id, type, tag: str(s.tag, 30).trim(), action: s.action === 'remove' ? 'remove' : 'add' };
     case 'stage': return { id, type, pipelineId: str(s.pipelineId, 20), stageId: str(s.stageId, 20) };
     case 'field': return { id, type, fieldId: str(s.fieldId, 20), value: str(s.value, 500) };
+    case 'access': return { id, type, productId: str(s.productId, 20), action: s.action === 'revoke' ? 'revoke' : 'grant', notify: s.notify !== false };
+    case 'enroll': return { id, type, automationId: str(s.automationId, 20) };
+    case 'note': return { id, type, text: str(s.text, 2000) };
     case 'webhook': return { id, type, url: str(s.url, 500).trim() };
     default: return null;
   }
@@ -174,6 +185,9 @@ function problems(a, u) {
     if (s.type === 'tag' && !s.tag) p.push(`${n}: enter a tag`);
     if (s.type === 'stage' && !s.stageId) p.push(`${n}: choose a pipeline stage`);
     if (s.type === 'field' && !(u.crmFields || []).some((x) => x.id === s.fieldId)) p.push(`${n}: choose the field to update`);
+    if (s.type === 'access' && T.products.get(s.productId)?.userId !== a.userId) p.push(`${n}: choose the product or course`);
+    if (s.type === 'enroll' && (!s.automationId || s.automationId === a.id || T.automations.get(s.automationId)?.userId !== a.userId)) p.push(`${n}: choose another automation to start`);
+    if (s.type === 'note' && !s.text.trim()) p.push(`${n}: write the note`);
     if (s.type === 'webhook' && !s.url) p.push(`${n}: enter the webhook URL`);
   });
   const warn = [];
@@ -214,6 +228,7 @@ export function fire(userId, event, data = {}) {
       if (t.funnelId && t.funnelId !== data.funnelId) continue;
       if (event === 'stage' && (t.pipelineId !== data.pipelineId || t.stageId !== data.stageId)) continue;
       if (event === 'tag' && String(t.tag).toLowerCase() !== String(data.tag || '').toLowerCase()) continue;
+      if (COURSE_EVENTS.includes(event) && t.productId && t.productId !== data.productId) continue;
       if (event === 'field' && (t.fieldId !== data.fieldId || (t.value && String(t.value).trim().toLowerCase() !== String(data.value ?? '').trim().toLowerCase()))) continue;
       start(a, data);
     }
@@ -420,6 +435,36 @@ async function runStep(a, r, s, u) {
       T.crm.put(mm);
       tl('note', `${d.label} set to ${raw === '' ? '(empty)' : raw}`, `by automation “${a.name}”`);
       return { result: 'done', detail: `${d.label} → ${raw || '(empty)'}` };
+    }
+    case 'access': {
+      const P = await import('./products.js'); // loaded when needed: products.js sits further down the import graph
+      const prod = T.products.get(s.productId);
+      if (!prod || prod.userId !== r.userId) return { result: 'skipped', detail: 'That product no longer exists' };
+      if (!ctx.email) return { result: 'skipped', detail: 'No email address' };
+      if (s.action === 'revoke') {
+        let n = 0;
+        for (const x of T.access.all({ userId: r.userId, productId: prod.id })) if (!x.revoked && String(x.email).toLowerCase() === ctx.email.toLowerCase()) { T.access.update(x.id, (y) => { y.revoked = true; y.revokedAt = Date.now(); y.revokeReason = `removed by automation “${a.name}”`; }); n++; }
+        tl('note', `Access to ${prod.name} removed`, `by automation “${a.name}”`);
+        return { result: 'done', detail: `Removed access to ${prod.name}${n === 0 ? ' (they had none)' : ''}` };
+      }
+      const acc = P.grant(r.userId, { email: ctx.email, name: ctx.name, phone: ctx.phone, productId: prod.id, via: 'automation' });
+      if (s.notify && acc) {
+        const lib = P.libraryUrl(ctx.origin, P.libraryToken(r.userId, ctx.email));
+        await sendEmail(u, { to: ctx.email, subject: `You now have access to ${prod.name}`, text: `Hi ${ctx.first_name || 'there'},\n\n${ctx.business || u.name} has given you access to ${prod.name}.\n\nOpen it here: ${lib}\n\n— ${ctx.business || u.name}` }).catch(() => null);
+      }
+      tl('note', `Access to ${prod.name} given`, `by automation “${a.name}”`);
+      return { result: 'done', detail: `Gave access to ${prod.name}` };
+    }
+    case 'enroll': {
+      const other = T.automations.get(s.automationId);
+      if (!other || other.userId !== r.userId || other.id === a.id) return { result: 'skipped', detail: 'That automation no longer exists' };
+      if (!other.active) return { result: 'skipped', detail: `“${other.name}” is paused` };
+      const run = start(other, { key: r.key, email: ctx.email, phone: ctx.phone, name: ctx.name });
+      return { result: run ? 'done' : 'skipped', detail: run ? `Started “${other.name}”` : `Already in “${other.name}”` };
+    }
+    case 'note': {
+      tl('note', fill(s.text, ctx).slice(0, 200), `by automation “${a.name}”`);
+      return { result: 'done', detail: 'Note added' };
     }
     case 'webhook': {
       await checkWebhookUrl(s.url);
