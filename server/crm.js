@@ -14,6 +14,19 @@ const str = (v, n) => String(v ?? '').trim().slice(0, n);
 export const metaFor = (userId, key) => T.crm.find({ userId, key });
 // The seller's record for a contact (tags, stages, custom fields, activity), created on first use.
 // Change it and save with T.crm.put(m) — with no `await` in between.
+// Someone who reached the seller another way — booked a call, got a quote, was given a course, joined the
+// members area — is listed in the CRM like a lead (an entry on their timeline says how they came in)
+export const CONTACT_SOURCES = { booking: 'Booked a call', quote: 'Sent a quote', course: 'Given course access', 'members area': 'Joined the members area' };
+export function ensureContact(userId, { email, phone, name } = {}, source = 'booking') {
+  const e = String(email || '').trim().toLowerCase(), p = String(phone || '').trim();
+  const key = contactKey(e, p);
+  if (!key || !userId) return null;
+  if (buildContacts(userId, key).contacts[key]) return key; // already a contact (a form, an order, added by hand)
+  const m = ensureMeta(userId, key);
+  Object.assign(m, { manual: true, source, name: m.name || str(name, 120), email: m.email || e, phone: m.phone || str(p, 40), at: m.at || Date.now() });
+  T.crm.put(m);
+  return key;
+}
 export function ensureMeta(userId, key) {
   let m = metaFor(userId, key);
   if (!m) {
@@ -192,7 +205,7 @@ function timeline(userId, c, funnelName) {
   }
   sessions.forEach((s, i) => out.push({ type: 'visit', at: s.at, title: i === 0 ? 'First visit' : 'Came back', text: `${funnelName[s.funnelId]} · ${s.pages.size} page${s.pages.size > 1 ? 's' : ''} viewed${s.source && s.source !== 'direct' ? ` · from ${s.source}` : ''}` }));
   if (!sessions.length && c.firstSeen !== Infinity && !c.meta?.manual) out.push({ type: 'visit', at: c.firstSeen, title: 'First came in', text: `${[...c.funnels].filter(Boolean)[0] || ''}${c.source && c.source !== 'direct' ? ` · from ${c.source}` : ''}` });
-  if (c.meta?.manual) out.push({ type: 'created', at: c.meta.at, title: c.meta.source?.startsWith('import') ? 'Imported from a CSV file' : 'Added by you' });
+  if (c.meta?.manual) out.push({ type: 'created', at: c.meta.at, title: c.meta.source?.startsWith('import') ? 'Imported from a CSV file' : CONTACT_SOURCES[c.meta.source] || 'Added by you' });
   for (const l of c.refs.leads) out.push({ type: 'lead', at: l.at, title: l.qualified === undefined ? `Signed up on ${funnelName[l.funnelId]}` : `Applied on ${funnelName[l.funnelId]} — ${l.qualified ? 'qualified ✓' : 'not a fit'}`, text: [stepName(l.funnelId, l.stepId), l.source && l.source !== 'direct' ? `from ${l.source}` : ''].filter(Boolean).join(' · '), fields: l.fields });
   for (const a of c.refs.abandoned) out.push({ type: 'abandon', at: a.at, title: 'Started checkout but didn’t pay', text: `${funnelName[a.funnelId]}${a.recovered ? ' · bought later' : ''}` });
   for (const o of c.refs.orders) {

@@ -9,6 +9,7 @@ import { sendEmail } from './messaging.js';
 import { handleOf } from './bookings.js';
 import { studentLibrary, accessActive, cleanQuiz } from './products.js';
 import { fire as fireAutomation } from './automations.js';
+import { ensureContact } from './crm.js';
 import { aiEnabled, aiText, aiJson } from './ai.js';
 import { creditsShort, spendCredits } from './billing.js';
 import { brand } from './platform.js';
@@ -50,7 +51,8 @@ export function ensureStudent(userId, { email, name = '', phone = '' }) {
     // a name from their purchases or sign-ups when they didn't give one
     const known = name || T.access.all({ userId, ckey }).find((a) => a.name)?.name || T.leads.find({ userId, ckey })?.name || '';
     const fresh = T.students.insert({ id: uid(), userId, ckey, email: String(email).trim().toLowerCase(), name: clip(known, 80), phone: clip(phone, 30), bio: '', points: 0, banned: false, at: Date.now(), lastSeenAt: Date.now() });
-    // after the transaction: "A student signs in to the members area for the first time"
+    // after the transaction: listed in the CRM, and "A student signs in to the members area for the first time"
+    setImmediate(() => ensureContact(userId, { email: fresh.email, name: fresh.name, phone: fresh.phone }, 'members area'));
     setImmediate(() => fireAutomation(userId, 'student_joined', { email: fresh.email, phone: fresh.phone, name: fresh.name, source: 'course' }));
     return fresh;
   });

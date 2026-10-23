@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { KitIcon } from '../blockIcons';
 import { fmtWhenShort, zoneCity, allZones, zoneOption, viewerTz, dayKey, fmtTime, zoneLabel } from '../tzfmt';
 import { Layout, Panel, Icon, Empty, Modal, toast, num, confirmDialog, promptDialog } from '../ui';
 import { t, tx } from '../appI18n';
@@ -29,9 +30,32 @@ export default function Bookings() {
   return (
     <Layout title={t('Bookings')} subtitle={t('Your booking page, your call types, and every call booked.')}>
       {handle && cals && <BookingPage handle={handle} setHandle={setHandle} cals={cals} onEdit={(id) => setQs({ tab: 'calendars', cal: id })} />}
+      {cals && <KitBookings cals={cals} onCreated={(c) => { loadCals(); setQs({ tab: 'calendars', cal: c.id }); }} />}
       <div className="seg pr-tabs">{[['upcoming', 'Upcoming calls'], ['past', 'Past & cancelled'], ['calendars', 'Call types & hours']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setQs({ tab: k })}>{t(l)}</button>)}</div>
       {tab === 'calendars' ? <Calendars handle={handle} initial={qs.get('cal')} onChange={loadCals} /> : <BookingList past={tab === 'past'} handle={handle} />}
     </Layout>
+  );
+}
+
+// what a booking does in the seller's CRM style (a site visit for real estate, an appointment for a clinic…),
+// and its ready-made call type
+function KitBookings({ cals, onCreated }) {
+  const [k, setK] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api('/crm/kit-booking').then(setK).catch(() => {}); }, []);
+  if (!k?.kit) return null;
+  const have = cals.find((c) => c.name.toLowerCase() === k.name.toLowerCase());
+  const create = async () => { setBusy(true); try { const c = await api('/calendars', 'POST', k.preset); toast(`${k.name} call type created`); onCreated(c); } catch (e) { toast(e.message); } setBusy(false); };
+  return (
+    <Panel className="kit-book" title={<span className="kit-book-t"><span className="ti-box sm"><KitIcon type={k.kitId} size={14} /></span>Bookings in your {k.kit} CRM</span>}>
+      <ul className="kit-book-l">
+        <li>Each booking is a <b>{k.name}</b>{k.dateField && <> — its date goes into <b>{k.dateField.label}</b></>}{k.preset.questions.length > 0 && <>, and the form’s answers ({k.preset.questions.map((q) => q.label).join(', ')}) into the lead’s fields</>}.</li>
+        {k.booked && <li>The lead moves to <b>{k.booked.name}</b>{k.done && <>; marking it <b>Completed</b> moves them to <b>{k.done.name}</b></>}. Stage automations run as usual.</li>}
+        <li>A <b>No-show</b> is tagged <code>no-show</code> — great for a re-booking automation. Everyone who books shows up in your CRM.</li>
+      </ul>
+      {have ? <p className="hint"><Icon name="check" size={13} /> Your “{have.name}” call type is set up.</p>
+        : <button className="btn primary sm" disabled={busy} onClick={create}><Icon name="plus" size={14} /> Create the “{k.name}” call type</button>}
+    </Panel>
   );
 }
 
@@ -249,6 +273,8 @@ function GoogleCalendar() {
 
 const LENGTHS = [10, 15, 20, 30, 45, 60, 90, 120];
 function CalendarEditor({ c, handle, onSaved, canDelete }) {
+  const [crmFields, setCrmFields] = useState([]);
+  useEffect(() => { api('/crm/fields').then(setCrmFields).catch(() => {}); }, []);
   const [v, setV] = useState({ ...c, durations: c.durations || [c.duration], questions: c.questions || [] });
   const [busy, setBusy] = useState(false);
   const [newDate, setNewDate] = useState('');
@@ -298,6 +324,7 @@ function CalendarEditor({ c, handle, onSaved, canDelete }) {
             <select value={q.type} onChange={(e) => setQ(i, { type: e.target.value })}><option value="text">Short answer</option><option value="long">Paragraph</option><option value="phone">Phone</option><option value="select">Dropdown</option></select>
             <label className="tog sm"><input type="checkbox" checked={!!q.required} onChange={(e) => setQ(i, { required: e.target.checked })} /><span />Required</label>
             <button className="icon-btn xs" title="Remove" aria-label="Remove" onClick={() => set({ questions: v.questions.filter((_, k) => k !== i) })}><Icon name="x" size={12} /></button>
+            {crmFields.length > 0 && <select className="bq-field" value={q.fieldId || ''} onChange={(e) => setQ(i, { fieldId: e.target.value || undefined })} title="The answer is saved on the contact in this CRM field"><option value="">Don’t save to the CRM</option>{crmFields.map((f) => <option key={f.id} value={f.id}>Save to CRM → {f.label}</option>)}</select>}
             {q.type === 'select' && <input className="bq-opts" value={Array.isArray(q.options) ? q.options.join(', ') : q.options || ''} placeholder="Options, separated by commas" onChange={(e) => setQ(i, { options: e.target.value })} />}
           </div>
         ))}</div>

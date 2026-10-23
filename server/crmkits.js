@@ -3,7 +3,9 @@
 // quick filters and the money field the board totals. Switching kits never deletes data: fields from an earlier
 // kit stay on the contacts (and in Custom fields); only what's shown changes. AI can design a kit from a description.
 import { T, uid } from './db.js';
-import { pipelinesFor, FIELD_TYPES } from './crm.js';
+import { pipelinesFor, FIELD_TYPES, ensureMeta, ensureContact, logActivity } from './crm.js';
+import { fire as fireAutomation } from './automations.js';
+import { sellerTz, localYmd } from './tz.js';
 import { aiEnabled, aiJson } from './ai.js';
 
 const S = (name, color, flag) => ({ name, color, ...(flag ? { [flag]: true } : {}) });
@@ -346,7 +348,92 @@ export function kitAutomations(u) {
   return { kit: kit.name, recipes: out };
 }
 
+// ---------- bookings, shaped by the CRM style ----------
+// what a booking is for this kind of business: its name and length, where it happens, the questions on the form
+// (answers saved straight into CRM fields), the date field it fills, and the stages it moves the contact through
+const KIT_BOOKING = {
+  realestate: { name: 'Site visit', duration: 45, where: 'At the project site — we’ll WhatsApp you the location', date: 're_visit', booked: 'Site visit scheduled', done: 'Site visit done', ask: ['re_type', 're_bhk', 're_location'] },
+  clinic: { name: 'Appointment', duration: 20, where: 'At the clinic', date: 'cl_next', booked: 'Appointment booked', done: 'Consulted', ask: ['cl_concern', 'cl_gender'] },
+  consultant: { name: 'Discovery call', duration: 30, where: '', booked: 'Discovery call', ask: ['co_company', 'co_size', 'co_service'] },
+  education: { name: 'Demo class', duration: 45, where: 'At our centre or online', date: 'ed_demo', booked: 'Demo class', done: 'Fee discussion', ask: ['ed_student', 'ed_course', 'ed_mode'] },
+  fitness: { name: 'Trial session', duration: 45, where: 'At the studio', date: 'fi_trial', booked: 'Trial booked', done: 'Trial done', ask: ['fi_goal'] },
+  finance: { name: 'Financial consultation', duration: 30, where: '', booked: 'Needs analysis', ask: ['fa_product', 'fa_income', 'fa_city'] },
+  interior: { name: 'Site measurement', duration: 60, where: 'At your home or site', date: 'in_measure', booked: 'Site visit', done: 'Design & quote', ask: ['in_scope', 'in_home', 'in_site'] },
+  events: { name: 'Event planning call', duration: 30, where: '', booked: 'Call / meeting', ask: ['ev_type', 'ev_venue'] },
+  travel: { name: 'Trip planning call', duration: 20, where: '', ask: ['tr_dest', 'tr_kind'] },
+  auto: { name: 'Test drive', duration: 30, where: 'At our showroom', date: 'au_test', booked: 'Test drive', done: 'Quotation', ask: ['au_model', 'au_fin', 'au_exch'] },
+  professional: { name: 'Consultation', duration: 30, where: '', booked: 'Consultation', done: 'Fee quote', ask: ['pf_service', 'pf_entity'] },
+  recruitment: { name: 'Interview', duration: 30, where: '', date: 'rc_interview', booked: 'Interview', ask: ['rc_role', 'rc_notice'] },
+  homeservices: { name: 'Site survey', duration: 45, where: 'At your address', date: 'hs_survey', booked: 'Site survey', done: 'Quote sent', ask: ['hs_service', 'hs_prop', 'hs_address'] },
+  hospitality: { name: 'Venue visit', duration: 30, where: 'At our property', ask: ['ho_kind'] },
+  abroad: { name: 'Counselling session', duration: 30, where: '', booked: 'Counselling', done: 'Documents', ask: ['ab_country', 'ab_intake', 'ab_test'] },
+  wellness: { name: 'Consultation', duration: 30, where: '', date: 'we_session', booked: 'Consultation booked', done: 'Consulted', ask: ['we_service', 'we_concern'] },
+  saas: { name: 'Product demo', duration: 30, where: '', date: 'sa_demo', booked: 'Demo booked', done: 'Trial', ask: ['sa_company', 'sa_size'] },
+};
+const QTYPE = { select: 'select', longtext: 'long', phone: 'phone' };
+// the current style's booking setup, resolved against this seller's own fields and pipeline (null: a plain call)
+export function kitBooking(u) {
+  const kit = currentKit(u), spec = KIT_BOOKING[kit?.id];
+  if (!spec) return null;
+  const fields = u.crmFields || [];
+  const pipe = pipelinesFor(u.id).find((x) => x.id === kit.pipelineId);
+  const stage = (name) => (name && pipe?.stages.find((x) => x.name.toLowerCase() === name.toLowerCase())) || null;
+  const field = (id) => fields.find((f) => f.id === id) || null;
+  const booked = stage(spec.booked), done = stage(spec.done), date = field(spec.date);
+  return {
+    kit: kit.name, kitId: kit.id, name: spec.name, pipelineId: pipe?.id || null, booked: booked && { id: booked.id, name: booked.name }, done: done && { id: done.id, name: done.name },
+    dateField: date && { id: date.id, label: date.label },
+    preset: {
+      name: spec.name, duration: spec.duration, location: spec.where, description: `Book a ${spec.name.toLowerCase()} with us — pick a time that suits you.`,
+      questions: spec.ask.map(field).filter(Boolean).map((f, i) => ({ label: f.label.replace(/ \(₹\)$/, ''), type: QTYPE[f.type] || 'text', required: i === 0, fieldId: f.id, ...(f.type === 'select' ? { options: String(f.options || '').split(',').map((o) => o.trim()).filter(Boolean) } : {}) })),
+    },
+  };
+}
+// moves the contact forward only (a booking never pulls someone back from Negotiation to Site visit scheduled)
+function moveForward(userId, m, pipeId, st, why) {
+  const pipe = pipelinesFor(userId).find((x) => x.id === pipeId);
+  if (!pipe || !st) return null;
+  const at = (id) => pipe.stages.findIndex((x) => x.id === id);
+  const cur = m.stages?.[pipe.id];
+  if (cur === st.id || (cur && at(cur) > at(st.id))) return null;
+  m.stages = { ...m.stages, [pipe.id]: st.id };
+  m.stagesAt = { ...m.stagesAt, [pipe.id]: Date.now() };
+  m.activities.push({ id: uid(), at: Date.now(), type: 'stage', title: `Moved to ${st.name}`, text: `${pipe.name} · ${why}` });
+  return { pipelineId: pipe.id, stageId: st.id };
+}
+// a booking happened ('booked'), or the seller marked how it went ('completed' / 'no_show'): the CRM follows
+export function syncBooking(b, cal, what) {
+  try {
+    const u = T.users.get(b.userId);
+    const who = { email: b.email, phone: b.phone, name: b.name };
+    const key = ensureContact(b.userId, who, 'booking');
+    if (!u || !key) return;
+    const spec = kitBooking(u);
+    const m = ensureMeta(b.userId, key);
+    let moved = null;
+    if (what === 'booked') {
+      if (spec?.dateField) m.custom = { ...m.custom, [spec.dateField.id]: localYmd(sellerTz(u), b.start) };
+      // answers to questions linked to CRM fields go into those fields
+      for (const q of cal.questions || []) {
+        const v = b.answers?.[q.label];
+        if (q.fieldId && v != null && v !== '' && (u.crmFields || []).some((f) => f.id === q.fieldId)) m.custom = { ...m.custom, [q.fieldId]: v };
+      }
+      if (spec?.booked) moved = moveForward(b.userId, m, spec.pipelineId, spec.booked, `booked: ${cal.name}`);
+    } else if (what === 'completed' && spec?.done) moved = moveForward(b.userId, m, spec.pipelineId, spec.done, `${cal.name} done`);
+    else if (what === 'no_show' && !(m.tags || []).includes('no-show')) {
+      m.tags = [...(m.tags || []), 'no-show'].slice(0, 20);
+      T.crm.put(m);
+      fireAutomation(b.userId, 'tag', { key, ...who, tag: 'no-show' });
+      return;
+    }
+    T.crm.put(m);
+    if (moved) fireAutomation(b.userId, 'stage', { key, ...who, ...moved });
+  } catch (e) { console.error('booking → CRM failed', e.message); }
+}
+
 export function registerCrmKits(app, { auth, wrap, rateLimit, isTest, credits }) {
+  // the Bookings screen: what bookings do in this CRM style, and a ready calendar for it
+  app.get('/api/crm/kit-booking', auth, (req, res) => res.json(kitBooking(T.users.get(req.user.id)) || { kit: null }));
   app.get('/api/crm/kit-automations', auth, (req, res) => res.json(kitAutomations(T.users.get(req.user.id)) || { kit: null, recipes: [] }));
   const view = (u) => ({ current: currentKit(u), kits: KITS });
   app.get('/api/crm/kits', auth, (req, res) => res.json(view(req.user)));

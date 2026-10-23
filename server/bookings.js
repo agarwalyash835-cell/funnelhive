@@ -18,6 +18,7 @@ import { refundOrder, issueInvoice, invoiceUrl } from './sales.js';
 import { fxRate } from './fx.js';
 import { notify } from './notify.js';
 import { waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
+import { syncBooking } from './crmkits.js';
 
 const MIN = 60000, HOUR = 3600000, DAY = 86400000;
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -59,7 +60,7 @@ function cleanCalendar(b = {}, cur = {}) {
   if ('durations' in b || !cur.id) out.durations = [...new Set((Array.isArray(b.durations) ? b.durations : cur.durations || []).map((m) => intIn(m, 10, 240, 0)).filter(Boolean))].sort((x, y) => x - y).slice(0, 6);
   if (!out.durations?.length || !out.durations.includes(out.duration)) out.durations = [...new Set([out.duration, ...(out.durations || [])])].sort((x, y) => x - y);
   if ('interval' in b || !cur.id) out.interval = [0, 10, 15, 20, 30, 60].includes(Number(b.interval)) ? Number(b.interval) : cur.interval ?? 0;
-  if ('questions' in b || !cur.id) out.questions = (Array.isArray(b.questions) ? b.questions : cur.questions || []).filter((q) => q && clip(q.label, 200)).slice(0, 10).map((q) => ({ id: clip(q.id, 20) || uid().slice(0, 8), label: clip(q.label, 200), type: ['text', 'long', 'phone', 'select'].includes(q.type) ? q.type : 'text', required: !!q.required, ...(q.type === 'select' ? { options: (Array.isArray(q.options) ? q.options : String(q.options || '').split(',')).map((o) => clip(o, 80)).filter(Boolean).slice(0, 12) } : {}) }));
+  if ('questions' in b || !cur.id) out.questions = (Array.isArray(b.questions) ? b.questions : cur.questions || []).filter((q) => q && clip(q.label, 200)).slice(0, 10).map((q) => ({ id: clip(q.id, 20) || uid().slice(0, 8), label: clip(q.label, 200), type: ['text', 'long', 'phone', 'select'].includes(q.type) ? q.type : 'text', required: !!q.required, ...(/^[\w-]{1,20}$/.test(q.fieldId || '') ? { fieldId: q.fieldId } : {}), ...(q.type === 'select' ? { options: (Array.isArray(q.options) ? q.options : String(q.options || '').split(',')).map((o) => clip(o, 80)).filter(Boolean).slice(0, 12) } : {}) }));
   if ('blocked' in b || !cur.id) out.blocked = (Array.isArray(b.blocked) ? b.blocked : cur.blocked || []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 365);
   return out;
 }
@@ -192,6 +193,7 @@ export function book(cal, { start, email, name, phone, notes, funnelId = null, s
 const HOLD = 15 * MIN;
 // everything that follows a confirmed booking: Google Calendar (with a Meet link), emails, webhook, automations
 function confirmed(b, cal, base, rescheduled) {
+  syncBooking(b, cal, 'booked'); // the CRM follows: contact listed, date field filled, stage moved (CRM style)
   const data = { email: b.email, phone: b.phone, name: b.name, funnelId: b.funnelId, bookingTime: when(b.start, calTz(cal)), bookingLink: manageUrl(base, b), meetingLink: cal.meetingLink || '' };
   fireWebhook(cal.userId, rescheduled ? 'booking.rescheduled' : 'booking.created', { booking: outBooking(b, cal), manage: manageUrl(base, b) });
   notify(cal.userId, { kind: 'booking', title: `${rescheduled ? 'Booking moved' : 'New booking'} · ${b.name || b.email || b.phone} · ${cal.name}`, body: data.bookingTime, link: '/bookings', ckey: contactKey(b.email, b.phone) });
@@ -341,7 +343,10 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     if (!b || b.userId !== req.user.id) return res.status(404).json({ error: 'Booking not found' });
     const o = req.body?.outcome ?? null;
     if (o !== null && !['completed', 'no_show'].includes(o)) return res.status(400).json({ error: 'Outcome must be completed or no_show' });
-    res.json(outBooking(T.bookings.update(b.id, (x) => { if (o) x.outcome = o; else delete x.outcome; }), T.calendars.get(b.calendarId)));
+    const cal = T.calendars.get(b.calendarId);
+    const next = T.bookings.update(b.id, (x) => { if (o) x.outcome = o; else delete x.outcome; });
+    if (o && o !== b.outcome && cal) syncBooking(next, cal, o); // completed → the style's next stage; no-show → tagged
+    res.json(outBooking(next, cal));
   });
   // your booking page address
   app.get('/api/booking-page', auth, (req, res) => res.json({ handle: handleOf(req.user) }));

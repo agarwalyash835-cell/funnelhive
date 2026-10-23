@@ -2361,3 +2361,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .au-scratch:hover { border-color: var(--c-ink-2); }
 .au-scratch small { color: var(--c-muted); font-size: 12.5px; }
 @media (max-width: 640px) { .au-start { grid-template-columns: 1fr; } }
+
+/* Bookings in the CRM style */
+.kit-book-t { display: inline-flex; align-items: center; gap: 8px; }
+.kit-book-l { margin: 0 0 12px; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; color: var(--c-ink-2); line-height: 1.5; }
+.kit-book { border-color: color-mix(in srgb, var(--c-honey) 45%, var(--c-line)); }
+.bq-field { max-width: 260px; font-size: 12.5px; }

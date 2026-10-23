@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { T, q, tx, uid, contactKey, dir as DATA_DIR } from './db.js';
+import { ensureContact } from './crm.js';
 import { encrypt, decrypt, sendEmail, emailStatus } from './messaging.js';
 import { waEvent } from './hive-wa.js';
 import { randomToken, hashToken } from './security.js';
@@ -165,6 +166,7 @@ export function grant(userId, { email, name = '', phone = '', productId, orderId
   const p = ownProduct(userId, productId);
   const ckey = contactKey(email);
   if (!p || !ckey || ckey.startsWith('phone:')) return null;
+  if (via !== 'purchase') ensureContact(userId, { email, name, phone }, 'course'); // given by hand / automation: listed in the CRM
   return tx(() => {
     const at = Date.now(), expiresAt = p.accessDays ? at + p.accessDays * DAY : null;
     const one = (pid, bundle) => {

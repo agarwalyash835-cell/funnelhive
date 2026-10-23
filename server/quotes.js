@@ -9,6 +9,7 @@ import { sendEmail } from './messaging.js';
 import { waEvent, waReady } from './hive-wa.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { fire as fireAutomation } from './automations.js';
+import { ensureContact } from './crm.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment } from './razorpay.js';
 import { stripeCreds, startStripePayment, confirmedIntent, CURRENCIES } from './stripe.js';
 import { issueInvoice, invoiceUrl, cleanBuyerGst } from './sales.js';
@@ -132,6 +133,7 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     const clean = cleanQuote(req.body);
     if (clean.error) return res.status(400).json(clean);
     const seq = T.users.update(req.user.id, (u) => { u.quoteSeq = (u.quoteSeq || 0) + 1; }).quoteSeq;
+    if (clean.client?.email || clean.client?.phone) ensureContact(req.user.id, clean.client, 'quote'); // the client shows in the CRM
     const q = T.quotes.insert({ id: uid(), userId: req.user.id, number: `Q-${String(seq).padStart(4, '0')}`, token: crypto.randomBytes(12).toString('hex'), status: 'draft', payments: [], at: Date.now(), updatedAt: Date.now(), ...clean });
     res.json(sellerView(q, base(req)));
   });
