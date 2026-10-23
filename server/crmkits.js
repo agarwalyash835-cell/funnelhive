@@ -238,7 +238,55 @@ const KIT_SYSTEM = `You design a CRM for one kind of business (Indian context un
  "columns": [field ids to show as list columns, up to 4], "cardFields": [up to 2 field ids on pipeline cards], "filters": [up to 3 SELECT field ids for quick filters], "valueField": "a money field id or null", "showSales": false}
 Rules: 6–12 fields that this business really tracks; 5–8 stages in the real order of their sales process; never ask for passwords, card numbers, Aadhaar/PAN or other identity numbers; keep health or financial details minimal.`;
 
+// ---------- ready-made automations for each CRM style ----------
+// date: [field, days before (−) / after (+), title, what it's for, message] · stuck: [stage name, days, title]
+const KIT_AUTOMATIONS = {
+  realestate: { date: ['re_visit', -1, 'Site visit reminder', 'the day before a site visit', 'your site visit is tomorrow ({{f_re_visit}}). Here’s the location and what to bring — reply if you need to reschedule.'], stuck: ['Negotiation', 5, 'Deal stuck in negotiation'] },
+  clinic: { date: ['cl_next', -1, 'Appointment reminder', 'the day before an appointment', 'a reminder that your appointment is tomorrow ({{f_cl_next}}). Reply to this email if you need to change the time.'], stuck: ['Consulted', 7, 'Consulted but not started treatment'] },
+  consultant: { date: ['co_close', -3, 'Expected close date coming up', '3 days before the expected close date', 'just checking in on the proposal — happy to answer any questions before you decide.'], stuck: ['Proposal sent', 5, 'Proposal waiting too long'] },
+  education: { date: ['ed_demo', -1, 'Demo class reminder', 'the day before a demo class', 'your demo class is tomorrow ({{f_ed_demo}}). We’re looking forward to seeing you!'], stuck: ['Fee discussion', 4, 'Admission stuck at fee discussion'] },
+  fitness: { date: ['fi_renew', -7, 'Membership renewal reminder', 'a week before a renewal is due', 'your plan renews on {{f_fi_renew}}. Renew this week to keep your progress going.'], stuck: ['Trial done', 3, 'Trial done but not joined'] },
+  finance: { date: ['fa_follow', 0, 'Follow-up day', 'on the follow-up date', 'following up as promised — is now a good time to take the next step?'], stuck: ['Proposal shared', 5, 'Proposal not answered'] },
+  interior: { date: ['in_measure', -1, 'Site measurement reminder', 'the day before a site measurement', 'our team visits tomorrow ({{f_in_measure}}) to take measurements. Please make sure someone is home.'], stuck: ['3D approval', 5, '3D design waiting for approval'] },
+  events: { date: ['ev_date', -7, 'Event week check-in', 'a week before the event', 'your event is a week away ({{f_ev_date}}). Let’s confirm the final details.'], stuck: ['Quote sent', 4, 'Quote not answered'] },
+  travel: { date: ['tr_date', -3, 'Trip checklist', '3 days before travel', 'your trip starts on {{f_tr_date}}. Here’s a quick checklist: tickets, ID, hotel vouchers.'], stuck: ['Itinerary sent', 3, 'Itinerary not answered'] },
+  auto: { date: ['au_test', -1, 'Test drive reminder', 'the day before a test drive', 'your test drive is tomorrow ({{f_au_test}}). Bring your driving licence.'], stuck: ['Quotation', 4, 'Quotation not answered'] },
+  professional: { date: ['pf_due', -2, 'Deadline coming up', '2 days before a deadline or hearing', 'a reminder that the deadline / hearing is on {{f_pf_due}}. Please send any pending documents.'], stuck: ['Fee quote', 5, 'Fee quote not answered'] },
+  recruitment: { date: ['rc_interview', -1, 'Interview reminder', 'the day before an interview', 'your interview is tomorrow ({{f_rc_interview}}). All the best — reply if anything changes.'], stuck: ['Offer', 3, 'Offer waiting for a decision'] },
+  homeservices: { date: ['hs_amc', -7, 'Service / AMC due', 'a week before the next service', 'your next service is due on {{f_hs_amc}}. Reply to book a convenient slot.'], stuck: ['Quote sent', 4, 'Quote not answered'] },
+  hospitality: { date: ['ho_in', -1, 'Arrival reminder', 'the day before check-in', 'we’re looking forward to welcoming you tomorrow ({{f_ho_in}}). Reply with your arrival time.'], stuck: ['Quote sent', 2, 'Booking quote not answered'] },
+};
+// the current CRM style's automations, with this seller's own pipeline, stage and field ids (null when it has none)
+export function kitAutomations(u) {
+  const kit = currentKit(u), spec = KIT_AUTOMATIONS[kit.id];
+  if (!spec) return null;
+  const fields = u.crmFields || [];
+  const pipe = pipelinesFor(u.id).find((x) => x.id === kit.pipelineId);
+  const out = [];
+  const [fid, offset, title, when, msg] = spec.date;
+  const df = fields.find((x) => x.id === fid && x.type === 'date');
+  if (df) out.push({
+    key: `kit-date-${kit.id}`, title, text: `Emails the ${kit.labels.one} ${when} and reminds you to call — uses “${df.label}”.`,
+    a: { name: title, trigger: { type: 'date', fieldId: df.id, offsetDays: offset, time: '10:00', yearly: false }, steps: [
+      { type: 'email', subject: `${title} — {{business}}`, body: `Hi {{first_name}},\n\nJust ${msg}\n\n— {{business}}` },
+      { type: 'notify', subject: `${title}: {{name}}`, body: `${df.label}: {{f_${df.id}}} — a quick call or WhatsApp helps.` },
+    ] },
+  });
+  const [stageName, days, stuckTitle] = spec.stuck;
+  const st = pipe?.stages.find((x) => x.name.toLowerCase() === stageName.toLowerCase());
+  if (st) out.push({
+    key: `kit-stuck-${kit.id}`, title: stuckTitle, text: `When a ${kit.labels.one} sits in “${st.name}” for ${days} days: a friendly nudge to them, a reminder to you, and a “follow-up” tag.`,
+    a: { name: stuckTitle, trigger: { type: 'stuck', pipelineId: pipe.id, stageId: st.id, days }, steps: [
+      { type: 'notify', subject: `{{name}} has been in ${st.name} for ${days} days`, body: 'Time for a follow-up call or WhatsApp.' },
+      { type: 'email', subject: 'Any questions, {{first_name}}?', body: 'Hi {{first_name}},\n\nJust checking in — is there anything I can help with to move ahead?\n\n— {{business}}' },
+      { type: 'tag', tag: 'follow-up', action: 'add' },
+    ] },
+  });
+  return { kit: kit.name, recipes: out };
+}
+
 export function registerCrmKits(app, { auth, wrap, rateLimit, isTest, credits }) {
+  app.get('/api/crm/kit-automations', auth, (req, res) => res.json(kitAutomations(T.users.get(req.user.id)) || { kit: null, recipes: [] }));
   const view = (u) => ({ current: currentKit(u), kits: KITS });
   app.get('/api/crm/kits', auth, (req, res) => res.json(view(req.user)));
   // switch to a built-in kit ({ id }) or a designed one ({ kit })

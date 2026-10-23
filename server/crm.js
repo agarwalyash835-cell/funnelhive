@@ -209,7 +209,7 @@ const cleanFields = (list) => (Array.isArray(list) ? list : []).filter((f) => f 
   ...(f.type === 'select' ? { options: str(f.options, 1000) } : {}),
 })).filter((f, i, a) => a.findIndex((x) => x.id === f.id) === i);
 
-const cleanCustom = (defs, input = {}) => {
+export const cleanCustom = (defs, input = {}) => {
   const out = {};
   for (const d of defs) {
     if (!(d.id in input)) continue;
@@ -347,7 +347,13 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
       if (e && !EMAIL_RE.test(e)) return res.status(400).json({ error: 'Please enter a valid email address' });
       if (r.c.key.startsWith('phone:') || m.manual) m.email = e; // a contact found by email keeps that email as its identity
     }
-    if (b.custom && typeof b.custom === 'object') m.custom = { ...m.custom, ...cleanCustom(userOf(req).crmFields || [], b.custom) };
+    // a changed field can start automations ("A contact field changes"); compared as text so 5 and "5" are the same
+    const fieldEvents = [];
+    if (b.custom && typeof b.custom === 'object') {
+      const next = cleanCustom(userOf(req).crmFields || [], b.custom);
+      for (const [fid, v] of Object.entries(next)) if (String(m.custom?.[fid] ?? '') !== String(v ?? '')) fieldEvents.push({ fieldId: fid, value: v });
+      m.custom = { ...m.custom, ...next };
+    }
     const added = [];
     if (Array.isArray(b.tags)) {
       const before = new Set((m.tags || []).map((t) => t.toLowerCase()));
@@ -362,12 +368,14 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
       const s = p?.stages.find((x) => x.id === b.stage.stageId);
       if (!s) return res.status(400).json({ error: 'Unknown stage' });
       if (stageFor(p, m, r.c.type === 'customer') !== s.id) { m.activities.push({ id: uid(), at: Date.now(), type: 'stage', title: `Moved to ${s.name}`, text: p.name }); moved = { pipelineId: p.id, stageId: s.id }; }
+      if (moved) m.stagesAt = { ...m.stagesAt, [p.id]: Date.now() };
       m.stages = { ...m.stages, [p.id]: s.id };
     }
     T.crm.put(m);
     const who = { key: r.c.key, email: m.email || r.c.email, phone: m.phone || r.c.phone, name: m.name || r.c.name };
     if (moved) onEvent(req.user.id, 'stage', { ...who, ...moved });
     for (const tag of added) onEvent(req.user.id, 'tag', { ...who, tag });
+    for (const fe of fieldEvents) onEvent(req.user.id, 'field', { ...who, ...fe });
     res.json({ ok: true });
   });
 
@@ -393,6 +401,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
       if (st && stageFor(p, m, c.type === 'customer') !== st.id) {
         m.activities.push({ id: uid(), at: Date.now(), type: 'stage', title: `Moved to ${st.name}`, text: `${p.name} · bulk action` });
         m.stages = { ...m.stages, [p.id]: st.id };
+        m.stagesAt = { ...m.stagesAt, [p.id]: Date.now() };
         events.push(['stage', { ...who, pipelineId: p.id, stageId: st.id }]);
       }
       T.crm.put(m);
@@ -458,7 +467,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
       if (v.stage) {
         const hit = stageNamed(str(v.stage, 40));
         if (!hit) note(row, `No stage called “${str(v.stage, 40)}” — imported without a stage`);
-        else if (m.stages?.[hit[0].id] !== hit[1].id) { m.stages = { ...m.stages, [hit[0].id]: hit[1].id }; if (!isNew) m.activities.push({ id: uid(), at: now, type: 'stage', title: `Moved to ${hit[1].name}`, text: `${hit[0].name} · CSV import` }); }
+        else if (m.stages?.[hit[0].id] !== hit[1].id) { m.stages = { ...m.stages, [hit[0].id]: hit[1].id }; m.stagesAt = { ...m.stagesAt, [hit[0].id]: now }; if (!isNew) m.activities.push({ id: uid(), at: now, type: 'stage', title: `Moved to ${hit[1].name}`, text: `${hit[0].name} · CSV import` }); }
       }
       if (optIn && m.optIn === undefined) Object.assign(m, { optIn: true, optInAt: now, optInBy: 'import' }); // the seller ticked “these contacts agreed to receive marketing”
       if (Object.keys(v.custom).length) m.custom = { ...m.custom, ...cleanCustom(defs, v.custom) };

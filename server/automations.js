@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import { T, q, tx, uid, JOBS, ordersByPhone } from './db.js';
 import { sendEmail, sendWhatsApp, emailStatus, whatsappStatus } from './messaging.js';
-import { logActivity, contactKey, ensureMeta, metaFor, stageFor } from './crm.js';
+import { logActivity, contactKey, ensureMeta, metaFor, stageFor, cleanCustom } from './crm.js';
 import { funnelUrl } from './domains.js';
 import { enqueue as fireWebhook, checkWebhookUrl } from './webhooks.js';
 import { accessFor } from './billing.js';
@@ -28,11 +28,13 @@ export const TRIGGERS = {
   webinar_missed: 'Someone registered but missed a webinar (after it ends)',
   stage: 'A contact moves to a pipeline stage',
   tag: 'A tag is added to a contact',
+  field: 'A contact field changes (e.g. Home loan → Needed)',
+  stuck: 'A contact stays in a pipeline stage too long',
   date: 'A date in a contact field arrives (birthday, renewal…)',
   inbound: 'A webhook is received (Zapier, Pabbly, Make, Google Forms…)',
   manual: 'Only when I add a contact to it',
 };
-const STEP_TYPES = ['wait', 'email', 'whatsapp', 'tag', 'stage', 'webhook', 'notify', 'condition', 'split', 'exit'];
+const STEP_TYPES = ['wait', 'email', 'whatsapp', 'tag', 'stage', 'field', 'webhook', 'notify', 'condition', 'split', 'exit'];
 // branch names inside a step: If/else → yes/no, A/B split → a/b
 const BRANCHES = { condition: ['yes', 'no'], split: ['a', 'b'] };
 const BRANCH_LABEL = { yes: 'Yes', no: 'No', a: 'Path A', b: 'Path B' };
@@ -60,7 +62,7 @@ const linkSig = (id, url) => crypto.createHmac('sha256', SECRET).update(`click:$
 // ---------- template variables ----------
 export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'access_link', 'invoice_link', 'booking_time', 'booking_link', 'meeting_link', 'webinar_time', 'join_link', 'tracking_link', 'courier', 'tracking_id', 'business'];
 export function fill(text, ctx) {
-  return String(text || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {
+  return String(text || '').replace(/\{\{\s*([a-z][a-z0-9_-]*)\s*\}\}/gi, (m, k) => {
     const v = ctx[k.toLowerCase()];
     return v == null || v === '' ? (k.toLowerCase() === 'first_name' ? 'there' : '') : String(v);
   });
@@ -74,6 +76,8 @@ function cleanTrigger(t = {}, userId) {
   if (type === 'abandoned') out.delayMin = Math.min(10080, Math.max(5, Math.round(Number(t.delayMin) || 30)));
   if (type === 'stage') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); }
   if (type === 'tag') out.tag = str(t.tag, 30).trim();
+  if (type === 'field') { out.fieldId = str(t.fieldId, 20); out.value = str(t.value, 200).trim(); } // value: blank = any change
+  if (type === 'stuck') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); out.days = Math.max(1, Math.min(365, Math.round(Number(t.days) || 7))); }
   if (type === 'date') {
     out.fieldId = str(t.fieldId, 20);
     out.offsetDays = Math.max(-365, Math.min(365, Math.round(Number(t.offsetDays) || 0)));
@@ -123,6 +127,7 @@ function cleanStep(s, depth = 0) {
     case 'whatsapp': return { id, type, mode: s.mode === 'text' ? 'text' : 'template', template: str(s.template, 120).trim(), language: str(s.language, 10).trim() || 'en', params: str(s.params, 1000), text: str(s.text, 4096) };
     case 'tag': return { id, type, tag: str(s.tag, 30).trim(), action: s.action === 'remove' ? 'remove' : 'add' };
     case 'stage': return { id, type, pipelineId: str(s.pipelineId, 20), stageId: str(s.stageId, 20) };
+    case 'field': return { id, type, fieldId: str(s.fieldId, 20), value: str(s.value, 500) };
     case 'webhook': return { id, type, url: str(s.url, 500).trim() };
     default: return null;
   }
@@ -142,6 +147,8 @@ function problems(a, u) {
   const p = [];
   if (a.trigger.type === 'stage' && !a.trigger.stageId) p.push('Choose the pipeline stage that starts this automation');
   if (a.trigger.type === 'tag' && !a.trigger.tag) p.push('Enter the tag that starts this automation');
+  if (a.trigger.type === 'field' && !(u.crmFields || []).some((x) => x.id === a.trigger.fieldId)) p.push('Choose the field whose change starts this automation');
+  if (a.trigger.type === 'stuck' && !a.trigger.stageId) p.push('Choose the pipeline stage to watch');
   const flat = allSteps(a.steps);
   if (!flat.some((s) => !['wait', 'condition', 'split', 'exit'].includes(s.type))) p.push('Add at least one action (email, WhatsApp, tag…)');
   if (a.trigger.type === 'date') {
@@ -166,6 +173,7 @@ function problems(a, u) {
     if (s.type === 'whatsapp' && s.mode === 'text' && !s.text) p.push(`${n}: write the WhatsApp message`);
     if (s.type === 'tag' && !s.tag) p.push(`${n}: enter a tag`);
     if (s.type === 'stage' && !s.stageId) p.push(`${n}: choose a pipeline stage`);
+    if (s.type === 'field' && !(u.crmFields || []).some((x) => x.id === s.fieldId)) p.push(`${n}: choose the field to update`);
     if (s.type === 'webhook' && !s.url) p.push(`${n}: enter the webhook URL`);
   });
   const warn = [];
@@ -206,6 +214,7 @@ export function fire(userId, event, data = {}) {
       if (t.funnelId && t.funnelId !== data.funnelId) continue;
       if (event === 'stage' && (t.pipelineId !== data.pipelineId || t.stageId !== data.stageId)) continue;
       if (event === 'tag' && String(t.tag).toLowerCase() !== String(data.tag || '').toLowerCase()) continue;
+      if (event === 'field' && (t.fieldId !== data.fieldId || (t.value && String(t.value).trim().toLowerCase() !== String(data.value ?? '').trim().toLowerCase()))) continue;
       start(a, data);
     }
   } catch (e) { console.error('automation trigger failed', e); }
@@ -333,8 +342,19 @@ const sellerMidnight = (u, now = Date.now()) => { const tz = sellerTz(u); return
 const autoEmailsToday = (u) => q('SELECT COUNT(*) AS n FROM msgs WHERE userId = ? AND at >= ? AND automationId IS NOT NULL').get(u.id, sellerMidnight(u)).n;
 const RETRY_STEPS = new Set(['email', 'notify']), RETRIES = 2;
 
+// a contact's custom fields as message variables: {{f_re_visit}} → 24 Oct 2026, money as ₹45,00,000
+function fieldVars(u, m) {
+  const out = {};
+  for (const d of u?.crmFields || []) {
+    const v = m?.custom?.[d.id];
+    if (v == null || v === '') continue;
+    out[`f_${d.id}`.toLowerCase()] = d.type === 'date' && /^\d{4}-\d{2}-\d{2}/.test(v) ? new Date(`${String(v).slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+      : d.type === 'money' ? `₹${Number(v).toLocaleString('en-IN')}` : d.type === 'checkbox' ? (v ? 'Yes' : 'No') : String(v);
+  }
+  return out;
+}
 async function runStep(a, r, s, u) {
-  const ctx = r.ctx;
+  const ctx = { ...r.ctx, ...fieldVars(u, meta(r)) };
   const tl = (type, title, text, extra = {}) => logActivity(r.userId, r.key, { type, title, text, by: 'automation', automation: a.name, ...extra });
   switch (s.type) {
     case 'email': {
@@ -381,9 +401,25 @@ async function runStep(a, r, s, u) {
       if (!st) return { result: 'skipped', detail: 'That stage no longer exists' };
       logActivity(r.userId, r.key, { type: 'stage', title: `Moved to ${st.name}`, text: `${p.name} · by automation “${a.name}”` });
       const mm = ensureMeta(r.userId, r.key);
+      if (mm.stages?.[p.id] !== st.id) mm.stagesAt = { ...mm.stagesAt, [p.id]: Date.now() };
       mm.stages = { ...mm.stages, [p.id]: st.id };
       T.crm.put(mm);
       return { result: 'done', detail: `Moved to ${st.name}` };
+    }
+    case 'field': {
+      const d = (u.crmFields || []).find((x) => x.id === s.fieldId);
+      if (!d) return { result: 'skipped', detail: 'That field no longer exists' };
+      // dates: "today" or "+3 days" / "-1 day" from today (seller's calendar); anything else goes through {{variables}}
+      let raw = fill(s.value, ctx).trim();
+      const rel = /^(today|([+-]\s*\d{1,3})\s*days?)$/i.exec(raw);
+      if (d.type === 'date' && rel) raw = addDays(localYmd(sellerTz(u), Date.now()), rel[2] ? Number(rel[2].replace(/\s/g, '')) : 0);
+      const mm = ensureMeta(r.userId, r.key);
+      const val = raw === '' ? {} : cleanCustom([d], { [d.id]: raw });
+      if (raw !== '' && !(d.id in val)) return { result: 'skipped', detail: `“${raw}” isn’t a valid ${d.label}` };
+      mm.custom = { ...mm.custom, ...(raw === '' ? { [d.id]: '' } : val) };
+      T.crm.put(mm);
+      tl('note', `${d.label} set to ${raw === '' ? '(empty)' : raw}`, `by automation “${a.name}”`);
+      return { result: 'done', detail: `${d.label} → ${raw || '(empty)'}` };
     }
     case 'webhook': {
       await checkWebhookUrl(s.url);
@@ -533,13 +569,30 @@ export function scanDates(now = Date.now()) {
     }
   }
 }
+// "Stuck in a stage": contacts that entered the stage (stagesAt, recorded since this feature) N days ago and
+// are still there — once per time they entered it
+export function scanStuck(now = Date.now()) {
+  for (const a of T.automations.all({ triggerType: 'stuck', active: 1 })) {
+    const t = a.trigger;
+    if (!/^[\w-]{1,20}$/.test(t.pipelineId || '') || !t.stageId) continue;
+    const rows = q("SELECT data FROM crm WHERE userId = ? AND json_extract(data, '$.stages.' || ?) = ? AND json_extract(data, '$.stagesAt.' || ?) <= ?").all(a.userId, t.pipelineId, t.stageId, t.pipelineId, now - t.days * 86400000 * SCALE);
+    for (const row of rows) {
+      const m = JSON.parse(row.data);
+      const since = m.stagesAt[t.pipelineId];
+      if (m.stuckFired?.[a.id] === since) continue;
+      T.crm.update(m.id, (x) => { x.stuckFired = { ...x.stuckFired, [a.id]: since }; });
+      const info = contactInfo(a.userId, m.key);
+      if (info) start(a, { ...info, pipelineId: t.pipelineId, stageId: t.stageId });
+    }
+  }
+}
 // at most this many runs are started per tick, so a burst can't monopolise the server
 const BATCH = Number(process.env.AUTOMATION_BATCH || 500);
 let lastPrune = 0, lastDates = 0;
 export function tick() {
   const now = Date.now();
   scanAbandoned();
-  if (now - lastDates > Math.min(60000, TICK * 4) || SCALE < 1) { lastDates = now; scanDates(); }
+  if (now - lastDates > Math.min(60000, TICK * 4) || SCALE < 1) { lastDates = now; scanDates(); scanStuck(now); }
   for (const r of q(`SELECT id FROM runs WHERE status = 'active' AND nextAt <= ? ORDER BY nextAt LIMIT ${BATCH}`).all(now)) advance(r.id);
   // keep finished runs for 60 days, email tracking records for 90 (pruned hourly)
   if (now - lastPrune > 3600000) {

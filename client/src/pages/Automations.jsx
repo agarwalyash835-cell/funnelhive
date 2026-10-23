@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Clock, Mail, MessageCircle, Tag, ArrowRightLeft, Webhook, BellRing, Zap, Plus, Trash2, ChevronUp, ChevronDown, Copy, UserPlus,
-  ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History,
+  ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass,
 } from 'lucide-react';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
@@ -18,13 +18,14 @@ const STEP = {
   whatsapp: { label: 'Send WhatsApp', icon: MessageCircle, color: '#16a34a' },
   tag: { label: 'Add / remove tag', icon: Tag, color: '#d97706' },
   stage: { label: 'Move pipeline stage', icon: ArrowRightLeft, color: '#0ea5e9' },
+  field: { label: 'Update a contact field', icon: PenLine, color: '#14b8a6' },
   notify: { label: 'Email me', icon: BellRing, color: '#ec4899' },
   webhook: { label: 'Send to webhook', icon: Webhook, color: '#475569' },
   condition: { label: 'If / else', icon: GitBranch, color: '#8b5cf6' },
   split: { label: 'A/B split', icon: Split, color: '#0891b2' },
   exit: { label: 'End automation', icon: CircleStop, color: '#ef4444' },
 };
-const TRIGGER_ICON = { lead: UserPlus, purchase: ShoppingBag, offer: TrendingUp, abandoned: ShoppingCart, stage: Kanban, tag: Tag, inbound: Link2, manual: Hand, date: CalendarDays };
+const TRIGGER_ICON = { lead: UserPlus, purchase: ShoppingBag, offer: TrendingUp, abandoned: ShoppingCart, stage: Kanban, tag: Tag, inbound: Link2, manual: Hand, date: CalendarDays, field: PenLine, stuck: Hourglass };
 const tempId = () => `n${Math.random().toString(36).slice(2, 10)}`;
 const newStep = (type) => ({ id: tempId(), ...({
   wait: { type, amount: 1, unit: 'days' },
@@ -32,6 +33,7 @@ const newStep = (type) => ({ id: tempId(), ...({
   whatsapp: { type, mode: 'template', template: '', language: 'en', params: '{{first_name}}' },
   tag: { type, tag: '', action: 'add' },
   stage: { type, pipelineId: '', stageId: '' },
+  field: { type, fieldId: '', value: '' },
   notify: { type, subject: 'New activity: {{name}}', body: '' },
   webhook: { type, url: '' },
   condition: { type, match: 'all', rules: [{ field: 'has', op: 'is', value: 'phone' }], yes: [], no: [] },
@@ -101,6 +103,9 @@ function List() {
   const [pick, setPick] = useState(false);
   const load = () => api('/automations').then(setD);
   useEffect(() => { load(); }, []);
+  // ready-made automations for the seller's CRM style (real estate, clinic…), with their own stage and field ids
+  const [kitAuto, setKitAuto] = useState(null);
+  useEffect(() => { if (pick && !kitAuto) api('/crm/kit-automations').then(setKitAuto).catch(() => setKitAuto({ recipes: [] })); }, [pick]);
   const create = async (body) => { try { const a = await api('/automations', 'POST', body); nav(`/automations/${a.id}`); } catch (e) { toast(e.message); } };
   const toggle = async (a) => { try { await api(`/automations/${a.id}`, 'PUT', { active: !a.active }); load(); toast(a.active ? 'Automation paused' : 'Automation is live'); } catch (e) { toast(e.message); nav(`/automations/${a.id}`); } };
   const stripIds = (list) => list.map(({ id: _, ...s }) => { for (const b of BRANCH_KEYS[s.type] || []) s[b] = stripIds(s[b]); return s; });
@@ -139,7 +144,12 @@ function List() {
       )}
       {pick && (
         <Modal title="New automation" onClose={() => setPick(false)} width={720}>
+          {kitAuto?.recipes?.length > 0 && <div className="m-body recipes kit">
+            <h5 className="recipes-h">For your {kitAuto.kit} CRM</h5>
+            {kitAuto.recipes.map((r) => { const I = r.a.trigger.type === 'stuck' ? Hourglass : CalendarDays; return <button key={r.key} className="recipe" onClick={() => create(r.a)}><span className="au-ti"><I size={18} /></span><b>{r.title}</b><small>{r.text}</small></button>; })}
+          </div>}
           <div className="m-body recipes">
+            {kitAuto?.recipes?.length > 0 && <h5 className="recipes-h">For every business</h5>}
             {RECIPES.map((r) => <button key={r.key} className="recipe" onClick={() => create(r.a)}><span className="au-ti"><r.icon size={18} /></span><b>{r.title}</b><small>{r.text}</small></button>)}
             <button className="recipe blank" onClick={() => create({ name: 'New automation', trigger: { type: 'lead' }, steps: [] })}><span className="au-ti"><Plus size={18} /></span><b>Start from scratch</b><small>Choose a trigger and add your own steps.</small></button>
           </div>
@@ -333,6 +343,17 @@ function Builder({ id }) {
             <label>Pipeline<select value={s.pipelineId || ''} onChange={(e) => update(path, i, { pipelineId: e.target.value, stageId: '' })}><option value="">Choose…</option>{pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
             <label>Move to<select value={s.stageId || ''} onChange={(e) => update(path, i, { stageId: e.target.value })}><option value="">Choose…</option>{pipe(s.pipelineId)?.stages.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
           </div>}
+          {s.type === 'field' && (() => { const fd = fields.find((x) => x.id === s.fieldId); return <>
+            <div className="form2c">
+              <label>Field<select value={s.fieldId || ''} onChange={(e) => update(path, i, { fieldId: e.target.value, value: '' })}><option value="">Choose…</option>{fields.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label>
+              <label>Set it to{fd?.type === 'select'
+                ? <select value={s.value || ''} onChange={(e) => update(path, i, { value: e.target.value })}><option value="">(empty)</option>{String(fd.options || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => <option key={o} value={o}>{o}</option>)}</select>
+                : fd?.type === 'checkbox' ? <select value={s.value || ''} onChange={(e) => update(path, i, { value: e.target.value })}><option value="yes">Yes</option><option value="">No</option></select>
+                : <input placeholder={fd?.type === 'date' ? 'today, +3 days or 2026-12-31' : fd?.type === 'money' || fd?.type === 'number' ? '25000' : 'value or {{first_name}}…'} {...fp(path, i, s, 'value')} />}</label>
+            </div>
+            {!fields.length && <p className="hint warn">Add custom fields first — Contacts → Custom fields, or pick a CRM style.</p>}
+            {fd?.type === 'date' && <p className="hint">“today” or “+3 days” counts from the day this step runs.</p>}
+          </>; })()}
           {s.type === 'webhook' && <><input placeholder="https://hooks.zapier.com/…" value={s.url} onChange={(e) => update(path, i, { url: e.target.value })} /><p className="hint">Sends the contact’s details (signed, retried) — e.g. to Zapier, Pabbly or Google Sheets.</p></>}
           {s.type === 'exit' && <p className="hint top">The automation ends here for this contact — nothing after this step runs.</p>}
           {s.type === 'split' && <>
@@ -410,6 +431,21 @@ function Builder({ id }) {
                 </div>
               )}
               {a.trigger.type === 'tag' && <label>Tag<input value={a.trigger.tag || ''} onChange={(e) => setTrigger({ tag: e.target.value })} placeholder="e.g. webinar" /></label>}
+              {a.trigger.type === 'field' && (() => { const fd = fields.find((x) => x.id === a.trigger.fieldId); return <div className="form2c">
+                <label>Field<select value={a.trigger.fieldId || ''} onChange={(e) => setTrigger({ fieldId: e.target.value, value: '' })}><option value="">Choose…</option>{fields.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label>
+                <label>Changes to{fd?.type === 'select'
+                  ? <select value={a.trigger.value || ''} onChange={(e) => setTrigger({ value: e.target.value })}><option value="">Any value</option>{String(fd.options || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => <option key={o} value={o}>{o}</option>)}</select>
+                  : <input value={a.trigger.value || ''} onChange={(e) => setTrigger({ value: e.target.value })} placeholder="any value (leave empty)" />}</label>
+                {!fields.length && <p className="hint warn">Add custom fields first — Contacts → Custom fields, or pick a CRM style.</p>}
+              </div>; })()}
+              {a.trigger.type === 'stuck' && <>
+                <div className="form2c">
+                  <label>Pipeline<select value={a.trigger.pipelineId || ''} onChange={(e) => setTrigger({ pipelineId: e.target.value, stageId: '' })}><option value="">Choose…</option>{pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+                  <label>Stage<select value={a.trigger.stageId || ''} onChange={(e) => setTrigger({ stageId: e.target.value })}><option value="">Choose…</option>{pipe(a.trigger.pipelineId)?.stages.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+                </div>
+                <div className="au-inline">Start when a contact has been in this stage for <input type="number" min="1" max="365" value={a.trigger.days || 7} onChange={(e) => setTrigger({ days: e.target.value })} /> days</div>
+                <p className="hint">Counts from when they were moved into the stage (moves from today on). Runs once each time they enter it.</p>
+              </>}
               {a.trigger.type === 'date' && <>
                 <label>Date field<select value={a.trigger.fieldId || ''} onChange={(e) => setTrigger({ fieldId: e.target.value })}><option value="">Choose…</option>{dateFields.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
                 {!dateFields.length && <p className="hint warn">Create a date field first (e.g. “Birthday” or “Renewal date”) in <Link to="/contacts">Contacts → Custom fields</Link>, and fill it in on your contacts.</p>}
@@ -445,6 +481,10 @@ function Builder({ id }) {
           <Panel title="Personalise">
             <p className="hint top">Click into a message, then a variable:</p>
             <div className="au-vars">{meta.variables.map((v) => <button key={v} onMouseDown={(e) => e.preventDefault()} onClick={() => insertVar(v)}>{`{{${v}}}`}</button>)}</div>
+            {fields.length > 0 && <>
+              <p className="hint">Contact fields (filled in when the message is sent):</p>
+              <div className="au-vars">{fields.map((x) => <button key={x.id} title={`{{f_${x.id}}}`} onMouseDown={(e) => e.preventDefault()} onClick={() => insertVar(`f_${x.id}`.toLowerCase())}>{x.label.replace(/ \(₹\)$/, '')}</button>)}</div>
+            </>}
           </Panel>
           <Panel title={`Activity · ${num(a.stats?.started || 0)} started`}>
             {!a.runs?.length ? <p className="hint">Nobody has entered this automation yet.</p> : (

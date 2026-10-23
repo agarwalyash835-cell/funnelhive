@@ -2254,3 +2254,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .hv-dock { padding: 8px 10px 12px; }
   .hv-hint { display: none; }
 }
+
+.recipes-h { grid-column: 1 / -1; margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--c-muted); }
+.recipes.kit { padding-bottom: 0; }
+.recipes.kit .recipe { border-color: color-mix(in srgb, var(--c-honey) 45%, var(--c-line)); background: color-mix(in srgb, var(--c-honey) 6%, var(--c-surface)); }
