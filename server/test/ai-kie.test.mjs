@@ -41,7 +41,7 @@ after(async () => { await srv.stop(); fake.close(); });
 test('funnel generation goes through kie.ai with our templates as examples, and is validated', async () => {
   const me = (await api('/me', 'GET', null, T)).data;
   assert.equal(me.aiEnabled, true);
-  assert.equal(me.aiProvider, 'kie.ai · deepseek-v4-1-flash');
+  assert.equal(me.aiProvider, undefined, 'sellers never see the AI vendor or model (the platform owner does)');
   const r = (await api('/ai/generate', 'POST', { prompt: 'Home bakery in Pune selling custom birthday cakes' }, T)).data;
   assert.equal(r.usedAI, true);
   assert.equal(r.name, 'Fake Bakery');
@@ -77,7 +77,8 @@ test('broken JSON is retried; failures fall back to the closest template (never 
   assert.equal(u.usedAI, false);
   const chat = await api('/ai/chat', 'POST', { funnelId: u.id, stepId: u.steps[0].id, message: 'hi' }, T);
   assert.equal(chat.status, 500);
-  assert.match(chat.data.error, /not authorized/);
+  assert.match(chat.data.error, /AI is busy/, 'the vendor’s own error stays in the server log');
+  assert.doesNotMatch(chat.data.error, /kie|deepseek|authorized/i);
   mode = 'good';
 });
 

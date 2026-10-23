@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { T, uid } from './db.js';
 import { hashToken } from './security.js';
 import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
+import { isAdmin } from './platform.js';
 import { PAGE_STYLES } from './page-styles.js';
 import { TRIGGERS, VARIABLES } from './automations.js';
 import { offerStep } from './actions.js';
@@ -805,7 +806,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   });
   const threadView = ({ userId, ...t }) => t;
 
-  app.get('/api/hive/status', auth, (req, res) => res.json({ ready: hiveReady(), provider: aiProvider() }));
+  app.get('/api/hive/status', auth, (req, res) => res.json({ ready: hiveReady(), ...(!req.actor && isAdmin(req.user) ? { provider: aiProvider() } : {}) })); // the AI vendor: the platform owner only
   const ownThread = (req, id) => { const t = id && T.hive.get(id); return t && t.userId === req.user.id ? t : null; };
   app.get('/api/hive/threads', auth, (req, res) => res.json(T.hive.all({ userId: req.user.id }, { order: 'updatedAt', desc: true, limit: 100 }).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt }))));
   app.get('/api/hive/threads/:tid', auth, (req, res) => { const t = ownThread(req, req.params.tid); t ? res.json(threadView(t)) : res.status(404).json({ error: 'Chat not found' }); });
@@ -815,7 +816,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   app.post('/api/hive/chat', auth, limiter, credits, async (req, res) => {
     const message = String(req.body.message || '').trim().slice(0, 6000);
     if (!message) return res.status(400).json({ error: 'Type a message' });
-    if (!hiveReady()) return res.status(503).json({ error: 'Hive AI needs an AI model with tool support — set KIE_API_KEY (with KIE_MODEL deepseek-v4-1-flash, gpt-…, or kimi-…) on the server.' });
+    if (!hiveReady()) { console.error('Hive AI is off: KIE_API_KEY with a tool-capable KIE_MODEL (deepseek / gpt / kimi) is needed'); return res.status(503).json({ error: 'Hive AI isn’t switched on yet — please try again later' }); }
     let t = ownThread(req, req.body.threadId);
     if (!t) t = T.hive.insert({ id: uid(), userId: req.user.id, title: message.slice(0, 60), funnelId: req.body.funnelId || null, messages: [], at: Date.now(), updatedAt: Date.now() });
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });

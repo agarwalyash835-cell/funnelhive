@@ -424,7 +424,7 @@ app.get('/api/me', auth, (req, res) => {
   const funnels = q('SELECT COUNT(*) AS n, COALESCE(SUM(json_extract(data, \'$.published\')), 0) AS pub FROM funnels WHERE userId = ?').get(req.user.id);
   res.json({
     ...pubUser(req.actor || req.user), hasDemo: !!q('SELECT 1 FROM events WHERE userId = ? AND demo = 1 LIMIT 1').get(req.user.id) || T.orders.exists({ userId: req.user.id, demo: 1 }) || T.leads.exists({ userId: req.user.id, demo: 1 }),
-    aiEnabled: aiEnabled(), aiProvider: aiProvider(), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
+    aiEnabled: aiEnabled(), ...(!req.actor && isAdmin(req.user) ? { aiProvider: aiProvider() } : {}), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
     billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && isAdmin(req.user), brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
     uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
     impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),

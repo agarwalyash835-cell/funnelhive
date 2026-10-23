@@ -35,7 +35,8 @@ async function kie(system, messages, json) {
   const d = await r.json().catch(() => ({}));
   const text = pick(d);
   // kie.ai reports some errors with HTTP 200 and { code, msg }
-  if (!r.ok || !text) throw new Error(`AI service: ${d.msg || d.error?.message || `HTTP ${r.status}`}${/not authorized/i.test(d.msg || '') ? ` — enable ${m} for this key on kie.ai or set KIE_MODEL` : ''}`);
+  // the provider's details go to the server log only — sellers see FunnelHive's AI, never the vendor or model
+  if (!r.ok || !text) { console.error('AI request failed:', m, d.msg || d.error?.message || `HTTP ${r.status}`); throw new Error('The AI is busy right now — please try again in a minute'); }
   return text;
 }
 // Hive AI: raw Responses-API call with tool definitions (kie.ai models other than Claude / Gemini)
@@ -55,7 +56,7 @@ export const imagesReady = () => !!KIE_KEY;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // → { buf, type } — kie.ai keeps results for 14 days, so the caller stores the bytes itself
 export async function generateImage(prompt, { aspect = '16:9', timeoutMs = 150000, pollMs = 2500 } = {}) {
-  if (!KIE_KEY) throw new Error('AI images need the AI service (KIE_API_KEY) on the server');
+  if (!KIE_KEY) throw new Error('AI images aren’t switched on yet');
   const p = String(prompt || '').trim().slice(0, 1500);
   if (p.length < 3) throw new Error('Describe the image you want');
   const auth = { Authorization: `Bearer ${KIE_KEY}` };
@@ -265,7 +266,7 @@ ${barText(blueprint)}`;
 }
 
 export async function editBlocks(step, theme, instruction) {
-  if (!aiEnabled()) throw new Error('Set KIE_API_KEY (or ANTHROPIC_API_KEY) on the server to use the AI editor.');
+  if (!aiEnabled()) throw new Error('The AI editor isn’t switched on yet');
   const system = `You edit funnel pages. You get the current page JSON and an instruction. Return ONLY JSON: {"blocks":[{"type":string,"props":{...}}]} containing the full updated block list (keep unchanged blocks as-is, preserve their "id" if present). Keep copy high-converting.
 ${BLOCK_SPEC}${knowledge()}`;
   const out = await ask(system, `Page "${step.name}" (${step.type}) blocks:\n${JSON.stringify(step.blocks)}\n\nInstruction: ${instruction}`);

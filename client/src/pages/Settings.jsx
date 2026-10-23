@@ -176,8 +176,8 @@ export default function Settings() {
         <Panel title="AI">
           <div className={`ai-card ${me?.aiEnabled ? 'on' : ''}`}>
             <Icon name="sparkles" size={22} />
-            <div><b>{me?.aiEnabled ? `AI connected · ${me.aiProvider}` : 'Running the offline AI assistant'}</b>
-              <p className="muted sm">{me?.aiEnabled ? 'Funnel generation, AI chat, page edits and marketing agents use this model — with your template library as built-in examples, so new pages follow the same structure and quality.' : 'Chat commands and template matching work offline. Set KIE_API_KEY in server/.env for AI copywriting and page generation.'}</p></div>
+            <div><b>{me?.aiEnabled ? `FunnelHive AI is on${me.aiProvider ? ` · ${me.aiProvider}` : ''}` : 'Running the offline AI assistant'}</b>
+              <p className="muted sm">{me?.aiEnabled ? 'Funnel generation, AI chat, page edits and marketing agents use this model — with your template library as built-in examples, so new pages follow the same structure and quality.' : 'Chat commands and template matching work offline. AI copywriting and page generation turn on when full AI is enabled for your account.'}</p></div>
           </div>
         </Panel>
       </div>

@@ -77,7 +77,7 @@ export const Privacy = () => (
       <li><b>Razorpay</b> and <b>Stripe</b> — subscription payments, and your customers’ payments into your own account.</li>
       <li><b>Meta (WhatsApp Business Platform)</b>, through the Hive WhatsApp API or your own Cloud API connection — WhatsApp messages.</li>
       <li><b>Email delivery</b> — our mail provider (Resend or SMTP), or the SMTP server you connect.</li>
-      <li><b>Anthropic</b> (Claude) and <b>Kie.ai</b> — AI writing and image features, only for what you ask them to create.</li>
+      <li><b>AI model providers</b> we contract with — AI writing and image features, only for what you ask them to create, under data-processing terms.</li>
       <li><b>Google</b> — “Continue with Google” sign-in and Google Calendar, if you use them; <b>Cloudflare Turnstile</b> — bot checks on sign-up; <b>Sentry</b> — error reports, when switched on.</li>
     </ul>
     <h2>Cookies</h2>

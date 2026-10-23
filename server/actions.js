@@ -176,7 +176,7 @@ const HELP = `Here's what I can do right now — just ask in plain English:
 • "Change the headline to …" · "set price to 999" · "rename funnel to …"
 • "Remove the countdown" · "add a checkout page"
 • "Change the hero to video / poster / stage / bento"
-Add a KIE_API_KEY on the server and I can also rewrite copy and redesign whole pages.`;
+When full AI is switched on I can also rewrite copy and redesign whole pages.`;
 
 const BLOCK_WORDS = { navbar: 'navbar', menu: 'navbar', navigation: 'navbar', footer: 'footer', faq: 'faq', faqs: 'faq', testimonial: 'testimonials', testimonials: 'testimonials', reviews: 'testimonials', countdown: 'countdown', timer: 'countdown', guarantee: 'guarantee', bonus: 'bonuses', bonuses: 'bonuses', stock: 'stock', scarcity: 'stock', 'live viewers': 'livecount', 'social proof': 'proof', popup: 'exitpopup', 'exit popup': 'exitpopup', 'sticky bar': 'stickybar', whatsapp: 'whatsapp', video: 'video', stats: 'stats', 'how it works': 'steps', 'hello bar': 'hellobar', cta: 'cta', 'call to action': 'cta', text: 'text' };
 

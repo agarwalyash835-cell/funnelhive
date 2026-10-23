@@ -1,16 +1,16 @@
 // Hive AI — chat on the left, the funnel being built on the right ("Lovable for funnels")
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Sparkles, Send, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil } from 'lucide-react';
+import { Sparkles, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow } from 'lucide-react';
 import { api } from '../api';
 import { Layout, toast, ago, confirmDialog, loadFailed } from '../ui';
 import { Page } from '../blocks';
 
 const SUGGESTIONS = [
-  'Build a funnel for my home bakery in Pune — custom birthday cakes from ₹899',
-  'Create a webinar funnel for my stock-market course at ₹2,999 with a ₹499 upsell',
-  'Add an abandoned-checkout automation: email after 30 minutes, WhatsApp next morning at 10',
-  'Make the landing page darker and more premium, and add a FAQ about refunds',
+  { icon: Rocket, title: 'Sales funnel', text: 'Build a funnel for my home bakery in Pune — custom birthday cakes from ₹899' },
+  { icon: Presentation, title: 'Webinar funnel', text: 'Create a webinar funnel for my stock-market course at ₹2,999 with a ₹499 upsell' },
+  { icon: GraduationCap, title: 'Online course', text: 'Create a 6-lesson course on Instagram Reels for coaches, with a quiz and a certificate' },
+  { icon: Workflow, title: 'Follow-ups', text: 'Add an abandoned-checkout automation: email after 30 minutes, WhatsApp next morning at 10' },
 ];
 
 // minimal, safe formatting for replies: **bold**, `code`, bullet lists, links
@@ -66,6 +66,10 @@ export default function Hive() {
   const [deciding, setDeciding] = useState(null);
   const endRef = useRef(null);
   const boxRef = useRef(null);
+  const [first, setFirst] = useState('');
+  useEffect(() => { api('/me').then((m) => setFirst(String(m?.name || '').trim().split(/\s+/)[0] || '')).catch(() => {}); }, []);
+  // the box grows with what's typed (up to ~8 lines)
+  useEffect(() => { const b = boxRef.current; if (!b) return; b.style.height = 'auto'; b.style.height = `${Math.min(220, b.scrollHeight)}px`; }, [input]);
 
   const loadThreads = () => api('/hive/threads').then(setThreads).catch(() => {});
   useEffect(() => { api('/hive/status').then(setStatus).catch(loadFailed); loadThreads(); }, []);
@@ -151,12 +155,25 @@ export default function Hive() {
     if (ready) send(q); else setInput(q);
   }, [status]);
   const empty = !msgs.length && !live;
+  const composer = (
+    <form className="hv-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
+      <textarea ref={boxRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={!ready}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+        placeholder={ready === false ? 'Hive AI isn’t switched on yet' : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
+      <div className="hv-input-bar">
+        <span className="hv-hint">{busy ? 'Hive is working…' : 'Enter to send · Shift + Enter for a new line'}</span>
+        {busy ? <button type="button" className="hv-stop" onClick={() => abort.current?.abort()} aria-label="Stop"><Square size={13} /> Stop</button>
+          : <button className="hv-send" disabled={!input.trim() || !ready} aria-label="Send"><ArrowUp size={18} /></button>}
+      </div>
+    </form>
+  );
 
   return (
     <Layout title={<span className="hv-title"><Sparkles size={20} /> Hive AI</span>} subtitle="Describe it — Hive builds the funnel, pages, offers and automations while you watch." wide>
-      <div className={`hive ${side ? '' : 'no-side'} mob-${mob}`}>
+      <div className={`hive ${side ? '' : 'no-side'} ${funnel ? 'with-prev' : 'no-prev'} ${empty ? 'is-empty' : ''} mob-${mob}`}>
         <aside className="hv-threads">
-          <button className="btn primary block" onClick={() => openThread(null)} disabled={busy}><Plus size={15} /> New chat</button>
+          <button className="hv-new" onClick={() => openThread(null)} disabled={busy}><Plus size={15} /> New chat</button>
+          {threads.length > 0 && <small className="hv-tlabel">Recent</small>}
           <div className="hv-tlist">
             {threads.map((t) => (
               <div key={t.id} className={`hv-t ${t.id === tid ? 'on' : ''}`} onClick={() => openThread(t.id)}>
@@ -164,7 +181,7 @@ export default function Hive() {
                 <button className="icon-btn xs" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); removeThread(t.id); }}><Trash2 size={12} /></button>
               </div>
             ))}
-            {!threads.length && <p className="hint">Your chats appear here.</p>}
+            {!threads.length && <p className="hv-tnone">Your chats with Hive appear here.</p>}
           </div>
         </aside>
 
@@ -172,16 +189,24 @@ export default function Hive() {
           <div className="hv-chat-h">
             <button className="icon-btn" title={side ? 'Hide chats' : 'Show chats'} aria-label={side ? 'Hide chats' : 'Show chats'} onClick={() => setSide(!side)}><PanelLeft size={17} /></button>
             <b>{threads.find((t) => t.id === tid)?.title || 'New chat'}</b>
-            <span className="muted sm">{status?.provider}</span>
+            {status?.provider && <span className="hv-prov" title="Only you (the platform owner) see this">{status.provider}</span>}
+            <span className={`hv-state ${ready ? 'on' : ''}`}><i />{ready ? 'Hive AI' : 'Offline'}</span>
           </div>
           <div className="hv-msgs">
             {empty && (
               <div className="hv-empty">
-                <span className="hv-logo"><Sparkles size={26} /></span>
-                <h2>What are we building today?</h2>
-                <p className="muted">Hive builds complete funnels — landing page, checkout, upsells, thank-you page — then edits anything you ask: copy, sections, design, coupons and automations.</p>
-                {ready === false && <p className="hv-warn">Hive AI needs an AI model with tool support on the server (KIE_API_KEY with a DeepSeek, GPT or Kimi model).</p>}
-                <div className="hv-sugg">{SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} disabled={!ready}>{s}</button>)}</div>
+                <span className="hv-orb" aria-hidden="true"><Sparkles size={28} /></span>
+                <h2>{first ? `Hi ${first}, what are we building today?` : 'What are we building today?'}</h2>
+                <p>Describe your business in a sentence. Hive builds the whole funnel — pages, checkout, upsells, course, follow-ups — and changes anything you ask.</p>
+                {ready === false && <p className="hv-warn">Hive AI isn’t switched on yet — check back soon.</p>}
+                {composer}
+                <div className="hv-sugg">{SUGGESTIONS.map((x) => (
+                  <button key={x.title} onClick={() => send(x.text)} disabled={!ready}>
+                    <span className="hv-sugg-ic"><x.icon size={16} /></span>
+                    <b>{x.title}</b>
+                    <small>{x.text}</small>
+                  </button>
+                ))}</div>
               </div>
             )}
             {msgs.map((m, i) => (
@@ -202,13 +227,7 @@ export default function Hive() {
             )}
             <div ref={endRef} />
           </div>
-          <form className="hv-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
-            <textarea ref={boxRef} rows={2} value={input} onChange={(e) => setInput(e.target.value)} disabled={!ready}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder={ready === false ? 'Hive AI isn’t available on this server yet' : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
-            {busy ? <button type="button" className="btn ghost" onClick={() => abort.current?.abort()}><Square size={14} /> Stop</button>
-              : <button className="btn primary" disabled={!input.trim() || !ready}><Send size={15} /> Send</button>}
-          </form>
+          {!empty && <div className="hv-dock">{composer}</div>}
         </section>
 
         <section className="hv-prev">

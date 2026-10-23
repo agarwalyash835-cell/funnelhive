@@ -529,7 +529,7 @@ export function CreateFunnel({ onClose, aiEnabled }) {
         <button className="btn primary lg" disabled={busy || prompt.length < 5}>{busy ? <><span className="spin" /> {stage}… <small className="gen-secs">{secs}s</small></> : <><Icon name="wand" /> {t('Generate my funnel')}</>}</button>
         {busy && <div className="gen-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>}
         {busy && <p className="hint">{t('Hive AI writes every page, then checks each one against our template quality bar — about a minute. Keep this window open.')}</p>}
-        {!aiEnabled && <p className="hint">{t('Running offline: we’ll match your description to the best of our 100+ expert templates. Add a KIE_API_KEY on the server for fully custom AI copy.')}</p>}
+        {!aiEnabled && <p className="hint">{t('Running offline: we’ll match your description to the best of our 100+ expert templates. Fully custom AI copy turns on when full AI is enabled.')}</p>}
       </form>
       <div className="create-alt">
         <button onClick={() => nav('/templates')}><Icon name="layout" /><div><b>{t('Pick a template')}</b><small>{t('100+ proven designs: sales, VSL & webinar funnels')}</small></div></button>
