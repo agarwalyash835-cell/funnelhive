@@ -7,6 +7,8 @@ import { StepIcon } from '../blockIcons';
 
 const pct = (a, b) => (b ? +((a / b) * 100).toFixed(1) : 0);
 
+const POP_TRIGGER = { exit: 'Leaving the page', delay: 'After a delay', scroll: 'Scrolling down', click: 'A button click', load: 'Page load' };
+
 export default function Analytics() {
   const { id } = useParams();
   const [days, setDays] = useState(30);
@@ -17,6 +19,7 @@ export default function Analytics() {
   const top = d ? Math.max(1, ...d.steps.map((s) => s.views)) : 1;
   const offerSteps = d?.steps.filter((s) => s.type === 'upsell' || s.type === 'downsell') || [];
   const abSteps = d?.steps.filter((s) => s.ab) || [];
+  const popSteps = d?.steps.filter((s) => s.popups?.length) || [];
 
   return (
     <Layout title={f ? f.name : 'Analytics'} subtitle="Funnel analytics" actions={<>
@@ -65,6 +68,16 @@ export default function Analytics() {
                     <tr key={s.id + v}><td>{v === 'A' && <b>{s.name}</b>}</td><td><span className={`pill ${r.winner === v ? 'ok' : ''}`}>{v}</span></td><td className="r">{num(s.ab[v].views)}</td><td className="r">{num(s.ab[v].conversions)}</td><td className="r strong">{v === 'A' ? r.rateA : r.rateB}%</td><td>{v === 'A' && verdict}</td></tr>
                   ));
                 })}</tbody>
+              </table>
+            </Panel>
+          )}
+          {popSteps.length > 0 && (
+            <Panel title="Pop-ups" pad={false} actions={<span className="muted sm">Times shown · sign-ups from the pop-up</span>}>
+              <table className="tbl">
+                <thead><tr><th>Pop-up</th><th>Page</th><th>Opens on</th><th className="r">Shown</th><th className="r">People</th><th className="r">Sign-ups</th><th className="r">Rate</th></tr></thead>
+                <tbody>{popSteps.flatMap((s) => s.popups.map((p) => (
+                  <tr key={s.id + p.id}><td><b>{p.name}</b></td><td>{s.name}</td><td className="muted">{POP_TRIGGER[p.trigger] || p.trigger}</td><td className="r">{num(p.views)}</td><td className="r">{num(p.visitors)}</td><td className="r">{num(p.signups)}</td><td className="r strong">{p.views ? `${p.rate}%` : '—'}</td></tr>
+                )))}</tbody>
               </table>
             </Panel>
           )}

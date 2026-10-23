@@ -23,6 +23,7 @@ export const DEFAULTS = {
   mail: { from: '', keyEnc: '' }, // the platform's email sender (Resend): sign-in codes, resets, students' alerts
   signupsOpen: true,
   announcement: '',
+  captcha: { siteKey: '', secretEnc: '' }, // Cloudflare Turnstile on sign-up (server env TURNSTILE_* wins)
   googleClientId: '', // "Continue with Google" (OAuth client ID from Google Cloud)
 };
 
@@ -42,6 +43,7 @@ export function platform() {
     storage: { ...DEFAULTS.storage, ...s.storage },
     videoStorage: { ...DEFAULTS.videoStorage, ...s.videoStorage },
     mail: { ...DEFAULTS.mail, ...s.mail },
+    captcha: { ...DEFAULTS.captcha, ...s.captcha },
   };
   cacheAt = Date.now();
   return cache;

@@ -307,6 +307,29 @@ function StoragePanel({ s, save, field = 'storage' }) {
   );
 }
 
+// Cloudflare Turnstile on seller sign-up (funnel forms have their own invisible checks on the server)
+function CaptchaPanel({ c, save }) {
+  const [v, setV] = useState({ siteKey: c.siteKey || '', secret: '' });
+  const [busy, setBusy] = useState(false);
+  const go = async () => { setBusy(true); if (await save({ captcha: v })) setV({ ...v, secret: '' }); setBusy(false); };
+  return (
+    <Panel title="Bot protection">
+      <p className="muted sm">Adds Cloudflare’s free “I’m human” check to sign-up, so bots can’t create fake seller accounts. Most people just see a tick. Funnel opt-ins and forms are protected without it: forms sent faster than a person could type are dropped, and one network can only sign up so often.</p>
+      <div className={`ai-card ${c.ready ? 'on' : ''}`}><Icon name="shield" size={20} /><div><b>{c.ready ? `On · ${c.fromEnv ? 'from the server’s settings file' : 'Cloudflare Turnstile'}` : 'Off — sign-up has the hidden bot trap and limits only'}</b></div></div>
+      {c.fromEnv ? <p className="hint">Set by TURNSTILE_* variables on the server, which take priority over this form.</p> : (
+        <>
+          <div className="form2">
+            <label>Site key<input value={v.siteKey} onChange={(e) => setV({ ...v, siteKey: e.target.value.trim() })} placeholder="0x4AAAAAAA…" /></label>
+            <label>Secret key {c.hasSecret && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.secret} onChange={(e) => setV({ ...v, secret: e.target.value.trim() })} autoComplete="new-password" /></label>
+          </div>
+          <p className="hint">In Cloudflare: Turnstile → Add widget → hostname <b>{location.hostname}</b>, mode “Managed” → copy both keys. Saving checks the secret with Cloudflare.</p>
+          <div className="row"><button className="btn primary" disabled={busy || !v.siteKey || (!v.secret && !c.hasSecret)} onClick={go}>{busy ? 'Checking…' : 'Save bot protection'}</button>{c.ready && !c.fromEnv && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Turn off the “I’m human” check?', confirm: 'Turn off', danger: true })) && save({ captcha: { clear: true } })}>Turn off</button>}</div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 // the platform's own email sender (Resend): sign-in codes, password resets, students' alerts
 function MailPanel({ m, save }) {
   const [v, setV] = useState({ from: m.hasKey || m.fromEnv ? m.from : '', key: '' });
@@ -371,6 +394,7 @@ function PlatformSettings() {
       </Panel>
 
       {s.mail && <MailPanel m={s.mail} save={save} />}
+      {s.captcha && <CaptchaPanel c={s.captcha} save={save} />}
       <StoragePanel s={s.storage} save={save} />
       <StoragePanel s={s.videoStorage} save={save} field="videoStorage" />
 

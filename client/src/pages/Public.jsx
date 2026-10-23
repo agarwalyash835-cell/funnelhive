@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '../blocks';
 import { tr } from '../i18n';
@@ -200,8 +200,11 @@ export default function Public() {
     fetch(`/api/public/${slug}/social${preview ? `${preview}&` : '?'}stepId=${encodeURIComponent(step.id)}`).then((r) => r.json()).then((d) => setSocial(d && !d.error ? d : null)).catch(() => {});
   }, [step?.id]);
 
+  // when this page opened: sign-up forms send how long the visitor was here (bots answer within a second)
+  const openedAt = useRef(Date.now());
   useEffect(() => {
     if (!step) return;
+    openedAt.current = Date.now();
     post(`/api/public/${slug}/event${preview}`, { stepId: step.id, type: 'view', variant, source, visitor });
     // Same rule as the server render: SEO title → this step's headline → step + funnel name
     document.title = step.seo?.title || (blocks.find((b) => b.type === 'hero')?.props.headline || '').replace(/\*/g, '').trim() || `${step.name} · ${f.name}`;
@@ -282,7 +285,7 @@ export default function Public() {
       // opts (opt-ins inside a pop-up): { popup: its id, next: go on to the next step afterwards }
       onOptin: async (data, opts) => {
         const id = eventId('lead');
-        const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id });
+        const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id, t: Date.now() - openedAt.current });
         if (r?.error) throw new Error(r.error);
         store.set(sk('ff_email'), data.email, sessionStorage);
         if (r?.pass) store.set(`ff_pass_${slug}`, r.pass, sessionStorage); // opens the thank-you page that follows
@@ -298,7 +301,7 @@ export default function Public() {
       onAbandon: (data) => post(`${base}/abandon${preview}`, { notice: true, ...data, stepId: step.id, visitor, attr }), // the checkout shows the reminder notice
       onForm: async (data, opts) => {
         const id = eventId('lead');
-        const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id });
+        const r = await post(`${base}/lead${preview}`, { ...data, stepId: step.id, ...(opts?.popup ? { popupId: opts.popup } : {}), source, visitor, attr, tk: ids(), eventId: id, t: Date.now() - openedAt.current });
         if (r.error) throw new Error(r.error);
         if (data.email) store.set(sk('ff_email'), data.email, sessionStorage);
         if (r.pass) store.set(`ff_pass_${slug}`, r.pass, sessionStorage);

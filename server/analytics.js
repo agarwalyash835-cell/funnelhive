@@ -77,6 +77,17 @@ export function stepCounts(funnelId, from) {
   return (stepId, type, variant) => (variant ? m[`${stepId}|${type}|${variant}`] || 0 : (m[`${stepId}|${type}|A`] || 0) + (m[`${stepId}|${type}|B`] || 0));
 }
 
+// pop-ups: times shown and sign-ups, per step and pop-up (the pop-up's id is stored as the event's variant)
+export function popupCounts(funnelId, from) {
+  const m = {};
+  for (const r of q("SELECT stepId, type, variant, COUNT(*) AS n, COUNT(DISTINCT COALESCE(visitor, at)) AS v FROM events WHERE funnelId = ? AND type IN ('popup_view', 'popup_convert') AND at >= ? GROUP BY stepId, type, variant").all(funnelId, rawFrom(from))) m[`${r.stepId}|${r.type}|${r.variant}`] = r;
+  return (stepId, popupId) => {
+    const view = m[`${stepId}|popup_view|${popupId}`], conv = m[`${stepId}|popup_convert|${popupId}`];
+    const views = view?.n || 0, signups = conv?.n || 0;
+    return { views, visitors: view?.v || 0, signups, rate: views ? Math.round((signups / views) * 1000) / 10 : 0 };
+  };
+}
+
 export function bumpRate(funnelId, from) {
   const r = q(`SELECT COUNT(*) AS n, COALESCE(SUM(EXISTS (SELECT 1 FROM json_each(data, '$.items') WHERE json_extract(value, '$.kind') = 'bump')), 0) AS b FROM orders WHERE funnelId = ? AND at >= ? AND paid = 1`).get(funnelId, from);
   return r.n ? Math.round((r.b / r.n) * 100) : 0;

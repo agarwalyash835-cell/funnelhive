@@ -13,7 +13,7 @@ import { templateList, getTemplate, matchTemplate } from './templates.js';
 import { applyActions, offlineChat } from './actions.js';
 import { abResult } from './stats.js';
 import { DAY, reportRange } from './time.js';
-import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, bumpRate, campaigns, refundsTotal } from './analytics.js';
+import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, popupCounts, bumpRate, campaigns, refundsTotal } from './analytics.js';
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm } from './crm.js';
@@ -58,7 +58,7 @@ import { sellerTz, offsetAt, validTz, COMMON_TZ, zoned } from './tz.js';
 import { dropRollups, trimRollups } from './rollup.js';
 import { registerWebinars, registrationFor, previewSession } from './webinars.js';
 import { notify, money, registerNotifications, unreadCount } from './notify.js';
-import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval } from './db.js';
+import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, hit as countHit } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 
 const SECRET = loadSecret(DATA_DIR);
@@ -896,12 +896,13 @@ app.get('/api/funnels/:id/analytics', auth, (req, res) => {
   if (!f) return;
   const { days, from, to } = range(req);
   const scope = { funnelId: f.id };
-  const count = stepCounts(f.id, from);
+  const count = stepCounts(f.id, from), pops = popupCounts(f.id, from);
   res.json({
     days, totals: totals(scope, from, to), prev: totals(scope, from - days * DAY, from), series: series(scope, from, days, range(req).off), sources: sources(scope, from), byKind: revenueByKind(scope, from),
     bumpRate: bumpRate(f.id, from), campaigns: campaigns(scope, from, to), refunded: refundsTotal(scope, from, to),
     steps: f.steps.map((s) => ({
       id: s.id, name: s.name, type: s.type, views: count(s.id, 'view'), conversions: count(s.id, 'convert'),
+      popups: (s.popups || []).map((p) => ({ id: p.id, name: p.name, trigger: p.trigger?.type || 'exit', ...pops(s.id, p.id) })),
       ab: s.ab?.enabled ? (() => {
         const A = { views: count(s.id, 'view', 'A'), conversions: count(s.id, 'convert', 'A') };
         const B = { views: count(s.id, 'view', 'B'), conversions: count(s.id, 'convert', 'B') };
@@ -1281,6 +1282,10 @@ const visitorOf = (req) => (typeof req.body.visitor === 'string' && /^[\w-]{4,64
 app.post('/api/public/:slug/lead', (req, res) => {
   const f = pub(req, res);
   if (!f) return;
+  // bots: a form sent within a second of the page opening (t = ms on the page) is quietly dropped, and one network
+  // can sign up only so often to one funnel
+  if (!isPreview(req) && Number.isFinite(Number(req.body?.t)) && Number(req.body.t) >= 0 && Number(req.body.t) < 1200) return res.json({ ok: true });
+  if (!isPreview(req) && countHit(`lead:${f.id}:${req.ip}`, 3600000).n > (isTest ? 100000 : 40)) return res.status(429).json({ error: 'Too many sign-ups from this network — please try again in a little while' });
   const { email, name, phone, source } = req.body;
   const stepId = typeof req.body.stepId === 'string' ? req.body.stepId : '';
   if (!f.steps.some((s) => s.id === stepId)) return res.status(400).json({ error: 'Bad step' });

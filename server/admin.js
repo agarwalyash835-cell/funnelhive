@@ -13,7 +13,7 @@ import { call as rzpCall } from './razorpay.js';
 import { deleteAccount } from './account.js';
 import { saveIntlSettings, intlSettingsView, platformStripe } from './billing-intl.js';
 import { fxRate } from './fx.js';
-import { limitsFor, usageFor, saveLimits, LIMIT_DEFAULTS } from './limits.js';
+import { limitsFor, usageFor, saveLimits, LIMIT_DEFAULTS, turnstileSiteKey, checkTurnstileSecret } from './limits.js';
 import { clientLimit } from './agency.js';
 import { DAY, localDate } from './time.js';
 import { randomToken, hashToken, revokeOthers } from './security.js';
@@ -177,7 +177,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
     const st = p.storage, vs = p.videoStorage;
-    return { ...rest, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, captcha: { siteKey: p.captcha.siteKey, hasSecret: !!p.captcha.secretEnc, fromEnv: !!(process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY), ready: !!turnstileSiteKey() }, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -238,6 +238,20 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       }
       changes.push(field === 'storage' ? 'file storage' : 'video storage');
     }
+    // bot protection on sign-up (Cloudflare Turnstile): the secret is checked with Cloudflare before it's saved
+    if (b.captcha) {
+      const c = b.captcha, cur = platform().captcha;
+      if (c.clear) patch.captcha = { ...DEFAULTS.captcha };
+      else {
+        const siteKey = String(c.siteKey ?? cur.siteKey).trim();
+        if (!/^0x[\w-]{10,}$/.test(siteKey)) return res.status(400).json({ error: 'The site key starts with 0x (Cloudflare → Turnstile → your widget)' });
+        const secret = c.secret ? String(c.secret).trim() : decrypt(cur.secretEnc);
+        if (!secret) return res.status(400).json({ error: 'Paste the secret key' });
+        try { if (!(await checkTurnstileSecret(secret))) return res.status(400).json({ error: 'Cloudflare didn’t accept that secret key — copy it again from the Turnstile widget' }); } catch (e) { return res.status(400).json({ error: `Couldn’t reach Cloudflare to check the key: ${e.message}` }); }
+        patch.captcha = { siteKey, secretEnc: c.secret ? encrypt(secret) : cur.secretEnc };
+      }
+      changes.push('bot protection');
+    }
     // the platform's email sender (Resend): checked by sending a real test email to the admin before it's saved
     if (b.mail) {
       const m = b.mail, cur = platform().mail;
@@ -256,7 +270,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (b.limits) { try { patch.limits = saveLimits(b.limits); changes.push('limits'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     if (b.stripe || b.intl) { try { await saveIntlSettings(b); changes.push('international billing'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     savePlatform((s) => Object.assign(s, patch));
-    audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay' && k !== 'storage' && k !== 'videoStorage' && k !== 'mail'), ...changes].join(', '));
+    audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay' && k !== 'storage' && k !== 'videoStorage' && k !== 'mail' && k !== 'captcha'), ...changes].join(', '));
     if (patch.storage?.endpoint) backupNow(); // the first off-site copy right away
     res.json(settingsView());
   }));

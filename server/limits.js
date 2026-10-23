@@ -5,6 +5,7 @@
 // and, when TURNSTILE_SECRET_KEY is set, Cloudflare Turnstile.
 import { T, hit, q } from './db.js';
 import { platform } from './platform.js';
+import { decrypt } from './messaging.js';
 import { accessFor } from './billing.js';
 
 export const LIMIT_DEFAULTS = { funnels: 200, funnelsTrial: 20, storageMB: 5120, storageMBTrial: 500, broadcastTrialDaily: 50 };
@@ -79,18 +80,32 @@ const DISPOSABLE = new Set(('mailinator.com guerrillamail.com guerrillamail.net 
 export const isDisposable = (email) => DISPOSABLE.has(String(email || '').split('@')[1]?.toLowerCase() || '');
 const PER_IP = Number(process.env.SIGNUPS_PER_IP_DAY || (process.env.NODE_ENV === 'test' ? 100000 : 5));
 const VERIFY_URL = process.env.TURNSTILE_VERIFY_URL || 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
-export const turnstileSiteKey = () => (process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY) || null;
+// Turnstile keys: the server's env, else Admin → Bot protection
+const captchaKeys = () => {
+  if (process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY) return { site: process.env.TURNSTILE_SITE_KEY, secret: process.env.TURNSTILE_SECRET_KEY };
+  const c = platform().captcha || {};
+  const secret = c.siteKey && c.secretEnc ? decrypt(c.secretEnc) : '';
+  return secret ? { site: c.siteKey, secret } : null;
+};
+export const turnstileSiteKey = () => captchaKeys()?.site || null;
+// checks a Turnstile secret: Cloudflare answers a dummy token with 'invalid-input-response' for a good secret
+export async function checkTurnstileSecret(secret) {
+  const r = await fetch(VERIFY_URL, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ secret, response: 'check' }), signal: AbortSignal.timeout(8000) });
+  const codes = (await r.json())['error-codes'] || [];
+  return !codes.includes('invalid-input-secret') && !codes.includes('missing-input-secret');
+}
 
 // → { status, error } when a new account should not be created
 export async function signupGuard(req, email, { google = false } = {}) {
   if (!google && String(req.body?.website || '').trim()) return { status: 400, error: 'Sign-up failed — please try again' }; // the hidden field only bots fill
   if (isDisposable(email)) return { status: 400, error: 'Please use your real email address — temporary inboxes can’t receive your invoices and login links' };
-  if (!google && process.env.TURNSTILE_SECRET_KEY) {
+  const keys = google ? null : captchaKeys();
+  if (keys) {
     const token = String(req.body?.turnstile || '');
     let ok = false;
     if (token) {
       try {
-        const r = await fetch(VERIFY_URL, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET_KEY, response: token, remoteip: req.ip || '' }), signal: AbortSignal.timeout(8000) });
+        const r = await fetch(VERIFY_URL, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ secret: keys.secret, response: token, remoteip: req.ip || '' }), signal: AbortSignal.timeout(8000) });
         ok = !!(await r.json()).success;
       } catch (e) { console.error('Turnstile check failed', e.message); ok = true; } // Cloudflare unreachable: don't lock everyone out
     }
