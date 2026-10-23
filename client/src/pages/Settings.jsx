@@ -7,6 +7,7 @@ import { TeamPanel } from './Team';
 import { PrivacyPanel } from './Privacy';
 import { ApiKeysPanel } from './Developers';
 import { AdSpendPanel } from './AdSpend';
+import { AppsPanel } from './AppsPanel';
 import { ActivityPanel } from './Agency';
 import { allZones, zoneOption } from '../tzfmt';
 import { EmailPanel, WhatsAppPanel, DomainsPanel, RazorpayPanel, StripePanel, HiveMcpPanel } from './SettingsChannels';
@@ -151,6 +152,7 @@ export default function Settings() {
 
         <ApiKeysPanel />
 
+        <AppsPanel />
         <AdSpendPanel />
 
         {!me?.workspace && <SecurityPanel me={me} onChange={() => api('/me').then(setMe)} />}

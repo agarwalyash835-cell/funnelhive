@@ -307,6 +307,24 @@ function StoragePanel({ s, save, field = 'storage' }) {
   );
 }
 
+// Composio: one project key lets sellers connect their own ad accounts for Hive AI (Meta Ads; Google Ads optional)
+function ComposioPanel({ c, save }) {
+  const [key, setKey] = useState('');
+  const [apps, setApps] = useState(c.apps || ['metaads']);
+  const [busy, setBusy] = useState(false);
+  const go = async (body) => { setBusy(true); if (await save({ composio: body })) setKey(''); setBusy(false); };
+  return (
+    <Panel title="App connections (Composio)">
+      <p className="muted sm">With your Composio project key, every seller can connect their own Meta Ads (and Google Ads) in Settings → Apps & ads, and Hive AI works in those accounts — read results, build paused campaigns, suggest fixes. Each seller’s logins and tokens stay in Composio, under their own user.</p>
+      <div className={`ai-card ${c.ready ? 'on' : ''}`}><Icon name="bolt" size={20} /><div><b>{c.ready ? `On · ${c.fromEnv ? 'from the server’s settings file' : 'Composio project key saved'}` : 'Off — sellers don’t see Apps & ads'}</b></div></div>
+      {!c.fromEnv && <label>Composio project API key {c.hasKey && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={key} onChange={(e) => setKey(e.target.value.trim())} autoComplete="new-password" placeholder="From Composio → your project → Settings → API keys" /></label>}
+      <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>{c.all.map((x) => <label key={x.app} className="tog"><input type="checkbox" checked={apps.includes(x.app)} onChange={(e) => setApps(e.target.checked ? [...apps, x.app] : apps.filter((y) => y !== x.app))} /><span />{x.name}</label>)}</div>
+      <p className="hint">Meta Ads: in Composio, add an auth config for Meta Ads (API key) once. Google Ads uses Composio’s own Google login; add your own developer token in Composio when Google approves it. Saving checks the key with Composio.</p>
+      <div className="row"><button className="btn primary" disabled={busy || (!key && !c.hasKey && !c.fromEnv)} onClick={() => go({ ...(key ? { key } : {}), apps })}>{busy ? 'Checking…' : 'Save app connections'}</button>{c.hasKey && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Turn off app connections?', text: 'Sellers can no longer use their connected ad accounts in Hive AI.', confirm: 'Turn off', danger: true })) && save({ composio: { clear: true } })}>Turn off</button>}</div>
+    </Panel>
+  );
+}
+
 // Cloudflare Turnstile on seller sign-up (funnel forms have their own invisible checks on the server)
 function CaptchaPanel({ c, save }) {
   const [v, setV] = useState({ siteKey: c.siteKey || '', secret: '' });
@@ -395,6 +413,7 @@ function PlatformSettings() {
 
       {s.mail && <MailPanel m={s.mail} save={save} />}
       {s.captcha && <CaptchaPanel c={s.captcha} save={save} />}
+      {s.composio && <ComposioPanel c={s.composio} save={save} />}
       <StoragePanel s={s.storage} save={save} />
       <StoragePanel s={s.videoStorage} save={save} field="videoStorage" />
 

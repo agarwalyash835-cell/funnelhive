@@ -8,6 +8,7 @@ import { T, uid } from './db.js';
 import { hashToken } from './security.js';
 import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
 import { isAdmin } from './platform.js';
+import { readOnlyAction } from './composio.js';
 import { PAGE_STYLES } from './page-styles.js';
 import { TRIGGERS, VARIABLES } from './automations.js';
 import { offerStep } from './actions.js';
@@ -226,6 +227,19 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     name: 'list_pipelines', description: 'Sales pipelines and their stages (ids) — needed for stage triggers/steps.', schema: S({}),
     run: async (ctx) => (await ctx.call('GET', '/pipelines')).map((p) => ({ id: p.id, name: p.name, stages: p.stages.map((s) => ({ id: s.id, name: s.name })) })),
     summary: () => 'Checked your pipelines',
+  },
+  // ---------- the seller's own apps, through Composio (Meta Ads, Google Ads) ----------
+  {
+    name: 'find_app_actions', description: 'Find actions in the seller’s connected apps (Meta Ads; Google Ads when connected) — e.g. "create campaign", "ad set", "custom audience", "insights", "list ad accounts". Returns action slugs, what they do, whether they only read, and (with schemas) their inputs. Call this before run_app_action.',
+    schema: S({ query: str('What you want to do'), schemas: bool('Include each action’s input fields (use for the 1–3 you will run)') }, ['query']),
+    run: async (ctx, a) => ctx.call('GET', `/integrations/tools?q=${encodeURIComponent(a.query || '')}&limit=${a.schemas ? 4 : 12}${a.schemas ? '&schemas=1' : ''}`),
+    summary: (r) => (r.connected?.length ? `Looked at your ${r.connected.join(' & ')} actions` : 'No apps connected yet'),
+  },
+  {
+    name: 'run_app_action', description: 'Run one action in a connected app with arguments matching its input fields (from find_app_actions). Typical Meta flow: METAADS_GET_AD_ACCOUNTS → METAADS_CREATE_CAMPAIGN → METAADS_CREATE_AD_SET (targeting from METAADS_LIST_TARGETING_SEARCH) → creative + ad; read results with METAADS_GET_INSIGHTS. New campaigns, ad sets and ads are always created PAUSED; budgets are in the ad account’s currency minor units (paise). Anything that changes or spends waits for the seller’s OK. If no app is connected, tell them: Settings → Apps & ads → Connect.',
+    schema: S({ slug: str('Action slug, e.g. METAADS_GET_INSIGHTS'), arguments: obj('Inputs for the action') }, ['slug']),
+    run: async (ctx, a) => ctx.call('POST', '/integrations/run', { slug: a.slug, arguments: a.arguments || {} }),
+    summary: (r) => (r.ok ? 'Done in your connected app' : `The app said: ${String(r.error || '').slice(0, 120)}`),
   },
   {
     name: 'list_crm_fields', description: 'The CRM’s custom fields (id, label, type, options) — needed for field / date triggers, the update-field step and custom-field conditions.', schema: S({}),
@@ -716,6 +730,8 @@ const NEEDS_OK = {
   set_tracking: (a) => `Install tracking on ${a.funnelId ? 'this funnel' : 'all your funnels'}: ${[a.fbPixel && `Meta Pixel ${a.fbPixel}`, a.ga4 && `GA4 ${a.ga4}`, a.googleAdsId && `Google Ads ${a.googleAdsId}`].filter(Boolean).join(', ') || 'remove ids'}`,
   update_business: (a) => `Change business settings (${Object.keys(a).join(', ') || 'none'})`,
   create_automation: (a) => (webhookIn(a.steps) ? `Create automation “${a.name}” — it sends contact data to a webhook` : a.activate ? `Create automation “${a.name}” and switch it on` : null),
+  // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
+  run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${String(a.slug || '').startsWith('GOOGLEADS') ? 'Google Ads' : 'Meta Ads'} account: ${String(a.slug || '').replace(/^(METAADS|GOOGLEADS)_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
@@ -737,6 +753,7 @@ How to work:
 - Agencies → list_clients, copy_funnel_to_client. Account → update_business (time zone, WhatsApp, consent banner / tick box).
 - Website (home / about / services / contact for a business, not a sales funnel) → create_website with copy you write; then edit pages like any funnel. A funnel’s buttons and menu can open another page with buttonAction / ctaAction "page" and the page name in the link field.
 - Courses & community (the school / members area) → create_course writes a full course with quizzes (5 credits; say so), add_quiz, get_course; create_space and post_to_community for the community; school_overview for the link to share. Attach a course to a checkout with configure_checkout productId.
+- Ads (the seller’s own Meta Ads / Google Ads, when connected in Settings → Apps & ads) → find_app_actions, then run_app_action. Read results freely; build campaigns from their funnels (offer, audience, budget, UTM-tagged funnel link) — always paused, the seller turns them on. Never invent results; if nothing is connected, say how to connect.
 - Images → generate_image (hero photos, section images, ad creatives in 1:1 / 4:5 / 9:16) — tell the user it uses 10 AI credits; ad copy and hooks → write_marketing_copy.
 - Testing → split_test (start with the changes for B, results once it has traffic, pick the winner). Tracking → set_tracking (pixel / GA4 / Google Ads ids; never ask for the Conversions API token in chat — that goes in Settings). Own domain → connect_domain, show the DNS records as a table, then check_domain. Team → list_team / invite_team_member with the smallest role that fits. Other tools / CRM → connect_webhook. Reuse a funnel → duplicate_funnel.
 - Payment gateway keys, passwords and tokens are never typed into chat: send the seller to Settings → Payments (or the screen named) for those.

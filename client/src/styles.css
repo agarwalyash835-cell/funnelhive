@@ -2367,3 +2367,17 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .kit-book-l { margin: 0 0 12px; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; color: var(--c-ink-2); line-height: 1.5; }
 .kit-book { border-color: color-mix(in srgb, var(--c-honey) 45%, var(--c-line)); }
 .bq-field { max-width: 260px; font-size: 12.5px; }
+
+/* Settings → Apps & ads */
+.apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px; margin: 10px 0; }
+.app-card { display: grid; gap: 10px; align-content: start; padding: 14px; border-radius: 14px; border: 1px solid var(--c-line); background: var(--c-surface); }
+.app-card.on { border-color: color-mix(in srgb, #16a34a 45%, var(--c-line)); }
+.app-h { display: flex; gap: 10px; align-items: center; }
+.app-h > div { display: grid; gap: 1px; }
+.app-h small { color: var(--c-muted); font-size: 12.5px; }
+.app-logo { width: 36px; height: 36px; flex: none; border-radius: 10px; display: grid; place-items: center; font-weight: 800; font-size: 18px; color: #fff; background: #1877f2; }
+.app-logo.googleads { background: conic-gradient(#ea4335 0 25%, #fbbc05 0 50%, #34a853 0 75%, #4285f4 0); }
+.app-st { display: flex; align-items: center; justify-content: space-between; }
+.app-help { font-size: 12.5px; color: var(--c-ink-2); }
+.app-help summary { cursor: pointer; color: #b45309; font-weight: 600; }
+.app-help ol { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
