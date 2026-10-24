@@ -54,7 +54,7 @@ export default function Ads() {
               <li className={s.meta ? 'done' : ''}><b>Connect Meta Ads</b> and pick your ad account — spend per ad comes in daily. {!s.meta && <Link to="/settings#apps">Connect →</Link>}</li>
               <li className={s.taggedAds ? 'done' : ''}><b>Add this to every ad</b> (Ads Manager → your ad → Tracking → URL parameters), so each lead and sale is matched to its ad:
                 <div className="ads-params"><code>{s.urlParams}</code><button className="btn ghost sm" onClick={copy}><Icon name="copy" size={14} /> Copy</button></div>
-                <small className="muted">Or ask Hive AI: “add the tracking parameters to all my Meta ads”.</small>
+                <small className="muted">Paste it once per ad — Meta fills in each ad’s own name and id when someone clicks.</small>
               </li>
               <li><b>Use one email or phone per person</b> on your forms and checkout — that’s how a lead today is joined to their purchase next month.</li>
             </ol>
