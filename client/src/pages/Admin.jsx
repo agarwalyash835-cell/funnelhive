@@ -15,7 +15,10 @@ export default function Admin() {
   const tab = sp.get('tab') || 'overview';
   // the admin panel needs 2-step login on (the server refuses it otherwise)
   const [tfa, setTfa] = useState(null);
-  useEffect(() => { api('/me').then((m) => setTfa(!!m.twoFactor)).catch(() => setTfa(true)); }, []);
+  const [isAdminUser, setIsAdmin] = useState(null);
+  useEffect(() => { api('/me').then((m) => { setIsAdmin(!!m.admin); setTfa(!!m.twoFactor); }).catch(() => { setIsAdmin(false); setTfa(true); }); }, []);
+  // not the platform's admin: nothing here exists for them (the server refuses every admin call too)
+  if (isAdminUser === false) return <Layout title="Page not found"><Panel><p className="muted">This page doesn’t exist. <Link to="/">Go to your dashboard</Link></p></Panel></Layout>;
   if (tfa === false) return (
     <Layout title="Admin" subtitle="Your platform: revenue, sellers and settings.">
       <Panel title="Two-factor authentication needed"><p>Turn on two-factor authentication to use the admin panel.</p><Link className="btn primary" to="/settings#security">Open Settings → Security</Link></Panel>

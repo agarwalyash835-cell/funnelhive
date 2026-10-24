@@ -28,6 +28,8 @@ export const isAgencyPlan = (u) => /^agency_/.test(u?.billing?.interval || u?.bi
 export function clientLimit(u) {
   if (!u) return 0;
   if (isAdmin(u)) return 1000;
+  // a client (sub-account) of an agency or partner can't have clients of its own: the hierarchy is one level deep
+  if (u.agencyId) return 0;
   if (u.agencyMaxClients) return u.agencyMaxClients;
   const b = u.billing || {}, max = platform().agency?.maxClients ?? 25;
   if (b.status === 'comped') return max;
@@ -121,6 +123,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
 
   app.get('/api/agency', auth, (req, res) => {
     if (req.actor) return res.status(403).json({ error: 'Switch to your own account to manage client accounts' });
+    if (req.user.agencyId) return res.status(404).json({ error: 'This page doesn’t exist.' }); // a sub-account has no agency tools
     const list = clientsOf(req.user.id).map((c) => ({ id: c.id, business: c.settings?.businessName || c.name, name: c.name, email: c.passwordSet ? c.email : null, invited: !!c.invitedAt, createdAt: c.createdAt, funnels: T.funnels.count({ userId: c.id }), stats: statsOf(c.id), report: `/report/${reportToken(c.id)}` }));
     res.json({ limit: clientLimit(req.user), used: list.length, plan: isAgencyPlan(req.user) ? 'agency' : req.user.billing?.status, clients: list, whiteLabel: req.user.settings?.whiteLabel || {} });
   });

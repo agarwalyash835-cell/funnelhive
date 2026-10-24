@@ -133,7 +133,8 @@ const navPrefs = () => { try { return { pinned: [], hidden: [], closed: [], ...J
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
 const allowed = (to, me) => {
   if (to === '/admin') return !!me?.admin;
-  if (!me?.workspace) return !(to === '/billing' && me?.billing?.agencyManaged);
+  // a sub-account (a client of an agency / partner) has no agency tools of its own; its billing page shows its plan
+  if (!me?.workspace) return !(to === '/agency' && me?.billing?.agencyManaged) && !(to === '/billing' && me?.billing?.agencyManaged && !me?.billing?.resold);
   if (to === '/billing' || to === '/agency') return false;
   if (me.workspace.funnelIds) return to === '/' || to === '/funnels'; // limited to some funnels: nothing account-wide
   if (me.workspace.custom) { // a custom role: the pages its areas can at least view (the server enforces it)
