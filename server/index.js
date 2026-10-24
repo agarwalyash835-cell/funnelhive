@@ -38,6 +38,7 @@ import { registerSchool, studentAccess } from './school.js';
 import { registerCrmKits } from './crmkits.js';
 import { registerVideo } from './video.js';
 import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId, cleanTrackingIds, trackingFor, funnelTrackingView } from './tracking.js';
+import { registerVault } from './vault.js';
 import { registerSales, issueInvoice, invoiceUrl, invoicingOf, cleanInvoicing, cleanBuyerGst, refundFromWebhook, INVOICING_DEFAULTS } from './sales.js';
 import { linkBase } from './products.js';
 import { registerBookings, confirmPaidBooking } from './bookings.js';
@@ -940,6 +941,7 @@ registerCrmKits(app, { auth, wrap, rateLimit, isTest, credits });
 registerVideo(app, { secret: SECRET, wrap, rateLimit, isTest, activeFor: studentAccess });
 registerTracking(app, { auth, wrap });
 registerSales(app, { auth, wrap, secret: SECRET, appUrl });
+registerVault(app, { auth, wrap, rateLimit, isTest, secret: SECRET });
 
 // ?limit=&cursor=&tab=&q=&funnel=&status=&days=&id= — filters, search and totals run over every order
 // (orderlist.js); "Show more" passes the cursor back. Without ?limit up to ORDERS_MAX of each, as before.

@@ -22,7 +22,7 @@ export function keyUser(token) {
   return { user, key: k, role: k.scope === 'read' ? 'viewer' : 'admin' };
 }
 // paths an API key never reaches, whatever its scope
-export const KEY_NEVER = /^\/api\/(keys|hive\/tokens|channels|google\/calendar|privacy$|me\/|auth\/|account|billing|admin|team)/;
+export const KEY_NEVER = /^\/api\/(vault|keys|hive\/tokens|channels|google\/calendar|privacy$|me\/|auth\/|account|billing|admin|team)/;
 
 const view = ({ hash, userId, ...k }) => k;
 const since = (req) => Math.max(0, Number(req.query.since) || 0);

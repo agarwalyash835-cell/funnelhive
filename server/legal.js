@@ -7,6 +7,7 @@
 import crypto from 'node:crypto';
 import { T, q, tx } from './db.js';
 import { eraseStudent } from './school.js';
+import { eraseContactFiles } from './vault.js';
 import { invoicingOf } from './sales.js';
 import { brand } from './platform.js';
 
@@ -165,6 +166,8 @@ export function eraseContact(userId, key) {
       n.payments = q("UPDATE payments SET data = json_set(data, '$.buyer', json('{}')) WHERE userId = ? AND lower(json_extract(data, '$.buyer.email')) = ?").run(userId, k).changes;
     }
   });
+  // vault files: unlinked; ones uploaded only for them (in "CRM uploads") are deleted (vault.js)
+  n.vaultFiles = eraseContactFiles(userId, k);
   return n;
 }
 

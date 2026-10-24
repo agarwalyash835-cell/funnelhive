@@ -55,6 +55,7 @@ const P = {
   refund: 'M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8M12 8v4l3 2',
   mail: 'M3 5h18v14H3zM3 6l9 7 9-7',
   receipt: 'M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2zM9 7h6M9 11h6M9 15h4',
+  vault: 'M4 4h16v16H4zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 9V7M12 17v-2M9 12H7M17 12h-2M4 8H2M4 16H2',
   bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
 };
 export const Icon = ({ name, size = 18, stroke = 2, className = '' }) => (
@@ -109,6 +110,7 @@ const PAGES = {
   '/school': ['bookmark', 'School', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
   '/contacts': ['users', 'CRM', 'Your leads, customers and pipeline — styled for your business (real estate, clinic, consultant…)'],
+  '/vault': ['vault', 'Vault', 'Private files by folder and contact, saved passwords and secure notes'],
   '/automations': ['flow', 'Automations', 'Follow-up emails and WhatsApp that run by themselves'],
   '/broadcasts': ['mail', 'Broadcasts', 'One-off emails to your list'],
   '/bookings': ['clock', 'Bookings', 'Your booking page, call types and calls'],
@@ -119,8 +121,8 @@ const PAGES = {
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
-const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/school', '/quotes']], ['Audience', ['/contacts', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
-const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/ads', '/school', '/contacts'];
+const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/school', '/quotes']], ['Audience', ['/contacts', '/vault', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
+const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/ads', '/school', '/contacts', '/vault'];
 const OPTIONAL = GROUPS.flatMap(([, l]) => l).filter((to) => !CORE.includes(to));
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
@@ -132,6 +134,7 @@ const allowed = (to, me) => {
   if (!me?.workspace) return !(to === '/billing' && me?.billing?.agencyManaged);
   if (to === '/billing' || to === '/agency') return false;
   if (me.workspace.funnelIds) return to === '/' || to === '/funnels'; // limited to some funnels: nothing account-wide
+  if (to === '/vault') return me.workspace.role !== 'viewer';
   return to !== '/settings' || ['admin', 'agency'].includes(me.workspace.role);
 };
 // a tool is in the menu when it's an everyday page, you use it, you pinned it, or you're on it — unless you hid it

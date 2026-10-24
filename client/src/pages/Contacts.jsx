@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Mail, Phone, MessageCircle, StickyNote, PhoneCall, ShoppingBag, Eye, LogIn, UserPlus, TrendingUp, TrendingDown, PackagePlus, ShoppingCart,
-  ArrowRightLeft, X, Plus, Sparkles, ArrowUp, Users, BadgeCheck, Sprout, IndianRupee, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, CalendarPlus, Upload, Download,
+  ArrowRightLeft, X, Plus, Sparkles, ArrowUp, Users, BadgeCheck, Sprout, IndianRupee, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, CalendarPlus, Upload, Download, Paperclip,
 } from 'lucide-react';
 import { api } from '../api';
 import { KitIcon } from '../blockIcons';
+import { ContactFiles } from '../vaultKit';
 import { Layout, Panel, Icon, Empty, Modal, toast, inr, num, ago, downloadCSV, confirmDialog, promptDialog } from '../ui';
 
 const LS = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
@@ -309,7 +310,7 @@ function Board({ pipe, filterQs, tick, onOpen, onMoved, kit, fields = {} }) {
 const TL = {
   visit: [Footprints, '#0ea5e9'], lead: [LogIn, '#6366f1'], created: [UserPlus, '#6366f1'], abandon: [ShoppingCart, '#f59e0b'], purchase: [ShoppingBag, '#16a34a'],
   bump: [PackagePlus, '#16a34a'], upsell: [TrendingUp, '#16a34a'], downsell: [TrendingDown, '#16a34a'], crosssell: [PackagePlus, '#16a34a'],
-  email: [Mail, '#8b5cf6'], whatsapp: [MessageCircle, '#22c55e'], call: [PhoneCall, '#0f766e'], note: [StickyNote, '#a16207'], meeting: [CalendarDays, '#0369a1'], stage: [ArrowRightLeft, '#64748b'],
+  email: [Mail, '#8b5cf6'], whatsapp: [MessageCircle, '#22c55e'], call: [PhoneCall, '#0f766e'], note: [StickyNote, '#a16207'], meeting: [CalendarDays, '#0369a1'], stage: [ArrowRightLeft, '#64748b'], file: [Paperclip, '#7c3aed'],
 };
 function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields }) {
   const [c, setC] = useState(null);
@@ -372,9 +373,11 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
               <button className={tab === 'timeline' ? 'on' : ''} onClick={() => setTab('timeline')}>Timeline</button>
               <button className={tab === 'details' ? 'on' : ''} onClick={() => setTab('details')}>Details</button>
               <button className={tab === 'orders' ? 'on' : ''} onClick={() => setTab('orders')}>Orders · {c.orderList.length}</button>
+              <button className={tab === 'files' ? 'on' : ''} onClick={() => setTab('files')}><Paperclip size={13} /> Files</button>
             </div>
             <div className="cp-body">
               {tab === 'timeline' && <><Composer c={c} ckey={ckey} onDone={refresh} /><Timeline items={c.timeline} ckey={ckey} onChanged={refresh} /></>}
+              {tab === 'files' && <ContactFiles ckey={ckey} onAdded={refresh} />}
               {tab === 'details' && <Details c={c} ckey={ckey} fields={fields} onSaved={refresh} onEditFields={onEditFields} />}
               {tab === 'orders' && (c.orderList.length ? c.orderList.map((o) => (
                 <div key={o.id} className="cp-order">

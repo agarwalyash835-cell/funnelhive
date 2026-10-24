@@ -147,6 +147,13 @@ const SCHEMA = {
   points: { cols: { userId: 0, studentId: 0, at: 0 }, index: [['userId', 'at'], ['studentId', 'at']] }, // gamification ledger
   certs: { cols: { userId: 0, studentId: 0, productId: 0, at: 0 }, unique: [['studentId', 'productId']], index: [['userId', 'at']] },
   vjobs: { cols: { status: 0, fileId: 0, at: 0 }, index: [['status', 'at'], ['fileId']] }, // course videos waiting to become protected streams
+  // the vault (vault.js): folders and files (also a CRM contact's Files tab), which contacts a file is linked to,
+  // share links, and saved passwords / secure notes (encrypted)
+  vaultFolders: { cols: { userId: 0, parentId: 0, at: 0 }, index: [['userId', 'parentId']] },
+  vaultFiles: { cols: { userId: 0, folderId: 0, size: 0, at: 0 }, index: [['userId', 'folderId', 'at'], ['userId', 'at']] },
+  vaultLinks: { cols: { userId: 0, fileId: 0, ckey: 0, at: 0 }, index: [['userId', 'ckey'], ['fileId']] },
+  vaultShares: { cols: { userId: 0, fileId: 0, hash: 0, expiresAt: 0, at: 0 }, unique: [['hash']], index: [['fileId']] },
+  vaultSecrets: { cols: { userId: 0, kind: 0, at: 0 }, index: [['userId', 'kind', 'at']] },
   snotes: { cols: { studentId: 0, read: (n) => bool(n.read), at: 0 }, index: [['studentId', 'at']] }, // a student's notifications
 };
 const COLS = Object.fromEntries(Object.entries(SCHEMA).map(([t, d]) => [t, Object.keys(d.cols)]));

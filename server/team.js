@@ -29,14 +29,14 @@ const OWNER_ONLY = /^\/api\/(billing|account|admin|auth\/|team\/(members|invite)
 // always fine: who am I, my workspaces, switching, leaving, the notification bell
 const ANY = /^\/api\/(me$|team\/(workspaces|switch|leave|accept)$|hive\/status$|notifications(\/read)?$)/;
 // secrets and account-wide settings: admins only (GET /api/channels itself only says what's connected)
-const SECRET = /^\/api\/(settings|webhooks|keys|adspend\/meta|v1\/hooks|hive\/tokens|channels\/|domains|demo|conversions\/[^/]+\/retry)/;
+const SECRET = /^\/api\/(vault\/secrets|settings|webhooks|keys|adspend\/meta|v1\/hooks|hive\/tokens|channels\/|domains|demo|conversions\/[^/]+\/retry)/;
 const WRITE = {
-  marketer: /^\/api\/(funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
-  sales: /^\/api\/(contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$|school\/(questions|posts|comments|students))/,
+  marketer: /^\/api\/(vault\/(files|folders|shares)|funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
+  sales: /^\/api\/(vault\/(files|folders|shares)|contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$|school\/(questions|posts|comments|students))/,
   viewer: null,
 };
 // reading anything AI-driven goes through the AI routes, which act as the owner: not for sales / viewers
-const NO_READ = { sales: /^\/api\/(hive\/threads|ai\/)/, viewer: /^\/api\/(hive\/threads|ai\/|contacts\/[^/]+$)/ };
+const NO_READ = { sales: /^\/api\/(hive\/threads|ai\/)/, viewer: /^\/api\/(hive\/threads|ai\/|contacts\/[^/]+(\/files)?$|vault)/ };
 
 export function allows(role, method, path) {
   if (ANY.test(path)) return true;

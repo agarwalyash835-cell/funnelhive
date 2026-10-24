@@ -8,7 +8,7 @@ import { platform } from './platform.js';
 import { decrypt } from './messaging.js';
 import { accessFor } from './billing.js';
 
-export const LIMIT_DEFAULTS = { funnels: 200, funnelsTrial: 20, storageMB: 5120, storageMBTrial: 500, broadcastTrialDaily: 50 };
+export const LIMIT_DEFAULTS = { funnels: 200, funnelsTrial: 20, storageMB: 5120, storageMBTrial: 500, broadcastTrialDaily: 50, vaultMB: 2048, vaultMBTrial: 200 };
 const MB = 1024 * 1024;
 
 const trialing = (u) => { const a = accessFor(u); return !a.admin && (a.status === 'trialing' || a.status === 'expired' && a.planStatus === 'trialing'); };
@@ -19,6 +19,7 @@ export function limitsFor(u) {
     funnels: o.funnels ?? (trial ? p.funnelsTrial : p.funnels),
     storageMB: o.storageMB ?? (trial ? p.storageMBTrial : p.storageMB),
     broadcastDaily: trial ? p.broadcastTrialDaily : null, // null: only the shared sender's own cap
+    vaultMB: o.vaultMB ?? (trial ? p.vaultMBTrial : p.vaultMB), // the vault's files (vault.js)
   };
 }
 // pages: the funnels' content and their restore points — kept in the database, so they count like files do

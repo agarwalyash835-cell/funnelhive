@@ -108,6 +108,7 @@ export function logRequest(req, res) {
 // "PUT /api/funnels/abc" → "Edited a funnel"
 const WHAT = [[/^POST \/api\/funnels$/, 'Created a funnel'], [/^PUT \/api\/funnels\//, 'Edited a funnel'], [/^DELETE \/api\/funnels\//, 'Deleted a funnel'], [/^POST \/api\/templates\/.+\/use/, 'Created a funnel from a template'], [/^POST \/api\/funnels\/.+\/duplicate/, 'Duplicated a funnel'],
   [/automations/, 'Changed an automation'], [/broadcasts\/.+\/send/, 'Sent a broadcast'], [/broadcasts/, 'Changed a broadcast'], [/^POST \/api\/orders\/.+\/refund/, 'Refunded an order'], [/orders\/.+\/(fulfil|cod)/, 'Updated an order'],
+  [/vault\/secrets\/.+\/reveal/, 'Revealed a saved password or note'], [/vault\/secrets/, 'Changed saved passwords'], [/contacts\/.+\/files|vault/, 'Changed vault files'],
   [/^DELETE \/api\/contacts\/[^/]+$/, 'Erased a contact'], [/contacts|pipelines|crm/, 'Updated contacts'], [/products/, 'Changed a product'], [/settings|channels|privacy|google|domains|keys|webhooks/, 'Changed settings'], [/team/, 'Changed the team'], [/calendars|bookings/, 'Changed bookings'], [/webinars/, 'Changed a webinar'], [/coupons/, 'Changed coupons']];
 const describe = (a) => WHAT.find(([re]) => re.test(`${a.method} ${a.path}`))?.[1] || `${a.method} ${a.path.replace('/api/', '')}`;
 
