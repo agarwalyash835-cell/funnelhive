@@ -3,8 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, fmtDate, impersonate } from '../api';
 import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { AreaChart } from '../charts';
+import { AdminPartners } from '../partnerKit';
 
-const TABS = [['overview', 'Overview'], ['sellers', 'Sellers'], ['invoices', 'Invoices'], ['settings', 'Plan & settings'], ['audit', 'Audit log']];
+const TABS = [['overview', 'Overview'], ['sellers', 'Sellers'], ['partners', 'Partners'], ['invoices', 'Invoices'], ['settings', 'Plan & settings'], ['audit', 'Audit log']];
 const STATUS = { trialing: ['Trial', 'warn'], active: ['Paying', 'ok'], past_due: ['Payment issue', 'bad'], cancelled: ['Cancelled', ''], expired: ['Expired', 'bad'], comped: ['Comped', 'ok'], suspended: ['Suspended', 'bad'], admin: ['Admin', ''] };
 const Pill = ({ s }) => <span className={`pill ${STATUS[s]?.[1] || ''}`}>{STATUS[s]?.[0] || s}</span>;
 const mb = (b) => (b > 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${Math.round(b / 1e6)} MB`);
@@ -25,6 +26,7 @@ export default function Admin() {
     <Layout title="Admin" subtitle="Your platform: revenue, sellers and settings." wide actions={<div className="seg">{TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setSp({ tab: k })}>{l}</button>)}</div>}>
       {tab === 'overview' && <Overview />}
       {tab === 'sellers' && <Sellers />}
+      {tab === 'partners' && <AdminPartners />}
       {tab === 'invoices' && <Invoices />}
       {tab === 'settings' && <PlatformSettings />}
       {tab === 'audit' && <Audit />}

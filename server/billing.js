@@ -32,6 +32,9 @@ export function accessFor(u, now = Date.now()) {
   if (u.agencyId && u.billing?.status !== 'suspended') {
     const a = T.users.get(u.agencyId);
     const x = accessFor(a, now);
+    // sold by a partner on one of its own plans (partners.js): the account's own plan decides, as long as the
+    // partner itself is in good standing (a wallet on hold for over 7 days pauses its accounts)
+    if (u.sub && a?.partner?.enabled) return resoldAccess(u, a, x, now);
     return { ...x, agencyManaged: true, agency: a?.settings?.whiteLabel?.brand || a?.settings?.businessName || a?.name || '', ...(x.ok ? {} : { reason: 'Your agency’s plan has ended — please contact them.' }) };
   }
   if (!u.billing) {
@@ -61,6 +64,29 @@ export function accessFor(u, now = Date.now()) {
   return out;
 }
 export const pagesLive = (u) => accessFor(u).pagesLive;
+// the plan a partner's sub-account is on (from the partner's storefront)
+export const resalePlan = (c, partner = c?.agencyId ? T.users.get(c.agencyId) : null) => (c?.sub && partner?.settings?.resale?.plans || []).find((p) => p.id === c.sub.planId) || null;
+function resoldAccess(u, a, x, now) {
+  const s = u.sub, p = platform();
+  const brand = a.settings?.whiteLabel?.brand || a.settings?.businessName || a.name || '';
+  let ok, endsAt = null, reason = '';
+  if (!x.ok || (a.partner.hold && now - a.partner.hold > 7 * DAY)) { ok = false; reason = `Your account with ${brand} is paused — please contact them.`; }
+  else switch (s.status) {
+    case 'comped': ok = true; break;
+    case 'trialing': endsAt = s.trialEndsAt || 0; ok = now < endsAt; break;
+    case 'active': endsAt = (s.periodEnd || 0) + p.graceDays * DAY; ok = now < endsAt; break;
+    default: endsAt = s.periodEnd || s.trialEndsAt || 0; ok = false;
+  }
+  const out = { ok, status: ok ? s.status : 'expired', planStatus: s.status, interval: s.interval || 'monthly', trialEndsAt: s.trialEndsAt || null, currentPeriodEnd: s.periodEnd || null, endsAt, agencyManaged: true, resold: true, agency: brand };
+  if (s.status === 'trialing' && ok) out.daysLeft = Math.max(0, Math.ceil((s.trialEndsAt - now) / DAY));
+  if (ok) out.pagesLive = true;
+  else {
+    out.pagesOfflineAt = (endsAt || now) + p.pagesOfflineAfterDays * DAY;
+    out.pagesLive = now < out.pagesOfflineAt;
+    out.reason = reason || (s.status === 'trialing' ? 'Your free trial has ended — choose a plan in Plan & billing.' : 'Your plan has ended — renew it in Plan & billing.');
+  }
+  return out;
+}
 
 // Writes are refused while an account is locked (it can still sign in, look around, pay and export)
 const OPEN_WHEN_LOCKED = /^\/api\/(billing|auth|admin|account)(\/|$)/;
@@ -80,6 +106,9 @@ export function creditLimit(u) {
   const a = accessFor(u);
   if (a.admin) return Infinity;
   if (u.creditLimit != null) return u.creditLimit; // set per account by an admin
+  // a partner's sub-account: its plan's monthly credits, plus credits it bought (packs) — those it already used
+  // this month are counted here too, so the month's limit doesn't shrink as packs are drawn down
+  if (a.resold) { const pl = resalePlan(u); const taken = u.extraTaken?.month === monthOf() ? u.extraTaken.n : 0; return (pl?.credits || 0) + (u.extraCredits || 0) + taken; }
   return a.planStatus === 'trialing' ? platform().aiCredits.trial : platform().aiCredits.paid;
 }
 export function creditsUsed(userId, month = monthOf()) {
@@ -96,8 +125,29 @@ export function creditsShort(u, n) {
 export function spendCredits(u, n) {
   const short = creditsShort(u, n), month = monthOf();
   if (short) return short;
+  const before = creditsUsed(u.id, month);
   q('INSERT INTO usage (k, userId, month, ai) VALUES (?, ?, ?, ?) ON CONFLICT(k) DO UPDATE SET ai = ai + excluded.ai').run(`${u.id}:${month}`, u.id, month, n);
+  if (u.sub && u.agencyId) resoldUsage(u, n, before, month);
   return null;
+}
+// a partner sub-account used n credits: beyond its plan's monthly credits they come out of the packs it bought, and
+// the partner's wallet pays the platform for them at its wholesale rate (one ledger row per partner per day)
+function resoldUsage(u, n, before, month) {
+  const a = T.users.get(u.agencyId);
+  if (!a?.partner?.enabled) return;
+  const plan = resalePlan(u, a)?.credits || 0;
+  const over = Math.max(0, before + n - plan) - Math.max(0, before - plan);
+  if (over > 0) T.users.update(u.id, (x) => {
+    x.extraCredits = Math.max(0, (x.extraCredits || 0) - over);
+    x.extraTaken = { month, n: (x.extraTaken?.month === month ? x.extraTaken.n : 0) + over };
+  });
+  const rate = Number(a.partner.creditRate) || 0;
+  if (!rate) return;
+  const day = new Date(Date.now() + TZ_OFFSET).toISOString().slice(0, 10), id = `ai-${a.id}-${day}`;
+  const cost = Math.round(n * rate) / 100; // the rate is ₹ per 100 credits
+  const ex = T.partnerLedger.get(id);
+  if (ex) T.partnerLedger.update(id, (x) => { x.amount = Math.round((x.amount - cost) * 100) / 100; x.credits = (x.credits || 0) + n; x.note = `AI credits used by your clients — ${day} (${x.credits.toLocaleString('en-IN')})`; });
+  else T.partnerLedger.insert({ id, partnerId: a.id, amount: -cost, kind: 'ai_credits', credits: n, note: `AI credits used by your clients — ${day} (${n})`, at: Date.now() });
 }
 export const usageSummary = (u) => { const limit = creditLimit(u); return { used: creditsUsed(u.id), limit: limit === Infinity ? null : limit, month: monthOf() }; };
 

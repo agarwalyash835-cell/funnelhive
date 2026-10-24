@@ -2682,3 +2682,24 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 @media (max-width: 640px) { .qt-top { flex-direction: column; } .qt-filters { grid-template-columns: 1fr; } }
 
 .qd-sw.qd-classic .qd-mini { border-top: 3px solid var(--qa, #4f46e5); } .qd-sw.qd-compact .qd-mini { border-top: 3px solid var(--qa, #4f46e5); } .qd-sw.qd-elegant .qd-mini em { background: var(--qa, #c2a36b); }
+
+/* partners: reselling console, plans to buy, admin */
+.pt-console { display: grid; gap: 16px; margin-bottom: 16px; }
+.note-bar.warn { background: #fdeee6; border-color: #f5c9b3; }
+.pt-plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.pt-plan { display: grid; gap: 6px; align-content: start; padding: 16px; border: 1px solid var(--c-line); border-radius: 14px; background: var(--c-surface); }
+.pt-plan.pack { background: var(--c-surface-2); border-style: dashed; }
+.pt-plan.mine { border-color: var(--c-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 14%, transparent); }
+.pt-plan.buy .btn { justify-self: start; margin-top: 6px; }
+.pt-plan-h { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.pt-plan-h b { font-size: 15.5px; }
+.pt-price { font-size: 22px; font-weight: 780; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.pt-price small { font-size: 13px; font-weight: 500; color: var(--c-muted); }
+.pt-margin { color: var(--c-ok, #15803d); font-size: 12px; font-weight: 600; }
+.pt-h4 { margin: 16px 0 8px; font-size: 14px; }
+.pt-row { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr)) auto auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--c-line); border-radius: 12px; margin-bottom: 8px; }
+.pt-row.pack { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; }
+.pt-row .fld { margin: 0; }
+.pt-def { display: flex; gap: 6px; align-items: center; font-size: 12.5px; padding-bottom: 10px; white-space: nowrap; }
+.pt-cost { padding-bottom: 12px; }
+@media (max-width: 760px) { .pt-row, .pt-row.pack { grid-template-columns: 1fr 1fr; } }

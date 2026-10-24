@@ -16,6 +16,7 @@ import { DAY, reportRange } from './time.js';
 import { scoreQuiz, resultView, quizCounts } from './quiz.js';
 import { registerAds } from './adtrack.js';
 import { registerQuoteTemplates } from './quotetpl.js';
+import { registerPartners, partnerForHost, attachSignup } from './partners.js';
 import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, popupCounts, bumpRate, campaigns, refundsTotal } from './analytics.js';
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
@@ -237,6 +238,9 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   if (g) return res.status(g.status).json({ error: g.error });
   const user = { id: uid(), email: email.toLowerCase(), name: String(name || email.split('@')[0]).slice(0, 80), hash: bcrypt.hashSync(password, 10), settings: { ...DEFAULT_SETTINGS }, emailVerified: false, pv: 0, createdAt: Date.now(), billing: newBilling() };
   try { T.users.insert(user); } catch { return res.status(409).json({ error: 'Email already registered' }); }
+  // signed up on a partner's own app domain: that partner's sub-account, on its default plan's trial
+  const partner = partnerForHost(req.hostname, brandForHost);
+  if (partner) attachSignup(user.id, partner);
   sendVerification(req, user);
   res.json({ token: signIn(req, user), user: pubUser(user) });
 }));
@@ -930,6 +934,7 @@ registerAutomations(app, { auth, secret: SECRET, appUrl, rateLimit, isTest, cred
 registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerAds(app, { auth });
 registerQuoteTemplates(app, { auth, wrap });
+registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerBroadcasts(app, { auth, rateLimit, isTest });
 registerTeam(app, { auth, sign, rateLimit, isTest });
 registerPlans(app, { auth, resolveToken });

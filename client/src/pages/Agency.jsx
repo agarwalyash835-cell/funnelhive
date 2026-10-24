@@ -4,6 +4,7 @@ import { api, setToken, loggedIn } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, num, inr, ago, confirmDialog, promptDialog } from '../ui';
 import { AuthShell } from './Auth';
 import { shareLink } from './Team';
+import { PartnerConsole } from '../partnerKit';
 
 const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
 const open = async (ownerId) => { try { const r = await api('/team/switch', 'POST', { ownerId }); setToken(r.token); location.href = '/'; } catch (e) { toast(e.message); } };
@@ -31,6 +32,7 @@ export default function Agency() {
             <div className="kpi"><span className="kpi-l">Leads (30 days)</span><b className="kpi-v">{num(total.leads)}</b></div>
             <div className="kpi"><span className="kpi-l">Client revenue (30 days)</span><b className="kpi-v">{inr(total.revenue)}</b></div>
           </div>
+          <PartnerConsole onChanged={load} />
           <Panel pad={false} title="Clients">
             {!d.clients.length ? <Empty icon="users" title="No client accounts yet" text="Each client gets their own account — funnels, contacts, payments, domains and data kept separate. You switch between them from the sidebar; they can log in too.">{d.limit > 0 && <button className="btn primary" onClick={() => setAdd(true)}>Add your first client</button>}</Empty> : (
               <div className="tbl-wrap"><table className="tbl">

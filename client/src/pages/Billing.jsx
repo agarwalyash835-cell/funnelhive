@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, loadRazorpay, fmtDate } from '../api';
 import { Layout, Panel, Icon, inr, num, toast, confirmDialog } from '../ui';
 import { stripeDialog, fmtMoney } from '../stripePay';
+import { ResoldBilling } from '../partnerKit';
 
 // billing country: India pays in ₹ (Razorpay, GST invoice); everyone else by card in USD / EUR / GBP (export invoice)
 const EURO = ['AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PT', 'SI', 'SK'];
@@ -43,6 +44,7 @@ export default function Billing() {
   const ip = b.intl?.all?.[cur] || {};
   const price = abroad ? { amount: ip[interval], perMonth: interval.endsWith('yearly') ? Math.round(ip[interval] / 12) : ip[interval] } : b.prices[interval];
   const money = (n) => (abroad ? fmtMoney(n, cur) : inr(n));
+  if (a.resold) return <Layout title="Plan & billing"><ResoldBilling /></Layout>;
   if (a.agencyManaged) return <Layout title="Plan & billing"><section className="bill-status st-active"><Icon name="check" size={20} /><div><b>This account is covered by {a.agency || 'your agency'}’s plan</b><small>Billing, invoices and plan changes are handled by your agency.</small></div></section></Layout>;
   const hasDetails = !!(b.details?.state || (b.details?.country && b.details.country !== 'IN'));
   const detailsOk = !!details?.name && (details.country !== 'IN' || !!details.state);

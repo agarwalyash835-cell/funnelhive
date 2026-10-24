@@ -100,7 +100,8 @@ const SCHEMA = {
   // one-off email / WhatsApp sends to a segment of contacts, and each recipient's delivery
   // team members: staff invited into a seller's workspace with a role
   members: { cols: { ownerId: 0, userId: 0, email: (m) => lower(m.email), status: 0, at: 0 }, unique: [['ownerId', 'email']], index: [['userId', 'status']] },
-  adspend: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // ad spend per campaign per day (Meta sync, CSV)
+  adspend: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] },
+  partnerLedger: { cols: { partnerId: 0, at: 0 }, index: [['partnerId', 'at']] }, // a partner's wallet: top-ups in, account fees and AI usage out // ad spend per campaign per day (Meta sync, CSV)
   activity: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // who changed what in an account
   apikeys: { cols: { userId: 0, hash: 0 }, unique: [['hash']], index: [['userId']] }, // public API keys (hashed)
   hooksubs: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // REST-hook subscriptions (Zapier & co.)
