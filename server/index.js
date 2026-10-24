@@ -13,10 +13,11 @@ import { templateList, getTemplate, matchTemplate } from './templates.js';
 import { applyActions, offlineChat } from './actions.js';
 import { abResult } from './stats.js';
 import { DAY, reportRange } from './time.js';
+import { scoreQuiz, resultView, quizCounts } from './quiz.js';
 import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, popupCounts, bumpRate, campaigns, refundsTotal } from './analytics.js';
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
-import { registerCrm } from './crm.js';
+import { registerCrm, ensureMeta } from './crm.js';
 import { orderPage } from './orderlist.js';
 import { initMessaging, registerChannels, sendEmail } from './messaging.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, registerRazorpaySettings } from './razorpay.js';
@@ -897,13 +898,14 @@ app.get('/api/funnels/:id/analytics', auth, (req, res) => {
   if (!f) return;
   const { days, from, to } = range(req);
   const scope = { funnelId: f.id };
-  const count = stepCounts(f.id, from), pops = popupCounts(f.id, from);
+  const count = stepCounts(f.id, from), pops = popupCounts(f.id, from), quizzes = quizCounts(f.id, from);
   res.json({
     days, totals: totals(scope, from, to), prev: totals(scope, from - days * DAY, from), series: series(scope, from, days, range(req).off), sources: sources(scope, from), byKind: revenueByKind(scope, from),
     bumpRate: bumpRate(f.id, from), campaigns: campaigns(scope, from, to), refunded: refundsTotal(scope, from, to),
     steps: f.steps.map((s) => ({
       id: s.id, name: s.name, type: s.type, views: count(s.id, 'view'), conversions: count(s.id, 'convert'),
       popups: (s.popups || []).map((p) => ({ id: p.id, name: p.name, trigger: p.trigger?.type || 'exit', ...pops(s.id, p.id) })),
+      quizzes: [...allBlocks(s), ...(s.popups || []).flatMap((p) => p.blocks)].filter((b) => b.type === 'quiz').map(quizzes),
       ab: s.ab?.enabled ? (() => {
         const A = { views: count(s.id, 'view', 'A'), conversions: count(s.id, 'convert', 'A') };
         const B = { views: count(s.id, 'view', 'B'), conversions: count(s.id, 'convert', 'B') };
@@ -1277,6 +1279,13 @@ app.post('/api/public/:slug/event', (req, res) => {
   if (!isPreview(req) && ['popup_view', 'popup_convert'].includes(type) && f.steps.find((s) => s.id === stepId)?.popups?.some((p) => p.id === popupId)) {
     Events.add({ userId: f.userId, funnelId: f.id, stepId, type, variant: popupId, source: String(source || 'direct').slice(0, 40), visitor: typeof visitor === 'string' ? visitor.slice(0, 64) : null, at: Date.now() });
   }
+  // a quiz started / a question answered: the block id (and question number) in the variant column
+  if (!isPreview(req) && ['quiz_start', 'quiz_answer'].includes(type)) {
+    const st = f.steps.find((s) => s.id === stepId);
+    const qb = st && [...allBlocks(st), ...(st.popups || []).flatMap((p) => p.blocks)].find((b) => b.type === 'quiz' && b.id === req.body.blockId);
+    const n = Number(req.body.question);
+    if (qb && (type === 'quiz_start' || (Number.isInteger(n) && n >= 0 && n < (qb.props.questions || []).length))) Events.add({ userId: f.userId, funnelId: f.id, stepId, type, variant: type === 'quiz_start' ? qb.id : `${qb.id}:${n}`, source: String(source || 'direct').slice(0, 40), visitor: typeof visitor === 'string' ? visitor.slice(0, 64) : null, at: Date.now() });
+  }
   res.json({ ok: true });
 });
 
@@ -1309,6 +1318,11 @@ app.post('/api/public/:slug/lead', (req, res) => {
   const rules = formBlocks.filter((b) => b.type === 'form').flatMap((b) => (b.props.fields || []).filter((fd) => fd.reject).map((fd) => [fd.label, String(fd.reject).split(',').map(low).filter(Boolean)]));
   // an applicant who skips a qualifying question doesn't pass it
   const qualified = rules.length ? !rules.some(([label, bad]) => !low(fields[label]) || bad.includes(low(fields[label]))) : undefined;
+  // a quiz: the outcome is scored here from the block as saved; the answers become the lead's fields
+  const quizBlock = req.body.quiz && typeof req.body.quiz === 'object' ? formBlocks.find((b) => b.type === 'quiz' && b.id === req.body.quiz.blockId) : null;
+  const quiz = quizBlock ? scoreQuiz(quizBlock, req.body.quiz.picks) : null;
+  if (req.body.quiz && !quiz) return res.status(400).json({ error: 'Please answer the questions first' });
+  if (quiz) for (const x of quiz.answers) if (Object.keys(fields).length < 30) fields[x.q.slice(0, 80)] = x.a;
   const attr = cleanAttr(req.body.attr);
   // consent (DPDP): required when the seller asks for a ticked box; recorded with the wording shown
   const owner = ownerOf(f);
@@ -1316,6 +1330,7 @@ app.post('/api/public/:slug/lead', (req, res) => {
   const consent = req.body.consent === true || req.body.consent === false ? { given: req.body.consent, at: Date.now(), text: consentLine(owner).slice(0, 400) } : null;
   const lead = { id: uid(), userId: f.userId, funnelId: f.id, stepId, ...(consent ? { consent } : {}), email: cleanEmail, name: String(name || '').slice(0, 120), phone: cleanPhone, source: String(source || 'direct').slice(0, 40), visitor: visitorOf(req), at: Date.now(), ...(Object.keys(fields).length ? { fields } : {}), ...(qualified !== undefined ? { qualified } : {}), ...(attr ? { attr } : {}) };
   // the browser reports the same Lead with this id, so Meta counts it once
+  if (quiz) lead.quiz = { outcome: quiz.outcome, score: quiz.score, tags: quiz.tags };
   const eventId = safeEventId(req.body.eventId) || `lead-${lead.id}`;
   let access = null, webinar = null;
   if (isPreview(req)) webinar = previewSession(f, step, allBlocks);
@@ -1328,12 +1343,29 @@ app.post('/api/public/:slug/lead', (req, res) => {
     const gift = formBlocks.find((b) => (b.type === 'optin' || b.type === 'form') && b.props?.productId)?.props.productId;
     if (gift && cleanEmail && qualified !== false) access = deliver({ f, owner: ownerOf(f), email: cleanEmail, name: lead.name, phone: cleanPhone, grants: [{ productId: gift }], leadId: lead.id, base: appUrl(req) });
     fireWebhook(f.userId, 'lead.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}) });
+    if (quiz) quizDone(f, stepId, quizBlock, quiz, lead, visitorOf(req), String(source || 'direct').slice(0, 40));
     fireAutomation(f.userId, 'lead', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { accessLink: access.library } : {}) });
     trackServer(f.userId, { name: 'Lead', funnelId: f.id, id: eventId, buyer: lead, tk: cleanTk(req.body.tk, req) });
     notify(f.userId, { kind: 'lead', title: `${qualified === undefined ? 'New lead' : qualified ? 'New application (qualified)' : 'New application (not a fit)'} · ${lead.name || cleanEmail || cleanPhone} · ${f.name}`, body: [cleanEmail, cleanPhone].filter(Boolean).join(' · '), link: `/contacts/${encodeURIComponent(contactKey(cleanEmail, cleanPhone))}`, ckey: contactKey(cleanEmail, cleanPhone) });
   }
-  res.json({ ok: true, eventId, ...(qualified !== false ? { pass: stepPass(f, 'lead') } : {}), ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
+  res.json({ ok: true, eventId, ...(quiz ? { quiz: resultView(quizBlock, quiz) } : {}), ...(qualified !== false ? { pass: stepPass(f, 'lead') } : {}), ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
 });
+
+// a finished quiz: counted for the quiz report, its tags put on the contact, and the “finishes a quiz” automations
+function quizDone(f, stepId, block, quiz, lead, visitor, source) {
+  Events.add({ userId: f.userId, funnelId: f.id, stepId, type: 'quiz_done', variant: `${block.id}:${quiz.index}`, source, visitor: visitor || null, at: Date.now() });
+  const key = contactKey(lead.email, lead.phone);
+  if (key && quiz.tags.length) {
+    const m = ensureMeta(f.userId, key);
+    const had = new Set((m.tags || []).map((t) => t.toLowerCase()));
+    const added = quiz.tags.filter((t) => !had.has(t.toLowerCase()));
+    m.tags = [...(m.tags || []), ...added].slice(0, 30);
+    m.activities.push({ id: uid(), at: Date.now(), type: 'note', title: `Quiz result: ${quiz.outcome}`, text: quiz.answers.map((x) => `${x.q}: ${x.a}`).join('\n').slice(0, 2000) });
+    T.crm.put(m);
+    for (const tag of added) fireAutomation(f.userId, 'tag', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, tag });
+  }
+  fireAutomation(f.userId, 'quiz', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source, outcome: quiz.outcome, score: quiz.score });
+}
 
 // An abandoned checkout: an email, or only a valid phone number (WhatsApp follow-up), and no order yet.
 // Kept only when the checkout showed its notice ("we may remind you about this order") and consent wasn't refused (DPDP)

@@ -51,6 +51,19 @@ export const BLOCK_TYPES = {
   spacer: { label: 'Spacer', fields: [['height', NUM, null, 'Height in pixels']], defaults: { height: 48 } },
   divider: { label: 'Divider', fields: [['style', 'select', [['line', 'Solid line'], ['dashed', 'Dashed'], ['dots', 'Dots']]]], defaults: { style: 'line' } },
   html: { label: 'Custom code / embed', fields: [['code', 'code', null, 'Paste HTML or an embed code (Calendly, Typeform, Google Maps, Razorpay button…). It runs in a secure sandbox.'], ['height', NUM, null, '0 = size automatically'], ['title', T, null, 'Short description for screen readers']], defaults: { code: '', height: 0, title: 'Embedded content' } },
+  quiz: { label: 'Quiz', fields: [['title', T], ['subtitle', T], ['startText', T, null, 'Start button on the intro screen (empty = start at question 1)'], ['image', T], ['questions', 'quizquestions'], ['scoring', 'select', [['outcome', 'Each answer points to a result — most votes wins'], ['points', 'Add up points — score ranges pick the result']]], ['outcomes', 'quizoutcomes'], ['contact', 'select', [['both', 'Ask for email and WhatsApp'], ['email', 'Ask for email'], ['phone', 'Ask for WhatsApp number']]], ['askName', B], ['gateTitle', T], ['gateText', T], ['buttonText', T], ['showScore', B, null, 'Show the points score on the result'], ['note', T]], defaults: {
+    title: 'Which plan is *right for you*?', subtitle: 'Answer 3 quick questions — get your personal recommendation in 30 seconds.', startText: 'Start the quiz', image: '', scoring: 'outcome', contact: 'both', askName: true,
+    gateTitle: 'Your result is ready!', gateText: 'Where should we send your personalised plan?', buttonText: 'Show my result', showScore: false, note: 'Takes 30 seconds · Free',
+    questions: [
+      { q: 'What’s your main goal right now?', answers: [{ text: 'Just getting started', outcome: 0 }, { text: 'Growing steadily', outcome: 1 }, { text: 'Scaling fast', outcome: 2 }] },
+      { q: 'How much time can you give each week?', answers: [{ text: 'Under 2 hours', outcome: 0 }, { text: '2–5 hours', outcome: 1 }, { text: '5+ hours', outcome: 2 }] },
+      { q: 'What’s your budget?', answers: [{ text: 'Under ₹5,000', outcome: 0 }, { text: '₹5,000 – ₹25,000', outcome: 1 }, { text: '₹25,000+', outcome: 2, tag: 'high-budget' }] },
+    ],
+    outcomes: [
+      { title: 'The Starter Path', body: 'You need a simple, guided start. Our starter course gets you your first results in 30 days.', buttonText: 'See the starter course', url: '', tag: 'quiz-starter' },
+      { title: 'The Growth Path', body: 'You have the basics — now you need a system. Our growth programme shows you how.', buttonText: 'See the growth programme', url: '', tag: 'quiz-growth' },
+      { title: 'The Done-With-You Path', body: 'You’re ready to scale. Book a free strategy call and we’ll map out your next 90 days.', buttonText: 'Book my free call', url: '', tag: 'quiz-scale' },
+    ] } },
   form: { label: 'Form', fields: [['productId', 'product', null, 'Free product sent on submit (not to applicants marked “not a fit”)'], ['title', T], ['subtitle', T], ['fields', 'formfields'], ['buttonText', T], ['after', 'select', [['message', 'Show a thank-you message'], ['next', 'Go to the next step']]], ['successMessage', T], ['rejectMessage', LONG, null, 'Shown to applicants whose answers mean “not a fit” (set per question in Form fields)'], ['note', T]], defaults: { title: 'Tell us about yourself', subtitle: 'We’ll get back to you within 24 hours.', fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }, { label: 'WhatsApp number', type: 'tel', required: false }, { label: 'What do you need help with?', type: 'select', options: 'Getting started, Pricing, Something else', required: false }], buttonText: 'Send', after: 'message', successMessage: 'Thank you! We’ll be in touch shortly.', note: '🔒 We never share your details.' } },
   text: { label: 'Text', fields: [['title', T], ['body', LONG]], defaults: { title: 'Heading', body: 'Your copy here.' } },
   countdown: { label: 'Countdown', fields: [['label', T], ['mode', 'select', [['evergreen', 'Each visitor gets their own time — it never restarts'], ['fixed', 'Ends at a fixed date and time'], ['session', 'Counts down to the next live webinar session']]], ['endsAt', 'datetime', null, 'When the offer really ends (your time zone)'], ['minutes', NUM, null, 'Minutes from the visitor’s first visit'], ['endedText', T, null, 'Shown once the time is up'], ['hideEnded', B, null, 'Hide the timer once it ends']], defaults: { label: 'Offer ends in', mode: 'fixed', endsAt: 0, minutes: 15, endedText: 'Offer ended' } },
@@ -99,10 +112,10 @@ export const BLOCK_GROUPS = [
   ['Essentials', ['section', 'hero', 'text', 'image', 'gallery', 'video', 'stats', 'cta', 'spacer', 'divider', 'html']],
   ['Website', ['navbar', 'footer']],
   ['Persuasion', ['problem', 'features', 'steps', 'compare', 'testimonials', 'mentor', 'bonuses', 'guarantee', 'faq']],
-  ['Sell', ['pricing', 'optin', 'form', 'booking', 'checkout', 'offer', 'crosssell', 'thankyou']],
+  ['Sell', ['pricing', 'optin', 'form', 'quiz', 'booking', 'checkout', 'offer', 'crosssell', 'thankyou']],
   ['FOMO & urgency', ['hellobar', 'countdown', 'livecount', 'stock', 'proof', 'exitpopup', 'stickybar', 'whatsapp']],
 ];
-export const BLOCK_ICONS = { navbar: '🧭', footer: '🔚', section: '🧱', image: '🖼️', gallery: '🎞️', spacer: '↕️', divider: '➖', html: '🧩', form: '🗒️', hero: '🦸', text: '📝', video: '🎬', stats: '📊', cta: '📣', problem: '😣', features: '✨', steps: '🪜', compare: '⚖️', testimonials: '💬', mentor: '🧑‍🏫', bonuses: '🎁', guarantee: '🛡️', faq: '❓', pricing: '💰', optin: '📧', checkout: '💳', offer: '⬆️', crosssell: '🛍️', thankyou: '🎉', booking: '📅', hellobar: '📢', countdown: '⏳', livecount: '👀', stock: '📦', proof: '🔔', exitpopup: '🚪', stickybar: '📌', whatsapp: '💚' };
+export const BLOCK_ICONS = { navbar: '🧭', footer: '🔚', section: '🧱', image: '🖼️', gallery: '🎞️', spacer: '↕️', divider: '➖', html: '🧩', form: '🗒️', quiz: '🧩', hero: '🦸', text: '📝', video: '🎬', stats: '📊', cta: '📣', problem: '😣', features: '✨', steps: '🪜', compare: '⚖️', testimonials: '💬', mentor: '🧑‍🏫', bonuses: '🎁', guarantee: '🛡️', faq: '❓', pricing: '💰', optin: '📧', checkout: '💳', offer: '⬆️', crosssell: '🛍️', thankyou: '🎉', booking: '📅', hellobar: '📢', countdown: '⏳', livecount: '👀', stock: '📦', proof: '🔔', exitpopup: '🚪', stickybar: '📌', whatsapp: '💚' };
 
 // Text that used to be fixed in the design. Kept as defaults so existing pages look the same,
 // but every piece can now be edited or removed (empty string = removed).
@@ -1443,6 +1456,106 @@ function FormBlock({ p, ctx }) {
   );
 }
 
+// ---------- quiz funnel: questions → contact form → a result with its own offer ----------
+// The result is worked out on the server from the saved quiz (index.js → quiz.js) and comes back with the sign-up.
+function QuizBlock({ p, ctx, block }) {
+  const qs = p.questions || [], outs = p.outcomes || [];
+  const intro = !!(p.startText || '').trim();
+  const [stage, setStage] = useState(intro ? 'intro' : 'q');
+  const [i, setI] = useState(0);
+  const [picks, setPicks] = useState([]);
+  const [v, setV] = useState({ name: ctx.prefill?.name || '', email: ctx.prefill?.email || '', phone: ctx.prefill?.phone || '' });
+  const [agree, setAgree] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [result, setResult] = useState(null);
+  const started = useRef(false), moving = useRef(false);
+  const ev = (type, question) => { if (ctx.live && !ctx.preview) ctx.onQuizEvent?.(block?.id, type, question); };
+  const begin = () => { if (!started.current) { started.current = true; ev('quiz_start'); } };
+  const cur = qs[i];
+  const chosen = picks[i] || [];
+  const nextQ = (list = picks) => {
+    ev('quiz_answer', i);
+    setPicks(list);
+    if (i + 1 < qs.length) setI(i + 1); else setStage('gate');
+  };
+  const pick = (n) => {
+    begin();
+    const list = [...picks];
+    if (cur.multi) { list[i] = chosen.includes(n) ? chosen.filter((x) => x !== n) : [...chosen, n]; setPicks(list); return; }
+    if (moving.current) return; // one tap per question: the next one shows in a moment
+    moving.current = true;
+    list[i] = [n];
+    setPicks(list);
+    setTimeout(() => { moving.current = false; nextQ(list); }, 180);
+  };
+  const ask = p.contact || 'email';
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr('');
+    if (!ctx.live) { setResult({ index: 0, ...(outs[0] || {}) }); setStage('result'); return; } // the editor previews the first result
+    setBusy(true);
+    try {
+      const r = await ctx.onForm?.({ name: v.name, email: ask === 'phone' ? '' : v.email, phone: ask === 'email' ? '' : v.phone, quiz: { blockId: block?.id, picks }, ...consentOf(ctx, agree) });
+      setResult(r?.quiz || { index: 0, ...(outs[0] || {}) });
+      setStage('result');
+    } catch (x) { setErr(x.message || 'Something went wrong — please try again.'); }
+    setBusy(false);
+  };
+  if (!qs.length || !outs.length) return ctx.editable ? <Sec type="quiz"><div className="pc quiz-card"><p className="sub">Add questions and results to this quiz in the panel on the right.</p></div></Sec> : null;
+  const pct = stage === 'q' ? Math.round((i / qs.length) * 100) : 100;
+  const pics = cur && (cur.answers || []).some((a) => a.image);
+  return (
+    <Sec type="quiz" id={ctx.editable ? undefined : 'quiz'}>
+      <div className="pc quiz-card">
+        {(stage === 'q' || stage === 'gate') && <div className="quiz-prog"><span style={{ width: `${pct}%` }} /></div>}
+        {stage === 'intro' && <div className="quiz-intro">
+          {p.image && <img className="quiz-hero" src={p.image} alt="" loading="lazy" />}
+          <E ctx={ctx} k="title" v={p.title} as="h2" isRich />
+          {p.subtitle && <E ctx={ctx} k="subtitle" v={p.subtitle} as="p" className="sub" />}
+          <Btn big ctx={ctx} k="startText" onClick={() => { begin(); setStage('q'); }}>{p.startText}</Btn>
+          {p.note && <p className="secure">{p.note}</p>}
+        </div>}
+        {stage === 'q' && cur && <div className="quiz-q" key={i}>
+          <small className="quiz-n">{tr(ctx.lang, 'Question')} {i + 1} / {qs.length}</small>
+          <h3>{cur.q}</h3>
+          {cur.multi && <p className="sub">{tr(ctx.lang, 'Pick all that apply')}</p>}
+          <div className={`quiz-as ${pics ? 'pics' : ''}`}>
+            {(cur.answers || []).map((a, n) => (
+              <button type="button" key={n} className={`quiz-a ${chosen.includes(n) ? 'on' : ''}`} onClick={() => pick(n)}>
+                {a.image && <img src={a.image} alt="" loading="lazy" />}
+                <span>{a.text}</span>
+              </button>
+            ))}
+          </div>
+          <div className="quiz-nav">
+            {(i > 0 || intro) ? <button type="button" className="link-btn" onClick={() => (i > 0 ? setI(i - 1) : setStage('intro'))}>← {tr(ctx.lang, 'Back')}</button> : <span />}
+            {cur.multi && <Btn disabled={!chosen.length} onClick={() => nextQ()}>{tr(ctx.lang, 'Next')}</Btn>}
+          </div>
+        </div>}
+        {stage === 'gate' && <form className="quiz-gate" onSubmit={submit}>
+          <h3>{p.gateTitle || tr(ctx.lang, 'Your result is ready!')}</h3>
+          {p.gateText && <p className="sub">{p.gateText}</p>}
+          {p.askName !== false && <input required placeholder={tr(ctx.lang, 'Your name')} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} autoComplete="name" />}
+          {ask !== 'phone' && <input required type="email" placeholder={tr(ctx.lang, 'Your email')} value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} autoComplete="email" />}
+          {ask !== 'email' && <input required type="tel" placeholder={tr(ctx.lang, 'WhatsApp number')} value={v.phone} onChange={(e) => setV({ ...v, phone: e.target.value })} autoComplete="tel" />}
+          {err && <p className="c-err">{err}</p>}
+          <Consent ctx={ctx} checked={agree} onChange={setAgree} />
+          <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Sending…') : p.buttonText || tr(ctx.lang, 'Show my result')}</Btn>
+          <button type="button" className="link-btn" onClick={() => { setStage('q'); setI(qs.length - 1); }}>← {tr(ctx.lang, 'Back')}</button>
+        </form>}
+        {stage === 'result' && result && <div className="quiz-result">
+          {result.image && <img className="quiz-hero" src={result.image} alt="" loading="lazy" />}
+          <small className="quiz-n">{tr(ctx.lang, 'Your result')}{result.score != null ? ` · ${result.score}` : ''}</small>
+          <h2>{result.title}</h2>
+          {result.body && <p className="sub quiz-body">{result.body}</p>}
+          {result.buttonText && (result.url ? <Btn big ctx={ctx} link={{ href: result.url }}>{result.buttonText}</Btn> : <Btn big onClick={() => ctx.onFormNext?.()}>{result.buttonText}</Btn>)}
+        </div>}
+      </div>
+    </Sec>
+  );
+}
+
 // ---------- custom sections: columns of individual elements ----------
 export const LAYOUTS = [['1', 'One column'], ['1-1', 'Two equal columns'], ['2-1', 'Wide + narrow'], ['1-2', 'Narrow + wide'], ['1-1-1', 'Three columns'], ['1-1-1-1', 'Four columns']];
 const LAYOUT_COLS = { 1: ['1fr'], '1-1': ['1fr', '1fr'], '2-1': ['2fr', '1fr'], '1-2': ['1fr', '2fr'], '1-1-1': ['1fr', '1fr', '1fr'], '1-1-1-1': ['1fr', '1fr', '1fr', '1fr'] };
@@ -1611,6 +1724,7 @@ function renderBlock(block, ctx) {
     case 'divider': return <Sec type="divider"><hr className={`el-hr ${p.style || 'line'}`} /></Sec>;
     case 'html': return <HtmlEmbed p={p} ctx={ctx} />;
     case 'form': return <FormBlock p={p} ctx={ctx} />;
+    case 'quiz': return <QuizBlock p={p} ctx={ctx} block={block} />;
     case 'hero': return <Hero p={p} ctx={ctx} />;
     case 'stats': return <Stats p={p} ctx={ctx} />;
     case 'problem': return <Problem p={p} ctx={ctx} />;

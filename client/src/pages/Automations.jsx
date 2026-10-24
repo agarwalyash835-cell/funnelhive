@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Clock, Mail, MessageCircle, Tag, ArrowRightLeft, Webhook, BellRing, Zap, Plus, Trash2, ChevronUp, ChevronDown, Copy, UserPlus,
   ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass, KeyRound, StickyNote, GripVertical, Search, X, GraduationCap, BadgeCheck, Award, MessagesSquare, Eye, FileX,
-  CalendarCheck, CalendarX, Target, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX,
+  CalendarCheck, CalendarX, Target, ListTodo, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX,
 } from 'lucide-react';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
@@ -40,14 +40,14 @@ const STEP = {
   exit: { label: 'End automation', icon: CircleStop, color: '#ef4444' },
 };
 const TRIGGER_ICON = {
-  lead: UserPlus, purchase: ShoppingBag, offer: TrendingUp, abandoned: ShoppingCart, refund: Undo2, renewal: RefreshCw, payment_failed: CreditCard, shipped: Truck,
+  lead: UserPlus, quiz: ListTodo, purchase: ShoppingBag, offer: TrendingUp, abandoned: ShoppingCart, refund: Undo2, renewal: RefreshCw, payment_failed: CreditCard, shipped: Truck,
   booking: CalendarCheck, booking_cancelled: CalendarX, webinar_registered: Presentation, webinar_attended: UserCheck, webinar_missed: UserX,
   stage: Kanban, tag: Tag, field: PenLine, stuck: Hourglass, date: CalendarDays, inbound: Link2, manual: Hand,
   student_joined: GraduationCap, quiz_passed: BadgeCheck, course_completed: Award, community_post: MessagesSquare, quote_viewed: Eye, quote_declined: FileX,
 };
 // the pickers: grouped like Zapier, with a line on what each one is for
 const TRIGGER_GROUPS = [
-  ['Leads & forms', ['lead', 'inbound', 'manual']],
+  ['Leads & forms', ['lead', 'quiz', 'inbound', 'manual']],
   ['Sales & payments', ['purchase', 'offer', 'abandoned', 'refund', 'renewal', 'payment_failed', 'shipped']],
   ['CRM', ['stage', 'stuck', 'field', 'tag', 'date']],
   ['Calls & webinars', ['booking', 'booking_cancelled', 'webinar_registered', 'webinar_attended', 'webinar_missed']],
@@ -55,7 +55,7 @@ const TRIGGER_GROUPS = [
   ['Quotes', ['quote_viewed', 'quote_declined']],
 ];
 const TRIGGER_HELP = {
-  lead: 'An opt-in or form on a funnel is filled in', inbound: 'Zapier, Pabbly, Make or Google Forms sends you a contact', manual: 'You add contacts by hand or in bulk',
+  lead: 'An opt-in or form on a funnel is filled in', quiz: 'A quiz funnel is finished — any result, or one result', inbound: 'Zapier, Pabbly, Make or Google Forms sends you a contact', manual: 'You add contacts by hand or in bulk',
   purchase: 'A checkout, quote or booking is paid', offer: 'An upsell, downsell or add-on is accepted', abandoned: 'Checkout started but not paid', refund: 'An order is refunded',
   renewal: 'A membership renews or an instalment is paid', payment_failed: 'A renewal or instalment fails', shipped: 'An order gets a courier and tracking number',
   booking: 'A call is booked on your calendar', booking_cancelled: 'A booked call is cancelled', webinar_registered: 'Someone registers for a webinar',
@@ -426,6 +426,7 @@ function Builder({ id }) {
     if (t.type === 'stage') return stageName(t.pipelineId, t.stageId) ? `Moves to ${stageName(t.pipelineId, t.stageId)}` : 'Choose a stage';
     if (t.type === 'stuck') return stageName(t.pipelineId, t.stageId) ? `${t.days || 7} days in ${stageName(t.pipelineId, t.stageId)}` : 'Choose a stage';
     if (t.type === 'tag') return t.tag ? `Tag “${t.tag}”` : 'Choose a tag';
+    if (t.type === 'quiz' && t.outcome) return `Result: ${t.outcome}`;
     if (t.type === 'field') return t.fieldId ? `${fieldName(t.fieldId)}${t.value ? ` → ${t.value}` : ' changes'}` : 'Choose a field';
     if (t.type === 'date') return t.fieldId ? `${!t.offsetDays ? 'On' : `${Math.abs(t.offsetDays)} days ${t.offsetDays < 0 ? 'before' : 'after'}`} ${fieldName(t.fieldId)}` : 'Choose a date field';
     if (t.funnelId) return funnels.find((f) => f.id === t.funnelId)?.name || '';
@@ -544,7 +545,7 @@ function Builder({ id }) {
   const triggerEditor = () => (
     <div className="zf-form">
       <button className="zf-pick" onClick={() => setPicker({ mode: 'trigger' })}><span className="zf-ic" style={{ '--sc': '#f59e0b' }}><TI size={16} /></span><span><b>{meta.triggers[a.trigger.type]}</b><small>Change trigger</small></span></button>
-      {['lead', 'purchase', 'offer', 'abandoned'].includes(a.trigger.type) && (
+      {['lead', 'quiz', 'purchase', 'offer', 'abandoned'].includes(a.trigger.type) && (
         <label>Funnel<select value={a.trigger.funnelId || ''} onChange={(e) => setTrigger({ funnelId: e.target.value || undefined })}><option value="">Any funnel</option>{funnels.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
       )}
       {COURSE_TRIGGERS.includes(a.trigger.type) && a.trigger.type !== 'community_post' && (
@@ -559,6 +560,7 @@ function Builder({ id }) {
         <label>After<div className="au-inline"><input type="number" min="1" max="365" value={a.trigger.days || 7} onChange={(e) => setTrigger({ days: e.target.value })} /> days in this stage</div></label>
         <p className="hint">Counts from when they were moved into the stage. Runs once each time they enter it.</p>
       </>}
+      {a.trigger.type === 'quiz' && <><label>Result<input value={a.trigger.outcome || ''} onChange={(e) => setTrigger({ outcome: e.target.value })} placeholder="Any result (leave empty) — or e.g. The Starter Path" /></label><p className="hint">Use {'{{quiz_result}}'} in messages for the result they got. Answer tags (set in the quiz) also start “A tag is added” automations.</p></>}
       {a.trigger.type === 'tag' && <label>Tag<input value={a.trigger.tag || ''} onChange={(e) => setTrigger({ tag: e.target.value })} placeholder="e.g. webinar" /></label>}
       {a.trigger.type === 'field' && (() => { const fd = fields.find((x) => x.id === a.trigger.fieldId); return <>
         <label>Field<select value={a.trigger.fieldId || ''} onChange={(e) => setTrigger({ fieldId: e.target.value, value: '' })}><option value="">Choose…</option>{fields.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label>

@@ -4,7 +4,7 @@ import { api, loggedIn } from '../api';
 import { Page, PagePreview } from '../blocks';
 import { Layout, Icon, loadFailed } from '../ui';
 
-const TYPES = [['all', 'All funnels'], ['sales', 'Sales pages'], ['vsl', 'VSL + application'], ['webinar', 'Webinars'], ['lead', 'Lead generation'], ['website', 'Websites']];
+const TYPES = [['all', 'All funnels'], ['sales', 'Sales pages'], ['vsl', 'VSL + application'], ['quiz', 'Quiz funnels'], ['webinar', 'Webinars'], ['lead', 'Lead generation'], ['website', 'Websites']];
 const TYPE_LABEL = { sales: 'Sales funnel', vsl: 'VSL · Application', webinar: 'Webinar', lead: 'Lead generation' };
 
 export function TemplateGallery() {

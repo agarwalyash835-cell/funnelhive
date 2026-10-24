@@ -210,6 +210,69 @@ function FormFieldsField({ value, onChange }) {
   );
 }
 
+// Quiz: the questions (each answer points to a result, or adds points, and can tag the contact) and the results
+const moveIn = (list, i, d) => { const a = [...list]; [a[i + d], a[i]] = [a[i], a[i + d]]; return a; };
+function QuizQuestionsField({ value, onChange, props }) {
+  const items = value || [];
+  const outs = props?.outcomes || [];
+  const points = props?.scoring === 'points';
+  const setQ = (i, patch) => onChange(items.map((it, n) => (n === i ? { ...it, ...patch } : it)));
+  const setA = (i, j, patch) => setQ(i, { answers: (items[i].answers || []).map((a, n) => (n === j ? { ...a, ...patch } : a)) });
+  return (
+    <div className="fld"><label>Questions <small>({items.length})</small></label>
+      {items.map((it, i) => (
+        <div className="li quiz-li" key={i}>
+          <div className="li-h"><span>Q{i + 1}</span><span className="row">
+            {i > 0 && <button className="icon-btn xs" aria-label="Move up" onClick={() => onChange(moveIn(items, i, -1))}>↑</button>}
+            <button className="icon-btn xs danger" aria-label="Remove question" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
+          </span></div>
+          <input placeholder="Question" value={it.q || ''} onChange={(e) => setQ(i, { q: e.target.value })} />
+          <label className="tog mini"><input type="checkbox" checked={!!it.multi} onChange={(e) => setQ(i, { multi: e.target.checked })} /><span />Pick more than one</label>
+          {(it.answers || []).map((a, j) => (
+            <div className="quiz-ans" key={j}>
+              <input placeholder={`Answer ${j + 1}`} value={a.text || ''} onChange={(e) => setA(i, j, { text: e.target.value })} />
+              {points
+                ? <input type="number" className="xs" title="Points" placeholder="pts" value={a.points ?? ''} onChange={(e) => setA(i, j, { points: e.target.value === '' ? '' : Number(e.target.value) })} />
+                : <select title="Counts towards this result" value={a.outcome ?? ''} onChange={(e) => setA(i, j, { outcome: e.target.value === '' ? '' : Number(e.target.value) })}><option value="">→ no result</option>{outs.map((o, n) => <option key={n} value={n}>→ {o.title || `Result ${n + 1}`}</option>)}</select>}
+              <input className="xs" placeholder="tag" title="Tag the contact when they pick this (optional)" value={a.tag || ''} onChange={(e) => setA(i, j, { tag: e.target.value })} />
+              <input className="xs" placeholder="image URL" title="Picture answer (optional)" value={a.image || ''} onChange={(e) => setA(i, j, { image: e.target.value })} />
+              <button className="icon-btn xs danger" aria-label="Remove answer" onClick={() => setQ(i, { answers: it.answers.filter((_, n) => n !== j) })}><Icon name="x" size={12} /></button>
+            </div>
+          ))}
+          {(it.answers || []).length < 8 && <button className="btn ghost sm" onClick={() => setQ(i, { answers: [...(it.answers || []), { text: '', ...(points ? { points: 0 } : {}) }] })}><Icon name="plus" size={12} /> Answer</button>}
+        </div>
+      ))}
+      {items.length < 20 && <button className="btn ghost sm block" onClick={() => onChange([...items, { q: 'New question', answers: [{ text: 'Option A' }, { text: 'Option B' }] }])}><Icon name="plus" size={14} /> Add question</button>}
+      <span className="hint">{points ? 'Give each answer points — the total picks the result by its “from score”.' : 'Point each answer at a result — the result with the most answers wins.'} Tags go on the CRM contact, so automations can follow up per answer.</span>
+    </div>
+  );
+}
+function QuizOutcomesField({ value, onChange, props }) {
+  const items = value || [];
+  const points = props?.scoring === 'points';
+  const set = (i, patch) => onChange(items.map((it, n) => (n === i ? { ...it, ...patch } : it)));
+  return (
+    <div className="fld"><label>Results <small>({items.length})</small></label>
+      {items.map((it, i) => (
+        <div className="li quiz-li" key={i}>
+          <div className="li-h"><span>Result {i + 1}</span><span className="row">
+            {i > 0 && <button className="icon-btn xs" aria-label="Move up" onClick={() => onChange(moveIn(items, i, -1))}>↑</button>}
+            <button className="icon-btn xs danger" aria-label="Remove result" onClick={() => onChange(items.filter((_, n) => n !== i))}><Icon name="x" size={12} /></button>
+          </span></div>
+          <input placeholder="Result title, e.g. The Starter Path" value={it.title || ''} onChange={(e) => set(i, { title: e.target.value })} />
+          <textarea rows={3} placeholder="What it means for them, and what you recommend" value={it.body || ''} onChange={(e) => set(i, { body: e.target.value })} />
+          {points && <input type="number" placeholder="From score (e.g. 10)" value={it.min ?? ''} onChange={(e) => set(i, { min: e.target.value === '' ? '' : Number(e.target.value) })} />}
+          <input placeholder="Button text (empty = no button)" value={it.buttonText || ''} onChange={(e) => set(i, { buttonText: e.target.value })} />
+          <input placeholder="Button link (empty = next step of this funnel)" value={it.url || ''} onChange={(e) => set(i, { url: e.target.value })} />
+          <div className="row nowrap"><input placeholder="Tag for this result" value={it.tag || ''} onChange={(e) => set(i, { tag: e.target.value })} /><input placeholder="Image URL (optional)" value={it.image || ''} onChange={(e) => set(i, { image: e.target.value })} /></div>
+        </div>
+      ))}
+      {items.length < 8 && <button className="btn ghost sm block" onClick={() => onChange([...items, { title: `Result ${items.length + 1}`, body: '', buttonText: 'Continue', url: '', tag: '' }])}><Icon name="plus" size={14} /> Add result</button>}
+      <span className="hint">Each result can send people to a different page — a course, a product or your booking page. Use “Someone finishes a quiz” in Automations to follow up per result.</span>
+    </div>
+  );
+}
+
 // Friendlier names where the prop name reads awkwardly
 const FIELD_LABELS = {
   alt: 'image description',
@@ -251,13 +314,15 @@ function CalendarSelect({ value, onChange }) {
   );
 }
 
-function Field({ def, value, onChange }) {
+function Field({ def, value, onChange, props }) {
   const [key, kind, sub, hint] = def;
   const label = FIELD_LABELS[key] || key.replace(/([A-Z])/g, ' $1').toLowerCase();
   if (key === 'image' || key === 'src') return <ImageField label={label === 'src' ? 'image' : label} value={value} onChange={onChange} hint={hint} />;
   if (key === 'logo') return <ImageField label="logo" value={value} onChange={onChange} hint={hint} aspect="1:1" />;
   if (kind === 'gallery') return <GalleryField value={value} onChange={onChange} />;
   if (kind === 'formfields') return <FormFieldsField value={value} onChange={onChange} />;
+  if (kind === 'quizquestions') return <QuizQuestionsField value={value} onChange={onChange} props={props} />;
+  if (kind === 'quizoutcomes') return <QuizOutcomesField value={value} onChange={onChange} props={props} />;
   if (kind === 'calendar') return <div className="fld"><label>calendar</label><CalendarSelect value={value} onChange={onChange} />{hint && <span className="hint">{hint}</span>}</div>;
   if (kind === 'product') return <div className="fld"><label>{key === 'bumpProductId' ? 'deliver with the order bump' : key === 'productId' && hint?.startsWith('Free') ? 'free product (lead magnet)' : 'deliver after payment'}</label><ProductSelect value={value} onChange={onChange} />{hint && <span className="hint">{hint}</span>}</div>;
   if (kind === 'code') return <div className="fld"><label>{label}</label><textarea className="code-area" rows={8} spellCheck={false} value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="<iframe src=…></iframe>" />{hint && <span className="hint">{hint}</span>}</div>;
@@ -1163,7 +1228,7 @@ export default function Editor() {
                   {REAL_ONLY.includes(selBlock.type) && <p className="hint">Shows only real numbers — fake urgency is not allowed under Indian e-commerce rules.</p>}
                   {BLOCK_TYPES[selBlock.type]?.fields.filter((d) => linkFieldShown(d[0], selBlock.props) && !(popup && selBlock.type === 'countdown' && d[0] === 'mode')).map((d) => (isPopupLink(d[0], selBlock.props)
                     ? <PopupPick key={selBlock.id + d[0]} popups={step.popups} value={selBlock.props[d[0]]} onChange={(v) => setProp(d[0], v)} />
-                    : <Field key={selBlock.id + d[0]} def={d} value={withCopy(selBlock.type, selBlock.props)[d[0]]} onChange={(v) => setProp(d[0], v)} />))}
+                    : <Field key={selBlock.id + d[0]} def={d} value={withCopy(selBlock.type, selBlock.props)[d[0]]} onChange={(v) => setProp(d[0], v)} props={selBlock.props} />))}
                   {popup && selBlock.type === 'optin' && <p className="hint">After someone signs up here, the pop-up {popup.after === 'next' ? 'closes and they go to the next step' : 'closes and thanks them'} — change it in Pop-up settings.</p>}
                   {!FLOATING.includes(selBlock.type) && <StylePanel key={`st-${selBlock.id}`} value={selBlock.props._style} onChange={(v) => updateBlock(selBlock.id, (b) => { const props = { ...b.props }; if (v) props._style = v; else delete props._style; return { ...b, props }; }, true)} />}
                   {selBlock.type === 'section' && (

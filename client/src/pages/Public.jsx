@@ -312,7 +312,9 @@ export default function Public() {
         store.set(leadKey, '1');
         popupLead(opts);
         await convert();
+        return r;
       },
+      onQuizEvent: (blockId, type, question) => post(`${base}/event${preview}`, { stepId: step.id, type, blockId, question, source, visitor }),
       onFormNext: () => go(idx + 1),
       // booking calendar: free slots and the booking itself
       prefill: { email: store.get(sk('ff_email'), sessionStorage) || '', name: store.get(sk('ff_name'), sessionStorage) || '', phone: store.get(sk('ff_phone'), sessionStorage) || '' },

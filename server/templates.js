@@ -2,6 +2,7 @@ import { uid } from './db.js';
 import { CAT, X, LOOK, GENERIC_QUOTES, LADDER, shiftHue } from './template-kit.js';
 import { VSL } from './templates-vsl.js';
 import { WEBINARS } from './templates-webinar.js';
+import { QUIZZES, buildQuiz } from './templates-quiz.js';
 import { buildVsl, buildWebinar } from './template-funnels.js';
 import { websiteSteps, WEBSITE_TEMPLATES } from './website.js';
 
@@ -340,7 +341,7 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
 });
 
 // VSL + application and webinar funnels, written separately (templates-vsl.js, templates-webinar.js)
-const FUNNELS = [...VSL.map(buildVsl), ...WEBINARS.map(buildWebinar)].map(({ color, ...t }) => ({
+const FUNNELS = [...VSL.map(buildVsl), ...WEBINARS.map(buildWebinar), ...QUIZZES.map(buildQuiz)].map(({ color, ...t }) => ({
   ...t, theme: { style: t.style, primary: color, secondary: shiftHue(color, ['luxe', 'royal', 'editorial', 'noir'].includes(t.style) ? 18 : 38) }, hero: t.steps[0].blocks.find((b) => b.type === 'hero'),
 }));
 // business websites: Home, About, Services, Contact with a shared menu (website.js)
@@ -406,13 +407,15 @@ let INDEX = null;
 function index() {
   if (INDEX) return INDEX;
   const docs = TEMPLATES.map((t) => {
-    const title = new Set(words(`${t.id.replace(/^[vw]-/, '')} ${t.name} ${t.category}`));
+    const title = new Set(words(`${t.id.replace(/^[vwq]-/, '')} ${t.name} ${t.category}`));
     const body = new Set(words(`${t.headline} ${JSON.stringify(t.steps[0].blocks.map((b) => b.props))}`));
     return { t, title, body };
   });
-  const df = {};
-  for (const d of docs) for (const w of new Set([...d.title, ...d.body])) df[w] = (df[w] || 0) + 1;
-  INDEX = { docs, idf: (w) => Math.log(1 + docs.length / (df[w] || docs.length)) };
+  // word weights come from the other funnels only: quiz funnels are picked when a quiz is asked for, and shouldn't
+  // shift how every other prompt is matched
+  const df = {}, base = docs.filter((d) => d.t.type !== 'quiz');
+  for (const d of base) for (const w of new Set([...d.title, ...d.body])) df[w] = (df[w] || 0) + 1;
+  INDEX = { docs, idf: (w) => Math.log(1 + base.length / (df[w] || base.length)) };
   return INDEX;
 }
 export function similarTemplates(prompt, k = 2) {
@@ -428,7 +431,7 @@ export function similarTemplates(prompt, k = 2) {
   const FUNNEL_WORDS = new Set(['webinar', 'masterclass', 'workshop', 'seminar', 'session', 'training', 'vsl', 'application', 'apply', 'call']);
   const score = (d) => expanded.reduce((a, w, i) => {
     const weight = i < nq ? 1 : 0.8; // related words count a little less than the user's own words
-    return a + weight * (d.t.id.replace(/^[vw]-/, '') === w && !FUNNEL_WORDS.has(w) ? 12 + 3 * idf(w) : idf(w) * (d.title.has(w) ? 3 : d.body.has(w) ? 1 : 0));
+    return a + weight * (d.t.id.replace(/^[vwq]-/, '') === w && !FUNNEL_WORDS.has(w) ? 12 + 3 * idf(w) : idf(w) * (d.title.has(w) ? 3 : d.body.has(w) ? 1 : 0));
   }, 0);
   // VSL and webinar funnels only win when the seller describes that kind of funnel ("free masterclass",
   // "apply for a call"); a bakery selling cakes wants a sales page, not the webinar about starting a bakery.
@@ -436,8 +439,11 @@ export function similarTemplates(prompt, k = 2) {
   const webinar = /webinar|masterclass|workshop|live (session|class|training)|info session|seminar/i.test(prompt);
   const vsl = !webinar && /\bvsl\b|video sales|\bapply\b|application|qualif|strategy call|discovery call|high[- ]ticket|book a call|book a demo|product demo|live demo/i.test(prompt);
   const leaning = /consultation/i.test(prompt);
+  const quiz = /\bquiz (funnel|page)|\b(a|an) (\w+ )?quiz\b|\bquiz to\b|\bassessment funnel|which .{1,30} is right for (me|you)/i.test(prompt);
   const sells = /₹|\brs\.?\s*\d|\bupsell|\bsell\b|\bcourse\b|\bprogramme\b|\bprogram\b/i.test(prompt);
   const fit = (t) => {
+    if (t.type === 'quiz') return quiz ? 2 : 0.1;
+    if (quiz) return 0.3; // asked for a quiz: a quiz funnel from another niche still beats a sales page
     if (t.type === 'webinar') return webinar ? (t.steps.some((s) => s.type === 'checkout') || !sells ? 1 : 0.4) : vsl ? 0 : 0.2; // selling after the webinar needs the replay + checkout
     if (t.type === 'vsl') return vsl ? 1 : webinar ? 0 : leaning ? 1.6 : 0.2;
     return webinar || vsl ? 0 : 1;
@@ -446,6 +452,7 @@ export function similarTemplates(prompt, k = 2) {
   let best = ranked(docs);
   // no niche word matched: any funnel of the kind asked for beats a sales page from the wrong kind
   if ((webinar || vsl) && !(best[0]?.[0] > 0)) best = docs.filter((d) => fit(d.t) >= 1).map((d) => [0, d.t]);
+  if (quiz && !(best[0]?.[0] > 0)) best = docs.filter((d) => d.t.type === 'quiz').map((d) => [0, d.t]);
   return best.slice(0, k).map(([, t]) => t);
 }
 export const allTemplates = () => TEMPLATES;

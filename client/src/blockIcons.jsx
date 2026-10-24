@@ -2,7 +2,7 @@
 import {
   LayoutGrid, LayoutTemplate, Type, Image, Images, SquarePlay, ChartNoAxesColumn, Megaphone, UnfoldVertical, Minus, CodeXml,
   CircleAlert, Sparkles, ListOrdered, Scale, MessageSquareQuote, UserRoundCheck, Gift, ShieldCheck, CircleHelp, Tag, Mail,
-  ClipboardList, CreditCard, CircleArrowUp, CircleArrowDown, ShoppingBag, PartyPopper, PanelTop, Timer, Eye, Package, BellRing, DoorOpen,
+  ClipboardList, ListTodo, CreditCard, CircleArrowUp, CircleArrowDown, ShoppingBag, PartyPopper, PanelTop, Timer, Eye, Package, BellRing, DoorOpen,
   Pin, MessageCircle, Heading, Pilcrow, MousePointerClick, ListChecks, IndianRupee, House, FileText, Presentation, Box,
   Target, Building2, Stethoscope, BriefcaseBusiness, GraduationCap, Dumbbell, Landmark, Sofa, Gem, Plane, Car, UserSearch, SunMedium, Hotel, Store as StoreIcon, Earth, Moon, Monitor, HandHeart,
 } from 'lucide-react';
@@ -11,7 +11,7 @@ const BLOCKS = {
   section: LayoutGrid, hero: LayoutTemplate, text: Type, image: Image, gallery: Images, video: SquarePlay, stats: ChartNoAxesColumn,
   cta: Megaphone, spacer: UnfoldVertical, divider: Minus, html: CodeXml, problem: CircleAlert, features: Sparkles, steps: ListOrdered,
   compare: Scale, testimonials: MessageSquareQuote, mentor: UserRoundCheck, bonuses: Gift, guarantee: ShieldCheck, faq: CircleHelp,
-  pricing: Tag, optin: Mail, form: ClipboardList, checkout: CreditCard, offer: CircleArrowUp, crosssell: ShoppingBag, thankyou: PartyPopper,
+  pricing: Tag, optin: Mail, form: ClipboardList, quiz: ListTodo, checkout: CreditCard, offer: CircleArrowUp, crosssell: ShoppingBag, thankyou: PartyPopper,
   hellobar: PanelTop, countdown: Timer, livecount: Eye, stock: Package, proof: BellRing, exitpopup: DoorOpen, stickybar: Pin, whatsapp: MessageCircle,
 };
 const ELEMENTS = { heading: Heading, text: Pilcrow, button: MousePointerClick, image: Image, list: ListChecks, price: IndianRupee, video: SquarePlay, spacer: UnfoldVertical, divider: Minus };

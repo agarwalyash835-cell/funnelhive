@@ -16,6 +16,7 @@ export const META_STEP_EVENTS = ['Lead', 'QualifiedLead', 'Schedule', 'Contact',
 
 export const TRIGGERS = {
   lead: 'Someone signs up (opt-in or form)',
+  quiz: 'Someone finishes a quiz (any result, or one result)',
   purchase: 'Someone buys',
   offer: 'Someone accepts an upsell / downsell / add-on',
   abandoned: 'Someone starts checkout but doesn’t pay',
@@ -69,7 +70,7 @@ export const emailTracking = (origin, userId, key, msgId) => {
 const linkSig = (id, url) => crypto.createHmac('sha256', SECRET).update(`click:${id}:${url}`).digest('hex').slice(0, 16);
 
 // ---------- template variables ----------
-export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'access_link', 'invoice_link', 'booking_time', 'booking_link', 'meeting_link', 'webinar_time', 'join_link', 'tracking_link', 'courier', 'tracking_id', 'business'];
+export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'access_link', 'invoice_link', 'booking_time', 'booking_link', 'meeting_link', 'webinar_time', 'join_link', 'tracking_link', 'courier', 'tracking_id', 'quiz_result', 'quiz_score', 'business'];
 export function fill(text, ctx) {
   return String(text || '').replace(/\{\{\s*([a-z][a-z0-9_-]*)\s*\}\}/gi, (m, k) => {
     const v = ctx[k.toLowerCase()];
@@ -85,6 +86,7 @@ function cleanTrigger(t = {}, userId) {
   if (type === 'abandoned') out.delayMin = Math.min(10080, Math.max(5, Math.round(Number(t.delayMin) || 30)));
   if (type === 'stage') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); }
   if (type === 'tag') out.tag = str(t.tag, 30).trim();
+  if (type === 'quiz') out.outcome = str(t.outcome, 120).trim(); // blank = any result
   if (COURSE_EVENTS.includes(type) && t.productId && T.products.get(t.productId)?.userId === userId) out.productId = t.productId; // blank = any course
   if (type === 'field') { out.fieldId = str(t.fieldId, 20); out.value = str(t.value, 200).trim(); } // value: blank = any change
   if (type === 'stuck') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); out.days = Math.max(1, Math.min(365, Math.round(Number(t.days) || 7))); }
@@ -222,6 +224,7 @@ function contextFor(userId, data) {
     access_link: data.accessLink || '', invoice_link: data.invoiceLink || '',
     booking_time: data.bookingTime || '', booking_link: data.bookingLink || '', meeting_link: data.meetingLink || '',
     webinar_time: data.webinarTime || '', join_link: data.joinLink || '',
+    quiz_result: data.outcome || '', quiz_score: data.score != null ? String(data.score) : '',
     tracking_link: data.trackingLink || '', courier: data.courier || '', tracking_id: data.trackingId || '',
   };
 }
@@ -235,6 +238,7 @@ export function fire(userId, event, data = {}) {
       const t = a.trigger;
       if (t.funnelId && t.funnelId !== data.funnelId) continue;
       if (event === 'stage' && (t.pipelineId !== data.pipelineId || t.stageId !== data.stageId)) continue;
+      if (event === 'quiz' && t.outcome && t.outcome.toLowerCase() !== String(data.outcome || '').toLowerCase()) continue;
       if (event === 'tag' && String(t.tag).toLowerCase() !== String(data.tag || '').toLowerCase()) continue;
       if (COURSE_EVENTS.includes(event) && t.productId && t.productId !== data.productId) continue;
       if (event === 'field' && (t.fieldId !== data.fieldId || (t.value && String(t.value).trim().toLowerCase() !== String(data.value ?? '').trim().toLowerCase()))) continue;
@@ -706,7 +710,7 @@ function snapshot(a, note) {
 const AI_SPEC = `You design marketing / CRM automations for a small Indian business. Reply with ONLY JSON:
 {"name": "short name", "trigger": {...}, "steps": [...], "stopOnPurchase": true|false}
 trigger.type is one of: ${Object.keys(TRIGGERS).join(', ')}.
-  Extra trigger fields: funnelId (lead/purchase/offer/abandoned, optional) · delayMin (abandoned) · pipelineId + stageId (stage) · pipelineId + stageId + days (stuck) · tag (tag) · fieldId + value (field; value optional) · fieldId + offsetDays (negative = before) + time "HH:MM" + yearly (date) · productId (student_joined / quiz_passed / course_completed, optional).
+  Extra trigger fields: funnelId (lead/quiz/purchase/offer/abandoned, optional) · delayMin (abandoned) · pipelineId + stageId (stage) · pipelineId + stageId + days (stuck) · tag (tag) · outcome (quiz: a result title, optional) · fieldId + value (field; value optional) · fieldId + offsetDays (negative = before) + time "HH:MM" + yearly (date) · productId (student_joined / quiz_passed / course_completed, optional).
 steps run top to bottom; each is one of:
   {"type":"wait","amount":2,"unit":"minutes|hours|days"} · {"type":"wait","mode":"until","time":"10:00"}
   {"type":"email","subject":"…","body":"…"} · {"type":"notify","subject":"…","body":"…"} (an alert to the business owner)

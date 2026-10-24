@@ -20,6 +20,7 @@ export default function Analytics() {
   const offerSteps = d?.steps.filter((s) => s.type === 'upsell' || s.type === 'downsell') || [];
   const abSteps = d?.steps.filter((s) => s.ab) || [];
   const popSteps = d?.steps.filter((s) => s.popups?.length) || [];
+  const quizzes = d?.steps.flatMap((s) => (s.quizzes || []).map((qz) => ({ ...qz, page: s.name }))) || [];
 
   return (
     <Layout title={f ? f.name : 'Analytics'} subtitle="Funnel analytics" actions={<>
@@ -81,6 +82,7 @@ export default function Analytics() {
               </table>
             </Panel>
           )}
+          {quizzes.map((qz) => <QuizReport key={qz.id} qz={qz} />)}
           <Panel title="Ad campaigns" pad={false}><Campaigns rows={d.campaigns} /></Panel>
           <div className="grid-1-1">
             <Panel title="Traffic sources" pad={false}><Sources rows={d.sources} /></Panel>
@@ -100,5 +102,38 @@ export default function Analytics() {
         </>
       )}
     </Layout>
+  );
+}
+
+// a quiz: how many start, where people drop off, and which results they get
+function QuizReport({ qz }) {
+  const top = Math.max(1, qz.started);
+  const outTotal = Math.max(1, qz.finished);
+  return (
+    <Panel title={`Quiz · ${String(qz.title).replace(/\*/g, '')}`} actions={<span className="muted sm">{qz.page} · {num(qz.started)} started · {num(qz.finished)} finished ({qz.rate}%)</span>}>
+      <div className="quiz-rep">
+        <div>
+          <h4>Drop-off by question</h4>
+          {qz.questions.map((x, i) => {
+            const prev = i ? qz.questions[i - 1].answered : qz.started;
+            const lost = prev ? Math.max(0, Math.round(((prev - x.answered) / prev) * 100)) : 0;
+            return (
+              <div className="qr-row" key={i}>
+                <span className="qr-l" title={x.q}>Q{i + 1}. {x.q}</span>
+                <span className="qr-bar"><i style={{ width: `${Math.round((x.answered / top) * 100)}%` }} /></span>
+                <span className="qr-n">{num(x.answered)}{i > 0 || qz.started ? <small className={lost >= 25 ? 'bad-t' : 'muted'}> −{lost}%</small> : null}</span>
+              </div>
+            );
+          })}
+          <div className="qr-row"><span className="qr-l"><b>Gave their details</b></span><span className="qr-bar"><i className="ok" style={{ width: `${Math.round((qz.finished / top) * 100)}%` }} /></span><span className="qr-n">{num(qz.finished)}</span></div>
+        </div>
+        <div>
+          <h4>Results</h4>
+          {qz.outcomes.map((o, i) => (
+            <div className="qr-row" key={i}><span className="qr-l">{o.title}</span><span className="qr-bar"><i className="alt" style={{ width: `${Math.round((o.n / outTotal) * 100)}%` }} /></span><span className="qr-n">{num(o.n)} <small className="muted">{Math.round((o.n / outTotal) * 100)}%</small></span></div>
+          ))}
+        </div>
+      </div>
+    </Panel>
   );
 }

@@ -32,10 +32,11 @@ test('health endpoint for Docker / load balancers', async () => {
   assert.equal(h.data.ok, true);
 });
 
-test('templates: 106 listed (53 sales, 25 VSL + application, 25+ webinar, 3 websites), each loads with a hero', async () => {
+test('templates: 111 listed (53 sales, 25 VSL + application, 25+ webinar, 5 quiz, 3 websites), each loads with a hero', async () => {
   const list = (await api('/templates')).data;
-  assert.equal(list.length, 106);
+  assert.equal(list.length, 111);
   assert.equal(list.filter((t) => t.type === 'website').length, 3);
+  assert.equal(list.filter((t) => t.type === 'quiz').length, 5);
   assert.equal(list.filter((t) => t.type === 'vsl').length, 25);
   assert.ok(list.filter((t) => t.type === 'webinar').length >= 25);
   assert.ok(list.every((t) => t.hero?.type === 'hero'));
