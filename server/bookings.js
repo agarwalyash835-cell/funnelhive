@@ -337,6 +337,24 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     // slots held for a payment that never came aren't bookings
     res.json(T.bookings.all({ userId: req.user.id, start: { gte: from }, status: ['confirmed', 'cancelled', 'rescheduled'] }, { order: 'start', limit: 2000 }).map((b) => ({ ...outBooking(b, cals[b.calendarId]), funnel: funnels[b.funnelId] || null })));
   });
+  // the seller books a contact in from the CRM: a calendar's free times, then the booking — the same booking a buyer
+  // makes on the booking page (no double-booking, confirmation email + invite, CRM stage, automations), never charged
+  const sellerBookLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 30, key: (req) => req.user.id });
+  app.get('/api/calendars/:cid/slots', auth, (req, res) => {
+    const cal = T.calendars.get(req.params.cid);
+    if (!cal || cal.userId !== req.user.id) return res.status(404).json({ error: 'Calendar not found' });
+    const dur = lengthOf(cal, req.query.duration);
+    res.json({ calendar: { id: cal.id, name: cal.name, duration: cal.duration, durations: cal.durations || [cal.duration], timezone: calTz(cal) }, duration: dur, slots: freeSlots(cal, Date.now(), Date.now(), dur) });
+  });
+  app.post('/api/bookings', auth, sellerBookLimiter, (req, res) => {
+    const b = req.body || {};
+    const cal = T.calendars.get(String(b.calendarId || ''));
+    if (!cal || cal.userId !== req.user.id) return res.status(404).json({ error: 'Calendar not found' });
+    if (!b.email) return res.status(400).json({ error: 'Add an email address to this contact first — the confirmation and invite go there' });
+    const r = book(cal, { start: b.start, email: b.email, name: b.name, phone: b.phone, notes: b.notes, duration: b.duration, base: process.env.APP_URL || appUrl(req), source: 'crm' });
+    if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
+    res.json(outBooking(r.booking, cal));
+  });
   // how the call went: completed or no-show (null clears it)
   app.put('/api/bookings/:bid', auth, (req, res) => {
     const b = T.bookings.get(req.params.bid);

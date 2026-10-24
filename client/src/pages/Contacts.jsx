@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Mail, Phone, MessageCircle, StickyNote, PhoneCall, ShoppingBag, Eye, LogIn, UserPlus, TrendingUp, TrendingDown, PackagePlus, ShoppingCart,
-  ArrowRightLeft, X, Plus, Sparkles, ArrowUp, Users, BadgeCheck, Sprout, IndianRupee, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, Upload, Download,
+  ArrowRightLeft, X, Plus, Sparkles, ArrowUp, Users, BadgeCheck, Sprout, IndianRupee, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, CalendarPlus, Upload, Download,
 } from 'lucide-react';
 import { api } from '../api';
 import { KitIcon } from '../blockIcons';
@@ -315,6 +315,7 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
   const [c, setC] = useState(null);
   const [tab, setTab] = useState('timeline');
   const [err, setErr] = useState('');
+  const [booking, setBooking] = useState(false);
   const load = () => api(`/contacts/${encodeURIComponent(ckey)}`).then(setC).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, [ckey]);
   // a dialog on top handles its own Escape (and marks it handled), so this panel stays open
@@ -347,6 +348,8 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
               {c.phone && <div><Phone size={15} /><a href={`tel:${c.phone}`}>{c.phone}</a><button className="icon-btn xs" title="Copy phone" onClick={() => copy(c.phone)}><Copy size={13} /></button></div>}
               {!c.email && !c.phone && <div className="muted">No email or phone yet — add them under Details.</div>}
             </div>
+            <div className="cp-quick"><button className="btn ghost sm" onClick={() => setBooking(true)}><CalendarPlus size={15} /> Book a call</button></div>
+            {booking && <BookCall c={c} onClose={() => setBooking(false)} onDone={() => { setBooking(false); load(); onChanged?.(); }} />}
             <div className="cp-stats">
               <div><small>Lifetime value</small><b>{inr(c.ltv)}</b></div>
               <div><small>Orders</small><b>{c.orders}</b></div>
@@ -880,5 +883,44 @@ function StageStrip({ pipe, filterQs, tick, onOpen }) {
       <span className="ss-bar">{pipe.stages.map((s, i) => counts[i] > 0 && <i key={s.id} style={{ flex: counts[i], background: s.color }} />)}{!total && <i style={{ flex: 1 }} />}</span>
       <span className="ss-legend">{pipe.stages.map((s, i) => <span key={s.id} className={counts[i] ? '' : 'zero'}><i style={{ background: s.color }} />{s.name} <b>{counts[i]}</b></span>)}</span>
     </button>
+  );
+}
+
+// Book a call for this contact from the CRM: one of your calendars, a free time, and it's booked — the same booking
+// as on your booking page (confirmation email + invite to them, the CRM stage and booking automations follow)
+function BookCall({ c, onClose, onDone }) {
+  const [cals, setCals] = useState(null);
+  const [cal, setCal] = useState('');
+  const [d, setD] = useState(null);
+  const [day, setDay] = useState('');
+  const [slot, setSlot] = useState(null);
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api('/calendars').then((l) => { const list = Array.isArray(l) ? l : l.calendars || []; setCals(list); if (list[0]) setCal(list[0].id); }).catch(() => setCals([])); }, []);
+  useEffect(() => { if (!cal) return; setD(null); setSlot(null); api(`/calendars/${cal}/slots`).then((r) => { setD(r); setDay(''); }).catch((e) => { toast(e.message); setD({ slots: [] }); }); }, [cal]);
+  const tz = d?.calendar?.timezone;
+  const fmt = (t, o) => new Date(t).toLocaleString('en-IN', { timeZone: tz, ...o });
+  const dayOf = (t) => fmt(t, { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const days = d ? [...new Set(d.slots.map(dayOf))] : [];
+  const cur = day || days[0];
+  const times = d ? d.slots.filter((t) => dayOf(t) === cur) : [];
+  const save = async () => {
+    setBusy(true);
+    try { await api('/bookings', 'POST', { calendarId: cal, start: slot, email: c.email, name: c.name, phone: c.phone, notes }); toast(`Booked — ${c.name || c.email} gets the confirmation and invite`); onDone(); } catch (e) { toast(e.message); setBusy(false); }
+  };
+  return (
+    <Modal title={`Book a call with ${c.name || c.email || c.phone}`} onClose={onClose} width={560}>
+      {cals === null ? <div className="skeleton sm" /> : !cals.length ? <p className="muted">You have no calendars yet — set your available hours in Bookings first.</p> : <>
+        {!c.email && <p className="hint warn">Add an email address under Details first — the confirmation and invite are sent there.</p>}
+        {cals.length > 1 && <div className="fld"><label>Calendar</label><select value={cal} onChange={(e) => setCal(e.target.value)}>{cals.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.duration} min</option>)}</select></div>}
+        {!d ? <div className="skeleton sm" /> : !d.slots.length ? <p className="muted">No free times in this calendar's booking window — widen your hours in Bookings.</p> : <>
+          <div className="bk-days">{days.slice(0, 21).map((k) => { const t = d.slots.find((x) => dayOf(x) === k); return <button key={k} className={k === cur ? 'on' : ''} onClick={() => { setDay(k); setSlot(null); }}><small>{fmt(t, { weekday: 'short' })}</small><b>{fmt(t, { day: 'numeric' })}</b><small>{fmt(t, { month: 'short' })}</small></button>; })}</div>
+          <div className="bk-times">{times.map((t) => <button key={t} className={t === slot ? 'on' : ''} onClick={() => setSlot(t)}>{fmt(t, { hour: 'numeric', minute: '2-digit' })}</button>)}</div>
+          <div className="fld"><label>Note for the booking (optional)</label><textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Site visit — Baner 3BHK" /></div>
+          <p className="hint">Times are in {tz || 'your time zone'}. {c.name || 'They'} get the confirmation email and calendar invite.</p>
+          <div className="row"><button className="btn primary" disabled={!slot || busy || !c.email} onClick={save}>{busy ? 'Booking…' : slot ? `Book ${fmt(slot, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Pick a time'}</button><button className="btn ghost" onClick={onClose}>Cancel</button></div>
+        </>}
+      </>}
+    </Modal>
   );
 }
