@@ -75,10 +75,10 @@ export function Campaigns({ rows = [] }) {
 }
 
 export const Sources = ({ rows }) => (
-  <table className="tbl compact">
+  <div className="tbl-wrap"><table className="tbl compact">
     <thead><tr><th>Source</th><th className="r">Visitors</th><th className="r">Orders</th><th className="r">Revenue</th></tr></thead>
     <tbody>{rows.slice(0, 7).map((s) => <tr key={s.source}><td><span className="src">{s.source}</span></td><td className="r">{num(s.views)}</td><td className="r">{num(s.orders)}</td><td className="r">{inr(s.revenue)}</td></tr>)}</tbody>
-  </table>
+  </table></div>
 );
 
 const CHIPS = ['Webinar funnel for a yoga teacher training', 'Paid 1:1 strategy call with booking', 'Online course launch with an upsell', 'Free guide that grows my email list'];

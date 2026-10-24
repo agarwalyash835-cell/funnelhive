@@ -362,7 +362,8 @@ fieldset.plain:disabled { opacity: .75; }
 .pr-explain { flex: 1; font-size: 13px; }
 
 /* School (seller) */
-.sc-tabs { margin-bottom: 16px; }
+.sc-tabs { margin-bottom: 16px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.sc-tabs button { flex: none; }
 .sc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .sc-stats .stat { background: var(--c-surface, #fff); border: 1px solid var(--c-line, #e6e8ef); border-radius: 14px; padding: 14px 16px; display: grid; gap: 2px; }
 .sc-stats small { color: var(--c-muted, #6b7088); font-weight: 600; font-size: 12.5px; }
@@ -427,6 +428,7 @@ fieldset.plain:disabled { opacity: .75; }
 .sc-img-empty { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: var(--c-bg, #fafafb); border: 1px dashed var(--c-line, #e6e8ef); color: var(--c-muted, #6b7088); }
 .lib-locked { display: grid; place-items: center; align-content: center; gap: 12px; background: #14152a; color: #fff; text-align: center; padding: 20px; }
 .lib-locked p { margin: 0; }
-.sc-links { display: grid; gap: 8px; }
-.sc-link { display: flex; align-items: center; gap: 8px; }
+.sc-links { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+.sc-link { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sc-link .btn { flex: none; }
 .sc-link code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--c-bg, #fafafb); padding: 8px 10px; border-radius: 8px; font-size: 13px; }

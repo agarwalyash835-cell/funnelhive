@@ -127,7 +127,7 @@ export const COPY = {
   guarantee: { showSeal: true },
   pricing: { priceNote: 'One-time payment · Lifetime value', payMethods: 'UPI · GPay · PhonePe · Paytm · Visa · RuPay · NetBanking' },
   optin: { nameLabel: 'Full name', emailLabel: 'Email', phoneLabel: 'WhatsApp number', secureText: '🔒 Your information is 100% safe. No spam, ever.' },
-  checkout: { step1: 'Your details', step2: 'Payment method', secureText: '🔒 256-bit SSL secured · UPI, cards, netbanking & wallets', summaryTitle: 'Order summary', perks: [{ text: 'Instant confirmation on email & WhatsApp' }, { text: '7-day money-back guarantee' }, { text: 'Trusted by thousands across India' }] },
+  checkout: { step1: 'Your details', step2: 'Payment method', secureText: '🔒 256-bit SSL secured · UPI, cards, netbanking & wallets', summaryTitle: 'Order summary', perks: [{ text: 'Instant confirmation by email' }, { text: 'Secure payment — UPI, cards & netbanking' }, { text: 'A receipt for your records' }] }, // no claims the seller may not be able to back up (refund terms, buyer counts)
   offer: { tag: '⚡ One-time offer', oneClickText: '✓ One click — we’ll use the payment details you just entered' },
   crosssell: { eyebrow: 'Recommended for you' },
 };
