@@ -912,7 +912,7 @@ function BookCall({ c, onClose, onDone }) {
     try { await api('/bookings', 'POST', { calendarId: cal, start: slot, email: c.email, name: c.name, phone: c.phone, notes }); toast(`Booked — ${c.name || c.email} gets the confirmation and invite`); onDone(); } catch (e) { toast(e.message); setBusy(false); }
   };
   return (
-    <Modal title={`Book a call with ${c.name || c.email || c.phone}`} onClose={onClose} width={560}>
+    <Modal title={`Book a call with ${c.name || c.email || c.phone}`} onClose={onClose} width={560}><div className="m-body">
       {cals === null ? <div className="skeleton sm" /> : !cals.length ? <p className="muted">You have no calendars yet — set your available hours in Bookings first.</p> : <>
         {!c.email && <p className="hint warn">Add an email address under Details first — the confirmation and invite are sent there.</p>}
         {cals.length > 1 && <div className="fld"><label>Calendar</label><select value={cal} onChange={(e) => setCal(e.target.value)}>{cals.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.duration} min</option>)}</select></div>}
@@ -924,6 +924,6 @@ function BookCall({ c, onClose, onDone }) {
           <div className="row"><button className="btn primary" disabled={!slot || busy || !c.email} onClick={save}>{busy ? 'Booking…' : slot ? `Book ${fmt(slot, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Pick a time'}</button><button className="btn ghost" onClick={onClose}>Cancel</button></div>
         </>}
       </>}
-    </Modal>
+    </div></Modal>
   );
 }
