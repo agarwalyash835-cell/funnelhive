@@ -22,18 +22,18 @@ export function Delta({ now, prev }) {
 export function Kpis({ data }) {
   const t = data.totals, p = data.prev;
   const tiles = [
-    ['Revenue', inr(t.revenue), t.revenue, p.revenue, 'revenue'],
-    ['Orders', num(t.orders), t.orders, p.orders, 'orders'],
-    ['Leads', num(t.leads), t.leads, p.leads, 'leads'],
-    ['Visitors', num(t.visitors), t.visitors, p.visitors, 'views'],
-    ['Conversion', `${t.conversion}%`, t.conversion, p.conversion, null],
-    ['Avg. order value', inr(t.aov), t.aov, p.aov, null],
+    ['Revenue', inr(t.revenue), t.revenue, p.revenue, 'revenue', 'wallet'],
+    ['Orders', num(t.orders), t.orders, p.orders, 'orders', 'cart'],
+    ['Leads', num(t.leads), t.leads, p.leads, 'leads', 'users'],
+    ['Visitors', num(t.visitors), t.visitors, p.visitors, 'views', 'eye'],
+    ['Conversion', `${t.conversion}%`, t.conversion, p.conversion, null, 'chart'],
+    ['Avg. order value', inr(t.aov), t.aov, p.aov, null, 'tag'],
   ];
   return (
     <div className="kpis">
-      {tiles.map(([label, value, n, prev, key]) => (
+      {tiles.map(([label, value, n, prev, key, ic]) => (
         <div className="kpi" key={label}>
-          <span className="kpi-l">{label}</span>
+          <span className="kpi-l"><span className="kpi-ic"><Icon name={ic} size={14} /></span>{label}</span>
           <b className="kpi-v">{value}</b>
           <div className="kpi-f"><Delta now={n} prev={prev} />{key && <Sparkline data={data.series} yKey={key} />}</div>
         </div>
@@ -256,7 +256,7 @@ export default function Dashboard() {
           </div>
           <div className="grid-2-1">
             <Panel title="Funnel results" actions={<Link className="btn ghost sm" to="/funnels">View all</Link>} pad={false}>
-              <table className="tbl">
+              <div className="tbl-wrap"><table className="tbl">
                 <thead><tr><th>Funnel</th><th className="r">Visitors</th><th className="r">Orders</th><th className="r">Conv.</th><th className="r">Revenue</th><th /></tr></thead>
                 <tbody>{data.funnels.slice(0, 6).map((f) => (
                   <tr key={f.id}>
@@ -265,19 +265,19 @@ export default function Dashboard() {
                     <td className="r"><Link className="icon-btn" to={`/funnels/${f.id}/analytics`} title="Analytics" aria-label="Analytics"><Icon name="chart" size={16} /></Link></td>
                   </tr>
                 ))}</tbody>
-              </table>
+              </table></div>
             </Panel>
-            <Panel title="Traffic sources" pad={false}><Sources rows={data.sources} /></Panel>
+            <Panel title="Traffic sources" pad={false}><div className="tbl-wrap"><Sources rows={data.sources} /></div></Panel>
           </div>
           <Panel title="Ad campaigns" pad={false}><Campaigns rows={data.campaigns} /></Panel>
           <Panel title="Recent orders" actions={<Link className="btn ghost sm" to="/orders">All orders</Link>} pad={false}>
             {data.recentOrders.length ? (
-              <table className="tbl">
+              <div className="tbl-wrap"><table className="tbl">
                 <thead><tr><th>Customer</th><th>Funnel</th><th>Items</th><th className="r">Total</th><th className="r">When</th></tr></thead>
                 <tbody>{data.recentOrders.map((o) => (
                   <tr key={o.id}><td><b>{o.name || '—'}</b><small className="sub-t">{o.email}</small></td><td>{o.funnel}</td><td className="items">{o.items.map((i, k) => <span key={k} className={`it k-${i.kind}`}>{i.kind === 'main' ? i.name : i.kind}</span>)}</td><td className="r strong">{inr(o.total)}</td><td className="r muted">{ago(o.at)}</td></tr>
                 ))}</tbody>
-              </table>
+              </table></div>
             ) : <Empty icon="cart" title="No orders yet" text="Publish a funnel and share the link — orders will show up here in real time." />}
           </Panel>
         </>

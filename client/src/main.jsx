@@ -7,6 +7,7 @@ import ErrorBoundary, { initMonitoring } from './ErrorBoundary';
 // so a buyer opening a funnel never downloads the dashboard.
 import Public from './pages/Public';
 import './styles.css';
+import './app-polish.css';
 import './page-variants.css';
 import './page-premium.css';
 import './app-products.css';

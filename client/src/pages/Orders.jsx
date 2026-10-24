@@ -151,10 +151,10 @@ export default function Orders() {
             {(days || funnel || status !== 'all' || q) ? <button className="link-btn" onClick={() => { setDays(0); setFunnel(''); setStatus('all'); setQ(''); }}>{t('Clear filters')}</button> : null}
           </div>
           <div className="kpis k4">
-            <div className="kpi"><span className="kpi-l">{t('Revenue · after refunds')}</span><b className="kpi-v">{inr(revenue)}</b>{refunded > 0 && <small>{t('{amount} refunded', { amount: inr(refunded) })}</small>}{codDue > 0 && <small>{t('+ {amount} COD to collect', { amount: inr(codDue) })}</small>}</div>
-            <div className="kpi"><span className="kpi-l">{t('Paid orders')}</span><b className="kpi-v">{num(paidCount)}</b>{tests > 0 && <small>{t('+ {n} test, not counted', { n: num(tests) })}</small>}</div>
-            <div className="kpi"><span className="kpi-l">{t('Avg. order value')}</span><b className="kpi-v">{inr(k.aov || 0)}</b></div>
-            <div className="kpi warn"><span className="kpi-l">{t('Abandoned checkouts')}</span><b className="kpi-v">{num(abandonedTotal)}</b><small>{t('recover them via WhatsApp ↓')}</small></div>
+            <div className="kpi"><span className="kpi-l"><span className="kpi-ic"><Icon name="wallet" size={14} /></span>{t('Revenue · after refunds')}</span><b className="kpi-v">{inr(revenue)}</b>{refunded > 0 && <small>{t('{amount} refunded', { amount: inr(refunded) })}</small>}{codDue > 0 && <small>{t('+ {amount} COD to collect', { amount: inr(codDue) })}</small>}</div>
+            <div className="kpi"><span className="kpi-l"><span className="kpi-ic"><Icon name="cart" size={14} /></span>{t('Paid orders')}</span><b className="kpi-v">{num(paidCount)}</b>{tests > 0 && <small>{t('+ {n} test, not counted', { n: num(tests) })}</small>}</div>
+            <div className="kpi"><span className="kpi-l"><span className="kpi-ic"><Icon name="tag" size={14} /></span>{t('Avg. order value')}</span><b className="kpi-v">{inr(k.aov || 0)}</b></div>
+            <div className="kpi warn"><span className="kpi-l"><span className="kpi-ic"><Icon name="clock" size={14} /></span>{t('Abandoned checkouts')}</span><b className="kpi-v">{num(abandonedTotal)}</b><small>{t('recover them via WhatsApp ↓')}</small></div>
           </div>
           <Panel pad={false} title={<div className="seg">
             <button className={tab === 'orders' ? 'on' : ''} onClick={() => setTab('orders')}>{t('Orders ({n})', { n: num(ordersTotal) })}</button>
