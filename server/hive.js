@@ -242,6 +242,15 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => (r.ok ? 'Done in your connected app' : `The app said: ${String(r.error || '').slice(0, 120)}`),
   },
   {
+    name: 'ads_report', description: 'Which ads make money: per ad (campaign / ad set / ad) the spend, leads, booked calls, sales, revenue, lifetime value, won deals, cost per lead, ROAS and lifetime ROAS. model "last" = credit the ad clicked last before each event, "first" = the ad that first brought the person. Use it for “which ads should I kill / scale?” — kill ads with spend and no sales (or a lifetime ROAS well under 1), scale ads with the best lifetime ROAS. setup.urlParams is the URL-parameter line every Meta ad needs for ad-level tracking.',
+    schema: S({ days: num('Days to look back (default 30)'), model: str('"last" (default) or "first"'), funnelId: str('Optional funnel id') }),
+    run: async (ctx, a) => {
+      const d = await ctx.call('GET', `/ads/report?days=${a.days || 30}&model=${a.model === 'first' ? 'first' : 'last'}${a.funnelId ? `&funnelId=${a.funnelId}` : ''}`);
+      return { model: d.model, days: d.days, totals: d.totals, setup: d.setup, ads: d.rows.slice(0, 40).map(({ key, impressions, clicks, ...r }) => r) };
+    },
+    summary: () => 'Checked your ads report',
+  },
+  {
     name: 'list_crm_fields', description: 'The CRM’s custom fields (id, label, type, options) — needed for field / date triggers, the update-field step and custom-field conditions.', schema: S({}),
     run: async (ctx) => (await ctx.call('GET', '/crm/fields')).map((f) => ({ id: f.id, label: f.label, type: f.type, ...(f.options ? { options: f.options } : {}) })),
     summary: () => 'Checked your CRM fields',

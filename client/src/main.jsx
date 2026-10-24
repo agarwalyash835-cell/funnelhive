@@ -24,6 +24,7 @@ const Analytics = lazy(() => import('./pages/Analytics'));
 const Contacts = lazy(() => import('./pages/Contacts'));
 const Orders = lazy(() => import('./pages/Orders'));
 const Reports = lazy(() => import('./pages/Reports'));
+const Ads = lazy(() => import('./pages/Ads'));
 const Products = lazy(() => import('./pages/Products'));
 const Library = lazy(() => import('./pages/Library'));
 const Learn = lazy(() => import('./pages/Learn'));
@@ -126,6 +127,7 @@ const app = onDomain ? (
         <Route path="/contacts/:key?" element={P(Contacts)} />
         <Route path="/orders" element={P(Orders)} />
         <Route path="/reports" element={P(Reports)} />
+        <Route path="/ads" element={P(Ads)} />
         <Route path="/products/:id?" element={P(Products)} />
         <Route path="/access/:token?" element={L(Library)} />
         <Route path="/invoice/:id" element={L(SaleInvoice)} />

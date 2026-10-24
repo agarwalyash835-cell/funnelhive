@@ -2436,3 +2436,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .fld .li.quiz-li .tog.mini { margin: 0; text-transform: none; letter-spacing: 0; }
 .fld .li.quiz-li > .btn { justify-self: start; }
 .fld .li.quiz-li label.tog { display: flex; font-size: 12.5px; font-weight: 500; }
+
+/* Ads report */
+.ads-setup { margin: 0; padding-left: 20px; display: grid; gap: 12px; font-size: 14px; }
+.ads-setup li.done { color: var(--c-muted); }
+.ads-setup li.done b::after { content: ' ✓'; color: #16a34a; }
+.ads-params { display: flex; gap: 8px; align-items: center; margin: 8px 0 4px; }
+.ads-params code { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--c-surface-2); border: 1px solid var(--c-line); font-size: 12px; overflow-x: auto; white-space: nowrap; }
+.ads-q { width: 180px; padding: 6px 10px; }
+.ads-tbl td.ads-name { max-width: 280px; }
+.ads-tbl td.ads-name b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbl-wrap { overflow-x: auto; }
+.ads-setup li { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .ads-params { flex-wrap: wrap; } .ads-params code { flex-basis: 100%; white-space: normal; word-break: break-all; } .ads-q { width: 120px; } }

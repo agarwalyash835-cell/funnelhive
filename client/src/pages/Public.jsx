@@ -43,7 +43,7 @@ function captureAttr(qs) {
   let saved = null;
   try { saved = JSON.parse(store.get(sk('ff_attr')) || 'null'); } catch {}
   if (saved && Date.now() - (saved.at || 0) > ATTR_DAYS * 864e5) saved = null;
-  const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'gbraid', 'wbraid']; // gbraid / wbraid: Google's click ids from iPhones
+  const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'ad_id', 'fbclid', 'gclid', 'gbraid', 'wbraid']; // gbraid / wbraid: Google's click ids from iPhones
   const fromUrl = Object.fromEntries(keys.map((k) => [k, qs.get(k)]).filter(([, v]) => v));
   const ref = document.referrer && !document.referrer.startsWith(location.origin) ? (() => { try { return new URL(document.referrer).hostname; } catch { return ''; } })() : '';
   if (Object.keys(fromUrl).length || (!saved && ref)) {

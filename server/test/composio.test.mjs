@@ -33,7 +33,7 @@ before(async () => {
       if (slug === 'METAADS_GET_AD_ACCOUNTS') return send(200, { successful: true, data: { data: [{ id: 'act_1111111', account_id: '1111111', name: 'Asha Studio' }] } });
       if (slug === 'METAADS_LIST_AD_ACCOUNT_PIXELS') return send(200, { successful: true, data: { pixels: [{ id: '2222222', name: 'Main pixel' }] } });
       if (slug === 'METAADS_SEND_CONVERSION_EVENTS') { sent.push(body); return send(200, { successful: true, data: { events_received: body.arguments.events.length } }); }
-      if (slug === 'METAADS_GET_INSIGHTS' && body.arguments.level === 'campaign') return send(200, { successful: true, data: { data: [{ date_start: '2026-10-20', campaign_name: 'Diwali Sale', spend: '1500.50' }, { date_start: '2026-10-21', campaign_name: 'Diwali Sale', spend: '900' }] } });
+      if (slug === 'METAADS_GET_INSIGHTS' && body.arguments.level === 'ad') return send(200, { successful: true, data: { data: [{ date_start: '2026-10-20', campaign_name: 'Diwali Sale', adset_name: 'Women 25-40', ad_name: 'Reel A', ad_id: '120001', spend: '1500.50', impressions: '9000', clicks: '210' }, { date_start: '2026-10-21', campaign_name: 'Diwali Sale', adset_name: 'Women 25-40', ad_name: 'Reel A', ad_id: '120001', spend: '900' }] } });
       if (p.startsWith('/tools/execute/')) return send(200, { successful: true, data: { slug: p.split('/').pop(), args: body.arguments, user: body.user_id }, error: null });
       send(404, { error: { message: 'not found' } });
     });
@@ -107,6 +107,10 @@ test('one Meta connection: pick the ad account and pixel, and the pixel, convers
   // spend pulled in the background, through the same connection
   assert.ok(await until(async () => (await api('/adspend', 'GET', null, T)).data.platforms?.some((p) => p.p === 'meta' && p.n === 2)), 'spend synced');
   assert.equal((await api('/adspend', 'GET', null, T)).data.meta.via, 'apps');
+  const ads = (await api('/ads/report?days=3650', 'GET', null, T)).data;
+  const reel = ads.rows.find((r) => r.adId === '120001');
+  assert.deepEqual([reel?.ad, reel?.adset, reel?.spend, reel?.clicks], ['Reel A', 'Women 25-40', 2401, 210], 'spend per ad from the Meta connection');
+  assert.equal(ads.setup.meta, true);
 
   // the automation step: a contact reaching “qualified” is sent to Meta, hashed, through Composio
   const c = (await api('/automations', 'POST', { name: 'Qualified → Meta', trigger: { type: 'tag', tag: 'qualified' }, steps: [{ type: 'meta', event: 'QualifiedLead' }, { type: 'meta', event: 'Purchase', value: '4999' }] }, T)).data;

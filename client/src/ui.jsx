@@ -10,6 +10,7 @@ const P = {
   funnel: 'M3 4h18l-7 8v6l-4 2v-8z',
   layout: 'M3 3h18v18H3zM3 9h18M9 21V9',
   chart: 'M3 3v18h18M7 15l4-4 3 3 5-6',
+  target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01',
   users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
   cart: 'M6 6h15l-1.5 9h-12zM6 6 5 3H2M9 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM18 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2z',
   sparkles: 'M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8zM19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z',
@@ -103,6 +104,7 @@ const PAGES = {
   '/hive': ['sparkles', 'Hive AI', 'Ask AI to build, write and analyse for you'],
   '/orders': ['cart', 'Orders', 'Sales, refunds, shipping and abandoned checkouts'],
   '/reports': ['chart', 'Reports', 'Revenue, refunds, cohorts and lifetime value'],
+  '/ads': ['target', 'Ads', 'Which ads bring leads, calls and sales — spend, ROAS and lifetime value per ad'],
   '/products': ['box', 'Products', 'Courses, downloads and memberships buyers get access to'],
   '/school': ['bookmark', 'School', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
@@ -117,8 +119,8 @@ const PAGES = {
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
-const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/products', '/school', '/quotes']], ['Audience', ['/contacts', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
-const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/school', '/contacts'];
+const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/school', '/quotes']], ['Audience', ['/contacts', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
+const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/ads', '/school', '/contacts'];
 const OPTIONAL = GROUPS.flatMap(([, l]) => l).filter((to) => !CORE.includes(to));
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };

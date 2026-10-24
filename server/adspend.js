@@ -19,7 +19,7 @@ function store(userId, platform, rows) {
   const days = [...new Set(rows.map((r) => r.date))];
   tx(() => {
     for (const d of days) q("DELETE FROM adspend WHERE userId = ? AND json_extract(data, '$.platform') = ? AND json_extract(data, '$.date') = ?").run(userId, platform, d);
-    for (const r of rows) T.adspend.insert({ id: uid(), userId, platform, date: r.date, campaign: String(r.campaign).slice(0, 200), key: norm(r.campaign), spend: Math.round(Number(r.spend) * 100) / 100, currency: r.currency || 'INR', at: Date.parse(`${r.date}T00:00:00+05:30`) });
+    for (const r of rows) T.adspend.insert({ id: uid(), userId, platform, date: r.date, campaign: String(r.campaign).slice(0, 200), key: norm(r.campaign), spend: Math.round(Number(r.spend) * 100) / 100, currency: r.currency || 'INR', at: Date.parse(`${r.date}T00:00:00+05:30`), ...(r.ad ? { ad: String(r.ad).slice(0, 200), adKey: norm(r.ad), adId: String(r.adId || ''), adset: String(r.adset || '').slice(0, 200), impressions: Number(r.impressions) || 0, clicks: Number(r.clicks) || 0 } : {}) });
   });
   return rows.length;
 }
@@ -34,11 +34,12 @@ async function graph(path, token) {
 // spend through the seller's Meta connection (Settings → Apps & ads), when there's no Marketing API token
 async function syncMetaApp(u, days) {
   const m = u.channels.metaApp, rows = [];
-  const args = { object_id: `act_${m.account}`, level: 'campaign', fields: ['campaign_name', 'spend', 'date_start'], time_increment: 1, limit: 500, time_range: { since: ymd(Date.now() - (days - 1) * DAY), until: ymd(Date.now()) } };
+  // per ad, so the Ads report can show spend, cost per lead and ROAS for every ad (campaign totals still add up)
+  const args = { object_id: `act_${m.account}`, level: 'ad', fields: ['campaign_name', 'adset_name', 'ad_name', 'ad_id', 'spend', 'impressions', 'clicks', 'date_start'], time_increment: 1, limit: 500, time_range: { since: ymd(Date.now() - (days - 1) * DAY), until: ymd(Date.now()) } };
   try {
     for (let i = 0, after; i < 20; i++) {
       const d = await runAs(u.id, 'METAADS_GET_INSIGHTS', after ? { ...args, after } : args);
-      for (const x of d.data || []) rows.push({ date: x.date_start, campaign: x.campaign_name, spend: Number(x.spend) || 0 });
+      for (const x of d.data || []) rows.push({ date: x.date_start, campaign: x.campaign_name, spend: Number(x.spend) || 0, ad: x.ad_name || '', adId: x.ad_id || '', adset: x.adset_name || '', impressions: x.impressions, clicks: x.clicks });
       after = d.paging?.next && d.paging?.cursors?.after;
       if (!after) break;
     }

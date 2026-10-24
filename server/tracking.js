@@ -19,14 +19,15 @@ const KEEP = 300; // log entries kept per seller
 
 // ---------- attribution ----------
 // gbraid / wbraid: Google's click ids for iOS app / web-to-app clicks (used by the Google Ads API upload, gads.js)
-export const ATTR_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'gbraid', 'wbraid', 'ref', 'landing'];
+// ad_id: the Meta ad's id from the {{ad.id}} URL parameter (the Ads report matches spend to it)
+export const ATTR_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'ad_id', 'fbclid', 'gclid', 'gbraid', 'wbraid', 'ref', 'landing'];
 const LONG_ATTR = new Set(['fbclid', 'gclid', 'gbraid', 'wbraid']);
 export function cleanAttr(a) {
   if (!a || typeof a !== 'object') return undefined;
   const out = {};
   for (const k of ATTR_KEYS) {
     const v = String(a[k] ?? '').trim().replace(/[\u0000-\u001f]/g, '').slice(0, LONG_ATTR.has(k) ? 400 : 160);
-    if (v) out[k] = k.startsWith('utm_') ? v.toLowerCase() : v;
+    if (v && !(k === 'ad_id' && !/^\d{5,25}$/.test(v))) out[k] = k.startsWith('utm_') ? v.toLowerCase() : v;
   }
   return Object.keys(out).length ? out : undefined;
 }
