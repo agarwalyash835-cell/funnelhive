@@ -429,6 +429,8 @@ const demoCount = (userId) => ({
   events: q('SELECT COUNT(*) AS n FROM events WHERE userId = ? AND demo = 1').get(userId).n,
   orders: T.orders.count({ userId, demo: 1 }), leads: T.leads.count({ userId, demo: 1 }), abandoned: T.abandoned.count({ userId, demo: 1 }),
 });
+// the pages a menu can show (pinned / hidden / an agency's default)
+const MENU_PAGES = ['/funnels', '/hive', '/orders', '/reports', '/ads', '/products', '/school', '/quotes', '/contacts', '/vault', '/automations', '/broadcasts', '/bookings', '/webinars'];
 app.get('/api/me', auth, (req, res) => {
   const s = req.user.settings;
   const funnels = q('SELECT COUNT(*) AS n, COALESCE(SUM(json_extract(data, \'$.published\')), 0) AS pub FROM funnels WHERE userId = ?').get(req.user.id);
@@ -447,6 +449,9 @@ app.get('/api/me', auth, (req, res) => {
       ship: q("SELECT COUNT(*) AS n FROM orders WHERE userId = ? AND json_extract(data, '$.fulfilment.status') = 'pending' AND json_extract(data, '$.status') NOT IN ('cancelled', 'refunded')").get(req.user.id).n,
       calls: T.bookings.count({ userId: req.user.id, status: 'confirmed', start: { gte: Date.now(), lte: Date.now() + 86400000 } }),
       unread: unreadCount(req.user.id), // notifications (the bell)
+      industry: s.crmKit?.id || null, // the menu starts from the business's industry (its CRM kit)
+      prefs: (req.actor || req.user).settings?.navPrefs?.[req.user.id] || null, // this person's own layout here
+      clientMenu: (req.user.agencyId && T.users.get(req.user.agencyId)?.settings?.clientMenu) || null, // its agency's default
     },
     onboarding: {
       funnel: funnels.n > 0,
@@ -456,6 +461,15 @@ app.get('/api/me', auth, (req, res) => {
       lead: T.leads.exists({ userId: req.user.id }),
     },
   });
+});
+
+// this person's menu layout in this workspace (pinned / hidden tools, closed groups): saved on the person, per workspace
+app.put('/api/me/menu', auth, (req, res) => {
+  const b = req.body || {}, arr = (v) => [...new Set(Array.isArray(v) ? v : [])];
+  const prefs = { pinned: arr(b.pinned).filter((x) => MENU_PAGES.includes(x)), hidden: arr(b.hidden).filter((x) => MENU_PAGES.includes(x)), closed: arr(b.closed).filter((x) => /^[A-Za-z]{1,20}$/.test(x)).slice(0, 10) };
+  const me = req.actor || req.user;
+  T.users.update(me.id, (x) => { x.settings = { ...(x.settings || {}), navPrefs: { ...(x.settings?.navPrefs || {}), [req.user.id]: prefs } }; });
+  res.json(prefs);
 });
 
 // ---------- settings, coupons, webhooks ----------

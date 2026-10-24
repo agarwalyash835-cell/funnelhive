@@ -125,7 +125,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     if (req.actor) return res.status(403).json({ error: 'Switch to your own account to manage client accounts' });
     if (req.user.agencyId) return res.status(404).json({ error: 'This page doesn’t exist.' }); // a sub-account has no agency tools
     const list = clientsOf(req.user.id).map((c) => ({ id: c.id, business: c.settings?.businessName || c.name, name: c.name, email: c.passwordSet ? c.email : null, invited: !!c.invitedAt, createdAt: c.createdAt, funnels: T.funnels.count({ userId: c.id }), stats: statsOf(c.id), report: `/report/${reportToken(c.id)}` }));
-    res.json({ limit: clientLimit(req.user), used: list.length, plan: isAgencyPlan(req.user) ? 'agency' : req.user.billing?.status, clients: list, whiteLabel: req.user.settings?.whiteLabel || {} });
+    res.json({ limit: clientLimit(req.user), used: list.length, plan: isAgencyPlan(req.user) ? 'agency' : req.user.billing?.status, clients: list, whiteLabel: req.user.settings?.whiteLabel || {}, clientMenu: req.user.settings?.clientMenu || null });
   });
   app.post('/api/agency/clients', auth, (req, res) => {
     if (req.actor || req.apiKey) return res.status(403).json({ error: 'Only the agency owner can add client accounts' });
@@ -169,6 +169,16 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
     deleteAccount(c.id);
     res.json({ ok: true });
+  });
+  // the menu new and existing client accounts start with (they can still change their own); null = by their industry
+  const CLIENT_PAGES = ['/funnels', '/hive', '/orders', '/reports', '/ads', '/products', '/school', '/quotes', '/contacts', '/vault', '/automations', '/broadcasts', '/bookings', '/webinars'];
+  app.put('/api/agency/client-menu', auth, (req, res) => {
+    if (req.actor || req.apiKey) return res.status(403).json({ error: 'Only the agency owner can set the client menu' });
+    if (req.user.agencyId) return res.status(404).json({ error: 'This page doesn’t exist.' });
+    const pages = req.body?.pages;
+    const menu = Array.isArray(pages) && pages.length ? [...new Set(pages.filter((x) => CLIENT_PAGES.includes(x)))] : null;
+    T.users.update(req.user.id, (x) => { x.settings = { ...(x.settings || {}), clientMenu: menu }; });
+    res.json({ clientMenu: menu });
   });
   app.put('/api/agency/white-label', auth, (req, res) => {
     if (req.actor || req.apiKey) return res.status(403).json({ error: 'Only the agency owner can change the white-label' });

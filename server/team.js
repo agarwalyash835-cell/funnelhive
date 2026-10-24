@@ -27,8 +27,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // never for a member, whatever the role: the owner's billing, account, personal security, platform admin
 // (partner tools and a sub-account's plan with its partner are billing too)
 const OWNER_ONLY = /^\/api\/(billing|account|admin|auth\/|team\/(members|invite|roles)|partner(-billing)?(\/|$))/;
-// always fine: who am I, my workspaces, switching, leaving, the notification bell
-const ANY = /^\/api\/(me$|team\/(workspaces|switch|leave|accept)$|hive\/status$|notifications(\/read)?$)/;
+// always fine: who am I (and my own menu layout), my workspaces, switching, leaving, the notification bell
+const ANY = /^\/api\/(me(\/menu)?$|team\/(workspaces|switch|leave|accept)$|hive\/status$|notifications(\/read)?$)/;
 // secrets and account-wide settings: admins only (GET /api/channels itself only says what's connected)
 const SECRET = /^\/api\/(vault\/secrets|settings|webhooks|keys|adspend\/meta|v1\/hooks|hive\/tokens|channels\/|domains|demo|conversions\/[^/]+\/retry)/;
 const WRITE = {

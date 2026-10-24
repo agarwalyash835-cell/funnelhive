@@ -2703,3 +2703,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .pt-def { display: flex; gap: 6px; align-items: center; font-size: 12.5px; padding-bottom: 10px; white-space: nowrap; }
 .pt-cost { padding-bottom: 12px; }
 @media (max-width: 760px) { .pt-row, .pt-row.pack { grid-template-columns: 1fr 1fr; } }
+
+/* menu: reset to the industry's layout */
+.nav-reset { margin: 0 8px 8px; }

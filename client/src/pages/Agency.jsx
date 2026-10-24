@@ -54,6 +54,7 @@ export default function Agency() {
             )}
           </Panel>
           <WhiteLabel w={d.whiteLabel} enabled={d.limit > 0} />
+          <ClientMenu menu={d.clientMenu} enabled={d.limit > 0} />
           <p className="hint">Copy funnels to a client from the Funnels page (⋯ → Copy to client). Funnels you build for others can also be shared as a link or a file.</p>
         </>
       )}
@@ -88,6 +89,23 @@ function InviteClient({ c, onClose, onDone }) {
         <div className="row end" style={{ marginTop: 12 }}><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary">Send invitation</button></div>
       </form>
     </Modal>
+  );
+}
+
+// the menu client accounts start with: by each client's industry (default), or the tools you pick for all of them
+const CLIENT_TOOLS = [['/contacts', 'CRM'], ['/funnels', 'Funnels'], ['/hive', 'Hive AI'], ['/bookings', 'Bookings'], ['/quotes', 'Quotes'], ['/webinars', 'Webinars'], ['/orders', 'Orders'], ['/reports', 'Reports'], ['/ads', 'Ads'], ['/products', 'Products'], ['/school', 'School'], ['/automations', 'Automations'], ['/broadcasts', 'Broadcasts'], ['/vault', 'Vault']];
+function ClientMenu({ menu, enabled }) {
+  const [pages, setPages] = useState(menu || null);
+  const save = async () => { try { const r = await api('/agency/client-menu', 'PUT', { pages: pages || [] }); setPages(r.clientMenu); toast('Client menu saved'); } catch (e) { toast(e.message); } };
+  const flip = (to) => setPages(pages.includes(to) ? pages.filter((x) => x !== to) : [...pages, to]);
+  return (
+    <Panel title="Client menu" actions={<button className="btn primary sm" disabled={!enabled} onClick={save}>Save</button>}>
+      <p className="muted sm">What your clients see in their sidebar. Everything else stays one click away under “More tools”, and each client can still change their own menu. What they’re allowed to open doesn’t change.</p>
+      <fieldset disabled={!enabled} className="plain">
+        <label className="tog"><input type="checkbox" checked={!pages} onChange={(e) => setPages(e.target.checked ? null : ['/contacts', '/funnels', '/bookings', '/automations'])} /><span />Set up by each client’s industry (recommended)</label>
+        {pages && <div className="chips" style={{ marginTop: 10 }}>{CLIENT_TOOLS.map(([to, label]) => <button key={to} type="button" className={pages.includes(to) ? 'on' : ''} aria-pressed={pages.includes(to)} onClick={() => flip(to)}>{label}</button>)}</div>}
+      </fieldset>
+    </Panel>
   );
 }
 

@@ -123,13 +123,49 @@ const PAGES = {
 };
 const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/school', '/quotes']], ['Audience', ['/contacts', '/vault', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
 const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/ads', '/school', '/contacts', '/vault'];
-const OPTIONAL = GROUPS.flatMap(([, l]) => l).filter((to) => !CORE.includes(to));
+const TOOLS = GROUPS.flatMap(([, l]) => l).filter((to) => to !== '/');
+// the everyday menu for each industry (its CRM kit); an agency can set its own for its clients; the rest wait under
+// "More tools". Accounts that never picked an industry keep the standard menu.
+const INDUSTRY_MENU = {
+  general: ['/funnels', '/hive', '/contacts', '/webinars', '/products', '/school', '/orders', '/automations'],
+  realestate: ['/funnels', '/hive', '/contacts', '/bookings', '/quotes', '/ads', '/automations', '/broadcasts'],
+  clinic: ['/funnels', '/hive', '/contacts', '/bookings', '/orders', '/automations', '/broadcasts'],
+  consultant: ['/funnels', '/hive', '/contacts', '/quotes', '/bookings', '/automations', '/vault'],
+  education: ['/funnels', '/hive', '/contacts', '/webinars', '/bookings', '/orders', '/automations', '/broadcasts'],
+  fitness: ['/funnels', '/hive', '/contacts', '/bookings', '/orders', '/automations', '/broadcasts'],
+  finance: ['/funnels', '/hive', '/contacts', '/bookings', '/quotes', '/vault', '/automations'],
+  interior: ['/funnels', '/hive', '/contacts', '/bookings', '/quotes', '/vault', '/automations'],
+  events: ['/funnels', '/hive', '/contacts', '/quotes', '/bookings', '/vault', '/automations'],
+  travel: ['/funnels', '/hive', '/contacts', '/quotes', '/orders', '/automations', '/broadcasts'],
+  auto: ['/funnels', '/hive', '/contacts', '/bookings', '/quotes', '/ads', '/automations'],
+  professional: ['/funnels', '/hive', '/contacts', '/quotes', '/bookings', '/vault', '/automations'],
+  recruitment: ['/funnels', '/hive', '/contacts', '/bookings', '/vault', '/automations'],
+  homeservices: ['/funnels', '/hive', '/contacts', '/bookings', '/quotes', '/ads', '/automations'],
+  hospitality: ['/funnels', '/hive', '/contacts', '/bookings', '/orders', '/automations', '/broadcasts'],
+  store: ['/funnels', '/hive', '/orders', '/reports', '/products', '/ads', '/contacts', '/automations', '/broadcasts'],
+  abroad: ['/funnels', '/hive', '/contacts', '/webinars', '/bookings', '/vault', '/automations'],
+  wellness: ['/funnels', '/hive', '/contacts', '/bookings', '/webinars', '/orders', '/automations'],
+  saas: ['/funnels', '/hive', '/contacts', '/webinars', '/bookings', '/quotes', '/automations'],
+  ngo: ['/funnels', '/hive', '/contacts', '/orders', '/broadcasts', '/automations'],
+};
+const everyday = (me) => {
+  const m = me?.nav?.clientMenu || INDUSTRY_MENU[me?.nav?.industry];
+  return m ? ['/', ...m] : CORE;
+};
+// the words a business uses: the CRM is "Patients" / "Students" / "Buyers"…, bookings are "Site visits", "Demo classes"…
+const BOOKING_WORD = { realestate: 'Site visits', clinic: 'Appointments', education: 'Demo classes', fitness: 'Appointments', interior: 'Site visits', auto: 'Test drives', homeservices: 'Site surveys', recruitment: 'Interviews', abroad: 'Counselling', wellness: 'Sessions', saas: 'Demos', consultant: 'Meetings', finance: 'Meetings', professional: 'Consultations' };
+const labelOf = (to, me) => {
+  const kit = me?.settings?.crmKit, id = me?.nav?.industry;
+  if (to === '/contacts' && kit?.labels?.title && id && id !== 'general') return kit.labels.title;
+  if (to === '/bookings' && BOOKING_WORD[id]) return BOOKING_WORD[id];
+  return PAGES[to][1];
+};
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
 // which permission areas (custom team roles) open each page
 const PAGE_AREAS = { '/funnels': ['funnels'], '/templates': ['funnels'], '/hive': ['ai'], '/orders': ['orders'], '/reports': ['dashboard'], '/ads': ['ads'], '/products': ['products'], '/school': ['products'], '/quotes': ['quotes'], '/contacts': ['crm'], '/vault': ['files', 'secrets'], '/automations': ['automations'], '/broadcasts': ['broadcasts'], '/bookings': ['bookings'], '/webinars': ['webinars'], '/settings': ['settings', 'team'] };
 const NAV_KEY = 'ff_nav';
-const navPrefs = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
+const navLocal = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
 const allowed = (to, me) => {
   if (to === '/admin') return !!me?.admin;
@@ -145,20 +181,25 @@ const allowed = (to, me) => {
   return to !== '/settings' || ['admin', 'agency'].includes(me.workspace.role);
 };
 // a tool is in the menu when it's an everyday page, you use it, you pinned it, or you're on it — unless you hid it
-const inMenu = (to, me, p, here) => allowed(to, me) && !p.hidden.includes(to) && (CORE.includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || here === to);
+const inMenu = (to, me, p, here) => allowed(to, me) && !p.hidden.includes(to) && (everyday(me).includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || here === to);
 const badgeOf = (to, me) => (to === '/orders' && me?.nav?.ship ? [me.nav.ship, t('{n} to ship', { n: me.nav.ship })] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, t(me.nav.calls > 1 ? '{n} calls in the next 24 hours' : '{n} call in the next 24 hours', { n: me.nav.calls })] : null);
 
 function SideNav({ me, onGo }) {
-  const [p, setP] = useState(navPrefs);
+  // the layout is saved on your account (so it follows you to every device); this browser keeps a copy
+  const [p, setP] = useState(() => ({ pinned: [], hidden: [], closed: [], ...(me?.nav?.prefs || navLocal()) }));
+  const fromServer = me?.nav?.prefs ? JSON.stringify(me.nav.prefs) : '';
+  useEffect(() => { if (fromServer) setP({ pinned: [], hidden: [], closed: [], ...JSON.parse(fromServer) }); }, [fromServer]);
   const [more, setMore] = useState(false);
   const here = '/' + (location.pathname.split('/')[1] || '');
-  const save = (n) => { setP(n); try { localStorage.setItem(NAV_KEY, JSON.stringify(n)); } catch {} };
+  const save = (n) => { setP(n); try { localStorage.setItem(NAV_KEY, JSON.stringify(n)); } catch {} api('/me/menu', 'PUT', n).catch(() => {}); };
+  const custom = p.pinned.length > 0 || p.hidden.length > 0;
+  const kitName = me?.nav?.clientMenu ? null : me?.nav?.industry && me?.settings?.crmKit?.name;
   const toggleGroup = (g) => save({ ...p, closed: p.closed.includes(g) ? p.closed.filter((x) => x !== g) : [...p.closed, g] });
   const setShown = (to, on) => save({ ...p, pinned: on ? [...new Set([...p.pinned, to])] : p.pinned.filter((x) => x !== to), hidden: on ? p.hidden.filter((x) => x !== to) : [...new Set([...p.hidden, to])] });
-  const waiting = OPTIONAL.filter((to) => allowed(to, me) && !inMenu(to, me, p, here));
+  const waiting = TOOLS.filter((to) => allowed(to, me) && !inMenu(to, me, p, here));
   const link = (to) => {
-    const [ic, label] = PAGES[to], b = badgeOf(to, me);
-    return <NavLink key={to} to={to} end={to === '/'} onClick={onGo}><Icon name={ic} /><span className="nav-l">{t(label)}</span>{b && <span className="nav-badge" title={b[1]}>{b[0]}</span>}</NavLink>;
+    const ic = PAGES[to][0], b = badgeOf(to, me);
+    return <NavLink key={to} to={to} end={to === '/'} onClick={onGo}><Icon name={ic} /><span className="nav-l">{t(labelOf(to, me))}</span>{b && <span className="nav-badge" title={b[1]}>{b[0]}</span>}</NavLink>;
   };
   return (
     <nav>
@@ -178,9 +219,10 @@ function SideNav({ me, onGo }) {
         <button type="button" className={`nav-more-b ${more ? 'on' : ''}`} onClick={() => setMore(!more)} aria-expanded={more}><Icon name="plus" />{t('More tools')}{waiting.length > 0 && <span className="nav-n">{waiting.length}</span>}</button>
         {more && (
           <div className="nav-pop" role="dialog" aria-label={t('More tools')}>
-            <p className="nav-pop-h">{t('Tools join your menu once you start using them. Tick one to keep it there.')}</p>
-            {OPTIONAL.filter((to) => allowed(to, me)).map((to) => {
-              const [ic, label, desc] = PAGES[to], on = inMenu(to, me, p, null);
+            <p className="nav-pop-h">{kitName ? t('Your menu is set up for {k}. Tick any tool to show it, untick to tuck it away — tools also join once you start using them.', { k: kitName }) : t('Tools join your menu once you start using them. Tick one to keep it there, untick to tuck it away.')}</p>
+            {custom && <button type="button" className="btn ghost sm nav-reset" onClick={() => save({ ...p, pinned: [], hidden: [] })}>{t(kitName ? 'Reset to my industry’s menu' : 'Reset the menu')}</button>}
+            {TOOLS.filter((to) => allowed(to, me)).map((to) => {
+              const [ic, , desc] = PAGES[to], label = labelOf(to, me), on = inMenu(to, me, p, null);
               return (
                 <div key={to} className="nav-tool">
                   <Link to={to} onClick={() => { setMore(false); onGo?.(); }}><Icon name={ic} size={16} /><span><b>{t(label)}</b><small>{t(desc)}</small></span></Link>
@@ -236,7 +278,7 @@ function Jump({ me }) {
   useEffect(() => { if (open) { setQ(''); setSel(0); if (!funnels) api('/funnels').then(setFunnels).catch(() => setFunnels([])); } }, [open]);
   if (!open) return null;
   const s = q.trim().toLowerCase();
-  const pages = Object.entries(PAGES).filter(([to]) => allowed(to, me)).map(([to, [ic, label, desc]]) => ({ to, ic, label: t(label), desc: t(desc) }));
+  const pages = Object.entries(PAGES).filter(([to]) => allowed(to, me)).map(([to, [ic, , desc]]) => ({ to, ic, label: t(labelOf(to, me)), desc: t(desc) }));
   const fl = (funnels || []).map((f) => ({ to: `/funnels/${f.id}`, ic: 'funnel', label: f.name, desc: t(f.published ? 'Funnel · live' : 'Funnel · draft') }));
   const hits = [...pages, ...fl].filter((x) => !s || `${x.label} ${x.desc}`.toLowerCase().includes(s)).slice(0, 9);
   const go = (x) => { if (!x) return; setOpen(false); nav(x.to); };
