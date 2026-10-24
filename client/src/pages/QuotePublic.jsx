@@ -68,7 +68,7 @@ export default function QuotePublic() {
   return (
     <div className="lib">
       <header className="lib-h"><div className="lib-brand"><span className="lib-logo">{(q.seller.name || 'Q')[0]}</span><b>{q.seller.name}</b></div><div className="lib-who mono">{q.number}</div></header>
-      <main className="lib-main quote-pub">
+      <main className={`lib-main quote-pub qd-${q.design || 'classic'}`}>
         {preview && <p className="q-note">Preview — this is what your client sees. Opening it here doesn’t mark it as viewed.</p>}
         <p className="q-for">Prepared for <b>{q.client.name}</b>{q.client.company ? `, ${q.client.company}` : ''} · {day(q.at)}{q.validUntil ? ` · valid until ${day(q.validUntil)}` : ''}</p>
         <h1>{q.title}</h1>
@@ -80,6 +80,7 @@ export default function QuotePublic() {
             <tr className="tot"><td colSpan={2}>Total</td><td className="r">{m(q.total)}</td></tr>
             {q.paid > 0 && <tr><td colSpan={2}>Paid</td><td className="r">− {m(q.paid)}</td></tr>}
             {q.paid > 0 && q.due > 0 && <tr className="tot"><td colSpan={2}>Balance due</td><td className="r">{m(q.due)}</td></tr>}
+            {q.taxNote && <tr className="q-tax"><td colSpan={3}>{q.taxNote}</td></tr>}
           </tfoot>
         </table>
         {q.terms && <div className="q-terms"><h3>Terms</h3><p>{q.terms}</p></div>}

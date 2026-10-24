@@ -6,21 +6,25 @@ import { fmtMoney } from '../stripePay';
 
 const STATUS = { draft: ['Draft', ''], sent: ['Sent', 'info'], viewed: ['Viewed', 'info'], deposit_paid: ['Deposit paid', 'warn'], paid: ['Paid', 'ok'], accepted: ['Accepted', 'ok'], declined: ['Declined', 'bad'], expired: ['Expired', 'bad'] };
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AUD', 'CAD', 'SGD', 'AED'];
-const blank = () => ({ client: { name: '', email: '', phone: '', company: '', gstin: '', state: '' }, title: '', intro: '', items: [{ name: '', detail: '', qty: 1, price: 0 }], currency: 'INR', deposit: 0, validDays: 14, terms: '' });
+const blank = () => ({ client: { name: '', email: '', phone: '', company: '', gstin: '', state: '' }, title: '', intro: '', items: [{ name: '', detail: '', qty: 1, price: 0 }], currency: 'INR', deposit: 0, validDays: 14, terms: '', taxNote: '', design: 'classic' });
+// how the client's quote page looks (QuotePublic.jsx, .qd-<id> in styles.css)
+export const DESIGNS = [['classic', 'Classic', 'Clean card, your accent colour'], ['modern', 'Modern', 'Bold colour header band'], ['minimal', 'Minimal', 'Black on white, hairline rules'], ['bold', 'Bold', 'Dark header, big total'], ['elegant', 'Elegant', 'Serif type, warm gold accents'], ['compact', 'Compact', 'Dense — fits long item lists']];
+const fromTemplate = (t) => ({ ...blank(), title: t.title, intro: t.intro, items: t.items.map((i) => ({ ...i })), deposit: t.deposit, validDays: t.validDays, terms: t.terms, taxNote: t.taxNote, templateId: t.id });
 const copy = (t) => navigator.clipboard?.writeText(t).then(() => toast('Link copied'), () => promptDialog({ title: 'Copy the link', value: t, readOnly: true, confirm: 'Done', cancel: null }));
 
 export default function Quotes() {
   const [list, setList] = useState(null);
   const [edit, setEdit] = useState(null);
+  const [picking, setPicking] = useState(false);
   const load = () => api('/quotes').then(setList).catch((e) => toast(e.message));
   useEffect(() => { load(); }, []);
   const act = async (path, method = 'POST', body = {}, msg) => { try { const r = await api(path, method, body); if (msg) toast(msg); load(); return r; } catch (e) { toast(e.message); return null; } };
   const open = list?.filter((q) => ['sent', 'viewed', 'deposit_paid'].includes(q.status)) || [];
   return (
-    <Layout title="Quotes" subtitle="Proposals with a pay link — your client reads it and pays the deposit or the full amount online" actions={<button className="btn primary" onClick={() => setEdit(blank())}><Icon name="plus" size={16} /> New quote</button>}>
+    <Layout title="Quotes" subtitle="Proposals with a pay link — your client reads it and pays the deposit or the full amount online" actions={<button className="btn primary" onClick={() => setPicking(true)}><Icon name="plus" size={16} /> New quote</button>}>
       {!list ? <div className="skeleton" /> : !list.length ? (
         <Empty icon="receipt" title="No quotes yet" text="Write a proposal with line items and an optional deposit. Your client gets a private link to accept and pay — by UPI / card in ₹, or by card in any currency.">
-          <button className="btn primary" onClick={() => setEdit(blank())}>Write your first quote</button>
+          <button className="btn primary" onClick={() => setPicking(true)}>Write your first quote</button>
         </Empty>
       ) : (
         <Panel title={`${list.length} quote${list.length === 1 ? '' : 's'}${open.length ? ` · ${open.length} awaiting payment` : ''}`} pad={false}>
@@ -47,6 +51,7 @@ export default function Quotes() {
           </table></div>
         </Panel>
       )}
+      {picking && <TemplatePicker onClose={() => setPicking(false)} onPick={(t) => { setPicking(false); setEdit(t ? fromTemplate(t) : blank()); }} />}
       {edit && <QuoteEditor q={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}
     </Layout>
   );
@@ -62,7 +67,7 @@ function QuoteEditor({ q: q0, onClose, onSaved }) {
   const save = async (send) => {
     setBusy(true);
     try {
-      const body = { client: q.client, title: q.title, intro: q.intro, items: q.items, currency: q.currency, deposit: q.deposit, terms: q.terms, ...(q.validDays !== '' ? { validDays: q.validDays } : {}) };
+      const body = { client: q.client, title: q.title, intro: q.intro, items: q.items, currency: q.currency, deposit: q.deposit, terms: q.terms, taxNote: q.taxNote || '', design: q.design || 'classic', ...(q.validDays !== '' ? { validDays: q.validDays } : {}) };
       const r = q.id ? await api(`/quotes/${q.id}`, 'PUT', body) : await api('/quotes', 'POST', body);
       if (send) { await api(`/quotes/${r.id}/send`, 'POST', {}); toast(`Sent to ${r.client.email}`); } else toast('Quote saved');
       onSaved(r);
@@ -97,16 +102,59 @@ function QuoteEditor({ q: q0, onClose, onSaved }) {
       </table></div>
       <div className="form2">
         <label className="fld"><span>Currency</span><select value={q.currency} onChange={(e) => set({ currency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></label>
-        <label className="fld"><span>Deposit to start <small className="muted">· % paid first, the rest later from the same link</small></span><select value={q.deposit} onChange={(e) => set({ deposit: Number(e.target.value) })}>{[0, 20, 25, 30, 40, 50, 60, 75].map((d) => <option key={d} value={d}>{d ? `${d}% (${fmtMoney((total * d) / 100, q.currency)})` : 'No deposit — pay in full'}</option>)}</select></label>
-        <label className="fld"><span>Valid for</span><select value={q.validDays} onChange={(e) => set({ validDays: e.target.value })}>{q.id && <option value="">Keep {q.validUntil ? `(until ${fmtDate(q.validUntil)})` : '(no expiry)'}</option>}{[[7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days'], [0, 'No expiry']].map(([d, l]) => <option key={d} value={d}>{l}</option>)}</select></label>
+        <label className="fld"><span>Deposit to start <small className="muted">· % paid first, the rest later from the same link</small></span><select value={q.deposit} onChange={(e) => set({ deposit: Number(e.target.value) })}>{[...new Set([0, 10, 20, 25, 30, 40, 50, 60, 75, 100, Number(q.deposit) || 0])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d ? `${d}% (${fmtMoney((total * d) / 100, q.currency)})` : 'No deposit — pay in full'}</option>)}</select></label>
+        <label className="fld"><span>Valid for</span><select value={q.validDays} onChange={(e) => set({ validDays: e.target.value })}>{q.id && <option value="">Keep {q.validUntil ? `(until ${fmtDate(q.validUntil)})` : '(no expiry)'}</option>}{[...(![7, 14, 30, 60, 0, ''].includes(Number(q.validDays)) && q.validDays !== '' ? [[Number(q.validDays), `${q.validDays} days`]] : []), [7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days'], [0, 'No expiry']].map(([d, l]) => <option key={d} value={d}>{l}</option>)}</select></label>
       </div>
-      <label className="fld"><span>Terms <small className="muted">· payment, timelines, revisions, cancellation</small></span><textarea rows={3} value={q.terms} onChange={(e) => set({ terms: e.target.value })} /></label>
+      <label className="fld"><span>GST / tax line <small className="muted">· shown under the total, e.g. “Exclusive of GST @18% (SAC 998311)”</small></span><input value={q.taxNote || ''} maxLength={300} onChange={(e) => set({ taxNote: e.target.value })} placeholder="Prices are exclusive of GST @18%" /></label>
+      <label className="fld"><span>Terms <small className="muted">· payment, timelines, revisions, cancellation</small></span><textarea rows={q.terms?.length > 200 ? 6 : 3} value={q.terms} onChange={(e) => set({ terms: e.target.value })} /></label>
+      <div className="fld"><span>Design <small className="muted">· how your client sees it</small></span>
+        <div className="qd-pick">{DESIGNS.map(([id, name, about]) => (
+          <button type="button" key={id} className={`qd-sw qd-${id} ${(q.design || 'classic') === id ? 'on' : ''}`} onClick={() => set({ design: id })} title={about}>
+            <span className="qd-mini"><i /><b /><b /><b /><em /></span><span className="qd-name">{name}</span>
+          </button>
+        ))}</div>
+      </div>
       <p className="hint">{q.currency === 'INR' ? 'Paid through your Razorpay (UPI, cards, netbanking) — or Stripe if that’s what you connected.' : `Paid by card in ${q.currency} through your Stripe account.`} Each payment becomes an order with an invoice.</p>
       <div className="m-foot">
         <button className="btn ghost" onClick={onClose}>Cancel</button>
         <button className="btn ghost" disabled={busy} onClick={() => save(false)}>Save</button>
         <button className="btn primary" disabled={busy || !q.client.email} title={q.client.email ? '' : 'Add the client’s email to send it'} onClick={() => save(true)}><Icon name="send" size={15} /> Save & email to client</button>
       </div>
+      </div>
+    </Modal>
+  );
+}
+
+function TemplatePicker({ onClose, onPick }) {
+  const [d, setD] = useState(null);
+  const [ind, setInd] = useState('');
+  const [qy, setQy] = useState('');
+  useEffect(() => { api('/quote-templates').then((r) => { setD(r); setInd(r.current); }).catch(() => setD({ industries: [] })); }, []);
+  const cur = d?.industries.find((x) => x.id === ind);
+  const words = qy.trim().toLowerCase();
+  const list = words ? (d?.industries || []).flatMap((x) => x.templates.map((t) => ({ ...t, ind: x.name }))).filter((t) => `${t.name} ${t.about} ${t.title} ${t.ind}`.toLowerCase().includes(words)) : cur?.templates || [];
+  return (
+    <Modal title="New quote" onClose={onClose} width={980}>
+      <div className="m-body qt-body">
+        <div className="qt-top">
+          <p className="muted sm">Start from a ready-made quote written the way businesses in your industry quote in India — line items, GST line, advance and terms filled in. Change anything before you send it.</p>
+          <button className="btn ghost" onClick={() => onPick(null)}><Icon name="plus" size={15} /> Blank quote</button>
+        </div>
+        {!d ? <div className="skeleton" /> : !d.industries.length ? <p className="muted">No templates yet — start with a blank quote.</p> : <>
+          <div className="qt-filters">
+            <select value={ind} onChange={(e) => { setInd(e.target.value); setQy(''); }} aria-label="Industry">{d.industries.map((x) => <option key={x.id} value={x.id}>{x.name}{x.id === d.current ? ' — your CRM style' : ''}</option>)}</select>
+            <input value={qy} onChange={(e) => setQy(e.target.value)} placeholder="Search all industries — e.g. kitchen, audit, wedding" aria-label="Search templates" />
+          </div>
+          <div className="qt-grid">{list.map((t) => (
+            <button type="button" key={t.id} className="qt-card" onClick={() => onPick(t)}>
+              <span className="qt-h"><b>{t.name}</b>{t.ind && <small className="pill">{t.ind}</small>}</span>
+              <span className="qt-about">{t.about}</span>
+              <span className="qt-items">{t.items.slice(0, 3).map((i) => <span key={i.name}>{i.name}</span>)}{t.items.length > 3 && <span className="muted">+{t.items.length - 3} more</span>}</span>
+              <span className="qt-f"><b>{fmtMoney(t.total, 'INR')}</b><small>{t.deposit ? `${t.deposit}% advance` : 'Pay in full'} · valid {t.validDays} days</small></span>
+            </button>
+          ))}</div>
+          {!list.length && <p className="muted">Nothing matches “{qy}”.</p>}
+        </>}
       </div>
     </Modal>
   );

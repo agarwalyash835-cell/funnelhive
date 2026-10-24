@@ -34,6 +34,7 @@ const statusOf = (q, now = Date.now()) => {
   return q.status || 'draft';
 };
 
+export const QUOTE_DESIGNS = ['classic', 'modern', 'minimal', 'bold', 'elegant', 'compact'];
 export function cleanQuote(b = {}, cur = {}) {
   const out = {};
   if ('client' in b || !cur.id) {
@@ -46,6 +47,9 @@ export function cleanQuote(b = {}, cur = {}) {
   if ('title' in b || !cur.id) out.title = clip(b.title, 160) || 'Proposal';
   if ('intro' in b || !cur.id) out.intro = clip(b.intro, 5000);
   if ('terms' in b || !cur.id) out.terms = clip(b.terms, 5000);
+  // the GST line shown under the total (e.g. "Exclusive of GST @18% (SAC 998311)") and how the client's page looks
+  if ('taxNote' in b || !cur.id) out.taxNote = clip(b.taxNote, 300);
+  if ('design' in b || !cur.id) out.design = QUOTE_DESIGNS.includes(b.design) ? b.design : cur.design || 'classic';
   if ('items' in b || !cur.id) out.items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((i) => ({ name: clip(i?.name, 200), detail: clip(i?.detail, 1000), qty: Math.max(1, Math.min(10000, Math.round(Number(i?.qty) || 1))), price: Math.max(0, Math.min(10000000, r2(Number(i?.price) || 0))) })).filter((i) => i.name);
   if ('currency' in b || !cur.id) out.currency = ISO.includes(b.currency) ? b.currency : cur.currency || 'INR';
   if ('deposit' in b || !cur.id) out.deposit = Math.max(0, Math.min(100, Math.round(Number(b.deposit) || 0)));
@@ -63,7 +67,7 @@ function publicView(q) {
   const st = statusOf(q);
   const provider = q.currency === 'INR' && rzpCreds(owner) ? 'razorpay' : stripeCreds(owner) ? 'stripe' : null;
   return {
-    id: q.id, number: q.number, title: q.title, intro: q.intro, terms: q.terms, items: q.items, currency: q.currency, deposit: q.deposit, validUntil: q.validUntil, at: q.at,
+    id: q.id, number: q.number, title: q.title, intro: q.intro, terms: q.terms, taxNote: q.taxNote || '', design: q.design || 'classic', items: q.items, currency: q.currency, deposit: q.deposit, validUntil: q.validUntil, at: q.at,
     total: total(q), paid: paidOf(q), due: dueNow(q), status: st, client: { name: q.client.name, company: q.client.company },
     seller: { name: s.businessName || owner?.name || '', email: s.supportEmail || owner?.email || '', whatsapp: s.supportWhatsapp || '' },
     provider, canPay: !!provider && ['draft', 'sent', 'viewed', 'deposit_paid'].includes(st) && dueNow(q) > 0,
@@ -149,7 +153,7 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
   app.post('/api/quotes/:qid/duplicate', auth, (req, res) => {
     const q = own(req, res); if (!q) return;
     const seq = T.users.update(req.user.id, (u) => { u.quoteSeq = (u.quoteSeq || 0) + 1; }).quoteSeq;
-    const { id, number, token, payments, orderId, status, at, updatedAt, viewedAt, sentAt, validUntil, ...rest } = q;
+    const { id, number, token, payments, orderId, status, at, updatedAt, viewedAt, sentAt, validUntil, acceptedAt, declineReason, ...rest } = q;
     res.json(sellerView(T.quotes.insert({ ...rest, id: uid(), number: `Q-${String(seq).padStart(4, '0')}`, token: crypto.randomBytes(12).toString('hex'), status: 'draft', payments: [], at: Date.now(), updatedAt: Date.now(), validUntil: Date.now() + 14 * DAY }), base(req)));
   });
   app.delete('/api/quotes/:qid', auth, (req, res) => {
