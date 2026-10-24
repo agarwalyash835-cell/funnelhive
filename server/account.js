@@ -9,7 +9,7 @@ import { dropRollups } from './rollup.js';
 import { T, q, tx, dir as DATA_DIR } from './db.js';
 import { removeVaultFiles } from './vault.js';
 
-const OWNED = ['funnels', 'revisions', 'leads', 'orders', 'abandoned', 'coupons', 'webhooks', 'saved', 'crm', 'pipelines', 'automations', 'runs', 'domains', 'msgs', 'payments', 'hive', 'mcptokens', 'products', 'access', 'portals', 'downloads', 'conversions', 'calendars', 'bookings', 'webinars', 'registrations', 'broadcasts', 'bsends', 'apikeys', 'hooksubs', 'stripecust', 'rzplans', 'activity', 'adspend', 'quotes', 'notifications', 'vaultFolders', 'vaultFiles', 'vaultLinks', 'vaultShares', 'vaultSecrets'];
+const OWNED = ['funnels', 'revisions', 'leads', 'orders', 'abandoned', 'coupons', 'webhooks', 'saved', 'crm', 'pipelines', 'automations', 'runs', 'domains', 'msgs', 'payments', 'hive', 'mcptokens', 'products', 'access', 'portals', 'downloads', 'conversions', 'calendars', 'bookings', 'webinars', 'registrations', 'broadcasts', 'bsends', 'apikeys', 'hooksubs', 'stripecust', 'rzplans', 'activity', 'adspend', 'quotes', 'notifications', 'vaultFolders', 'vaultFiles', 'vaultLinks', 'vaultShares', 'vaultSecrets', 'roles'];
 // never in an export: passwords, 2-step and webhook secrets, stored keys and tokens (…Enc, …Hash, …Token, …Secret)
 const SECRET_KEY = /^(hash|pass|verifyExp|resetExp|legacyBefore)$|^totp|enc$|hash$|token$|secret|apikey|password/i;
 const scrub = (v) => (Array.isArray(v) ? v.map(scrub) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([k]) => !SECRET_KEY.test(k)).map(([k, x]) => [k, scrub(x)])) : v);

@@ -269,7 +269,7 @@ export function registerTracking(app, { auth, wrap }) {
   }));
   // a funnel's own tracking ids (several brands in one workspace); blank fields use the workspace's.
   // Saved on its own, outside the editor's autosave, so no version bump.
-  const canSetToken = (req) => !req.role || ['admin', 'agency'].includes(req.role);
+  const canSetToken = (req) => !req.role || ['admin', 'agency'].includes(req.role) || req.customPerms?.settings === 'edit';
   app.get('/api/funnels/:id/tracking', auth, (req, res) => {
     const f = T.funnels.get(req.params.id);
     if (!f || f.userId !== req.user.id) return res.status(404).json({ error: 'Funnel not found' });

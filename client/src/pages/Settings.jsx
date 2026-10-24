@@ -37,7 +37,9 @@ export default function Settings() {
   const [deliveries, setDeliveries] = useState([]);
   const [showSecret, setShowSecret] = useState(false);
   const loadDeliveries = () => api('/webhooks/deliveries').then(setDeliveries);
-  useEffect(() => { api('/settings').then(setS); api('/coupons').then(setCoupons); api('/me').then(setMe); api('/funnels').then(setFunnels).catch(() => {}); loadDeliveries(); }, []);
+  useEffect(() => { api('/settings').then(setS).catch(() => setS(false)); api('/coupons').then(setCoupons).catch(() => {}); api('/me').then(setMe); api('/funnels').then(setFunnels).catch(() => {}); loadDeliveries().catch(() => {}); }, []);
+  // a team member whose role manages the team but not the settings: just the team
+  if (s === false) return <Layout title={t('Settings')}><div className="settings"><TeamPanel /></div></Layout>;
   if (!s) return <Layout title={t('Settings')}><div className="skeleton" /></Layout>;
   const set = (patch) => setS({ ...s, ...patch });
   const save = async (patch = s) => { try { setS(await api('/settings', 'PUT', patch)); toast(t('Settings saved')); return true; } catch (e) { toast(e.message); return false; } };

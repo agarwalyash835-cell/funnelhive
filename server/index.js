@@ -56,7 +56,7 @@ import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
 import { registerFulfilment, cleanAddress } from './fulfilment.js';
 import { registerBroadcasts } from './broadcasts.js';
-import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows } from './team.js';
+import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows, customPerms, memberRole } from './team.js';
 import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan, needsAfa, AFA_NOTE } from './plans.js';
 import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
 import { registerObserve, requestMetrics, reportError } from './observe.js';
@@ -164,8 +164,9 @@ const auth = (req, res, next) => {
       const w = enterWorkspace(req.user, p.ws);
       if (!w) return res.status(401).json({ error: 'You no longer have access to that team', workspaceGone: true });
       req.actor = req.user; req.role = w.member.role; req.user = w.owner;
+      req.customPerms = customPerms(w.owner.id, req.role); // a custom role: its permission per area (null for built-in roles)
       const reqPath = req.originalUrl.split('?')[0].toLowerCase();
-      if (!OWN_SESSION.test(reqPath) && !allows(req.role, req.method, reqPath)) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
+      if (!OWN_SESSION.test(reqPath) && !allows(req.role, req.method, reqPath, req.customPerms)) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
       // limited to some funnels: those funnels and what building them needs, nothing account-wide (team.js)
       req.funnelScope = funnelScope(w.member);
       if (req.funnelScope && !OWN_SESSION.test(reqPath) && !scopeAllows(req.funnelScope, req.method, reqPath, req.body)) return res.status(403).json({ error: 'You only have access to some funnels in this workspace — ask the owner', funnelScope: true });
@@ -437,7 +438,8 @@ app.get('/api/me', auth, (req, res) => {
     billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && isAdmin(req.user), brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
     uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
     impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
-    workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
+    workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, ...memberRole(req.user.id, req.role), custom: !!req.customPerms, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
+    perms: req.actor ? memberRole(req.user.id, req.role).perms : null, // a member's access per area (the app hides what they can't open)
     teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
     // the sidebar: which optional tools this account has started using (they join the menu), and what needs attention
     nav: {

@@ -214,7 +214,8 @@ const KINDS = ['password', 'note'];
 const httpUrl = (v) => { const s = clip(v, 500); return !s || /^https?:\/\/[^\s"'<>]+$/i.test(s) ? s : /^[\w.-]+\.[a-z]{2,}(\/\S*)?$/i.test(s) ? `https://${s}` : null; };
 const secretView = (userId, s) => ({ id: s.id, kind: s.kind, title: s.title, username: s.username || '', url: s.url || '', category: s.category || '', contact: s.ckey ? { key: s.ckey, name: contactName(userId, s.ckey) } : null, hasPassword: !!s.passwordEnc, hasNotes: !!s.notesEnc, at: s.at, updatedAt: s.updatedAt || null, revealedAt: s.revealedAt || null });
 // owners and admins (and an agency running the account); never an API key or platform support
-const canSecrets = (req) => !req.apiKey && !req.impersonator && (!req.actor || ['admin', 'agency'].includes(req.role));
+// (or a custom team role that grants passwords & notes; the auth middleware already held it to view or edit)
+const canSecrets = (req) => !req.apiKey && !req.impersonator && (!req.actor || ['admin', 'agency'].includes(req.role) || ['view', 'edit'].includes(req.customPerms?.secrets));
 
 // ---------- routes ----------
 export function registerVault(app, { auth, wrap, rateLimit, isTest, secret }) {

@@ -126,6 +126,8 @@ const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/ads', '/school'
 const OPTIONAL = GROUPS.flatMap(([, l]) => l).filter((to) => !CORE.includes(to));
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
+// which permission areas (custom team roles) open each page
+const PAGE_AREAS = { '/funnels': ['funnels'], '/templates': ['funnels'], '/hive': ['ai'], '/orders': ['orders'], '/reports': ['dashboard'], '/ads': ['ads'], '/products': ['products'], '/school': ['products'], '/quotes': ['quotes'], '/contacts': ['crm'], '/vault': ['files', 'secrets'], '/automations': ['automations'], '/broadcasts': ['broadcasts'], '/bookings': ['bookings'], '/webinars': ['webinars'], '/settings': ['settings', 'team'] };
 const NAV_KEY = 'ff_nav';
 const navPrefs = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
@@ -134,6 +136,10 @@ const allowed = (to, me) => {
   if (!me?.workspace) return !(to === '/billing' && me?.billing?.agencyManaged);
   if (to === '/billing' || to === '/agency') return false;
   if (me.workspace.funnelIds) return to === '/' || to === '/funnels'; // limited to some funnels: nothing account-wide
+  if (me.workspace.custom) { // a custom role: the pages its areas can at least view (the server enforces it)
+    const p = me.perms || {}, can = (...k) => k.some((x) => p[x] && p[x] !== 'none');
+    return to === '/' || (PAGE_AREAS[to] ? can(...PAGE_AREAS[to]) : false);
+  }
   if (to === '/vault') return me.workspace.role !== 'viewer';
   return to !== '/settings' || ['admin', 'agency'].includes(me.workspace.role);
 };
@@ -332,7 +338,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
           {me && <Bell me={me} />}
         </header>
         {loadFail && <div className="app-banner bad" role="alert"><span>Part of this page didn’t load — check your connection.</span><button onClick={() => location.reload()}>Reload</button></div>}
-        {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} /><span>{tx('You’re working in the {name} workspace as {role}.', { name: <b>{me.workspace.name}</b>, role: t(({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role] || '') })}</span></div>}
+        {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} /><span>{tx('You’re working in the {name} workspace as {role}.', { name: <b>{me.workspace.name}</b>, role: (t(({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role] || '') || me.workspace.roleName || '') })}</span></div>}
         {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('You’re signed in as {email} (support view).', { email: <b>{me.email}</b> })}</span><button onClick={stopImpersonating}>{t('Back to admin')}</button></div>}
         {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}
         {me?.billing && !me.billing.ok && <div className="app-banner bad"><Icon name="clock" size={15} />{me.billing.reason || t('Your account is read-only.')}{me.billing.status !== 'suspended' && <span>{me.billing.pagesLive ? t(' Your live pages stay up until {date}.', { date: fmtDate(me.billing.pagesOfflineAt) }) : t(' Your live pages are offline.')}</span>}{me.billing.status !== 'suspended' && <Link to="/billing">{t('Choose a plan')}</Link>}</div>}

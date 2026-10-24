@@ -265,6 +265,17 @@ fieldset.plain:disabled { opacity: .75; }
 .team-invite select { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .team-tbl { table-layout: fixed; width: 100%; }
 .team-tbl td:first-child { width: 52%; overflow: hidden; text-overflow: ellipsis; }
+/* Settings → Team → Roles & permissions */
+.roles-sec { margin-top: 20px; border-top: 1px solid var(--c-line-2); padding-top: 14px; }
+.roles-sec h4 { margin: 0; }
+.roles-tbl { margin-top: 8px; width: 100%; }
+.roles-tbl td:first-child { width: 60%; }
+.role-head { gap: 10px; align-items: flex-end; margin-bottom: 10px; }
+.role-head .grow { flex: 1 1 220px; }
+.perm-matrix { width: 100%; margin: 6px 0 10px; }
+.perm-matrix td.r { white-space: nowrap; }
+.perm-matrix .seg button:disabled { opacity: .35; cursor: not-allowed; }
+@media (max-width: 560px) { .perm-matrix td.r { white-space: normal; } .roles-tbl td:first-child { width: auto; } }
 .team-tbl td:last-child { width: 90px; }
 .team-tbl small, .team-tbl b { overflow-wrap: anywhere; }
 .team-tbl select { padding: 6px 8px; border-radius: 8px; max-width: 100%; }
