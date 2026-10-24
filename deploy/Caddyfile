@@ -34,6 +34,33 @@
 	}
 }
 
+# The previous app and pages addresses (after moving to a new domain). Browsers are sent to the new address;
+# API calls (payment webhooks, open pages, saved links) are still answered here, since webhooks don't follow redirects.
+{$OLD_APP_DOMAIN:old-app.localhost} {
+	encode zstd gzip
+	@browser {
+		method GET HEAD
+		not path /api/* /t/* /mcp*
+	}
+	redir @browser https://{$APP_DOMAIN}{uri} permanent
+	reverse_proxy funnelhive:4000 {
+		lb_try_duration 30s
+		lb_try_interval 500ms
+	}
+}
+{$OLD_PAGES_DOMAIN:old-pages.localhost} {
+	encode zstd gzip
+	@browser {
+		method GET HEAD
+		not path /api/* /t/*
+	}
+	redir @browser https://{$PAGES_DOMAIN}{uri} permanent
+	reverse_proxy funnelhive:4000 {
+		lb_try_duration 30s
+		lb_try_interval 500ms
+	}
+}
+
 # Any other host name: sellers' custom domains (certificate issued on first visit)
 https:// {
 	tls {

@@ -42,6 +42,9 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:-localhost}
       PAGES_DOMAIN: ${PAGES_DOMAIN:-pages.localhost}
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+      # a previous app / pages address (after moving domains): browsers are redirected, webhooks and API calls still answered
+      OLD_APP_DOMAIN: ${OLD_APP_DOMAIN:-old-app.localhost}
+      OLD_PAGES_DOMAIN: ${OLD_PAGES_DOMAIN:-old-pages.localhost}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
