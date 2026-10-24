@@ -6,6 +6,18 @@ export default [
     about: 'Contingency placement fee for mid-level roles, charged as % of annual CTC with a replacement guarantee.',
     title: 'Quotation — Permanent recruitment for 4 mid-level roles (sales and operations), Pune',
     intro: 'Thank you for considering us as your hiring partner. We will source, screen and present shortlisted candidates for the four roles discussed, and support you through offer and joining. Fees are payable only on successful joining.',
+    details: [
+      { label: 'Role(s)', value: 'Area Sales Manager, Operations Exec, Accounts Exec' },
+      { label: 'Openings', value: '4' },
+      { label: 'CTC band', value: 'Rs 4.2 lakh – 9 lakh per annum' },
+      { label: 'Location', value: 'Pune' },
+      { label: 'Replacement period', value: '90 days' },
+    ],
+    addons: [
+      { name: 'Background verification', detail: 'Education, employment and address checks, per candidate', qty: 4, price: 1500 },
+      { name: 'Extended replacement guarantee', detail: 'Extend to 180 days, per hire', qty: 4, price: 5000 },
+      { name: 'Salary benchmarking report', detail: 'Market pay ranges for the 3 roles', qty: 1, price: 12000 },
+    ],
     items: [
       { name: 'Area Sales Manager — placement fee', detail: '8.33% of annual CTC; estimated CTC Rs 9,00,000', qty: 2, price: 75000 },
       { name: 'Operations Executive — placement fee', detail: '8.33% of annual CTC; estimated CTC Rs 4,80,000', qty: 1, price: 40000 },
@@ -22,6 +34,18 @@ export default [
     about: 'Fixed per-hire fee for high-volume entry-level roles (e.g. customer support, delivery, retail).',
     title: 'Quotation — Volume hiring of 60 customer support executives (voice, Hindi and English), Noida',
     intro: 'Thank you for sharing your hiring plan. We will run a dedicated sourcing drive with walk-ins, job portals and referrals to help you onboard 60 executives over the next six weeks. Our flat per-hire pricing keeps your costs predictable.',
+    details: [
+      { label: 'Role(s)', value: 'Customer Support Executive (voice)' },
+      { label: 'Openings', value: '60' },
+      { label: 'CTC band', value: 'Up to Rs 3 lakh per annum' },
+      { label: 'Location', value: 'Noida' },
+      { label: 'Replacement period', value: '30 days' },
+    ],
+    addons: [
+      { name: 'Voice and accent assessment', detail: 'Automated test per candidate', qty: 200, price: 150 },
+      { name: 'Onboarding documentation', detail: 'Document collection and verification, per joiner', qty: 60, price: 400 },
+      { name: 'Additional walk-in drive day', detail: 'Venue coordination and assessment desk', qty: 1, price: 15000 },
+    ],
     items: [
       { name: 'Per-hire fee — customer support executive', detail: 'Flat fee per joined candidate, CTC up to Rs 3,00,000', qty: 60, price: 9500 },
       { name: 'Walk-in drive management', detail: '2 drive days with venue coordination, assessment desk and HR volunteers', qty: 2, price: 15000 },
@@ -38,6 +62,18 @@ export default [
     about: 'Retained CXO/VP search with fee in three instalments, research-led mapping and assessment.',
     title: 'Quotation — Retained executive search for Chief Financial Officer, manufacturing company, Chennai',
     intro: 'Thank you for entrusting us with this critical leadership search. Our approach combines market mapping, discreet outreach and structured assessment to present a strong shortlist within six to eight weeks. The fee is payable in three stages as below.',
+    details: [
+      { label: 'Role(s)', value: 'Chief Financial Officer' },
+      { label: 'Openings', value: '1' },
+      { label: 'CTC band', value: 'Approx. Rs 75 lakh per annum' },
+      { label: 'Location', value: 'Chennai' },
+      { label: 'Replacement period', value: '6 months' },
+    ],
+    addons: [
+      { name: 'Market mapping report', detail: 'Talent map of CFOs in the sector, standalone', qty: 1, price: 150000 },
+      { name: 'Leadership onboarding coaching', detail: '3 sessions in the first 90 days', qty: 1, price: 90000 },
+      { name: 'Detailed reference checks', detail: 'Discreet references for 2 finalists', qty: 2, price: 15000 },
+    ],
     items: [
       { name: 'Retainer — on signing', detail: 'One-third of the estimated fee (20% of estimated annual CTC of Rs 75 lakh)', qty: 1, price: 500000 },
       { name: 'Shortlist presentation', detail: 'One-third on presentation of 3–5 assessed candidates', qty: 1, price: 500000 },
@@ -55,6 +91,18 @@ export default [
     about: 'Monthly manpower billing: gross salary, statutory costs (PF, ESI, bonus) and agency service margin.',
     title: 'Quotation — Contract staffing of 15 warehouse associates (monthly billing), Bhiwandi, Thane',
     intro: 'Thank you for the opportunity to support your warehouse operations. We will deploy, pay and manage 15 associates on our rolls, with full statutory compliance handled by us. Below is the monthly cost breakup per associate.',
+    details: [
+      { label: 'Role(s)', value: 'Warehouse associate (semi-skilled)' },
+      { label: 'Openings', value: '15' },
+      { label: 'CTC band', value: 'Gross Rs 18,500 per month' },
+      { label: 'Location', value: 'Bhiwandi, Thane' },
+      { label: 'Replacement period', value: 'Within 3 working days of request' },
+    ],
+    addons: [
+      { name: 'On-site supervisor', detail: 'Dedicated supervisor on our rolls, per month', qty: 1, price: 32000 },
+      { name: 'Safety induction and PPE kit', detail: 'Shoes, vest and helmet, per associate', qty: 15, price: 1800 },
+      { name: 'Attendance biometric device', detail: 'Installed with monthly reports', qty: 1, price: 9500 },
+    ],
     items: [
       { name: 'Gross monthly salary per associate', detail: 'As per Maharashtra minimum wages for semi-skilled workers, including basic and DA', qty: 15, price: 18500 },
       { name: 'Employer PF contribution @13%', detail: 'On PF wages, including admin charges', qty: 15, price: 1950 },
@@ -73,6 +121,18 @@ export default [
     about: 'Organising a multi-college campus drive for freshers: college tie-ups, assessments and onboarding.',
     title: 'Quotation — Campus hiring drive for 30 graduate engineer trainees, 5 colleges, Telangana and Andhra Pradesh',
     intro: 'Thank you for partnering with us for your fresher hiring. We will manage college outreach, online assessments, on-campus interviews and offer coordination, giving your team a ready shortlist and a smooth day-one experience.',
+    details: [
+      { label: 'Role(s)', value: 'Graduate Engineer Trainee' },
+      { label: 'Openings', value: '30' },
+      { label: 'CTC band', value: 'Rs 3.5 – 4.5 lakh per annum' },
+      { label: 'Location', value: 'Hyderabad (joining)' },
+      { label: 'Replacement period', value: 'Not applicable for freshers' },
+    ],
+    addons: [
+      { name: 'Employer branding at campus', detail: 'Pre-placement talk with standees and brochures, per college', qty: 5, price: 8000 },
+      { name: 'Pre-joining training module', detail: '2-week online foundation course, per joiner', qty: 30, price: 2500 },
+      { name: 'Additional college', detail: 'Drive at one more institute', qty: 1, price: 22000 },
+    ],
     items: [
       { name: 'Campus drive management fee', detail: 'College tie-ups with 5 institutes, scheduling and placement cell coordination', qty: 1, price: 120000 },
       { name: 'Online aptitude and technical assessment', detail: 'Proctored test per candidate appearing', qty: 600, price: 120 },
@@ -90,6 +150,18 @@ export default [
     about: 'Recruitment process outsourcing with dedicated recruiters on monthly retainer plus success fee.',
     title: 'Quotation — Recruitment process outsourcing (6 months), 2 dedicated recruiters, IT services company, Kochi',
     intro: 'Thank you for considering us as your extended talent acquisition team. Two dedicated recruiters and an account manager will work with your hiring managers, using your ATS and brand, to close your technology hiring plan of 50 roles over six months.',
+    details: [
+      { label: 'Role(s)', value: 'Software engineers and leads' },
+      { label: 'Openings', value: '50 over 6 months' },
+      { label: 'CTC band', value: 'Rs 6 – 30 lakh per annum' },
+      { label: 'Location', value: 'Kochi (hybrid)' },
+      { label: 'Replacement period', value: '60 days' },
+    ],
+    addons: [
+      { name: 'Additional recruiter', detail: 'Dedicated recruiter, per month', qty: 6, price: 65000 },
+      { name: 'Employer branding campaign', detail: 'Careers page refresh and LinkedIn content for 3 months', qty: 1, price: 90000 },
+      { name: 'Interview scheduling coordinator', detail: 'Per month', qty: 6, price: 25000 },
+    ],
     items: [
       { name: 'Dedicated recruiter — monthly retainer', detail: 'Full-time recruiter working on your ATS and processes', qty: 12, price: 65000 },
       { name: 'Account manager and reporting', detail: 'Weekly dashboards and monthly business review, per month', qty: 6, price: 20000 },

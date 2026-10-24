@@ -2644,44 +2644,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .vt-sf code { max-width: 150px; }
 }
 
-/* ---------- quotes: six designs for the client's page (.qd-<id> on .quote-pub) ---------- */
-.quote-pub .q-tax td { font-size: 12.5px; color: #6b7280; font-weight: 500; border-bottom: 0; padding-top: 2px; text-align: right; }
-.qd-modern { background: #fff; border-radius: 18px; box-shadow: 0 20px 50px -30px rgba(0, 0, 0, .35); padding: 0 28px 26px !important; overflow: hidden; margin-top: 18px; }
-.quote-pub.qd-modern > .q-for { margin: 0 -28px; padding: 26px 28px 0; background: linear-gradient(135deg, var(--acc, #4f46e5), color-mix(in srgb, var(--acc, #4f46e5) 60%, #000)); color: rgba(255, 255, 255, .85); }
-.quote-pub.qd-modern > h1 { margin: 0 -28px; padding: 4px 28px 26px; background: linear-gradient(135deg, var(--acc, #4f46e5), color-mix(in srgb, var(--acc, #4f46e5) 60%, #000)); color: #fff; }
-.qd-modern > .q-note { margin-top: 16px; }
-.qd-modern > .q-intro { margin-top: 20px; }
-.qd-modern .q-tbl thead th { background: color-mix(in srgb, var(--acc, #4f46e5) 9%, #fff); color: color-mix(in srgb, var(--acc, #4f46e5) 70%, #000); border-bottom: 0; }
-.qd-modern .q-tbl .tot td { color: var(--acc, #4f46e5); font-size: 18px; }
-.qd-minimal { font-family: ui-sans-serif, system-ui, sans-serif; color: #111; }
-.qd-minimal h1 { font-weight: 500; letter-spacing: -.02em; font-size: 30px; }
-.qd-minimal .q-tbl th { color: #111; border-bottom: 1px solid #111; font-weight: 600; }
-.qd-minimal .q-tbl td { border-bottom: 1px solid #e5e5e5; }
-.qd-minimal .q-tbl .tot td { border-top: 1px solid #111; }
-.qd-minimal .q-btn { background: #111 !important; border-radius: 4px; }
-.qd-minimal .q-terms h3 { text-transform: uppercase; font-size: 12px; letter-spacing: .12em; }
-.qd-bold h1 { font-size: clamp(30px, 6vw, 42px); font-weight: 850; letter-spacing: -.035em; }
-.qd-bold .q-tbl thead th { background: #111827; color: #fff; border: 0; padding: 10px 10px; }
-.qd-bold .q-tbl thead th:first-child { border-radius: 10px 0 0 10px; }
-.qd-bold .q-tbl thead th:last-child { border-radius: 0 10px 10px 0; }
-.qd-bold .q-tbl td { padding: 12px 10px; }
-.qd-bold .q-tbl .tot td { font-size: 22px; font-weight: 850; padding-top: 16px; }
-.qd-bold .q-btn { border-radius: 999px; font-size: 17px; padding: 15px 26px; }
-.qd-elegant { font-family: Georgia, 'Times New Roman', serif; color: #2b2118; }
-.qd-elegant h1 { font-weight: 400; font-size: clamp(28px, 5vw, 38px); font-style: italic; color: #2b2118; }
-.qd-elegant .q-for { font-family: system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; color: #a16207; }
-.qd-elegant .q-tbl { font-family: system-ui, sans-serif; }
-.qd-elegant .q-tbl th { color: #a16207; border-bottom: 3px double #d6b67a; }
-.qd-elegant .q-tbl td { border-bottom-color: #f1e7d4; }
-.qd-elegant .q-tbl .tot td { border-top: 3px double #d6b67a; color: #7c4a03; }
-.qd-elegant .q-btn { background: #7c4a03 !important; }
-.qd-elegant .q-terms { border-left: 2px solid #d6b67a; padding-left: 14px; }
-.qd-compact { font-size: 14px; }
-.qd-compact h1 { font-size: 22px; }
-.qd-compact .q-tbl { font-size: 13px; margin: 12px 0; }
-.qd-compact .q-tbl th, .qd-compact .q-tbl td { padding: 6px 4px; }
-.qd-compact .q-intro, .qd-compact .q-terms p { line-height: 1.45; font-size: 13.5px; }
-
 /* the design picker (quote editor) */
 .qd-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; margin-top: 6px; }
 .qd-sw { display: grid; gap: 6px; padding: 8px; border-radius: 12px; border: 1.5px solid var(--c-line); background: var(--c-surface); cursor: pointer; font: inherit; text-align: left; }
@@ -2691,9 +2653,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .qd-mini i { height: 9px; width: 60%; border-radius: 3px; background: #d6d3d1; }
 .qd-mini b { height: 4px; border-radius: 2px; background: #e7e5e4; }
 .qd-mini em { height: 6px; width: 40%; justify-self: end; border-radius: 2px; background: #a8a29e; }
-.qd-sw.qd-modern .qd-mini { background: linear-gradient(#4f46e5 0 22px, #fff 22px); } .qd-sw.qd-modern .qd-mini i { background: #fff; }
+.qd-sw.qd-modern .qd-mini { background: linear-gradient(var(--qa, #4f46e5) 0 22px, #fff 22px); } .qd-sw.qd-modern .qd-mini i { background: #fff; }
 .qd-sw.qd-minimal .qd-mini i, .qd-sw.qd-minimal .qd-mini em { background: #111; } .qd-sw.qd-minimal .qd-mini b { background: #111; height: 1px; }
-.qd-sw.qd-bold .qd-mini i { height: 12px; background: #111827; width: 75%; } .qd-sw.qd-bold .qd-mini em { height: 9px; background: #111827; }
+.qd-sw.qd-bold .qd-mini i { height: 12px; background: #111827; width: 75%; } .qd-sw.qd-bold .qd-mini em { height: 9px; background: var(--qa, #111827); }
 .qd-sw.qd-elegant .qd-mini { background: #fffaf2; } .qd-sw.qd-elegant .qd-mini i, .qd-sw.qd-elegant .qd-mini em { background: #c2a36b; } .qd-sw.qd-elegant .qd-mini b { background: #ecdcbd; }
 .qd-sw.qd-compact .qd-mini { gap: 2px; } .qd-sw.qd-compact .qd-mini b { height: 3px; }
 /* reset the swatch buttons from the page-design rules above */
@@ -2717,4 +2679,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .qt-f { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--c-line); }
 .qt-f b { font-size: 16px; font-variant-numeric: tabular-nums; }
 .qt-f small { color: var(--c-muted); font-size: 12px; }
-@media (max-width: 640px) { .qt-top { flex-direction: column; } .qt-filters { grid-template-columns: 1fr; } .qd-modern { padding: 0 18px 22px !important; } .quote-pub.qd-modern > .q-for, .quote-pub.qd-modern > h1 { margin-left: -18px; margin-right: -18px; padding-left: 18px; padding-right: 18px; } }
+@media (max-width: 640px) { .qt-top { flex-direction: column; } .qt-filters { grid-template-columns: 1fr; } }
+
+.qd-sw.qd-classic .qd-mini { border-top: 3px solid var(--qa, #4f46e5); } .qd-sw.qd-compact .qd-mini { border-top: 3px solid var(--qa, #4f46e5); } .qd-sw.qd-elegant .qd-mini em { background: var(--qa, #c2a36b); }

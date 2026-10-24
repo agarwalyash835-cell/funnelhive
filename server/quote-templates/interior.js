@@ -6,6 +6,18 @@ export default [
     about: 'Mid-budget full-home package for a 2BHK flat: kitchen, wardrobes, TV unit, false ceiling, painting.',
     title: 'Quotation — Turnkey interiors for 2BHK apartment (approx. 1,050 sq ft), Wakad, Pune',
     intro: 'Thank you for inviting us to design your new home. Based on our site measurement and the discussion on your preferred style, here is our detailed estimate for complete turnkey interiors. All woodwork is factory-finished and installed by our own team.',
+    details: [
+      { label: 'Site address', value: 'Flat no. TBC, Wakad, Pune' },
+      { label: 'Carpet area', value: 'Approx. 1,050 sq ft' },
+      { label: 'Configuration', value: '2BHK apartment' },
+      { label: 'Design style', value: 'Contemporary with warm wood tones' },
+      { label: 'Handover target', value: '45–60 working days from design sign-off' },
+    ],
+    addons: [
+      { name: 'Bedroom study table with overhead unit', detail: 'Laminate finish, 4 ft wide with wall shelves', qty: 1, price: 28000 },
+      { name: 'Wallpaper — feature wall', detail: 'Imported vinyl wallpaper, up to 120 sq ft, supply and fixing', qty: 1, price: 14500 },
+      { name: 'Smart lighting starter kit', detail: 'Wi-Fi smart switches for living and master bedroom', qty: 1, price: 22000 },
+    ],
     items: [
       { name: 'Modular kitchen — L shape, BWR plywood with laminate finish', detail: 'Base and wall units approx. 10 x 8 ft, soft-close hardware (Hettich or equivalent), quartz countertop', qty: 1, price: 245000 },
       { name: 'Sliding wardrobes — master and second bedroom', detail: '7 ft high, laminate shutters, internal drawers and loft, approx. 95 sq ft total', qty: 2, price: 98000 },
@@ -26,6 +38,18 @@ export default [
     about: 'High-end full-home package with veneer/acrylic finishes, wall panelling and automation-ready lighting.',
     title: 'Quotation — Premium turnkey interiors for 3BHK apartment (approx. 1,850 sq ft), Gachibowli, Hyderabad',
     intro: 'It was a pleasure walking through your new apartment. This proposal reflects the premium material palette we discussed, with a strong focus on finish quality and concealed storage. Every line below is backed by a detailed drawing set once you confirm.',
+    details: [
+      { label: 'Site address', value: 'Tower and flat no. TBC, Gachibowli, Hyderabad' },
+      { label: 'Carpet area', value: 'Approx. 1,850 sq ft' },
+      { label: 'Configuration', value: '3BHK apartment' },
+      { label: 'Design style', value: 'Modern luxe — veneer, stone and brass accents' },
+      { label: 'Handover target', value: '75–90 working days from design approval' },
+    ],
+    addons: [
+      { name: 'Home automation — lighting and curtains', detail: 'App and voice control for living, dining and master bedroom', qty: 1, price: 165000 },
+      { name: 'Motorised blinds', detail: 'Living room, 3 windows, with remote', qty: 3, price: 24000 },
+      { name: 'Walk-in wardrobe island', detail: 'Glass-top island with drawers in master bedroom', qty: 1, price: 85000 },
+    ],
     items: [
       { name: 'Modular kitchen — parallel layout with tall units', detail: 'BWP plywood carcass, acrylic shutters, quartz top, built-in hob and chimney niche, tandem drawers (Blum or equivalent)', qty: 1, price: 465000 },
       { name: 'Wardrobes — three bedrooms', detail: 'Hinged and sliding mix, veneer and lacquered glass shutters, profile lighting, approx. 180 sq ft', qty: 1, price: 420000 },
@@ -46,6 +70,18 @@ export default [
     about: 'Standalone modular kitchen quote with carcass, shutters, countertop and accessories split out.',
     title: 'Quotation — L-shaped modular kitchen, 10 x 8 ft, Whitefield, Bengaluru',
     intro: 'Thank you for visiting our experience centre. As discussed, here is the itemised quote for your L-shaped kitchen. Measurements are based on our site visit and will be re-verified before production.',
+    details: [
+      { label: 'Site address', value: 'Flat no. TBC, Whitefield, Bengaluru' },
+      { label: 'Kitchen size', value: '10 x 8 ft, L shape' },
+      { label: 'Carcass material', value: 'BWP plywood' },
+      { label: 'Shutter finish', value: 'Acrylic, high gloss' },
+      { label: 'Delivery', value: '25–30 days from order' },
+    ],
+    addons: [
+      { name: 'Built-in chimney and hob', detail: '90 cm auto-clean chimney with 3-burner glass hob', qty: 1, price: 38000 },
+      { name: 'Tall appliance unit', detail: 'Housing for built-in oven and microwave', qty: 1, price: 24000 },
+      { name: 'Glass shutters with profile', detail: 'Aluminium-frame glass shutters for 4 wall units', qty: 4, price: 4500 },
+    ],
     items: [
       { name: 'Base and wall cabinets — BWP plywood, acrylic finish', detail: 'Approx. 42 running sq ft of shutters, soft-close hinges (Hettich or equivalent)', qty: 1, price: 145000 },
       { name: 'Quartz countertop with backsplash', detail: '18 running ft, 20 mm, with cut-outs for sink and hob', qty: 18, price: 2600 },
@@ -65,6 +101,18 @@ export default [
     about: 'Per-sq-ft design fee for clients who will execute through their own contractor.',
     title: 'Quotation — Interior design consultancy for 3BHK villa (approx. 2,400 sq ft), Kakkanad, Kochi',
     intro: 'Thank you for considering us for the design of your home. This proposal covers complete design documentation so that your chosen contractor can execute with confidence. Site visits are included at key stages to protect the design intent.',
+    details: [
+      { label: 'Site address', value: 'Villa no. TBC, Kakkanad, Kochi' },
+      { label: 'Built-up area', value: 'Approx. 2,400 sq ft' },
+      { label: 'Configuration', value: '3BHK independent villa' },
+      { label: 'Design style', value: 'Kerala contemporary' },
+      { label: 'Scope', value: 'Design and documentation only; execution by client' },
+    ],
+    addons: [
+      { name: 'Additional render revisions', detail: 'Third and further revision rounds, per render', qty: 4, price: 2500 },
+      { name: 'Walkthrough video', detail: '2-minute 3D animated walkthrough of the home', qty: 1, price: 18000 },
+      { name: 'Vendor shortlisting and quote comparison', detail: 'Up to 3 vendors each for joinery and civil work', qty: 1, price: 15000 },
+    ],
     items: [
       { name: 'Concept design and space planning', detail: 'Furniture layouts, mood boards, material palette for all rooms', qty: 2400, price: 45 },
       { name: '3D visualisation', detail: 'Photo-realistic renders, 2 revision rounds, up to 9 spaces', qty: 9, price: 6500 },
@@ -82,6 +130,18 @@ export default [
     about: 'Corporate B2B fit-out: partitions, workstations, cabins, ceiling, electrical and data cabling.',
     title: 'Quotation — Office interior fit-out, approx. 3,000 sq ft carpet, Andheri East, Mumbai',
     intro: 'Thank you for sharing the floor plan and headcount requirements. This quotation covers a complete fit-out for 40 workstations, 3 cabins, a conference room and a pantry, ready for occupation. Our team will coordinate closely with your building management for approvals.',
+    details: [
+      { label: 'Site address', value: 'Unit no. TBC, Andheri East, Mumbai' },
+      { label: 'Carpet area', value: 'Approx. 3,000 sq ft' },
+      { label: 'Headcount', value: '40 workstations, 3 cabins, 1 conference room' },
+      { label: 'Design style', value: 'Corporate modern with brand colours' },
+      { label: 'Handover target', value: '8–10 weeks from advance and building NOC' },
+    ],
+    addons: [
+      { name: 'Meeting pods / phone booths', detail: 'Acoustic single-person booth with ventilation', qty: 2, price: 165000 },
+      { name: 'Access control and CCTV', detail: 'Biometric door access for 2 doors, 8 IP cameras with NVR', qty: 1, price: 145000 },
+      { name: 'Acoustic wall panels', detail: 'Fabric panels in conference room, approx. 300 sq ft', qty: 300, price: 450 },
+    ],
     items: [
       { name: 'Glass and gypsum partitions', detail: 'Full-height toughened glass for cabins and conference, gypsum walls for pantry and server room', qty: 1, price: 520000 },
       { name: 'Linear workstations with pedestals', detail: '4 x 2 ft modules, sharing screens, cable management, mobile pedestals', qty: 40, price: 18500 },
@@ -102,6 +162,18 @@ export default [
     about: 'Architect fee for a G+2 independent house: design, structural coordination and municipal plan approval.',
     title: 'Quotation — Architectural design and building plan approval, G+2 residence on 30 x 40 ft plot, JP Nagar, Bengaluru',
     intro: 'Thank you for your enquiry about designing your new home. Below is our fee proposal covering design, all drawings needed for construction and support through municipal plan sanction. Statutory fees payable to authorities are billed at actuals.',
+    details: [
+      { label: 'Site address', value: 'Plot no. TBC, JP Nagar, Bengaluru' },
+      { label: 'Plot size', value: '30 x 40 ft (1,200 sq ft)' },
+      { label: 'Building type', value: 'G+2 independent residence' },
+      { label: 'Approving authority', value: 'Local municipal authority' },
+      { label: 'Deliverables', value: 'Plans, elevations, working and structural drawings' },
+    ],
+    addons: [
+      { name: 'Interior design for the house', detail: 'Concept, 3D views and working drawings, per sq ft of built-up area', qty: 3000, price: 60 },
+      { name: 'Landscape design', detail: 'Terrace and front garden layout with planting plan', qty: 1, price: 25000 },
+      { name: 'MEP drawings', detail: 'Electrical and plumbing layouts by consultant', qty: 1, price: 30000 },
+    ],
     items: [
       { name: 'Concept design and floor plans', detail: 'Site analysis, Vastu-friendly layouts, up to 3 options and 2 revision rounds', qty: 1, price: 85000 },
       { name: 'Elevation design and 3D exterior views', detail: 'Two elevation options, 4 exterior renders', qty: 1, price: 45000 },
@@ -121,6 +193,18 @@ export default [
     about: 'Renovation of an older flat: demolition, retiling, waterproofing, plumbing and new kitchen top.',
     title: 'Quotation — Kitchen and two bathroom renovation, 2BHK flat, Salt Lake, Kolkata',
     intro: 'Thank you for having us over to inspect the flat. As discussed, this quote covers stripping out the old kitchen and bathrooms and rebuilding them with fresh waterproofing, plumbing and tiling. We will keep dust and noise to a minimum and coordinate timings with your society.',
+    details: [
+      { label: 'Site address', value: 'Flat no. TBC, Salt Lake, Kolkata' },
+      { label: 'Scope', value: 'Kitchen and 2 bathrooms' },
+      { label: 'Configuration', value: '2BHK flat, approx. 25 years old' },
+      { label: 'Tile allowance', value: 'Up to Rs 70 per sq ft' },
+      { label: 'Timeline', value: '25–30 days' },
+    ],
+    addons: [
+      { name: 'Modular kitchen cabinets under platform', detail: 'Laminate finish base units, 12 running ft', qty: 1, price: 65000 },
+      { name: 'Glass shower partition', detail: '8 mm toughened glass with fittings, per bathroom', qty: 2, price: 18500 },
+      { name: 'Exhaust fans and geysers installation', detail: 'Supply by client; fitting and wiring per unit', qty: 3, price: 1500 },
+    ],
     items: [
       { name: 'Demolition and debris removal', detail: 'Removal of old tiles, platform and fittings; debris disposal off-site', qty: 1, price: 38000 },
       { name: 'Bathroom waterproofing', detail: 'Polymer-based waterproofing with 48-hour pond test, 2 bathrooms', qty: 2, price: 18000 },

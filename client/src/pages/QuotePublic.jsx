@@ -20,6 +20,16 @@ export default function QuotePublic() {
   const load = () => fetch(`/api/q/${id}?t=${encodeURIComponent(t)}${preview}`).then(async (r) => { const d = await r.json(); r.ok ? setQ(d) : setErr(d.error || 'Quote not found'); });
   useEffect(() => { load(); }, [id]);
   const post = (path, body = {}) => buyerPost(`/api/q/${id}/${path}`, { t, ...body });
+  // optional add-ons: the client ticks them on, the server re-works the total (and the deposit)
+  const [picking, setPicking] = useState(false);
+  const toggle = async (n) => {
+    if (!q.canChoose || preview || picking) return;
+    const sel = q.selected.includes(n) ? q.selected.filter((x) => x !== n) : [...q.selected, n];
+    setPicking(true); setQ({ ...q, selected: sel });
+    const r = await post('options', { selected: sel });
+    setPicking(false);
+    if (r.error) { alertDialog({ text: r.error, buyer: true }); load(); } else setQ(r);
+  };
   const confirmPay = (path, body = {}) => confirmPaid(`/api/q/${id}/${path}`, { t, ...body }); // the money is taken: retry through network drops
 
   // back from a bank page (Stripe redirect)
@@ -68,14 +78,18 @@ export default function QuotePublic() {
   return (
     <div className="lib">
       <header className="lib-h"><div className="lib-brand"><span className="lib-logo">{(q.seller.name || 'Q')[0]}</span><b>{q.seller.name}</b></div><div className="lib-who mono">{q.number}</div></header>
-      <main className={`lib-main quote-pub qd-${q.design || 'classic'}`}>
+      <main className={`lib-main quote-pub qd-${q.design || 'classic'}`} style={q.accent ? { '--qa': q.accent } : undefined}>
         {preview && <p className="q-note">Preview — this is what your client sees. Opening it here doesn’t mark it as viewed.</p>}
-        <p className="q-for">Prepared for <b>{q.client.name}</b>{q.client.company ? `, ${q.client.company}` : ''} · {day(q.at)}{q.validUntil ? ` · valid until ${day(q.validUntil)}` : ''}</p>
-        <h1>{q.title}</h1>
+        <header className="qp-hero">
+          <div className="qp-meta"><span className="qp-num">Quotation · {q.number}</span><span>{day(q.at)}{q.validUntil ? ` · valid until ${day(q.validUntil)}` : ''}</span></div>
+          <h1>{q.title}</h1>
+          <p className="q-for">Prepared for <b>{q.client.name}</b>{q.client.company ? `, ${q.client.company}` : ''}</p>
+        </header>
+        {q.details?.length > 0 && <section className="qp-details">{q.details.map((d, i) => <div key={i}><small>{d.label}</small><b>{d.value}</b></div>)}</section>}
         {q.intro && <p className="q-intro">{q.intro}</p>}
         <table className="q-tbl">
           <thead><tr><th>Item</th><th className="r">Qty</th><th className="r">Amount</th></tr></thead>
-          <tbody>{q.items.map((it, i) => <tr key={i}><td><b>{it.name}</b>{it.detail && <small>{it.detail}</small>}</td><td className="r">{it.qty}</td><td className="r">{m(it.qty * it.price)}</td></tr>)}</tbody>
+          <tbody>{q.items.map((it, i) => (it.optional && !q.selected.includes(i) ? null : <tr key={i} className={it.optional ? 'q-addon-row' : undefined}><td><b>{it.name}</b>{it.optional && <span className="q-tag">Add-on</span>}{it.detail && <small>{it.detail}</small>}</td><td className="r">{it.qty}</td><td className="r">{m(it.qty * it.price)}</td></tr>))}</tbody>
           <tfoot>
             <tr className="tot"><td colSpan={2}>Total</td><td className="r">{m(q.total)}</td></tr>
             {q.paid > 0 && <tr><td colSpan={2}>Paid</td><td className="r">− {m(q.paid)}</td></tr>}
@@ -83,6 +97,18 @@ export default function QuotePublic() {
             {q.taxNote && <tr className="q-tax"><td colSpan={3}>{q.taxNote}</td></tr>}
           </tfoot>
         </table>
+        {q.items.some((it) => it.optional) && (
+          <section className="qp-addons">
+            <h3>Optional add-ons <small>{q.canChoose && !preview ? 'Tick what you’d like — the total updates' : preview ? 'Your client can tick these on' : ''}</small></h3>
+            <div className="qp-addon-list">{q.items.map((it, i) => (it.optional ? (
+              <label key={i} className={`qp-addon ${q.selected.includes(i) ? 'on' : ''} ${!q.canChoose || preview ? 'locked' : ''}`}>
+                <input type="checkbox" checked={q.selected.includes(i)} disabled={!q.canChoose || !!preview || picking} onChange={() => toggle(i)} />
+                <span className="qp-addon-t"><b>{it.name}</b>{it.detail && <small>{it.detail}</small>}</span>
+                <span className="qp-addon-p">+ {m(it.qty * it.price)}</span>
+              </label>
+            ) : null))}</div>
+          </section>
+        )}
         {q.terms && <div className="q-terms"><h3>Terms</h3><p>{q.terms}</p></div>}
         <div className="q-pay">
           {q.status === 'paid' ? <div className="q-state ok">✓ Paid in full — thank you!</div>

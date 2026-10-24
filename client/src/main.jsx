@@ -8,6 +8,7 @@ import ErrorBoundary, { initMonitoring } from './ErrorBoundary';
 import Public from './pages/Public';
 import './styles.css';
 import './app-polish.css';
+import './quote-designs.css';
 import './page-variants.css';
 import './page-premium.css';
 import './app-products.css';

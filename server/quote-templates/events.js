@@ -6,6 +6,18 @@ export default [
     about: 'Two-day Hindu wedding coverage: candid, traditional, cinematic film, teaser and album.',
     title: 'Quotation — Wedding photography and cinematography, 2 days (Haldi, Sangeet, Wedding), Jaipur',
     intro: 'Congratulations on your upcoming wedding, and thank you for considering us to capture it. Below is the package we discussed for both days, with a team that blends candid storytelling with complete family coverage. We would love to be a part of your celebrations.',
+    details: [
+      { label: 'Event', value: 'Wedding — Haldi, Sangeet and Wedding' },
+      { label: 'Date(s)', value: 'To be confirmed' },
+      { label: 'Venue', value: 'Venue TBC, Jaipur' },
+      { label: 'Guests', value: 'Approx. 350' },
+      { label: 'Coverage hours', value: 'Up to 12 hours per day, 2 days' },
+    ],
+    addons: [
+      { name: 'Drone coverage', detail: 'Licensed drone pilot, both days, where permitted', qty: 1, price: 18000 },
+      { name: 'Premium photobook (40 sheets)', detail: 'Additional parents album, 12 x 36 in', qty: 1, price: 22000 },
+      { name: 'Live streaming', detail: 'HD stream of the wedding ceremony on YouTube or private link', qty: 1, price: 25000 },
+    ],
     items: [
       { name: 'Candid photography', detail: '2 senior candid photographers, both days, all functions', qty: 2, price: 45000 },
       { name: 'Traditional photography', detail: '1 photographer per day for rituals and family groups', qty: 2, price: 18000 },
@@ -25,6 +37,18 @@ export default [
     about: 'One-day outdoor pre-wedding shoot with photos, short film and styling.',
     title: 'Quotation — Pre-wedding shoot, 1 day, Udaipur (two locations)',
     intro: 'Thank you for reaching out for your pre-wedding shoot. This package gives you a relaxed full day at two scenic Udaipur locations with photos and a short cinematic film you can play at your sangeet.',
+    details: [
+      { label: 'Event', value: 'Pre-wedding shoot' },
+      { label: 'Date(s)', value: 'To be confirmed' },
+      { label: 'Venue', value: '2 locations in and around Udaipur' },
+      { label: 'Outfits', value: 'Up to 4 changes' },
+      { label: 'Coverage hours', value: 'Up to 8 hours' },
+    ],
+    addons: [
+      { name: 'Makeup and hair artist', detail: 'For bride, 2 looks with touch-ups', qty: 1, price: 15000 },
+      { name: 'Save-the-date reel', detail: '30-second vertical reel for Instagram', qty: 1, price: 8000 },
+      { name: 'Additional location', detail: 'Third location with travel', qty: 1, price: 7500 },
+    ],
     items: [
       { name: 'Pre-wedding photography', detail: '1 lead photographer, up to 8 hours, 2 locations, 4 outfit changes', qty: 1, price: 35000 },
       { name: 'Pre-wedding cinematic video', detail: '1 cinematographer with drone, 2–3 minute song-based edit', qty: 1, price: 40000 },
@@ -42,6 +66,18 @@ export default [
     about: 'End-to-end planning and coordination for a 300-guest, 3-function wedding (fee + vendor management).',
     title: 'Quotation — Complete wedding planning and coordination, 3 functions, 300 guests, Lonavala',
     intro: 'Thank you for trusting us with your big day. This proposal covers end-to-end planning, from venue shortlisting to the final send-off, so your family can simply enjoy the celebrations. Vendor costs are shown as estimates and will be finalised with your approval.',
+    details: [
+      { label: 'Event', value: 'Wedding — Mehendi, Sangeet, Wedding' },
+      { label: 'Date(s)', value: 'To be confirmed' },
+      { label: 'Venue', value: 'Resort TBC, Lonavala' },
+      { label: 'Guests', value: 'Approx. 300' },
+      { label: 'Planning team', value: '8 on-ground coordinators' },
+    ],
+    addons: [
+      { name: 'Celebrity anchor', detail: 'Well-known anchor for Sangeet night', qty: 1, price: 150000 },
+      { name: 'Fireworks and cold pyros', detail: 'Couple entry and pheras, with permissions', qty: 1, price: 65000 },
+      { name: 'Bridal entry special effects', detail: 'Phoolon ki chadar and floral canopy for entry', qty: 1, price: 35000 },
+    ],
     items: [
       { name: 'Planning and coordination fee', detail: 'Venue and vendor shortlisting, budgeting, timelines, on-ground team of 8 for all functions', qty: 1, price: 350000 },
       { name: 'Hospitality desk and guest management', detail: 'Room allocation, welcome hampers coordination, airport and station pickups schedule', qty: 1, price: 85000 },
@@ -61,6 +97,18 @@ export default [
     about: 'Decor-only quote: floral mandap, stage, entrance, lighting and seating for a wedding ceremony.',
     title: 'Quotation — Wedding ceremony decor and floral mandap, banquet lawn, Lucknow',
     intro: 'Thank you for sharing your colour palette and reference pictures. Here is our decor estimate for the wedding ceremony and reception, combining fresh and premium artificial florals for a lush, elegant look.',
+    details: [
+      { label: 'Event', value: 'Wedding ceremony and reception' },
+      { label: 'Date(s)', value: 'To be confirmed' },
+      { label: 'Venue', value: 'Banquet lawn TBC, Lucknow' },
+      { label: 'Guests', value: 'Approx. 400' },
+      { label: 'Colour palette', value: 'Ivory, blush and gold' },
+    ],
+    addons: [
+      { name: 'Fresh orchid upgrade for mandap', detail: 'Replace artificial accents with fresh imported orchids', qty: 1, price: 45000 },
+      { name: 'Cold pyro for couple entry', detail: '4 cold pyro machines with operator', qty: 1, price: 18000 },
+      { name: 'Haldi and Mehendi decor', detail: 'Compact floral setup for daytime functions', qty: 1, price: 55000 },
+    ],
     items: [
       { name: 'Floral mandap', detail: '16 x 16 ft mandap with fresh marigold, rose and orchid drapes, havan kund setup', qty: 1, price: 145000 },
       { name: 'Reception stage', detail: '40 x 16 ft stage with floral backdrop, couple sofa and carpet', qty: 1, price: 125000 },
@@ -80,6 +128,18 @@ export default [
     about: 'B2B annual day / awards night for 250 employees: stage, AV, emcee, entertainment and logistics.',
     title: 'Quotation — Annual day and awards night for 250 guests, five-star hotel ballroom, Gurugram',
     intro: 'Thank you for the opportunity to plan your company annual day. This proposal covers the production, show flow and on-ground management so your HR team can focus on the guests. Hotel food and beverage will be billed by the hotel directly.',
+    details: [
+      { label: 'Event', value: 'Annual day and awards night' },
+      { label: 'Date(s)', value: 'To be confirmed' },
+      { label: 'Venue', value: 'Five-star hotel ballroom, Gurugram' },
+      { label: 'Guests', value: '250' },
+      { label: 'Show duration', value: '4 hours including dinner' },
+    ],
+    addons: [
+      { name: 'Celebrity stand-up comedian', detail: '45-minute clean comedy set', qty: 1, price: 350000 },
+      { name: 'Photo booth with instant prints', detail: 'Branded frames, unlimited prints for 3 hours', qty: 1, price: 35000 },
+      { name: 'Event app and live polling', detail: 'Agenda, voting for awards and feedback', qty: 1, price: 45000 },
+    ],
     items: [
       { name: 'Stage, set design and branding', detail: '32 x 16 ft stage, printed backdrop, podium, branded photo wall and standees', qty: 1, price: 285000 },
       { name: 'Sound, light and LED wall', detail: 'Line array sound, intelligent lighting, 24 x 10 ft P3.9 LED wall, technicians', qty: 1, price: 340000 },
@@ -99,6 +159,18 @@ export default [
     about: 'Small home or banquet birthday party: theme decor, entertainer, cake table and return gifts.',
     title: 'Quotation — Themed first birthday party for 80 guests, banquet hall, Indiranagar, Bengaluru',
     intro: 'Thank you for choosing us for your little one\'s first birthday. Here is a fun, complete package with theme decor, games and entertainment so you can enjoy the day with your family.',
+    details: [
+      { label: 'Event', value: 'First birthday party' },
+      { label: 'Date(s)', value: 'To be confirmed' },
+      { label: 'Venue', value: 'Banquet hall TBC, Indiranagar, Bengaluru' },
+      { label: 'Guests', value: 'Approx. 80 (30 kids)' },
+      { label: 'Theme', value: 'To be confirmed by client' },
+    ],
+    addons: [
+      { name: 'Mascot character appearance', detail: 'Costumed character for 1 hour', qty: 1, price: 6500 },
+      { name: 'Candy floss and popcorn counters', detail: 'With attendant, 2 hours', qty: 1, price: 7000 },
+      { name: 'Highlight video', detail: '3-minute edited video with music', qty: 1, price: 8000 },
+    ],
     items: [
       { name: 'Theme decor — balloon backdrop and stage', detail: '12 ft balloon arch, printed theme backdrop, name board and cake table', qty: 1, price: 28000 },
       { name: 'Entrance and table decor', detail: 'Welcome board, balloon pillars, 10 table centrepieces', qty: 1, price: 9500 },
@@ -117,6 +189,18 @@ export default [
     about: '25th anniversary dinner for 60 guests: decor, live music, emcee and photography.',
     title: 'Quotation — 25th wedding anniversary celebration, 60 guests, rooftop restaurant, Ahmedabad',
     intro: 'Many congratulations on this lovely milestone. We have put together an elegant evening with soft florals, live music and a memory corner, keeping it warm and personal for your family and friends.',
+    details: [
+      { label: 'Event', value: '25th wedding anniversary' },
+      { label: 'Date(s)', value: 'To be confirmed' },
+      { label: 'Venue', value: 'Rooftop restaurant TBC, Ahmedabad' },
+      { label: 'Guests', value: '60' },
+      { label: 'Coverage hours', value: '4 hours' },
+    ],
+    addons: [
+      { name: 'Saxophone player', detail: '45-minute live set during dinner', qty: 1, price: 18000 },
+      { name: 'Customised anniversary cake', detail: '3 kg designer cake', qty: 1, price: 9500 },
+      { name: 'Guest return gifts', detail: 'Personalised mementos', qty: 60, price: 350 },
+    ],
     items: [
       { name: 'Decor — floral and candle setup', detail: 'Couple backdrop, table florals, candle runners and fairy lights', qty: 1, price: 42000 },
       { name: 'Live acoustic duo', detail: 'Guitar and vocals, retro Bollywood set, 2 hours', qty: 1, price: 30000 },

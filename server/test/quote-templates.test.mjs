@@ -51,3 +51,28 @@ test('a quote from a template keeps its design and GST line; the client sees bot
   const dup = (await api(`/quotes/${q.id}/duplicate`, 'POST', {}, T)).data;
   assert.deepEqual([dup.design, dup.taxNote], ['elegant', t.taxNote]);
 });
+
+test('templates carry industry details and optional add-ons; the client ticks add-ons and the server re-works the total', async () => {
+  const all = (await api('/quote-templates', 'GET', null, T)).data.industries.flatMap((x) => x.templates);
+  assert.ok(all.every((t) => t.details.length >= 4 && t.addons.length >= 1), 'every template has details and at least one add-on');
+  const t = all.find((x) => x.addons.length >= 2);
+  const items = [...t.items, ...t.addons.map((a) => ({ ...a, optional: true }))];
+  const q = (await api('/quotes', 'POST', { client: { name: 'Ravi', email: 'ravi@client.in' }, title: t.title, items, details: t.details, accent: '#0F766E', deposit: 50, terms: t.terms }, T)).data;
+  assert.equal(q.total, t.total, 'add-ons are not in the starting total');
+  assert.equal(q.accent, '#0f766e');
+  assert.equal(q.details.length, t.details.length);
+  const tok = new URL(q.link).searchParams.get('t');
+  const first = t.items.length, second = t.items.length + 1;
+  const pick = (await api(`/q/${q.id}/options`, 'POST', { t: tok, selected: [first, 0, 999] })).data;
+  assert.deepEqual(pick.selected, [first], 'only real add-ons can be ticked');
+  const withAddon = t.total + t.addons[0].qty * t.addons[0].price;
+  assert.equal(pick.total, withAddon);
+  assert.equal(pick.due, Math.round(withAddon * 50) / 100, 'the deposit follows the chosen total');
+  assert.equal((await api(`/q/${q.id}/options`, 'POST', { t: 'nope', selected: [second] })).status, 404);
+  const both = (await api(`/q/${q.id}/options`, 'POST', { t: tok, selected: [first, second] })).data;
+  assert.equal(both.total, withAddon + t.addons[1].qty * t.addons[1].price);
+  assert.equal((await api('/quotes', 'GET', null, T)).data.find((x) => x.id === q.id).total, both.total, 'the seller sees the client’s choice');
+  await api(`/q/${q.id}/accept`, 'POST', { t: tok });
+  assert.equal((await api(`/q/${q.id}/options`, 'POST', { t: tok, selected: [] })).status, 400, 'locked once accepted');
+  assert.equal((await api('/quotes', 'POST', { client: { name: 'X' }, title: 'Y', items: [{ name: 'A', qty: 1, price: 10 }], accent: 'red' }, T)).data.accent, '', 'only #rrggbb colours');
+});

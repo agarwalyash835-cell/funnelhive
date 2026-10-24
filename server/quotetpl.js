@@ -18,6 +18,9 @@ function clean(t, kit) {
   return {
     id: str(t.id, 80), industry: kit, name: str(t.name, 60), about: str(t.about, 160), title: str(t.title, 160), intro: str(t.intro, 5000),
     items, deposit: int(t.deposit, 0, 100, 0), validDays: int(t.validDays, 0, 365, 14), taxNote: str(t.gst, 300), terms: str(t.terms, 5000),
+    details: (Array.isArray(t.details) ? t.details : []).slice(0, 8).map((d) => ({ label: str(d?.label, 40), value: str(d?.value, 160) })).filter((d) => d.label && d.value),
+    // optional extras the client can tick on (shown as add-ons, not in the starting total)
+    addons: (Array.isArray(t.addons) ? t.addons : []).slice(0, 5).map((i) => ({ name: str(i?.name, 200), detail: str(i?.detail, 1000), qty: int(i?.qty, 1, 10000, 1), price: int(i?.price, 1, 10000000, 0) })).filter((i) => i.name && i.price > 0),
     total: items.reduce((s, i) => s + i.qty * i.price, 0),
   };
 }

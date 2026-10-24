@@ -6,6 +6,19 @@ export default [
     about: 'Domestic family package: Munnar, Thekkady, Alleppey houseboat with private cab and breakfast.',
     title: 'Quotation — Kerala family holiday, 5 nights / 6 days (Munnar, Thekkady, Alleppey), 2 adults + 1 child',
     intro: 'Thank you for choosing us for your Kerala holiday. We have put together a relaxed itinerary covering the hills, spice plantations and a night on the backwaters, with a private car and driver throughout. Please review the details and let us know if you would like any upgrades.',
+    details: [
+      { label: 'Destination', value: 'Munnar, Thekkady, Alleppey, Marari' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '2 adults + 1 child' },
+      { label: 'Hotel category', value: '3-star resorts + premium houseboat' },
+      { label: 'Meal plan', value: 'Breakfast daily; all meals on houseboat' },
+      { label: 'Pickup city', value: 'Kochi airport' },
+    ],
+    addons: [
+      { name: 'Ayurvedic massage', detail: '60-minute session, per person', qty: 2, price: 2500 },
+      { name: 'Upgrade to 4-star resorts', detail: 'Munnar and Thekkady, for the stay', qty: 1, price: 12000 },
+      { name: 'Jeep safari to Kolukkumalai', detail: 'Sunrise tea estate trip', qty: 1, price: 3500 },
+    ],
     items: [
       { name: 'Hotels — Munnar (2N) and Thekkady (1N)', detail: '3-star resorts, deluxe room with breakfast, extra mattress for child', qty: 1, price: 26500 },
       { name: 'Premium houseboat — Alleppey (1N)', detail: '1-bedroom AC houseboat, all meals on board', qty: 1, price: 11500 },
@@ -25,6 +38,19 @@ export default [
     about: 'Short honeymoon or couple package with flights, beach resort, transfers and a cruise.',
     title: 'Quotation — Goa couple getaway, 3 nights / 4 days, ex-Delhi',
     intro: 'Thank you for your enquiry. Here is a breezy Goa escape with return flights, a beachside resort in North Goa and a sunset cruise. Flights are quoted at today\'s fare and will be confirmed only on ticketing.',
+    details: [
+      { label: 'Destination', value: 'North Goa (Candolim)' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '2 adults' },
+      { label: 'Hotel category', value: '4-star beach resort' },
+      { label: 'Meal plan', value: 'Breakfast + one candlelight dinner' },
+      { label: 'Pickup city', value: 'Delhi (flight)' },
+    ],
+    addons: [
+      { name: 'Scuba diving at Grande Island', detail: 'Boat trip with intro dive, per person', qty: 2, price: 3500 },
+      { name: 'South Goa sightseeing', detail: 'Full-day private car', qty: 1, price: 3500 },
+      { name: 'Travel insurance', detail: 'Domestic trip cover, per person', qty: 2, price: 300 },
+    ],
     items: [
       { name: 'Return economy airfare Delhi – Goa', detail: '2 adults, 15 kg check-in baggage each, indicative fare', qty: 2, price: 11800 },
       { name: 'Beach resort — Candolim (3N)', detail: '4-star, deluxe pool-view room, breakfast and one candlelight dinner', qty: 1, price: 27000 },
@@ -43,6 +69,19 @@ export default [
     about: 'Family/friends group of 6 by Tempo Traveller from Chandigarh with hotels and MAP meals.',
     title: 'Quotation — Shimla, Manali and Kullu, 6 nights / 7 days, group of 6 adults, ex-Chandigarh',
     intro: 'Thank you for planning your mountain holiday with us. This package covers the classic Himachal circuit with comfortable hotels, breakfast and dinner daily, and a dedicated Tempo Traveller for the whole group.',
+    details: [
+      { label: 'Destination', value: 'Shimla, Manali, Kullu' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '6 adults' },
+      { label: 'Hotel category', value: '3-star hotels' },
+      { label: 'Meal plan', value: 'Breakfast and dinner (MAP)' },
+      { label: 'Pickup city', value: 'Chandigarh' },
+    ],
+    addons: [
+      { name: 'River rafting in Kullu', detail: 'Per person, 7 km stretch', qty: 6, price: 900 },
+      { name: 'Paragliding at Solang', detail: 'Short flight, per person', qty: 6, price: 3000 },
+      { name: 'Camping night at Sethan', detail: 'Swiss tents with dinner and bonfire, group', qty: 1, price: 15000 },
+    ],
     items: [
       { name: 'Hotels — Shimla (2N) and Manali (4N)', detail: '3-star hotels, 3 double rooms, breakfast and dinner (MAP)', qty: 6, price: 14500 },
       { name: 'Tempo Traveller for 7 days', detail: '12-seater AC, Chandigarh to Chandigarh, driver, fuel, tolls, state taxes', qty: 1, price: 52000 },
@@ -61,6 +100,19 @@ export default [
     about: 'International family package with flights, visa, hotel, Desert Safari and Burj Khalifa; TCS shown.',
     title: 'Quotation — Dubai family holiday, 4 nights / 5 days, 2 adults + 1 child, ex-Mumbai',
     intro: 'Thank you for choosing us for your Dubai holiday. This package includes flights, visas, a centrally located hotel and the must-do experiences, with private transfers and comfortable sightseeing. Please share passport copies to begin the visa process.',
+    details: [
+      { label: 'Destination', value: 'Dubai, UAE' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '2 adults + 1 child' },
+      { label: 'Hotel category', value: '4-star, Bur Dubai' },
+      { label: 'Meal plan', value: 'Breakfast daily; BBQ dinner on safari' },
+      { label: 'Pickup city', value: 'Mumbai (flight)' },
+    ],
+    addons: [
+      { name: 'Abu Dhabi day trip', detail: 'Grand Mosque and Ferrari World entry, private car', qty: 1, price: 32000 },
+      { name: 'Dubai Frame and Museum of the Future', detail: 'Entry tickets, per person', qty: 3, price: 4200 },
+      { name: 'Travel insurance', detail: 'International cover with medical, per person', qty: 3, price: 1100 },
+    ],
     items: [
       { name: 'Return economy airfare Mumbai – Dubai', detail: '2 adults and 1 child, 30 kg baggage, indicative fare', qty: 3, price: 26500 },
       { name: 'Hotel — 4-star, Bur Dubai (4N)', detail: 'Family room with breakfast, tourism dirham fee extra at hotel', qty: 1, price: 46000 },
@@ -80,6 +132,19 @@ export default [
     about: 'Honeymoon-style international land + air package with island tours and TCS line.',
     title: 'Quotation — Thailand honeymoon, Phuket (3N) and Krabi (2N), 2 adults, ex-Bengaluru',
     intro: 'Congratulations, and thank you for planning your honeymoon with us. This itinerary pairs Phuket\'s beaches with the cliffs of Krabi, with private transfers and two island tours by speedboat.',
+    details: [
+      { label: 'Destination', value: 'Phuket and Krabi, Thailand' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '2 adults' },
+      { label: 'Hotel category', value: '4-star sea-facing' },
+      { label: 'Meal plan', value: 'Breakfast daily' },
+      { label: 'Pickup city', value: 'Bengaluru (flight)' },
+    ],
+    addons: [
+      { name: 'Phang Nga Bay tour', detail: 'James Bond Island by speedboat, per person', qty: 2, price: 5500 },
+      { name: 'Simon cabaret show', detail: 'Per person', qty: 2, price: 2000 },
+      { name: 'Travel insurance', detail: 'International cover, per person', qty: 2, price: 900 },
+    ],
     items: [
       { name: 'Return economy airfare Bengaluru – Phuket', detail: '2 adults, indicative fare with 20 kg baggage', qty: 2, price: 21500 },
       { name: 'Hotels — Phuket 4-star (3N), Krabi 4-star (2N)', detail: 'Sea-facing rooms with breakfast, honeymoon inclusions', qty: 1, price: 62000 },
@@ -99,6 +164,19 @@ export default [
     about: 'B2B team offsite for 40 at a resort: rooms, conference hall, team building, transport.',
     title: 'Quotation — Corporate team offsite, 2 nights / 3 days, 40 participants, Jim Corbett',
     intro: 'Thank you for considering us for your team offsite. This proposal combines a riverside resort, a full-day conference setup, facilitated team-building and a jungle safari, with coach transport from your Noida office.',
+    details: [
+      { label: 'Destination', value: 'Jim Corbett, Uttarakhand' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '40 participants' },
+      { label: 'Hotel category', value: 'Riverside resort' },
+      { label: 'Meal plan', value: 'All meals (APAI) + hi-tea' },
+      { label: 'Pickup city', value: 'Noida office' },
+    ],
+    addons: [
+      { name: 'Branded merchandise kit', detail: 'T-shirt, cap and bottle, per participant', qty: 40, price: 850 },
+      { name: 'Professional photographer', detail: '2 days with edited photos', qty: 1, price: 30000 },
+      { name: 'Leadership workshop', detail: 'Half-day session by external facilitator', qty: 1, price: 60000 },
+    ],
     items: [
       { name: 'Resort stay (2N) — twin sharing', detail: '20 rooms, all meals, hi-tea, conference hall for 1 day with AV', qty: 20, price: 22500 },
       { name: 'Luxury coach Noida – Corbett – Noida', detail: '45-seater AC Volvo, tolls and parking', qty: 1, price: 68000 },
@@ -118,6 +196,19 @@ export default [
     about: 'Pilgrimage package by road from Haridwar covering Yamunotri, Gangotri, Kedarnath and Badrinath.',
     title: 'Quotation — Char Dham Yatra by road, 10 nights / 11 days, 4 adults, ex-Haridwar',
     intro: 'Thank you for entrusting us with your Char Dham Yatra. This package is planned with comfortable stays near each dham, vegetarian meals and an experienced hill driver, so your family can focus on darshan.',
+    details: [
+      { label: 'Destination', value: 'Yamunotri, Gangotri, Kedarnath, Badrinath' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '4 adults' },
+      { label: 'Hotel category', value: 'Best available near each dham' },
+      { label: 'Meal plan', value: 'Breakfast and dinner, vegetarian' },
+      { label: 'Pickup city', value: 'Haridwar' },
+    ],
+    addons: [
+      { name: 'Helicopter booking assistance — Kedarnath', detail: 'Support for official portal booking, per person (fare extra)', qty: 4, price: 1000 },
+      { name: 'VIP darshan assistance', detail: 'Where officially available, per person', qty: 4, price: 2500 },
+      { name: 'Extra night at Rishikesh', detail: 'Hotel with breakfast, 2 rooms', qty: 1, price: 6500 },
+    ],
     items: [
       { name: 'Accommodation — 10 nights', detail: 'Best available hotels and camps near each dham, twin sharing, breakfast and dinner (vegetarian)', qty: 4, price: 26000 },
       { name: 'Vehicle — Innova Crysta, 11 days', detail: 'Haridwar to Haridwar with hill driver, fuel, tolls, state permits', qty: 1, price: 62000 },
@@ -136,6 +227,18 @@ export default [
     about: 'Service-fee quote for documentation and appointment support; embassy fees billed at actuals.',
     title: 'Quotation — Schengen tourist visa assistance, 2 applicants, Chennai',
     intro: 'Thank you for reaching out for your Schengen visa. We will guide you through documentation, form filling, cover letters and the appointment booking. Embassy and VFS fees are collected at actuals and paid on your behalf.',
+    details: [
+      { label: 'Destination', value: 'Schengen area' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '2 applicants' },
+      { label: 'Visa type', value: 'Short-stay tourist (Type C)' },
+      { label: 'Submission city', value: 'Chennai' },
+    ],
+    addons: [
+      { name: 'Flight and hotel itinerary for visa', detail: 'Confirmed bookings with free cancellation, per applicant', qty: 2, price: 1500 },
+      { name: 'Premium lounge at visa centre', detail: 'Per applicant, at actuals', qty: 2, price: 3200 },
+      { name: 'Courier passport return', detail: 'Doorstep delivery', qty: 1, price: 600 },
+    ],
     items: [
       { name: 'Visa documentation and form filling', detail: 'Checklist, cover letter, itinerary, form review', qty: 2, price: 3500 },
       { name: 'Appointment booking support', detail: 'Biometric appointment scheduling at the visa centre', qty: 2, price: 1500 },
@@ -154,6 +257,19 @@ export default [
     about: 'Per-student group package for a school trip with train, hostel-style stays, meals and escorts.',
     title: 'Quotation — Educational school trip to Jaipur and Agra, 3 nights / 4 days, 60 students + 6 teachers, ex-Indore',
     intro: 'Thank you for considering us for your school\'s educational tour. Safety and supervision are our priority: the package includes AC train travel, verified hotels, all meals and trained tour escorts accompanying the group throughout.',
+    details: [
+      { label: 'Destination', value: 'Jaipur and Agra' },
+      { label: 'Travel dates', value: 'To be confirmed' },
+      { label: 'Travellers', value: '60 students + 6 teachers' },
+      { label: 'Hotel category', value: '3-star, quad sharing for students' },
+      { label: 'Meal plan', value: 'All meals' },
+      { label: 'Pickup city', value: 'Indore (railway station)' },
+    ],
+    addons: [
+      { name: 'Light and sound show at Amber Fort', detail: 'Per participant', qty: 66, price: 200 },
+      { name: 'Group T-shirts and caps', detail: 'Printed with school name, per participant', qty: 66, price: 350 },
+      { name: 'Photographer for the trip', detail: '4 days with edited photo album link', qty: 1, price: 22000 },
+    ],
     items: [
       { name: 'Per-student package', detail: '3AC train, AC bus, 3-star hotel quad sharing, all meals, entry tickets, guide', qty: 60, price: 9800 },
       { name: 'Teacher package', detail: 'Same inclusions, twin sharing rooms', qty: 6, price: 11500 },

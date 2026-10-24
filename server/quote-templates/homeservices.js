@@ -6,6 +6,19 @@ export default [
     about: 'Residential 3 kW on-grid system with DCR panels, net metering; PM Surya Ghar subsidy noted separately.',
     title: 'Quotation — 3.3 kWp on-grid rooftop solar system with net metering, independent house, Nashik',
     intro: 'Thank you for your interest in going solar. Based on your average bill of around 350 units a month and our roof survey, a 3.3 kWp system will cover most of your consumption. This system is eligible under the PM Surya Ghar Muft Bijli Yojana and we will handle the portal and DISCOM process for you.',
+    details: [
+      { label: 'Site address', value: 'House no. TBC, Nashik' },
+      { label: 'System size/scope', value: '3.3 kWp on-grid with net metering' },
+      { label: 'Roof/area type', value: 'RCC flat roof, approx. 300 sq ft shade-free' },
+      { label: 'Brand/make', value: 'DCR panels and on-grid inverter (make TBC)' },
+      { label: 'Warranty', value: '25 yrs panels, 8 yrs inverter, 5 yrs CMC' },
+      { label: 'Installation timeline', value: 'Within 15 days of advance' },
+    ],
+    addons: [
+      { name: 'Monitoring app + Wi-Fi module upgrade', detail: 'Remote generation monitoring with alerts', qty: 1, price: 3500 },
+      { name: 'Automatic panel cleaning sprinkler', detail: 'Water sprinkler line with timer', qty: 1, price: 9500 },
+      { name: 'Bird net and anti-pigeon mesh', detail: 'Around panel edges', qty: 1, price: 6000 },
+    ],
     items: [
       { name: 'Solar PV modules — DCR, mono-crystalline 550 Wp', detail: 'Domestic content panels, 6 nos, 25-year performance warranty (Tier-1 Indian maker or equivalent)', qty: 6, price: 16500 },
       { name: 'On-grid string inverter — 3 kW', detail: 'With Wi-Fi monitoring, 8-year warranty', qty: 1, price: 29000 },
@@ -25,6 +38,19 @@ export default [
     about: 'Larger home or bungalow 5 kW system with TOPCon DCR panels and higher elevated structure.',
     title: 'Quotation — 5.5 kWp on-grid rooftop solar system, duplex villa, Jodhpur',
     intro: 'Thank you for choosing us for your solar installation. With your monthly consumption of about 600 units and two ACs, a 5.5 kWp system is the right fit. Panels are mounted on an elevated structure so your terrace remains usable.',
+    details: [
+      { label: 'Site address', value: 'Villa no. TBC, Jodhpur' },
+      { label: 'System size/scope', value: '5.5 kWp on-grid with net metering' },
+      { label: 'Roof/area type', value: 'RCC terrace, elevated structure' },
+      { label: 'Brand/make', value: 'DCR TOPCon panels and 5 kW inverter (make TBC)' },
+      { label: 'Warranty', value: '30 yrs panels, 10 yrs inverter, 5 yrs CMC' },
+      { label: 'Installation timeline', value: '2–3 weeks from advance' },
+    ],
+    addons: [
+      { name: 'Hybrid upgrade with battery', detail: '5 kWh lithium battery for backup', qty: 1, price: 145000 },
+      { name: 'Automatic panel cleaning sprinkler', detail: 'Water sprinkler line with timer', qty: 1, price: 12000 },
+      { name: 'Extended CMC — 5 more years', detail: 'Quarterly visits from year 6 to 10', qty: 1, price: 18000 },
+    ],
     items: [
       { name: 'Solar PV modules — DCR TOPCon 550 Wp', detail: 'Bifacial domestic content panels, 10 nos, 30-year performance warranty', qty: 10, price: 17200 },
       { name: 'On-grid inverter — 5 kW', detail: 'Dual MPPT, app monitoring, 10-year warranty', qty: 1, price: 42000 },
@@ -44,6 +70,19 @@ export default [
     about: 'ETC solar water heater for a family of 4–5, with stand, plumbing and electric backup.',
     title: 'Quotation — 200 LPD solar water heater (ETC), row house, Mysuru',
     intro: 'Thank you for your enquiry. A 200 litres-per-day evacuated tube system will give your family of five hot water every morning through the year, with an electric backup for cloudy days.',
+    details: [
+      { label: 'Site address', value: 'Row house no. TBC, Mysuru' },
+      { label: 'System size/scope', value: '200 LPD evacuated tube system' },
+      { label: 'Roof/area type', value: 'RCC terrace' },
+      { label: 'Brand/make', value: 'ETC with SS 304 tank (make TBC)' },
+      { label: 'Warranty', value: '5 years on tank' },
+      { label: 'Installation timeline', value: '5–7 days from order' },
+    ],
+    addons: [
+      { name: 'Pressure pump for upper floors', detail: '0.5 HP booster pump with fitting', qty: 1, price: 7500 },
+      { name: 'Water softener', detail: 'Automatic softener for hard water', qty: 1, price: 18000 },
+      { name: 'Annual maintenance', detail: 'Descaling and inspection, 1 year', qty: 1, price: 1500 },
+    ],
     items: [
       { name: 'Solar water heater — 200 LPD ETC', detail: 'SS 304 inner tank, 20 evacuated tubes, PUF insulation, 5-year tank warranty', qty: 1, price: 22500 },
       { name: 'Electric backup heater', detail: '2 kW heating element with thermostat', qty: 1, price: 2200 },
@@ -61,6 +100,19 @@ export default [
     about: 'Home power backup: sine-wave inverter with tall tubular battery and trolley, installed.',
     title: 'Quotation — 1100 VA inverter with 150 Ah tubular battery, 2BHK flat, Lucknow',
     intro: 'Thank you for your enquiry about power backup. This setup will run fans, lights, Wi-Fi and a TV for about 3–4 hours during a power cut. Installation and wiring to your selected points are included.',
+    details: [
+      { label: 'Site address', value: 'Flat no. TBC, Lucknow' },
+      { label: 'System size/scope', value: '1100 VA inverter + 150 Ah battery' },
+      { label: 'Roof/area type', value: 'Indoor installation' },
+      { label: 'Brand/make', value: 'Sine-wave inverter, tall tubular battery (make TBC)' },
+      { label: 'Warranty', value: '2 yrs inverter, 60 months battery' },
+      { label: 'Installation timeline', value: '24–48 hours from order' },
+    ],
+    addons: [
+      { name: 'Second battery for longer backup', detail: '150 Ah tall tubular with trolley', qty: 1, price: 16400 },
+      { name: 'Annual maintenance', detail: '2 visits with water top-up and health check', qty: 1, price: 1200 },
+      { name: 'Extra backup points wiring', detail: 'Per additional point', qty: 4, price: 350 },
+    ],
     items: [
       { name: 'Pure sine-wave inverter — 1100 VA', detail: 'Digital display, 2-year warranty', qty: 1, price: 7800 },
       { name: 'Tall tubular battery — 150 Ah', detail: '60 months warranty (36 months full replacement + 24 months pro-rata)', qty: 1, price: 15500 },
@@ -78,6 +130,19 @@ export default [
     about: 'Supply and installation of 3 split ACs with copper piping, stands and an annual maintenance contract.',
     title: 'Quotation — Supply and installation of 3 split ACs (1.5 ton, 5-star inverter) with AMC, Chennai',
     intro: 'Thank you for reaching out ahead of summer. Here is our quote for three energy-efficient inverter split ACs, installed by certified technicians, along with a comprehensive maintenance contract for peace of mind.',
+    details: [
+      { label: 'Site address', value: 'Flat no. TBC, Chennai' },
+      { label: 'System size/scope', value: '3 split ACs, 1.5 ton each' },
+      { label: 'Roof/area type', value: 'Outdoor units on wall stands' },
+      { label: 'Brand/make', value: '5-star inverter split AC (make TBC)' },
+      { label: 'Warranty', value: '1 yr product, 5 yrs compressor' },
+      { label: 'Installation timeline', value: 'Within 48 hours of delivery' },
+    ],
+    addons: [
+      { name: 'Extended AMC — 2 more years', detail: 'Comprehensive, per AC', qty: 3, price: 5200 },
+      { name: 'Anti-bacterial coil coating', detail: 'Per indoor unit', qty: 3, price: 900 },
+      { name: 'Electrical point for AC', detail: 'New 16A point with MCB, per AC', qty: 1, price: 2200 },
+    ],
     items: [
       { name: 'Split AC — 1.5 ton, 5-star inverter', detail: 'Copper condenser, 5-year compressor warranty (leading brand or equivalent)', qty: 3, price: 39500 },
       { name: 'Standard installation', detail: 'Wall mounting, vacuuming, up to 3 m copper pipe, drain pipe', qty: 3, price: 1500 },
@@ -96,6 +161,19 @@ export default [
     about: 'Full interior repaint of a 3BHK with putty touch-up, premium emulsion, furniture covering.',
     title: 'Quotation — Interior repainting of 3BHK apartment (approx. 4,200 sq ft paintable area), Kharadi, Pune',
     intro: 'Thank you for having us over for the inspection. Our crew will repaint your home with minimal disruption, covering and shifting furniture, and leaving the house clean every evening. The estimate is based on our area measurement.',
+    details: [
+      { label: 'Site address', value: 'Flat no. TBC, Kharadi, Pune' },
+      { label: 'System size/scope', value: 'Interior repaint, approx. 4,200 sq ft walls' },
+      { label: 'Roof/area type', value: '3BHK apartment, interiors' },
+      { label: 'Brand/make', value: 'Premium emulsion (make and shades TBC)' },
+      { label: 'Warranty', value: '1 year workmanship' },
+      { label: 'Installation timeline', value: '7–9 working days' },
+    ],
+    addons: [
+      { name: 'Texture accent wall', detail: 'Designer texture in living room, per sq ft', qty: 120, price: 85 },
+      { name: 'Waterproofing of bathroom walls', detail: 'Dampness treatment, per bathroom', qty: 2, price: 6500 },
+      { name: 'Wood polish for main door', detail: 'PU polish, both sides', qty: 1, price: 7500 },
+    ],
     items: [
       { name: 'Wall preparation', detail: 'Surface sanding, crack filling and putty touch-up', qty: 4200, price: 6 },
       { name: 'Primer coat', detail: 'One coat of interior acrylic primer', qty: 4200, price: 4 },
@@ -115,6 +193,19 @@ export default [
     about: 'Home or small shop CCTV: 4 IP cameras, NVR, storage, cabling and mobile viewing setup.',
     title: 'Quotation — CCTV surveillance system with 4 IP cameras, retail shop, Lajpat Nagar, New Delhi',
     intro: 'Thank you for your enquiry. Here is our quote for a reliable 4-camera IP system with night vision and live viewing on your phone, installed neatly with concealed or conduit cabling.',
+    details: [
+      { label: 'Site address', value: 'Shop no. TBC, Lajpat Nagar, New Delhi' },
+      { label: 'System size/scope', value: '4 IP cameras with 8-channel NVR' },
+      { label: 'Roof/area type', value: 'Retail shop, indoor and entrance' },
+      { label: 'Brand/make', value: '4 MP IP cameras (make TBC)' },
+      { label: 'Warranty', value: '2 yrs equipment, 6 months installation' },
+      { label: 'Installation timeline', value: 'Within 2 working days' },
+    ],
+    addons: [
+      { name: 'Additional IP camera', detail: '4 MP colour night vision, installed', qty: 1, price: 4800 },
+      { name: 'UPS for NVR and cameras', detail: '600 VA UPS for 1 hour backup', qty: 1, price: 4200 },
+      { name: 'Annual maintenance contract', detail: '2 visits and remote support for 1 year', qty: 1, price: 2500 },
+    ],
     items: [
       { name: 'IP camera — 4 MP, colour night vision', detail: 'Built-in mic, IP67 for outdoor, 2-year warranty', qty: 4, price: 3600 },
       { name: 'NVR — 8 channel with PoE', detail: 'H.265 compression, mobile app access', qty: 1, price: 7800 },

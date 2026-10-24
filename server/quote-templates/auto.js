@@ -6,6 +6,19 @@ export default [
     about: 'Full on-road breakup for a petrol hatchback: ex-showroom, RTO, insurance, accessories, warranty.',
     title: 'Quotation — On-road price, petrol hatchback (mid variant, manual), New Delhi',
     intro: 'Thank you for visiting our showroom and taking a test drive. Below is the complete on-road price breakup for the variant you selected. Please note that current offers and exchange bonus, if applicable, will be adjusted at the time of booking.',
+    details: [
+      { label: 'Model', value: 'Petrol hatchback' },
+      { label: 'Variant', value: 'Mid variant' },
+      { label: 'Fuel / transmission', value: 'Petrol, 5-speed manual' },
+      { label: 'Colour', value: 'To be confirmed' },
+      { label: 'Expected delivery', value: '2–4 weeks from booking' },
+      { label: 'Registration city', value: 'New Delhi' },
+    ],
+    addons: [
+      { name: 'Ceramic coating', detail: '9H coating with 1 year maintenance', qty: 1, price: 15000 },
+      { name: 'Reverse camera', detail: 'With guidelines on touchscreen', qty: 1, price: 6500 },
+      { name: 'Extended warranty 5 yrs', detail: 'Upgrade to 5 years / 1,00,000 km', qty: 1, price: 7500 },
+    ],
     items: [
       { name: 'Ex-showroom price', detail: '1.2 L petrol, manual, mid variant, includes GST', qty: 1, price: 650000 },
       { name: 'RTO road tax and registration', detail: 'Road tax for private car, registration fee, HSRP number plates, smart card', qty: 1, price: 48500 },
@@ -25,6 +38,19 @@ export default [
     about: 'Mid-size sedan above Rs 10 lakh: ex-showroom, RTO, insurance, 1% TCS and accessories shown separately.',
     title: 'Quotation — On-road price, mid-size sedan (top variant, automatic), Bengaluru',
     intro: 'Thank you for your interest in the sedan you test drove with us. Here is the itemised on-road price, including the tax collected at source applicable on vehicles above Rs 10 lakh. Our sales advisor will share finance options on request.',
+    details: [
+      { label: 'Model', value: 'Mid-size sedan' },
+      { label: 'Variant', value: 'Top variant' },
+      { label: 'Fuel / transmission', value: 'Petrol, CVT automatic' },
+      { label: 'Colour', value: 'To be confirmed' },
+      { label: 'Expected delivery', value: '3–6 weeks from booking' },
+      { label: 'Registration city', value: 'Bengaluru' },
+    ],
+    addons: [
+      { name: 'Ceramic coating', detail: '9H coating with 1 year maintenance', qty: 1, price: 18000 },
+      { name: 'Annual maintenance package', detail: '3 years prepaid periodic services', qty: 1, price: 24000 },
+      { name: 'Paint protection film — front', detail: 'Bonnet, bumper and mirrors', qty: 1, price: 35000 },
+    ],
     items: [
       { name: 'Ex-showroom price', detail: '1.5 L petrol, CVT automatic, top variant, includes GST', qty: 1, price: 1640000 },
       { name: 'Road tax (lifetime) and registration', detail: 'Karnataka lifetime tax with cess, registration, HSRP, smart card', qty: 1, price: 302000 },
@@ -44,6 +70,19 @@ export default [
     about: 'Premium 7-seater SUV quote with ex-showroom, high road tax, TCS, insurance, accessories and offers.',
     title: 'Quotation — On-road price, 7-seater SUV (diesel, automatic, top variant), Hyderabad',
     intro: 'Thank you for choosing to explore our SUV range. Below is the full on-road price for the 7-seater diesel automatic, along with the current consumer offer. We would be happy to arrange a home test drive for your family.',
+    details: [
+      { label: 'Model', value: '7-seater SUV' },
+      { label: 'Variant', value: 'Top variant' },
+      { label: 'Fuel / transmission', value: 'Diesel, 6-speed automatic' },
+      { label: 'Colour', value: 'To be confirmed' },
+      { label: 'Expected delivery', value: '4–8 weeks from booking' },
+      { label: 'Registration city', value: 'Hyderabad' },
+    ],
+    addons: [
+      { name: 'Extended warranty 5 yrs', detail: 'Up to 1,25,000 km', qty: 1, price: 28000 },
+      { name: 'Ceramic coating', detail: '9H coating with 1 year maintenance', qty: 1, price: 22000 },
+      { name: 'Sunroof care and wiper pack', detail: 'Sunroof seal treatment, premium wipers, rain repellent', qty: 1, price: 4500 },
+    ],
     items: [
       { name: 'Ex-showroom price', detail: '2.2 L diesel, 6-speed automatic, 7-seater top variant, includes GST', qty: 1, price: 2190000 },
       { name: 'Life tax and registration', detail: 'Telangana life tax for non-transport vehicle, registration, HSRP', qty: 1, price: 397000 },
@@ -62,6 +101,19 @@ export default [
     about: '125 cc scooter on-road price with RTO, 1+5 insurance, helmet and accessories.',
     title: 'Quotation — On-road price, 125 cc scooter (disc brake, connected variant), Pune',
     intro: 'Thank you for visiting our showroom. Here is the on-road price for the scooter you selected, including registration and insurance. Easy EMI options with minimal down payment are available through our finance partners.',
+    details: [
+      { label: 'Model', value: '125 cc scooter' },
+      { label: 'Variant', value: 'Disc brake, connected' },
+      { label: 'Fuel / transmission', value: 'Petrol, CVT automatic' },
+      { label: 'Colour', value: 'To be confirmed' },
+      { label: 'Expected delivery', value: '3–7 days' },
+      { label: 'Registration city', value: 'Pune' },
+    ],
+    addons: [
+      { name: 'Second helmet', detail: 'ISI-mark half-face helmet for pillion', qty: 1, price: 1200 },
+      { name: 'Annual maintenance contract', detail: '3 paid services prepaid', qty: 1, price: 2400 },
+      { name: 'Body cover and anti-theft lock', detail: 'Weatherproof cover and disc lock', qty: 1, price: 1100 },
+    ],
     items: [
       { name: 'Ex-showroom price', detail: '125 cc, disc brake, Bluetooth connected variant, includes GST', qty: 1, price: 92500 },
       { name: 'RTO road tax and registration', detail: 'Lifetime road tax, registration, HSRP plates', qty: 1, price: 11800 },
@@ -80,6 +132,19 @@ export default [
     about: 'After-sales upsell for an existing owner: extended warranty, accessories and protection packs.',
     title: 'Quotation — Extended warranty and accessories, compact SUV owner, Chandigarh',
     intro: 'Thank you for being a valued customer. As your standard warranty is ending soon, here is a quote to extend your protection along with the accessories you asked about. Fitment can be done during your next service visit.',
+    details: [
+      { label: 'Model', value: 'Compact SUV (existing owner)' },
+      { label: 'Variant', value: 'Customer variant TBC' },
+      { label: 'Fuel / transmission', value: 'To be confirmed' },
+      { label: 'Registration no.', value: 'To be confirmed' },
+      { label: 'Fitment', value: 'During next scheduled service' },
+      { label: 'Service centre', value: 'Chandigarh workshop' },
+    ],
+    addons: [
+      { name: 'Seat covers — premium leatherette', detail: 'Custom-fit, full set', qty: 1, price: 12500 },
+      { name: 'Tyre and alloy protection', detail: '1-year cover for tyre damage', qty: 1, price: 3500 },
+      { name: 'Android Auto upgrade', detail: 'Wireless adapter with installation', qty: 1, price: 6000 },
+    ],
     items: [
       { name: 'Extended warranty — 3rd to 5th year', detail: 'Up to 1,00,000 km, engine, transmission, electricals', qty: 1, price: 18500 },
       { name: 'Ceramic coating', detail: '9H ceramic coating with 1 year maintenance wash', qty: 1, price: 19500 },
@@ -98,6 +163,18 @@ export default [
     about: 'Annual maintenance contract for a car: periodic services, labour, wash, pick-up and drop.',
     title: 'Quotation — 3-year service maintenance plan, petrol sedan, Chennai',
     intro: 'Thank you for servicing your car with us. This prepaid maintenance plan locks in today\'s prices for your next three years of periodic services, with free pick-up and drop for added convenience.',
+    details: [
+      { label: 'Model', value: 'Petrol sedan' },
+      { label: 'Registration no.', value: 'To be confirmed' },
+      { label: 'Odometer reading', value: 'To be confirmed' },
+      { label: 'Plan period', value: '3 years or 30,000 km' },
+      { label: 'Service centre', value: 'Chennai workshop' },
+    ],
+    addons: [
+      { name: 'Brake pad replacement pack', detail: 'Front pads, once during the plan', qty: 1, price: 3800 },
+      { name: 'Battery health and replacement cover', detail: 'One battery replacement if failed', qty: 1, price: 5500 },
+      { name: 'Interior sanitisation', detail: 'Ozone and steam treatment, per service', qty: 3, price: 900 },
+    ],
     items: [
       { name: 'Periodic maintenance services', detail: '3 paid services (10,000 km or 12 months interval), labour and listed consumables', qty: 3, price: 5700 },
       { name: 'Engine oil and filters', detail: 'Synthetic engine oil, oil filter, air filter, cabin filter as per schedule', qty: 3, price: 4800 },
@@ -116,6 +193,19 @@ export default [
     about: 'B2B fleet price for a cab operator or corporate: per-unit price, fleet discount, commercial registration.',
     title: 'Quotation — Fleet purchase of 10 compact sedans (CNG, commercial registration), Ahmedabad',
     intro: 'Thank you for considering us for your fleet expansion. We are pleased to offer special fleet pricing on 10 units of the CNG compact sedan, with commercial registration and dedicated after-sales support for your operations.',
+    details: [
+      { label: 'Model', value: 'Compact sedan' },
+      { label: 'Variant', value: 'CNG base variant' },
+      { label: 'Fuel / transmission', value: 'Petrol + CNG, manual' },
+      { label: 'Colour', value: 'White' },
+      { label: 'Expected delivery', value: '2 batches within 3–5 weeks' },
+      { label: 'Registration city', value: 'Ahmedabad (commercial)' },
+    ],
+    addons: [
+      { name: 'Fleet service contract', detail: '2-year prepaid maintenance, per vehicle', qty: 10, price: 14000 },
+      { name: 'Extended warranty 5 yrs', detail: 'Up to 1,50,000 km, per vehicle', qty: 10, price: 11000 },
+      { name: 'Driver training session', detail: 'Fuel-efficient driving and safety, one batch', qty: 1, price: 8000 },
+    ],
     items: [
       { name: 'Ex-showroom price per vehicle (fleet price)', detail: '1.2 L petrol + factory CNG, under 4 m, includes GST; net of Rs 25,000 fleet discount per unit', qty: 10, price: 710000 },
       { name: 'Commercial registration, road tax and permit', detail: 'Taxi registration, yellow HSRP, permit fees, per vehicle', qty: 10, price: 52000 },
@@ -133,6 +223,19 @@ export default [
     about: 'Certified pre-owned car: vehicle price, refurbishment, RC transfer, insurance and dealer warranty.',
     title: 'Quotation — Certified pre-owned SUV (2021, petrol manual, 42,000 km), Jaipur',
     intro: 'Thank you for your interest in this certified pre-owned SUV. The vehicle has passed our multi-point inspection and comes with a dealer warranty. Below is the transparent price breakup including refurbishment and transfer.',
+    details: [
+      { label: 'Model', value: 'Compact SUV, 2021' },
+      { label: 'Variant', value: 'Mid variant' },
+      { label: 'Fuel / transmission', value: 'Petrol, manual' },
+      { label: 'Colour', value: 'To be confirmed' },
+      { label: 'Odometer reading', value: '42,000 km' },
+      { label: 'Registration city', value: 'Jaipur' },
+    ],
+    addons: [
+      { name: 'Extended dealer warranty — 2nd year', detail: 'Engine and transmission, additional 1 year', qty: 1, price: 7500 },
+      { name: 'Ceramic coating', detail: '9H coating', qty: 1, price: 14000 },
+      { name: 'Prepaid service package', detail: '2 periodic services', qty: 1, price: 9000 },
+    ],
     items: [
       { name: 'Vehicle price', detail: '2021 compact SUV, single owner, full service history', qty: 1, price: 745000 },
       { name: 'Refurbishment', detail: 'Paint touch-up on 2 panels, new tyres (set of 4), interior deep cleaning', qty: 1, price: 38000 },

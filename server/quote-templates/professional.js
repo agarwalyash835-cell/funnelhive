@@ -6,6 +6,18 @@ export default [
     about: 'Pvt Ltd registration via SPICe+ with DSC, PAN/TAN, bank account docs; government fees at actuals.',
     title: 'Quotation — Incorporation of private limited company (2 directors, authorised capital Rs 10 lakh), Bengaluru',
     intro: 'Thank you for choosing us to set up your company. This quote covers the complete incorporation process, from name approval to the certificate of incorporation, PAN and TAN. Government fees and stamp duty are passed through at actuals.',
+    details: [
+      { label: 'Entity', value: 'Proposed private limited company' },
+      { label: 'Engagement', value: 'Incorporation via SPICe+' },
+      { label: 'Directors', value: '2' },
+      { label: 'Deliverables', value: 'Certificate of incorporation, PAN, TAN, MOA, AOA' },
+      { label: 'Timeline', value: '10–15 working days after KYC' },
+    ],
+    addons: [
+      { name: 'GST registration', detail: 'Application till GSTIN is issued', qty: 1, price: 2500 },
+      { name: 'Trademark filing — 1 class', detail: 'Professional fee, official fee extra', qty: 1, price: 3000 },
+      { name: 'First-year ROC compliance', detail: 'Annual filings and board meeting support', qty: 1, price: 15000 },
+    ],
     items: [
       { name: 'Professional fee — incorporation', detail: 'Name reservation, SPICe+ filing, MOA and AOA drafting, coordination till certificate of incorporation', qty: 1, price: 9500 },
       { name: 'Digital signature certificates (Class 3)', detail: 'For 2 directors, 2-year validity', qty: 2, price: 1500 },
@@ -24,6 +36,18 @@ export default [
     about: 'GST registration for a small trader and a 12-month retainer for GSTR-1, GSTR-3B and reconciliation.',
     title: 'Quotation — GST registration and monthly return filing (12 months), retail trader, Surat',
     intro: 'Thank you for reaching out. We will register your business under GST and then take care of monthly return filing so you stay compliant without the stress. Our team will remind you each month for sales and purchase data.',
+    details: [
+      { label: 'Entity', value: 'Proprietorship — retail trader' },
+      { label: 'Engagement', value: 'GST registration and monthly returns' },
+      { label: 'Financial year/period', value: '12 months from registration' },
+      { label: 'Deliverables', value: 'GSTIN, GSTR-1, GSTR-3B, GSTR-9' },
+      { label: 'Timeline', value: 'Returns filed by statutory due dates' },
+    ],
+    addons: [
+      { name: 'E-way bill and e-invoice setup', detail: 'Portal setup and training', qty: 1, price: 2000 },
+      { name: 'Accounting software setup', detail: 'Tally or equivalent with GST masters', qty: 1, price: 3500 },
+      { name: 'GST notice reply', detail: 'Per notice, drafting and filing', qty: 1, price: 5000 },
+    ],
     items: [
       { name: 'GST registration', detail: 'Application, document review, clarification replies till GSTIN is issued', qty: 1, price: 2500 },
       { name: 'Monthly GST return filing', detail: 'GSTR-1 and GSTR-3B, up to 100 invoices per month', qty: 12, price: 1800 },
@@ -41,6 +65,18 @@ export default [
     about: 'ITR filing for a proprietor or partnership with books, P&L, balance sheet and tax computation.',
     title: 'Quotation — Income-tax return filing with books finalisation, proprietorship firm, Tax Year 2025-26, Nagpur',
     intro: 'Thank you for trusting us with your income-tax compliance. This quote covers finalising your books, preparing the financial statements and filing your return before the due date, with advance tax guidance for the coming year.',
+    details: [
+      { label: 'Entity', value: 'Proprietorship firm' },
+      { label: 'Engagement', value: 'Books finalisation and ITR filing' },
+      { label: 'Financial year/period', value: 'Tax Year 2025-26' },
+      { label: 'Deliverables', value: 'P&L, balance sheet, ITR-3 acknowledgement' },
+      { label: 'Timeline', value: 'Before the statutory due date' },
+    ],
+    addons: [
+      { name: 'Tax audit (if applicable)', detail: 'Form 3CB/3CD', qty: 1, price: 15000 },
+      { name: 'Tax planning session', detail: 'One-hour consultation for next year', qty: 1, price: 2500 },
+      { name: 'Personal ITR for spouse', detail: 'Salary or other income, ITR-1/2', qty: 1, price: 2000 },
+    ],
     items: [
       { name: 'Bookkeeping and finalisation of accounts', detail: 'Up to 600 transactions in Tally or equivalent, bank reconciliation', qty: 1, price: 12000 },
       { name: 'Financial statements', detail: 'Profit and loss account, balance sheet and capital account', qty: 1, price: 4000 },
@@ -58,6 +94,18 @@ export default [
     about: 'Annual statutory audit + tax audit for a small private limited company with turnover around Rs 8 crore.',
     title: 'Quotation — Statutory audit and tax audit, private limited company (turnover approx. Rs 8 crore), FY 2025-26, Coimbatore',
     intro: 'Thank you for the opportunity to act as your statutory auditors. This engagement covers the audit under the Companies Act, the tax audit report and the related filings. Our fee is based on the size and complexity discussed and the information shared.',
+    details: [
+      { label: 'Entity', value: 'Private limited company' },
+      { label: 'Engagement', value: 'Statutory and tax audit' },
+      { label: 'Financial year/period', value: 'FY 2025-26' },
+      { label: 'Deliverables', value: 'Audit report, CARO, Form 3CA/3CD, ITR-6, AOC-4, MGT-7A' },
+      { label: 'Timeline', value: 'Before ROC and income-tax due dates' },
+    ],
+    addons: [
+      { name: 'Internal audit — quarterly', detail: 'Process review and report, per quarter', qty: 4, price: 20000 },
+      { name: 'GST annual reconciliation (GSTR-9C)', detail: 'Reconciliation statement', qty: 1, price: 15000 },
+      { name: 'Transfer pricing documentation', detail: 'If related-party transactions apply', qty: 1, price: 35000 },
+    ],
     items: [
       { name: 'Statutory audit under Companies Act', detail: 'Audit report, CARO reporting, review of financial statements', qty: 1, price: 75000 },
       { name: 'Tax audit report (Form 3CA/3CD)', detail: 'Tax audit and report filing on the income-tax portal', qty: 1, price: 35000 },
@@ -76,6 +124,18 @@ export default [
     about: 'Advocate fee for drafting and sending a legal notice (e.g. recovery of dues or cheque bounce).',
     title: 'Quotation — Legal notice for recovery of outstanding dues (approx. Rs 6.5 lakh), Mumbai',
     intro: 'Thank you for consulting us on your outstanding dues. We will review the invoices and correspondence, draft a firm and well-reasoned legal notice, and dispatch it by registered post and email. Further steps can be discussed after the reply period.',
+    details: [
+      { label: 'Entity', value: 'Client business (name TBC)' },
+      { label: 'Engagement', value: 'Legal notice for recovery of dues' },
+      { label: 'Claim amount', value: 'Approx. Rs 6.5 lakh plus interest' },
+      { label: 'Deliverables', value: 'Drafted notice, dispatch proofs' },
+      { label: 'Timeline', value: '3 working days from documents' },
+    ],
+    addons: [
+      { name: 'Commercial suit filing', detail: 'Drafting and filing before the commercial court', qty: 1, price: 45000 },
+      { name: 'Pre-institution mediation', detail: 'Representation at mediation', qty: 1, price: 15000 },
+      { name: 'Follow-up notice', detail: 'Second reminder notice', qty: 1, price: 5000 },
+    ],
     items: [
       { name: 'Consultation and document review', detail: 'Review of invoices, purchase orders, emails and ledger', qty: 1, price: 5000 },
       { name: 'Drafting of legal notice', detail: 'Demand notice with interest claim and reply period', qty: 1, price: 12000 },
@@ -93,6 +153,18 @@ export default [
     about: 'Drafting a service agreement, NDA and founders agreement for a startup.',
     title: 'Quotation — Drafting of commercial agreements for a technology startup, Noida',
     intro: 'Thank you for sharing your requirements. We will prepare clear, balanced agreements tailored to your business model, with one review call and two rounds of revisions included for each document.',
+    details: [
+      { label: 'Entity', value: 'Technology startup (name TBC)' },
+      { label: 'Engagement', value: 'Drafting commercial agreements' },
+      { label: 'Documents', value: 'MSA, NDA, founders agreement, employment template' },
+      { label: 'Revisions', value: '2 rounds per document' },
+      { label: 'Timeline', value: 'First drafts in 7–10 working days' },
+    ],
+    addons: [
+      { name: 'Privacy policy and terms of use', detail: 'For website and app', qty: 1, price: 15000 },
+      { name: 'ESOP policy', detail: 'Plan document and grant letter template', qty: 1, price: 35000 },
+      { name: 'Contract review — counterparty draft', detail: 'Per document, up to 20 pages', qty: 1, price: 8000 },
+    ],
     items: [
       { name: 'Master services agreement', detail: 'For B2B clients, with SLA, IP and liability clauses', qty: 1, price: 25000 },
       { name: 'Non-disclosure agreement', detail: 'Mutual NDA template for vendors and partners', qty: 1, price: 6000 },
@@ -110,6 +182,18 @@ export default [
     about: 'Trademark search, TM-A filing in one class with official fee for MSME/startup; objection reply optional.',
     title: 'Quotation — Trademark registration for word mark and logo in Class 35, Kolkata',
     intro: 'Thank you for choosing us to protect your brand. We will run a detailed search, file your application online and track it until registration. Official fees are shown at the government rate for an MSME applicant.',
+    details: [
+      { label: 'Entity', value: 'MSME applicant (name TBC)' },
+      { label: 'Engagement', value: 'Trademark search and filing' },
+      { label: 'Marks and class', value: 'Word mark and logo, Class 35' },
+      { label: 'Deliverables', value: 'Search report, filed TM-A, application numbers' },
+      { label: 'Timeline', value: 'Filing within 3 working days of documents' },
+    ],
+    addons: [
+      { name: 'Additional class filing', detail: 'Professional fee plus official fee, per class', qty: 1, price: 7500 },
+      { name: 'Copyright for logo', detail: 'Artistic work registration, fees included', qty: 1, price: 6000 },
+      { name: 'Trademark watch service', detail: '12-month monitoring of similar marks', qty: 1, price: 4000 },
+    ],
     items: [
       { name: 'Trademark search and opinion', detail: 'Search across identical and phonetically similar marks with written opinion', qty: 1, price: 1500 },
       { name: 'Professional fee — application filing (TM-A)', detail: 'Drafting goods and services description, user affidavit if needed', qty: 2, price: 3000 },

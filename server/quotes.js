@@ -21,7 +21,10 @@ const DAY = 86400000;
 const ISO = [...new Set(Object.values(CURRENCIES))];
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const r2 = (n) => Math.round(n * 100) / 100;
-const total = (q) => r2(q.items.reduce((s, i) => s + i.qty * i.price, 0));
+// optional lines (add-ons) count only once the client ticks them on their page (q.selected: their indexes)
+const counts = (q, i, n) => !i.optional || (q.selected || []).includes(n);
+const total = (q) => r2(q.items.reduce((s, i, n) => s + (counts(q, i, n) ? i.qty * i.price : 0), 0));
+const hexOk = (v) => /^#[0-9a-f]{6}$/i.test(String(v || ''));
 const paidOf = (q) => r2((q.payments || []).reduce((s, p) => s + p.amount, 0));
 // what the next payment is: the deposit first (when there is one), then the balance
 const dueNow = (q) => { const t = total(q), paid = paidOf(q); if (paid >= t) return 0; return !paid && q.deposit ? r2(Math.min(t, (t * q.deposit) / 100)) : r2(t - paid); };
@@ -49,8 +52,13 @@ export function cleanQuote(b = {}, cur = {}) {
   if ('terms' in b || !cur.id) out.terms = clip(b.terms, 5000);
   // the GST line shown under the total (e.g. "Exclusive of GST @18% (SAC 998311)") and how the client's page looks
   if ('taxNote' in b || !cur.id) out.taxNote = clip(b.taxNote, 300);
+  // the facts this industry's clients expect up top (property, event date, travellers…) and the page's accent colour
+  if ('details' in b || !cur.id) out.details = (Array.isArray(b.details) ? b.details : []).slice(0, 12).map((d) => ({ label: clip(d?.label, 40), value: clip(d?.value, 160) })).filter((d) => d.label && d.value);
+  if ('accent' in b || !cur.id) out.accent = hexOk(b.accent) ? String(b.accent).toLowerCase() : cur.accent || '';
+  // the seller changed the lines: ticked add-ons that are no longer add-ons are dropped
+  if (out.items) out.selected = (cur.selected || []).filter((n) => out.items[n]?.optional);
   if ('design' in b || !cur.id) out.design = QUOTE_DESIGNS.includes(b.design) ? b.design : cur.design || 'classic';
-  if ('items' in b || !cur.id) out.items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((i) => ({ name: clip(i?.name, 200), detail: clip(i?.detail, 1000), qty: Math.max(1, Math.min(10000, Math.round(Number(i?.qty) || 1))), price: Math.max(0, Math.min(10000000, r2(Number(i?.price) || 0))) })).filter((i) => i.name);
+  if ('items' in b || !cur.id) out.items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((i) => ({ name: clip(i?.name, 200), detail: clip(i?.detail, 1000), qty: Math.max(1, Math.min(10000, Math.round(Number(i?.qty) || 1))), price: Math.max(0, Math.min(10000000, r2(Number(i?.price) || 0))) , ...(i?.optional ? { optional: true } : {}) })).filter((i) => i.name);
   if ('currency' in b || !cur.id) out.currency = ISO.includes(b.currency) ? b.currency : cur.currency || 'INR';
   if ('deposit' in b || !cur.id) out.deposit = Math.max(0, Math.min(100, Math.round(Number(b.deposit) || 0)));
   if ('validDays' in b) out.validUntil = Number(b.validDays) > 0 ? Date.now() + Math.min(365, Number(b.validDays)) * DAY : null;
@@ -67,7 +75,7 @@ function publicView(q) {
   const st = statusOf(q);
   const provider = q.currency === 'INR' && rzpCreds(owner) ? 'razorpay' : stripeCreds(owner) ? 'stripe' : null;
   return {
-    id: q.id, number: q.number, title: q.title, intro: q.intro, terms: q.terms, taxNote: q.taxNote || '', design: q.design || 'classic', items: q.items, currency: q.currency, deposit: q.deposit, validUntil: q.validUntil, at: q.at,
+    id: q.id, number: q.number, title: q.title, intro: q.intro, terms: q.terms, taxNote: q.taxNote || '', design: q.design || 'classic', details: q.details || [], accent: q.accent || '', selected: q.selected || [], canChoose: !paidOf(q) && ['draft', 'sent', 'viewed'].includes(st), items: q.items, currency: q.currency, deposit: q.deposit, validUntil: q.validUntil, at: q.at,
     total: total(q), paid: paidOf(q), due: dueNow(q), status: st, client: { name: q.client.name, company: q.client.company },
     seller: { name: s.businessName || owner?.name || '', email: s.supportEmail || owner?.email || '', whatsapp: s.supportWhatsapp || '' },
     provider, canPay: !!provider && ['draft', 'sent', 'viewed', 'deposit_paid'].includes(st) && dueNow(q) > 0,
@@ -202,6 +210,13 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     sendEmail(owner, { to: owner.email, subject: `${q.client.name || 'Your client'} declined ${q.number}`, text: `${q.client.name || q.client.email} declined “${q.title}” (${q.number}).${x.declineReason ? `\n\nReason: ${x.declineReason}` : ''}` }).catch(() => {});
     res.json(publicView(x));
   });
+  // the client ticks or unticks optional add-ons; the total (and the deposit) follow, worked out here
+  app.post('/api/q/:qid/options', limiter, (req, res) => {
+    const q = pub(req, res); if (!q) return;
+    if (!publicView(q).canChoose) return res.status(400).json({ error: 'This quote can’t be changed now' });
+    const pick = [...new Set((Array.isArray(req.body?.selected) ? req.body.selected : []).map(Number))].filter((n) => Number.isInteger(n) && q.items[n]?.optional);
+    res.json(publicView(T.quotes.update(q.id, (x) => { x.selected = pick; x.updatedAt = Date.now(); })));
+  });
   // accept without paying online (the seller hasn't connected a payment gateway): the seller is told and follows up
   app.post('/api/q/:qid/accept', limiter, (req, res) => {
     const q = pub(req, res); if (!q) return;
@@ -211,7 +226,7 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     const owner = T.users.get(q.userId);
     fireAutomation(q.userId, 'quote_accepted', { email: q.client?.email, phone: q.client?.phone, name: q.client?.name, product: q.title, amount: total(q), source: 'quote' });
     notify(q.userId, { kind: 'quote_accepted', title: `Quote accepted · ${q.client.name || q.client.email} · ${q.number}`, body: `${q.title} — arrange payment with them`, link: '/quotes' });
-    sendEmail(owner, { to: owner.email, subject: `${q.client.name || 'Your client'} accepted ${q.number}`, text: `${q.client.name || q.client.email} accepted “${q.title}” (${q.number}). Online payment isn’t set up, so get in touch with them about payment${q.client.email ? ` at ${q.client.email}` : ''}${q.client.phone ? ` · ${q.client.phone}` : ''}.` }).catch(() => {});
+    sendEmail(owner, { to: owner.email, subject: `${q.client.name || 'Your client'} accepted ${q.number}`, text: `${q.client.name || q.client.email} accepted “${q.title}” (${q.number})${(x.selected || []).length ? ` with these add-ons: ${x.selected.map((n) => x.items[n]?.name).filter(Boolean).join(", ")}` : ""}. Online payment isn’t set up, so get in touch with them about payment${q.client.email ? ` at ${q.client.email}` : ''}${q.client.phone ? ` · ${q.client.phone}` : ''}.` }).catch(() => {});
     res.json(publicView(x));
   });
   // accept & pay: the amount is decided here (deposit or balance), never by the browser
