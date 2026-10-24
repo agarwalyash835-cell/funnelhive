@@ -85,10 +85,10 @@ function problems(x, u) {
   if (x.channel === 'email') {
     if (!x.subject) return 'Add a subject line';
     if (!x.body.trim()) return 'Write the email';
-    if (!emailStatus(u).configured) return 'Email sending isn’t set up — add your SMTP details in Settings → Channels';
+    if (!emailStatus(u).configured) return 'Email sending isn’t set up — set it up in Settings → Email sending (SMTP)';
   } else {
     if (!/^[a-z0-9_]{1,120}$/.test(x.wa.template)) return 'Pick the approved WhatsApp template to send (its name, like diwali_offer)';
-    if (!whatsappStatus(u).configured) return 'WhatsApp isn’t connected — add your WhatsApp Cloud API details in Settings → Channels';
+    if (!whatsappStatus(u).configured) return 'WhatsApp isn’t connected — add your WhatsApp Cloud API details in Settings → WhatsApp';
   }
   return null;
 }

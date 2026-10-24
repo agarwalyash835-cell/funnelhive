@@ -657,6 +657,7 @@ export default function Editor() {
   useEffect(() => {
     const k = (e) => {
       if (!f) return;
+      if (e.defaultPrevented || document.querySelector('.m-scrim, .dlg-scrim')) return; // a dialog is open: its keys are its own
       const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); }

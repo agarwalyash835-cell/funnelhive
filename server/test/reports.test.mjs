@@ -77,7 +77,9 @@ test('cohorts add up to the buyers; lifetime value is net revenue per buyer', as
   }
   // revenue per buyer at the latest month, times the cohort, is all the cohort's money
   const total = r.cohorts.rows.reduce((s, x) => s + x.cells.filter(Boolean).at(-1).ltv * x.buyers, 0);
-  assert.ok(Math.abs(total - r.overview.net) < r.cohorts.rows.length, `${total} vs ${r.overview.net}`);
+  // (each cohort's per-buyer value is rounded to the paisa, so the sum may be off by up to half a paisa per buyer)
+  const slack = r.cohorts.rows.reduce((s, x) => s + x.buyers * 0.005, 0) + r.cohorts.rows.length;
+  assert.ok(Math.abs(total - r.overview.net) <= slack, `${total} vs ${r.overview.net}`);
   assert.equal(r.ltv.buyers, r.overview.buyers);
   assert.equal(r.ltv.total, r.overview.net);
   assert.equal(r.ltv.avg, r2(r.overview.net / r.overview.buyers));

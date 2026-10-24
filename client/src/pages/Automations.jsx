@@ -487,7 +487,7 @@ function Builder({ id }) {
           <label>Language<input placeholder="en" {...fp(path, i, s, 'language')} /></label>
           <label>Template variables <small className="muted">· in order, comma separated → {'{{1}}'}, {'{{2}}'}…</small><input placeholder="{{first_name}}, {{checkout_link}}" {...fp(path, i, s, 'params')} /></label>
           <WaTemplateInfo t={waTpls?.find((t) => t.name === s.template)} />
-          <p className="hint">{waTpls ? 'Create your own in Settings → Channels → WhatsApp → Your own templates; Meta approves them.' : 'Templates are created and approved in Meta WhatsApp Manager.'} They can be sent any time.</p>
+          <p className="hint">{waTpls ? 'Create your own in Settings → WhatsApp → Your own templates; Meta approves them.' : 'Templates are created and approved in Meta WhatsApp Manager.'} They can be sent any time.</p>
         </> : <>
           <label>Message<textarea rows={5} placeholder="Hi {{first_name}}! …" {...fp(path, i, s, 'text')} /></label>
           <p className="hint warn">Plain text only reaches people who messaged you in the last 24 hours. For automated follow-ups use a template.</p>

@@ -203,4 +203,22 @@ if (canHydrate(root)) {
 } else {
   createRoot(root).render(app);
 }
+
+// Dashboard forms are written as <div class="fld"><label>Name</label><input/></div>: link each label to the field
+// after it, so tapping the label focuses the field and screen readers announce its name (done once, for every form)
+let fldN = 0;
+const linkLabels = () => {
+  for (const l of document.querySelectorAll('.fld > label')) {
+    const el = l.nextElementSibling;
+    if (!el || !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.type === 'checkbox') continue;
+    if (l.htmlFor && document.getElementById(l.htmlFor)) continue; // already linked (by us, or written with htmlFor)
+    if (!el.id) el.id = `fld-${++fldN}`;
+    l.htmlFor = el.id;
+  }
+};
+let fldQueued = false;
+setTimeout(() => {
+  linkLabels();
+  new MutationObserver(() => { if (!fldQueued) { fldQueued = true; setTimeout(() => { fldQueued = false; linkLabels(); }, 50); } }).observe(document.body, { childList: true, subtree: true });
+}, 1000);
 initMonitoring({ lazy: onFunnel });

@@ -317,7 +317,8 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
   const [err, setErr] = useState('');
   const load = () => api(`/contacts/${encodeURIComponent(ckey)}`).then(setC).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, [ckey]);
-  useEffect(() => { const k = (e) => e.key === 'Escape' && !document.querySelector('.m-scrim') && onClose(); window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
+  // a dialog on top handles its own Escape (and marks it handled), so this panel stays open
+  useEffect(() => { const k = (e) => e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('.m-scrim, .dlg-scrim') && onClose(); window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
   const refresh = () => { load(); onChanged(); };
   const setStage = async (p, stageId) => { try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'PATCH', { stage: { pipelineId: p.id, stageId } }); refresh(); } catch (e) { toast(e.message); } };
   const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
