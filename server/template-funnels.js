@@ -153,7 +153,7 @@ export function buildWebinar(t) {
     { type: 'whatsapp', props: { number: WA, message: `Hi! I watched ${t.name} and have a question.`, label: 'Chat with us' } },
   ];
   const checkout = [
-    { type: 'hellobar', props: { messages: [{ text: `✅ Attendee price: ${disc}% off` }, { text: '🔒 100% secure payment · money-back guarantee' }] } },
+    { type: 'hellobar', props: { messages: [{ text: `✅ Attendee price: ${disc}% off` }, { text: '🔒 100% secure payment · UPI, cards & netbanking' }] } },
     { type: 'checkout', props: { productName: o.name, description: 'Instant access · confirmation on email & WhatsApp', price: o.price, mrp: o.mrp, currency: '₹', bumpEnabled: true, bumpTitle: bumpTitle, bumpDescription: `Add this to your order for just ₹${bumpPrice}.`, bumpPrice: Number(bumpPrice), buttonText: 'Pay Securely' } },
     { type: 'testimonials', props: { variant: 'cards', eyebrow: 'You’re in good company', title: 'What past attendees say', items: quotes.slice(0, 3) } },
     { type: 'guarantee', props: { variant: 'strip', title: gTitle, body: gBody, days: Number((gTitle.match(/(\d+)-day/) || [])[1]) || 7 } },

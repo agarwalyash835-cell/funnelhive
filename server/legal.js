@@ -47,6 +47,25 @@ export function publicPrivacy(u, base, f) {
   return { banner: !!p.banner, checkbox: !!p.checkbox, line: consentLine(u), policy: p.policyUrl || `${legalBase(base, u.id, f)}/privacy`, terms: `${legalBase(base, u.id, f)}/terms` };
 }
 
+// A page that promises more than the refund policy says is a misleading claim (Consumer Protection rules):
+// the longest money-back promise on the funnel's pages, next to the refund days in the seller's policy
+export function refundMismatch(u, f) {
+  const days = details(u, f).refundDays;
+  let promised = 0;
+  for (const s of f?.steps || []) {
+    for (const b of [...(s.blocks || []), ...(s.ab?.blocks || []), ...(s.popups || []).flatMap((p) => p.blocks || [])]) {
+      if (b.type === 'guarantee' && Number(b.props?.days) > 0) promised = Math.max(promised, Number(b.props.days));
+      const text = JSON.stringify(b.props || {});
+      for (const m of text.matchAll(/(\d{1,3})[- ]day(?:s)?[^"]{0,25}?(?:money[- ]back|refund)/gi)) promised = Math.max(promised, Number(m[1]));
+      if (!promised && /money[- ]back guarantee/i.test(text)) promised = Math.max(promised, 1);
+    }
+  }
+  if (!promised || promised <= days) return null;
+  return days
+    ? `Your page promises a ${promised > 1 ? `${promised}-day ` : ''}money-back guarantee, but your refund policy says ${days} days. Change one so they match (Settings → Business & legal, or the page text).`
+    : `Your page promises a money-back guarantee, but your refund policy says no refunds. Change one so they match (Settings → Business & legal, or the page text).`;
+}
+
 // ---------- the generated pages ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 function details(u, f) {
@@ -174,7 +193,8 @@ export function registerLegal(app, { auth, appUrl }) {
   app.get('/api/funnels/:id/legal-check', auth, (req, res) => {
     const f = T.funnels.get(req.params.id);
     if (!f || f.userId !== req.user.id) return res.status(404).json({ error: 'Funnel not found' });
-    res.json({ missing: legalMissing(T.users.get(f.userId), f) });
+    const u = T.users.get(f.userId), refund = refundMismatch(u, f);
+    res.json({ missing: legalMissing(u, f), warnings: refund ? [refund] : [] });
   });
   app.delete('/api/contacts/:key', auth, (req, res) => {
     const n = eraseContact(req.user.id, req.params.key);

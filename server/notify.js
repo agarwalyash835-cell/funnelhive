@@ -2,7 +2,7 @@
 // payments. Email / WhatsApp alerts are on hold, so this is how a seller hears about a sale.
 import { T, q, uid } from './db.js';
 
-export const KINDS = ['order', 'lead', 'booking', 'booking_cancelled', 'quote_paid', 'quote_declined', 'payment_failed', 'refund', 'whatsapp', 'support'];
+export const KINDS = ['order', 'lead', 'booking', 'booking_cancelled', 'quote_paid', 'quote_accepted', 'quote_declined', 'payment_failed', 'refund', 'whatsapp', 'support'];
 const KEEP = 500; // per seller; older ones are pruned now and then
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 

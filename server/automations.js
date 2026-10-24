@@ -39,6 +39,7 @@ export const TRIGGERS = {
   course_completed: 'A student finishes a course (certificate earned)',
   community_post: 'A student posts in the community',
   quote_viewed: 'A client opens a quote',
+  quote_accepted: 'A client accepts a quote (without paying online)',
   quote_declined: 'A client declines a quote',
   inbound: 'A webhook is received (Zapier, Pabbly, Make, Google Forms…)',
   manual: 'Only when I add a contact to it',

@@ -4,7 +4,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { loadRazorpay } from '../api';
 import { buyerPost, confirmPaid } from '../buyerFetch';
 import { stripeDialog, fmtMoney } from '../stripePay';
-import { alertDialog, promptDialog } from '../ui';
+import { alertDialog, confirmDialog, promptDialog } from '../ui';
 
 const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -49,6 +49,11 @@ export default function QuotePublic() {
     if (r?.error) alertDialog({ text: r.error, buyer: true });
     else if (r?.ok) { setDone(r); load(); }
   };
+  const accept = async () => {
+    if (!await confirmDialog({ title: 'Accept this quote?', text: `${q.seller.name || 'They'} will be in touch about payment and next steps.`, confirm: 'Accept quote', buyer: true })) return;
+    const r = await post('accept', {});
+    if (r.error) alertDialog({ text: r.error, buyer: true }); else setQ(r);
+  };
   const decline = async () => {
     const reason = await promptDialog({ title: 'Decline this quote', text: 'Sorry this one isn’t right. Anything you’d like to tell them? (optional)', confirm: 'Decline', buyer: true });
     if (reason === null) return;
@@ -87,7 +92,12 @@ export default function QuotePublic() {
                   {depositNow && <p className="q-small">The remaining {m(q.total - q.due)} is paid later from this same link.</p>}
                   <p className="q-small">{q.provider === 'stripe' ? 'Secure card payment by Stripe' : 'Secure payment by Razorpay · UPI, cards, netbanking'}</p>
                   {!q.paid && !preview && <button className="q-link" onClick={decline}>Decline this quote</button>}
-                </> : <div className="q-state">To go ahead, reply to {q.seller.name}{q.seller.email ? ` at ${q.seller.email}` : ''} — online payment isn’t set up for this quote.</div>}
+                </> : q.status === 'accepted' ? <div className="q-state ok">✓ You accepted this quote — {q.seller.name} will be in touch about payment.</div>
+                  : q.canAccept ? <>
+                    <button className="q-btn" disabled={!!preview} onClick={accept}>Accept quote — {m(q.total)}</button>
+                    <p className="q-small">{q.seller.name} will contact you about payment.</p>
+                    {!preview && <button className="q-link" onClick={decline}>Decline this quote</button>}
+                  </> : <div className="q-state">To go ahead, reply to {q.seller.name}{q.seller.email ? ` at ${q.seller.email}` : ''}.</div>}
           {done?.ok && done.status === 'deposit_paid' && <div className="q-state ok">✓ Deposit received — thank you! We’ve emailed your receipt.</div>}
           {q.invoices?.length > 0 && <p className="q-small">{q.invoices.map((iv, i) => <a key={i} href={iv.url} target="_blank" rel="noreferrer">Invoice for {m(iv.amount)} ({day(iv.at)})</a>).reduce((a, b) => [a, ' · ', b])}</p>}
         </div>

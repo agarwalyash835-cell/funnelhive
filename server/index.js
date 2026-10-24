@@ -20,7 +20,7 @@ import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotp
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm, ensureMeta } from './crm.js';
 import { orderPage } from './orderlist.js';
-import { initMessaging, registerChannels, sendEmail } from './messaging.js';
+import { initMessaging, registerChannels, sendEmail, whatsappStatus } from './messaging.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, registerRazorpaySettings } from './razorpay.js';
 import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit, pagesBase, sitemapUrls, sitemapXml, robotsTxt, noindexStep } from './domains.js';
 import { registerAutomations, fire as fireAutomation } from './automations.js';
@@ -1156,9 +1156,14 @@ registerNotifications(app, { auth });
 // "Support WhatsApp" from Settings; with none set, the button is hidden instead of linking nowhere.
 export const WA_PLACEHOLDER = '919999999999';
 const waDigits = (n) => { const d = String(n || '').replace(/\D/g, '').replace(/^0+/, ''); return d.length === 10 ? `91${d}` : d.length >= 11 ? d : ''; };
-function resolveWhatsApp(steps, supportNumber) {
+// Template copy promises confirmations "on email & WhatsApp": a seller who hasn't connected WhatsApp sends none,
+// so their pages say email only (their own words elsewhere are left alone)
+const NO_WA = [[/\b(email|inbox|e-mail)\s*(?:&|&amp;|and|\+)\s*WhatsApp\b/gi, '$1'], [/\bWhatsApp\s*(?:&|&amp;|and|\+)\s*(email|inbox)\b/gi, '$1']];
+const dropWa = (v) => (typeof v === 'string' ? NO_WA.reduce((t, [re, to]) => t.replace(re, to), v) : Array.isArray(v) ? v.map(dropWa) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, dropWa(x)])) : v);
+function resolveWhatsApp(steps, supportNumber, waOn = true) {
   const support = waDigits(supportNumber);
   const fix = (blocks) => blocks.flatMap((b) => {
+    if (!waOn && b.type !== 'whatsapp') b = { ...b, props: dropWa(b.props) };
     if (b.type !== 'whatsapp') return [b];
     const own = waDigits(b.props?.number);
     const number = !own || own === WA_PLACEHOLDER ? support : own;
@@ -1216,7 +1221,7 @@ function publicData(f, owner = T.users.get(f.userId), { full = false } = {}) {
   const inv = invoicingOf(owner);
   // tracking: the funnel's own ids where it has them, else the workspace's; stripe: the checkout pays by
   // Stripe (same rule as pay/start), so it offers the "Save my card" tick
-  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f), seller: sellerOf(f, owner, inv) } : {}), steps: productOrigins(resolveWhatsApp(full ? f.steps : f.steps.map((s) => { const need = lockOf(f, s); return need ? { ...s, blocks: [], ...(s.ab ? { ab: { ...s.ab, blocks: [] } } : {}), popups: [], locked: need } : s; }), owner?.settings?.supportWhatsapp), f.userId), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(owner && stripeCreds(owner) && (funnelIso(f) !== 'INR' || !rzpCreds(owner)) ? { stripe: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}) };
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f), seller: sellerOf(f, owner, inv) } : {}), steps: productOrigins(resolveWhatsApp(full ? f.steps : f.steps.map((s) => { const need = lockOf(f, s); return need ? { ...s, blocks: [], ...(s.ab ? { ab: { ...s.ab, blocks: [] } } : {}), popups: [], locked: need } : s; }), owner?.settings?.supportWhatsapp, !owner || whatsappStatus(owner).configured), f.userId), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(owner && stripeCreds(owner) && (funnelIso(f) !== 'INR' || !rzpCreds(owner)) ? { stripe: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}) };
 }
 // the page footer: who sells this, where they are, and their policies (Consumer Protection (E-Commerce) Rules 2020).
 // Same details as the legal pages: the funnel's own business details first, then the workspace's
@@ -1237,7 +1242,7 @@ app.get('/api/public/:slug/step/:stepId', (req, res) => {
   const need = lockOf(f, step);
   if (!fullView(f, req) && !unlocks(need, proofLevel(f, req))) return res.status(403).json({ error: need === 'paid' ? 'This page opens after you buy' : 'This page opens after you sign up', locked: need });
   const owner = T.users.get(f.userId);
-  res.set('Cache-Control', 'private, no-store').json(productOrigins(resolveWhatsApp([step], owner?.settings?.supportWhatsapp), f.userId)[0]);
+  res.set('Cache-Control', 'private, no-store').json(productOrigins(resolveWhatsApp([step], owner?.settings?.supportWhatsapp, !owner || whatsappStatus(owner).configured), f.userId)[0]);
 });
 // Real numbers for the live-viewers, stock and recent-buyer blocks — never invented. Visitors to this step in the
 // last 30 minutes, the seller's stock less real orders since they set it, and the last 10 real buyers

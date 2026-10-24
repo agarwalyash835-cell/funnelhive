@@ -67,6 +67,8 @@ function publicView(q) {
     total: total(q), paid: paidOf(q), due: dueNow(q), status: st, client: { name: q.client.name, company: q.client.company },
     seller: { name: s.businessName || owner?.name || '', email: s.supportEmail || owner?.email || '', whatsapp: s.supportWhatsapp || '' },
     provider, canPay: !!provider && ['draft', 'sent', 'viewed', 'deposit_paid'].includes(st) && dueNow(q) > 0,
+    // without online payment the client can still say yes; the seller arranges payment with them
+    canAccept: !provider && ['draft', 'sent', 'viewed'].includes(st) && total(q) > 0, acceptedAt: q.acceptedAt || null,
     invoices: (q.payments || []).filter((p) => p.invoice).map((p) => ({ amount: p.amount, at: p.at, url: p.invoice })),
   };
 }
@@ -194,6 +196,18 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     fireAutomation(q.userId, 'quote_declined', { email: q.client?.email, phone: q.client?.phone, name: q.client?.name, product: q.title, source: 'quote' });
     notify(q.userId, { kind: 'quote_declined', title: `Quote declined · ${q.client.name || q.client.email} · ${q.number}`, body: x.declineReason || q.title, link: '/quotes' });
     sendEmail(owner, { to: owner.email, subject: `${q.client.name || 'Your client'} declined ${q.number}`, text: `${q.client.name || q.client.email} declined “${q.title}” (${q.number}).${x.declineReason ? `\n\nReason: ${x.declineReason}` : ''}` }).catch(() => {});
+    res.json(publicView(x));
+  });
+  // accept without paying online (the seller hasn't connected a payment gateway): the seller is told and follows up
+  app.post('/api/q/:qid/accept', limiter, (req, res) => {
+    const q = pub(req, res); if (!q) return;
+    const v = publicView(q);
+    if (!v.canAccept) return res.status(400).json({ error: v.status === 'accepted' ? 'You’ve already accepted this quote' : v.status === 'expired' ? 'This quote has expired — ask for a new one' : v.status === 'declined' ? 'This quote was declined' : v.canPay ? 'Accept this quote by paying online' : 'This quote can’t be accepted' });
+    const x = T.quotes.update(q.id, (y) => { y.status = 'accepted'; y.acceptedAt = Date.now(); y.updatedAt = Date.now(); });
+    const owner = T.users.get(q.userId);
+    fireAutomation(q.userId, 'quote_accepted', { email: q.client?.email, phone: q.client?.phone, name: q.client?.name, product: q.title, amount: total(q), source: 'quote' });
+    notify(q.userId, { kind: 'quote_accepted', title: `Quote accepted · ${q.client.name || q.client.email} · ${q.number}`, body: `${q.title} — arrange payment with them`, link: '/quotes' });
+    sendEmail(owner, { to: owner.email, subject: `${q.client.name || 'Your client'} accepted ${q.number}`, text: `${q.client.name || q.client.email} accepted “${q.title}” (${q.number}). Online payment isn’t set up, so get in touch with them about payment${q.client.email ? ` at ${q.client.email}` : ''}${q.client.phone ? ` · ${q.client.phone}` : ''}.` }).catch(() => {});
     res.json(publicView(x));
   });
   // accept & pay: the amount is decided here (deposit or balance), never by the browser

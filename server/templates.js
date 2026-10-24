@@ -264,7 +264,7 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
     countdown: { label: 'The live session starts in', mode: 'session', endedText: 'The session has started' },
     guarantee: { title: c.guarantee[0], body: c.guarantee[1], days: isLead ? 0 : c.guarantee[2] },
     faq: { eyebrow: K.faq[0], title: K.faq[1], items: faqItems },
-    cta: { headline: isLead ? (kind === 'event' ? 'Save your free seat — it takes 20 seconds' : 'Your free consultation is one click away') : kind === 'product' ? `Treat yourself — ${disc}% OFF today` : `Don’t miss ${disc}% OFF — start today`, subheadline: `${product}, ready when you are.`, buttonText: cta, note: isLead ? '✅ Free · ✅ No obligation · ✅ Callback within 24 hrs' : '🔒 Secure UPI & card payments · ✅ 7-day money-back guarantee' },
+    cta: { headline: isLead ? (kind === 'event' ? 'Save your free seat — it takes 20 seconds' : 'Your free consultation is one click away') : kind === 'product' ? `Treat yourself — ${disc}% OFF today` : `Don’t miss ${disc}% OFF — start today`, subheadline: `${product}, ready when you are.`, buttonText: cta, note: isLead ? '✅ Free · ✅ No obligation · ✅ Callback within 24 hrs' : '🔒 Secure UPI & card payments · ✅ Instant access' },
     proof: { intervalSec: 9 }, // real recent orders only
     exitpopup: { title: 'Before you go…', body: isLead ? 'Book now and get a free priority callback within 2 hours.' : 'Complete your order now and get an extra 10% OFF.', code: 'INDIA10', buttonText: isLead ? 'Book free consultation' : 'Claim extra 10% OFF' },
     stickybar: { text: isLead ? (kind === 'event' ? 'Free live session' : 'Free expert consultation') : `${disc}% OFF`, price: isLead ? '₹0' : inr(price), buttonText: isLead ? (kind === 'event' ? 'Save Seat' : 'Book Free') : kind === 'booking' ? 'Book Now' : 'Buy Now' },
@@ -272,7 +272,7 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
   };
   const priceBox = isLead
     ? { type: 'optin', props: { ...(kind === 'event' ? { webinarId: '' } : {}), eyebrow: '100% free · No obligation', title: kind === 'event' ? 'Save your free seat' : 'Book your FREE consultation', subtitle: kind === 'event' ? 'We’ll send the joining link on WhatsApp and email.' : 'Share your details and our expert will call you within 24 hours.', buttonText: cta, askPhone: true, points: featItems.map((f) => ({ text: f.title })) } }
-    : { type: 'pricing', props: { variant: ['money', 'product', 'agency'].includes(kind) ? 'split' : 'card', badge: `🔥 ${disc}% OFF — limited time`, title: product, mrp, price, currency: '₹', bullets: [...featItems.map((f) => ({ text: f.title })), ...bonusItems.map((b) => ({ text: `BONUS: ${b.title} (${b.value})` }))], buttonText: cta, note: '🔒 Secure checkout · 7-day money-back guarantee' } };
+    : { type: 'pricing', props: { variant: ['money', 'product', 'agency'].includes(kind) ? 'split' : 'card', badge: `🔥 ${disc}% OFF — limited time`, title: product, mrp, price, currency: '₹', bullets: [...featItems.map((f) => ({ text: f.title })), ...bonusItems.map((b) => ({ text: `BONUS: ${b.title} (${b.value})` }))], buttonText: cta, note: '🔒 Secure checkout · UPI, cards & netbanking' } };
 
   const landing = [];
   const plan = [...PLANS[kind]];
@@ -292,7 +292,7 @@ const SALES = N.map(([id, category, product, baseColor, price, mrp, headline, su
   for (const type of EXTRAS[kind]) landing.push({ type, props: S[type] });
   const tone = { course: 'Reserve your seat', money: 'Lock in your price', transform: 'Start your plan', product: 'Complete your order', booking: 'Confirm your booking', kids: 'Confirm your child’s seat', spiritual: 'Confirm your session', agency: 'Start your project' }[kind] || 'Complete your order';
   const checkout = [
-    { type: 'hellobar', props: { messages: [{ text: `✅ ${tone}` }, { text: '🔒 100% secure payment · 7-day money-back guarantee' }] } },
+    { type: 'hellobar', props: { messages: [{ text: `✅ ${tone}` }, { text: '🔒 100% secure payment · UPI, cards & netbanking' }] } },
     { type: 'checkout', props: { productName: product, description: kind === 'product' ? 'Ships in 24 hours · tracking on WhatsApp' : 'Instant confirmation on email & WhatsApp', price, mrp, currency: '₹', ...(kind === 'product' ? { shipping: 'address', shippingFee: 0, cod: true, codFee: 0 } : {}), bumpEnabled: c.bump[1] > 0, bumpTitle: c.bump[0], bumpDescription: `Add this to your order for just ₹${c.bump[1]}.`, bumpPrice: c.bump[1], buttonText: 'Pay Securely' } },
     { type: 'testimonials', props: { variant: kind === 'product' || kind === 'kids' ? 'chat' : 'cards', eyebrow: 'You are in good company', title: `What ${who} say`, items: testimonials.slice(0, 3) } },
     { type: 'guarantee', props: { variant: 'strip', title: c.guarantee[0], body: c.guarantee[1], days: c.guarantee[2] } },

@@ -247,7 +247,7 @@ function Jump({ me }) {
 }
 
 // The bell: new orders, leads, bookings, quotes, failed payments. Checked every minute while the tab is open.
-const NOTE_ICON = { order: 'cart', lead: 'users', booking: 'clock', booking_cancelled: 'x', quote_paid: 'wallet', quote_declined: 'x', payment_failed: 'card', refund: 'refund', whatsapp: 'send' };
+const NOTE_ICON = { order: 'cart', lead: 'users', booking: 'clock', booking_cancelled: 'x', quote_paid: 'wallet', quote_accepted: 'check', quote_declined: 'x', payment_failed: 'card', refund: 'refund', whatsapp: 'send' };
 function Bell({ me }) {
   const nav = useNavigate();
   const [open, setOpen] = useState(false);

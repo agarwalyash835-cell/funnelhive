@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Clock, Mail, MessageCircle, Tag, ArrowRightLeft, Webhook, BellRing, Zap, Plus, Trash2, ChevronUp, ChevronDown, Copy, UserPlus,
   ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass, KeyRound, StickyNote, GripVertical, Search, X, GraduationCap, BadgeCheck, Award, MessagesSquare, Eye, FileX,
-  CalendarCheck, CalendarX, Target, ListTodo, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX,
+  CalendarCheck, CalendarX, Target, ListTodo, Check, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX,
 } from 'lucide-react';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
@@ -43,7 +43,7 @@ const TRIGGER_ICON = {
   lead: UserPlus, quiz: ListTodo, purchase: ShoppingBag, offer: TrendingUp, abandoned: ShoppingCart, refund: Undo2, renewal: RefreshCw, payment_failed: CreditCard, shipped: Truck,
   booking: CalendarCheck, booking_cancelled: CalendarX, webinar_registered: Presentation, webinar_attended: UserCheck, webinar_missed: UserX,
   stage: Kanban, tag: Tag, field: PenLine, stuck: Hourglass, date: CalendarDays, inbound: Link2, manual: Hand,
-  student_joined: GraduationCap, quiz_passed: BadgeCheck, course_completed: Award, community_post: MessagesSquare, quote_viewed: Eye, quote_declined: FileX,
+  student_joined: GraduationCap, quiz_passed: BadgeCheck, course_completed: Award, community_post: MessagesSquare, quote_viewed: Eye, quote_accepted: Check, quote_declined: FileX,
 };
 // the pickers: grouped like Zapier, with a line on what each one is for
 const TRIGGER_GROUPS = [
@@ -52,7 +52,7 @@ const TRIGGER_GROUPS = [
   ['CRM', ['stage', 'stuck', 'field', 'tag', 'date']],
   ['Calls & webinars', ['booking', 'booking_cancelled', 'webinar_registered', 'webinar_attended', 'webinar_missed']],
   ['Courses & community', ['student_joined', 'quiz_passed', 'course_completed', 'community_post']],
-  ['Quotes', ['quote_viewed', 'quote_declined']],
+  ['Quotes', ['quote_viewed', 'quote_accepted', 'quote_declined']],
 ];
 const TRIGGER_HELP = {
   lead: 'An opt-in or form on a funnel is filled in', quiz: 'A quiz funnel is finished — any result, or one result', inbound: 'Zapier, Pabbly, Make or Google Forms sends you a contact', manual: 'You add contacts by hand or in bulk',
@@ -63,7 +63,7 @@ const TRIGGER_HELP = {
   stage: 'A contact moves to a pipeline stage', stuck: 'A contact sits in a stage for N days', field: 'A CRM field changes — e.g. Home loan → Needed',
   tag: 'A tag is added to a contact', date: 'A date field arrives — site visit, renewal, birthday',
   student_joined: 'First sign-in to your members area', quiz_passed: 'A lesson quiz is passed', course_completed: 'Every lesson done (certificate earned)', community_post: 'A student posts in your community',
-  quote_viewed: 'A client opens the quote you sent', quote_declined: 'A client declines a quote',
+  quote_viewed: 'A client opens the quote you sent', quote_accepted: 'A client says yes (when online payment isn’t set up) — follow up on payment', quote_declined: 'A client declines a quote',
 };
 const STEP_GROUPS = [
   ['Send a message', ['email', 'whatsapp', 'notify']],

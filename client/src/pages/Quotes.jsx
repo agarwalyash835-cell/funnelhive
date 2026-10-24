@@ -4,7 +4,7 @@ import { api, fmtDate } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, confirmDialog, promptDialog } from '../ui';
 import { fmtMoney } from '../stripePay';
 
-const STATUS = { draft: ['Draft', ''], sent: ['Sent', 'info'], viewed: ['Viewed', 'info'], deposit_paid: ['Deposit paid', 'warn'], paid: ['Paid', 'ok'], declined: ['Declined', 'bad'], expired: ['Expired', 'bad'] };
+const STATUS = { draft: ['Draft', ''], sent: ['Sent', 'info'], viewed: ['Viewed', 'info'], deposit_paid: ['Deposit paid', 'warn'], paid: ['Paid', 'ok'], accepted: ['Accepted', 'ok'], declined: ['Declined', 'bad'], expired: ['Expired', 'bad'] };
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AUD', 'CAD', 'SGD', 'AED'];
 const blank = () => ({ client: { name: '', email: '', phone: '', company: '', gstin: '', state: '' }, title: '', intro: '', items: [{ name: '', detail: '', qty: 1, price: 0 }], currency: 'INR', deposit: 0, validDays: 14, terms: '' });
 const copy = (t) => navigator.clipboard?.writeText(t).then(() => toast('Link copied'), () => promptDialog({ title: 'Copy the link', value: t, readOnly: true, confirm: 'Done', cancel: null }));

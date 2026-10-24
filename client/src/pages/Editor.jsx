@@ -911,7 +911,7 @@ export default function Editor() {
   };
   const publishNow = async () => {
     // going live needs the business & legal details (the server checks too)
-    if (!f.published) { const r = await api(`/funnels/${f.id}/legal-check`).catch(() => ({ missing: [] })); setLegalMiss(r.missing || []); if (r.missing?.length) return toast(`Add your ${r.missing.join(', ')} in Settings → Business & legal before publishing`); }
+    if (!f.published) { const r = await api(`/funnels/${f.id}/legal-check`).catch(() => ({ missing: [] })); setLegalMiss(r.missing || []); if (r.missing?.length) return toast(`Add your ${r.missing.join(', ')} in Settings → Business & legal before publishing`); if (r.warnings?.length && !(await confirmDialog({ title: 'Check your refund promise', text: r.warnings.join(' '), confirm: 'Publish anyway' }))) return; }
     const nf = { ...f, published: !f.published }; commit(nf);
     if (!(await save(nf))) { if (nf.published) adopt({ ...nf, published: false }); return; }
     toast(nf.published ? 'Your funnel is live' : 'Funnel unpublished');

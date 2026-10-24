@@ -354,7 +354,7 @@ function agentFallback(kind, { product, price, headline, audience }) {
   const T = {
     ads: [
       `🔥 ${headline}\n\n${product} — just ${p}.\n👉 Tap "Learn More" to see what’s inside.`,
-      `Tired of trying everything and getting nowhere?\n${product} gives you a proven, step-by-step system.\n✅ Instant access ✅ UPI accepted ✅ 7-day money-back\nOnly ${p} today.`,
+      `Tired of trying everything and getting nowhere?\n${product} gives you a proven, step-by-step system.\n✅ Instant access ✅ UPI accepted ✅ Step-by-step support\nOnly ${p} today.`,
       `[Add a real customer review here]\n${product} is ${p}. See what’s inside 👇`,
     ],
     email: [
@@ -362,7 +362,7 @@ function agentFallback(kind, { product, price, headline, audience }) {
       `Email 2 · Subject: The #1 mistake most people make\nMost people try to figure it out alone. Here's why that fails — and what to do instead…`,
       `Email 3 · Subject: What a real customer told us\n[Share a real customer’s story here — with their permission]…`,
       `Email 4 · Subject: Your questions, answered\nIs it right for me? Do you accept UPI? Is there a refund? Yes, yes and yes…`,
-      `Email 5 · Subject: Still thinking it over?\n${product} is ${p}, with a 7-day money-back guarantee. Reply with any question — happy to help.`,
+      `Email 5 · Subject: Still thinking it over?\n${product} is ${p}, with instant access. Reply with any question — happy to help.`,
     ],
     whatsapp: [
       `Hi {name} 👋 Quick update — ${product} is ${p}. Reply YES and I'll send you the link.`,
@@ -388,7 +388,7 @@ function agentFallback(kind, { product, price, headline, audience }) {
     video: [`HOOK (0–3s): "If you're still struggling with this, stop scrolling."\nPROBLEM (3–15s): Most people try random tips and give up.\nSOLUTION (15–40s): ${product} gives you a step-by-step plan — live support, UPI payments, 7-day guarantee.\nPROOF (40–50s): [a real customer result, with their permission]\nCTA (50–60s): "Link in bio — just ${p} today."`],
     seo: [
       `Meta title: ${product} | Pay by UPI, instant access`,
-      `Meta description: ${product} — just ${p} with UPI, instant access and a 7-day money-back guarantee.`,
+      `Meta description: ${product} — just ${p} with UPI and instant access.`,
       `Keywords: ${product.toLowerCase()}, best ${product.toLowerCase()} in india, ${product.toLowerCase()} online, ${product.toLowerCase()} price`,
     ],
     abandon: [
