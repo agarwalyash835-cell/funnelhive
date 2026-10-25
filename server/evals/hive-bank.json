@@ -2645,7 +2645,7 @@
    "setup": [
     "funnel"
    ],
-   "message": "On my funnel, set the checkout price to ₹5,000 and add an order bump: a thank-you card from the child.",
+   "message": "On my funnel, set the checkout price to ₹5,000 and add an order bump: a framed thank-you card from the child for ₹299.",
    "expect": {
     "tools": [
      "configure_checkout"
