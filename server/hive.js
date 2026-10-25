@@ -945,6 +945,93 @@ function logUsage(userId, u) {
   else { const row = { id, userId, day, at: Date.now() }; add(row); T.hiveUsage.insert(row); }
 }
 
+// ---------- undo: everything one Hive reply changed, put back in one click ----------
+// While a reply runs, its writes are journaled: a funnel's pages / name / theme / tracking as they were before the
+// first change, the exact fields it changed on products, automations, webinars, calendars and business settings, and
+// everything it created. Undo restores those and deletes what it made (a live funnel is left alone). Things that
+// already reached people — a sent broadcast or quote, an invitation, a community post — can't be called back, and
+// undo says so.
+const CREATES = [
+  [/^\/(funnels|ai\/generate|templates\/[^/]+\/use|funnels\/[^/]+\/duplicate)$/, 'funnels', 'a funnel'],
+  [/^\/products$/, 'products', 'a product'], [/^\/coupons$/, 'coupons', 'a coupon'], [/^\/automations$/, 'automations', 'an automation'],
+  [/^\/pipelines$/, 'pipelines', 'a pipeline'], [/^\/quotes$/, 'quotes', 'a quote'], [/^\/school\/spaces$/, 'school/spaces', 'a community space'], [/^\/broadcasts$/, 'broadcasts', 'a broadcast draft'],
+];
+const FIELDS = { products: 'products', automations: 'automations', webinars: 'webinars', calendars: 'calendars' }; // PUT /<table>/:id
+const NO_CHANGE = /^\/(broadcasts\/audience|ai\/(quiz|agent|crm-kit|course))$/; // asks, previews and AI writing: nothing saved
+const KEPT = [
+  [/^\/broadcasts\/[^/]+\/send$/, 'the broadcast that was sent'], [/^\/quotes\/[^/]+\/send$/, 'the quote that was sent'], [/^\/team\/invite$/, 'the team invitation'],
+  [/^\/school\/spaces\/[^/]+\/posts$/, 'the community post'], [/^\/domains/, 'the domain'], [/^\/contacts/, 'changes to contacts'], [/^\/integrations\/run$/, 'the action in your ads account'],
+  [/^\/crm\/kit$/, 'the CRM style'], [/^\/funnels\/[^/]+\/copy-to$/, 'the copy sent to a client'], [/^\/ai\/image$/, 'the image in your media'], [/^\/privacy$/, 'the privacy settings'],
+];
+export function journaled(ctx, ownerId) {
+  const j = { funnels: {}, fields: [], created: [], kept: [] };
+  const createdPath = (p) => j.created.some((c) => c.path === p);
+  const call = async (method, path, body) => {
+    if (method === 'GET') return ctx.call(method, path, body);
+    const fm = /^\/funnels\/([^/]+)(\/tracking)?$/.exec(path);
+    if (method === 'PUT' && fm && !createdPath(`/funnels/${fm[1]}`)) {
+      const s = j.funnels[fm[1]] ||= {};
+      if (!fm[2] && !s.page) { const f = await ctx.call('GET', `/funnels/${fm[1]}`); s.page = { name: f.name, theme: f.theme, steps: f.steps }; }
+      if (fm[2] && !s.tracking) s.tracking = (await ctx.call('GET', path)).tracking || {};
+    }
+    const em = /^\/(products|automations|webinars|calendars)\/([^/]+)$/.exec(path);
+    if (method === 'PUT' && em && !createdPath(path) && body) {
+      const row = T[FIELDS[em[1]]].get(em[2]);
+      if (row && row.userId === ownerId) j.fields.push({ table: FIELDS[em[1]], id: em[2], old: Object.fromEntries(Object.keys(body).map((k) => [k, structuredClone(row[k])])) });
+    }
+    if (method === 'PUT' && path === '/settings' && body) {
+      const u = T.users.get(ownerId);
+      j.fields.push({ table: 'settings', id: ownerId, old: Object.fromEntries(Object.keys(body).map((k) => [k, structuredClone(u?.settings?.[k])])) });
+    }
+    const out = await ctx.call(method, path, body);
+    const cr = method === 'POST' && CREATES.find(([re]) => re.test(path));
+    if (cr && out?.id) j.created.push({ path: `/${cr[1]}/${out.id}`, what: cr[2] });
+    else if (!cr && !fm && !em && path !== '/settings' && !NO_CHANGE.test(path)) {
+      const k = KEPT.find(([re]) => re.test(path));
+      const what = k ? k[1] : 'another change';
+      if (!j.kept.includes(what)) j.kept.push(what);
+    }
+    return out;
+  };
+  const changed = () => Object.keys(j.funnels).length + j.fields.length + j.created.length > 0;
+  return { ctx: { ...ctx, call }, journal: j, changed };
+}
+// put a reply's changes back: as the same person (their role applies), newest first
+export async function undoJournal(ctx, ownerId, j) {
+  const report = { restored: 0, removed: 0, kept: [...j.kept], failed: [] };
+  for (const f of [...j.fields].reverse()) {
+    if (f.table === 'settings') { T.users.update(ownerId, (u) => { for (const [k, v] of Object.entries(f.old)) if (v === undefined) delete u.settings[k]; else u.settings[k] = v; }); report.restored++; continue; }
+    const row = T[f.table].get(f.id);
+    if (!row || row.userId !== ownerId) { report.failed.push(`a change to ${f.table.replace(/s$/, '')} that no longer exists`); continue; }
+    T[f.table].update(f.id, (x) => { for (const [k, v] of Object.entries(f.old)) if (v === undefined) delete x[k]; else x[k] = v; });
+    report.restored++;
+  }
+  for (const [id, s] of Object.entries(j.funnels)) {
+    try {
+      if (s.tracking) await ctx.call('PUT', `/funnels/${id}/tracking`, { fbPixel: s.tracking.fbPixel || '', ga4: s.tracking.ga4 || '', googleAds: s.tracking.googleAds || {} });
+      if (s.page) {
+        const cur = await ctx.call('GET', `/funnels/${id}`);
+        // a restore point of what Hive made, so the undo itself can be reversed from the funnel's history
+        T.revisions.insert({ id: uid(), funnelId: id, userId: ownerId, at: Date.now(), label: 'Before undoing Hive', data: structuredClone({ name: cur.name, theme: cur.theme, steps: cur.steps }) });
+        await ctx.call('PUT', `/funnels/${id}`, { ...s.page, baseVersion: cur.version });
+      }
+      report.restored++;
+    } catch (e) { report.failed.push(`a funnel (${e.message})`); }
+  }
+  for (const c of [...j.created].reverse()) {
+    try {
+      if (c.path.startsWith('/funnels/')) {
+        const f = await ctx.call('GET', c.path).catch(() => null);
+        if (!f) continue; // already gone
+        if (f.published) { report.kept.push('a funnel that is now live'); continue; }
+      }
+      await ctx.call('DELETE', c.path);
+      report.removed++;
+    } catch (e) { if (e.status !== 404) report.failed.push(`${c.what} (${e.message})`); }
+  }
+  return report;
+}
+
 // ---------- routes: chat, threads, MCP, access tokens ----------
 export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl, credits = (req, res, next) => next() }) {
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 12, key: (req) => req.user.id, message: 'Hive AI is busy with your earlier messages — wait a moment.' });
@@ -983,19 +1070,27 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     const history = t.messages.map((m) => ({ role: m.role, text: m.text, tools: (m.tools || []).map((x) => x.name) }));
     t.messages.push({ role: 'user', text: message, at: Date.now() });
     T.hive.put(t);
+    const jr = journaled(ctxFor(req.user, appUrl(req), req.actor), req.user.id);
+    const saveUndo = () => {
+      if (!jr.changed()) return null;
+      T.hiveUndo.delWhere({ userId: req.user.id, at: { lt: Date.now() - 30 * 86400000 } }); // undo reaches back 30 days
+      return T.hiveUndo.insert({ id: uid(), userId: req.user.id, at: Date.now(), journal: jr.journal }).id;
+    };
     try {
-      const ctx = { ...ctxFor(req.user, appUrl(req), req.actor), pending: [] };
+      const ctx = { ...jr.ctx, pending: [] };
       const out = await hiveTurn({ ctx, history, message, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal });
-      t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now() });
+      const undoId = saveUndo();
+      t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now(), ...(undoId ? { undoId } : {}) });
       logUsage(req.user.id, out.usage);
       if (out.funnelId) t.funnelId = out.funnelId;
       if (ctx.pending.length) t.pending = [...(t.pending || []).filter((p) => Date.now() - p.at < PENDING_TTL), ...ctx.pending].slice(-20);
-      emit({ type: 'reply', text: out.text, tools: out.tools, funnelId: t.funnelId });
+      emit({ type: 'reply', text: out.text, tools: out.tools, funnelId: t.funnelId, undoId });
     } catch (e) {
       const msg = ac.signal.aborted ? 'Stopped.' : `Something went wrong: ${e.message}`;
       if (!ac.signal.aborted) res.locals.aiFailed = true; // the AI call failed: no credits taken
-      t.messages.push({ role: 'assistant', text: msg, error: true, at: Date.now() });
-      emit({ type: 'error', error: msg });
+      const undoId = saveUndo(); // a stopped or failed reply may have changed things already: it can be undone too
+      t.messages.push({ role: 'assistant', text: msg, error: true, at: Date.now(), ...(undoId ? { undoId } : {}) });
+      emit({ type: 'error', error: msg, undoId });
     } finally {
       clearInterval(ping);
       t.updatedAt = Date.now();
@@ -1003,6 +1098,45 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       if (T.hive.get(t.id)) T.hive.put(t); // unless the chat was deleted meanwhile
       res.end();
     }
+  });
+
+  // 👍 / 👎 on a reply (by its time). A 👎 keeps the request, the reply and the steps for the platform's review —
+  // each one becomes a case in the test bank (server/evals) so the same mistake is caught before the next release.
+  app.post('/api/hive/threads/:tid/feedback', auth, (req, res) => {
+    const t0 = ownThread(req, req.params.tid);
+    if (!t0) return res.status(404).json({ error: 'Chat not found' });
+    const rating = req.body?.rating === 'up' ? 'up' : req.body?.rating === 'down' ? 'down' : req.body?.rating === null ? null : undefined;
+    if (rating === undefined) return res.status(400).json({ error: 'rating must be up, down or null' });
+    const at = Number(req.body?.at), note = String(req.body?.note || '').trim().slice(0, 1000);
+    const i = t0.messages.findIndex((m) => m.role === 'assistant' && m.at === at);
+    if (i < 0) return res.status(404).json({ error: 'Reply not found' });
+    const m = t0.messages[i], ask = [...t0.messages.slice(0, i)].reverse().find((x) => x.role === 'user');
+    T.hive.update(t0.id, (t) => { const x = t.messages.find((y) => y.role === 'assistant' && y.at === at); if (x) { if (rating) x.feedback = { rating, ...(note ? { note } : {}), at: Date.now() }; else delete x.feedback; } });
+    const fid = `${t0.id}:${at}`;
+    if (rating) T.hiveFeedback.put({ id: fid, userId: req.user.id, at: Date.now(), rating, note, threadId: t0.id, request: ask?.text || '', reply: m.text, tools: (m.tools || []).map((x) => ({ name: x.name, ok: x.ok, summary: x.summary })), reviewed: false, industry: req.user.settings?.crmKit?.id || null });
+    else T.hiveFeedback.del(fid);
+    res.json({ ok: true });
+  });
+
+  // undo a reply's changes — the newest reply first, like Ctrl+Z; each reply once (claimed before it runs)
+  app.post('/api/hive/threads/:tid/undo', auth, limiter, async (req, res) => {
+    const t0 = ownThread(req, req.params.tid);
+    if (!t0) return res.status(404).json({ error: 'Chat not found' });
+    const undoId = String(req.body?.undoId || '');
+    let claimed = null;
+    T.hive.update(t0.id, (t) => {
+      const last = [...t.messages].reverse().find((m) => m.undoId && !m.undone);
+      if (last && last.undoId === undoId) { last.undone = { at: Date.now(), running: true }; claimed = last.undoId; }
+    });
+    if (!claimed) return res.status(409).json({ error: 'Only the most recent changes can be undone — undo the newer ones first.' });
+    const row = T.hiveUndo.get(claimed);
+    let report;
+    try {
+      report = row ? await undoJournal(ctxFor(req.user, appUrl(req), req.actor), req.user.id, row.journal) : { restored: 0, removed: 0, kept: [], failed: ['these changes are too old to undo'] };
+    } catch (e) { report = { restored: 0, removed: 0, kept: [], failed: [e.message] }; }
+    T.hive.update(t0.id, (t) => { const m = t.messages.find((x) => x.undoId === claimed); if (m) m.undone = { at: Date.now(), report }; });
+    if (row) T.hiveUndo.del(row.id);
+    res.json({ ok: !report.failed.length, report });
   });
 
   // the seller pressed Confirm (or Cancel) on an action Hive proposed

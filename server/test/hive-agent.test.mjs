@@ -134,3 +134,33 @@ test('before saying “I can’t”, Hive looks again with every tool loaded —
   assert.equal(s2.seen.length, 2);
   assert.match(out2.text, /travel funnel/);
 });
+
+test('undo restores exactly the fields a reply changed, and lists what it can’t call back', async () => {
+  await load();
+  const { T, uid } = await import('../db.js');
+  const owner = T.users.insert({ id: uid(), email: 'u@undo.in', name: 'U', settings: { businessName: 'Old Co', timezone: 'Asia/Kolkata' } });
+  const p = T.products.insert({ id: uid(), userId: owner.id, name: 'Course', lessons: [{ title: 'L1' }], price: 999 });
+  const other = T.products.insert({ id: uid(), userId: 'someone-else', name: 'Not mine', lessons: [] });
+  // a stand-in API that applies writes to the database like the real one
+  const api = async (method, path, body) => {
+    const m = /^\/products\/(.+)$/.exec(path);
+    if (method === 'PUT' && m) return T.products.update(m[1], (x) => Object.assign(x, body));
+    if (method === 'PUT' && path === '/settings') return T.users.update(owner.id, (u) => Object.assign(u.settings, body)).settings;
+    return { ok: true };
+  };
+  const jr = H.journaled({ call: api, origin: 'x' }, owner.id);
+  await jr.ctx.call('PUT', `/products/${p.id}`, { lessons: [{ title: 'New' }, { title: 'New 2' }], certificate: { enabled: true } });
+  await jr.ctx.call('PUT', '/settings', { businessName: 'New Co' });
+  await jr.ctx.call('PUT', `/products/${other.id}`, { name: 'hijack' }); // not this account's: never journaled
+  await jr.ctx.call('POST', '/broadcasts/b1/send', {});
+  await jr.ctx.call('POST', '/broadcasts/audience', {}); // a preview: nothing to undo
+  assert.equal(jr.changed(), true);
+  assert.deepEqual(jr.journal.kept, ['the broadcast that was sent']);
+  const report = await H.undoJournal({ call: api, origin: 'x' }, owner.id, jr.journal);
+  assert.deepEqual(T.products.get(p.id).lessons, [{ title: 'L1' }]);
+  assert.equal(T.products.get(p.id).certificate, undefined, 'a field it added is removed again');
+  assert.equal(T.products.get(p.id).price, 999, 'fields it didn’t touch stay');
+  assert.equal(T.users.get(owner.id).settings.businessName, 'Old Co');
+  assert.equal(T.users.get(owner.id).settings.timezone, 'Asia/Kolkata');
+  assert.deepEqual([report.restored, report.kept], [2, ['the broadcast that was sent']]);
+});

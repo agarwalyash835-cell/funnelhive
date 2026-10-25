@@ -47,6 +47,21 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     res.json({ days, total, top, live: hiveLoad() });
   });
 
+  // Hive replies sellers rated: 👎 ones to review (each becomes a test-bank case), and the share of 👍
+  app.get('/api/admin/hive-feedback', ...A, (req, res) => {
+    const since = Date.now() - 30 * 86400000;
+    const all = T.hiveFeedback.all({ at: { gte: since } }, { order: 'at', desc: true });
+    const up = all.filter((f) => f.rating === 'up').length, down = all.length - up;
+    const list = all.filter((f) => f.rating === 'down' && (req.query.all === '1' || !f.reviewed)).slice(0, 100).map((f) => ({ ...f, email: T.users.get(f.userId)?.email || '(deleted)' }));
+    res.json({ up, down, list });
+  });
+  app.post('/api/admin/hive-feedback/:fid/reviewed', ...A, (req, res) => {
+    const f = T.hiveFeedback.get(req.params.fid);
+    if (!f) return res.status(404).json({ error: 'Not found' });
+    T.hiveFeedback.update(f.id, (x) => { x.reviewed = req.body?.reviewed !== false; });
+    res.json({ ok: true });
+  });
+
   // ---------- overview ----------
   app.get('/api/admin/overview', ...A, (req, res) => {
     const now = Date.now();

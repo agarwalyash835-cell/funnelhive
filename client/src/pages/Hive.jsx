@@ -1,9 +1,9 @@
 // Hive AI — chat on the left, the funnel being built on the right ("Lovable for funnels")
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Sparkles, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow } from 'lucide-react';
+import { Sparkles, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow, ThumbsUp, ThumbsDown, Undo2 } from 'lucide-react';
 import { api } from '../api';
-import { Layout, toast, ago, confirmDialog, loadFailed } from '../ui';
+import { Layout, toast, ago, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { Page } from '../blocks';
 
 const SUGGESTIONS = [
@@ -55,6 +55,20 @@ function LiveStatus({ tools }) {
       <i /><i /><i /> <b>{doing}…</b> <span className="hv-magic" key={n}>{MAGIC[n % MAGIC.length]}</span>
       {run && LONG.has(run.name) && <small className="hv-long">Big job — usually about a minute</small>}
     </span>
+  );
+}
+
+// under a reply: 👍 / 👎 (a 👎 asks what went wrong, optionally) and Undo for the newest reply that changed things
+const undoneLine = (r) => [r.restored && `put back ${r.restored} change${r.restored > 1 ? 's' : ''}`, r.removed && `removed ${r.removed} thing${r.removed > 1 ? 's' : ''} it made`].filter(Boolean).join(' and ') || 'nothing left to change';
+function ReplyActions({ m, canUndo, onRate, onUndo, busy }) {
+  const r = m.feedback?.rating;
+  return (
+    <div className="hv-acts">
+      <button type="button" className={`hv-act ${r === 'up' ? 'on' : ''}`} title="Helpful" aria-label="Helpful" aria-pressed={r === 'up'} disabled={busy} onClick={() => onRate(m, r === 'up' ? null : 'up')}><ThumbsUp size={13} /></button>
+      <button type="button" className={`hv-act ${r === 'down' ? 'on down' : ''}`} title="Not right" aria-label="Not right" aria-pressed={r === 'down'} disabled={busy} onClick={() => onRate(m, r === 'down' ? null : 'down')}><ThumbsDown size={13} /></button>
+      {canUndo && <button type="button" className="hv-act undo" disabled={busy} onClick={() => onUndo(m)}><Undo2 size={13} /> Undo this</button>}
+      {m.undone?.report && <span className="hv-undone">Undone — {undoneLine(m.undone.report)}.{m.undone.report.kept?.length ? ` Can’t be called back: ${m.undone.report.kept.join(', ')}.` : ''}{m.undone.report.failed?.length ? ` Couldn’t undo: ${m.undone.report.failed.join(', ')}.` : ''}</span>}
+    </div>
   );
 }
 
@@ -125,6 +139,26 @@ export default function Hive() {
     } catch (e) { toast(e.message); }
     setDeciding(null);
   };
+  // the newest reply that changed things can be undone (then the one before it, and so on)
+  const lastUndo = [...msgs].reverse().find((m) => m.undoId && !m.undone)?.undoId;
+  const [acting, setActing] = useState(false);
+  const rate = async (m, rating) => {
+    let note = '';
+    if (rating === 'down') { note = await promptDialog({ title: 'What went wrong?', text: 'Optional — it helps us make Hive better. The request and what Hive did are shared with our team.', label: 'What should it have done?', placeholder: 'e.g. it used the wrong price', value: '' }); if (note === null) return; }
+    setMsgs((ms) => ms.map((x) => (x === m ? { ...x, feedback: rating ? { rating } : undefined } : x)));
+    try { await api(`/hive/threads/${tid}/feedback`, 'POST', { at: m.at, rating, note }); if (rating) toast(rating === 'up' ? 'Thanks!' : 'Thanks — we’ll look into it'); } catch (e) { toast(e.message); }
+  };
+  const undo = async (m) => {
+    if (!await confirmDialog({ title: 'Undo what Hive did in this reply?', text: 'Pages and settings it changed go back to how they were, and what it created is removed. Messages already sent can’t be called back.', confirm: 'Undo' })) return;
+    setActing(true);
+    try {
+      const r = await api(`/hive/threads/${tid}/undo`, 'POST', { undoId: m.undoId });
+      toast(r.ok ? 'Undone' : 'Partly undone — see the note under the reply');
+      const t = await api(`/hive/threads/${tid}`); setMsgs(t.messages);
+      loadFunnel(funnelId);
+    } catch (e) { toast(e.message); }
+    setActing(false);
+  };
   const removeThread = async (id) => { if (!await confirmDialog({ title: 'Delete this chat?', text: 'Funnels it built are kept.', confirm: 'Delete', danger: true })) return; await api(`/hive/threads/${id}`, 'DELETE'); if (id === tid) openThread(null); loadThreads(); };
 
   const send = async (text = input) => {
@@ -134,7 +168,7 @@ export default function Hive() {
     setMsgs((m) => [...m, { role: 'user', text: message, at: Date.now() }]);
     setLive({ tools: [], thinking: '' });
     const ac = new AbortController(); abort.current = ac;
-    let finalFunnel = funnelId;
+    let finalFunnel = funnelId, threadId = tid;
     try {
       const res = await fetch('/api/hive/chat', { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ff_token')}` }, body: JSON.stringify({ message, threadId: tid, funnelId }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Hive AI is unavailable right now'); }
@@ -150,7 +184,7 @@ export default function Hive() {
           const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
           if (!chunk.startsWith('data: ')) continue;
           const ev = JSON.parse(chunk.slice(6));
-          if (ev.type === 'thread') { setTid(ev.threadId); }
+          if (ev.type === 'thread') { setTid(ev.threadId); threadId = ev.threadId; }
           else if (ev.type === 'thinking') setLive((l) => ({ ...l, thinking: ev.text }));
           else if (ev.type === 'tool') {
             setLive((l) => ({ ...l, tools: ev.status === 'running' ? [...l.tools, ev] : l.tools.map((t) => (t.id === ev.id ? { ...t, ...ev } : t)) }));
@@ -167,6 +201,8 @@ export default function Hive() {
     }
     setLive(null); setBusy(false); abort.current = null;
     loadThreads();
+    // the saved copy (its time, what can be undone) — a stopped reply is saved a moment later
+    if (threadId) setTimeout(() => api(`/hive/threads/${threadId}`).then((t) => setMsgs(t.messages)).catch(() => {}), ac.signal.aborted ? 1200 : 0);
     setTimeout(() => boxRef.current?.focus(), 0);
   };
 
@@ -239,7 +275,7 @@ export default function Hive() {
             {msgs.map((m, i) => (
               <div key={i} className={`hv-msg ${m.role} ${m.error ? 'err' : ''}`}>
                 {m.role === 'assistant' && <span className="hv-av"><Sparkles size={14} /></span>}
-                <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} /></> : m.text}</div>
+                <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} />{tid && <ReplyActions m={m} canUndo={!!m.undoId && m.undoId === lastUndo} onRate={rate} onUndo={undo} busy={busy || acting} />}</> : m.text}</div>
               </div>
             ))}
             {live && (

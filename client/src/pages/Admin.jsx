@@ -62,6 +62,36 @@ function HiveUsage() {
   );
 }
 
+// replies sellers marked 👎: read what they asked and what Hive did, copy it into the test bank (server/evals), mark reviewed
+function HiveFeedback() {
+  const [d, setD] = useState(null);
+  const load = () => api('/admin/hive-feedback').then(setD).catch(loadFailed);
+  useEffect(() => { load(); }, []);
+  if (!d) return null;
+  const rated = d.up + d.down;
+  const asCase = (f) => JSON.stringify({ id: `fb-${new Date(f.at).toISOString().slice(0, 10)}-${f.id.slice(-4)}`, industry: f.industry || 'general', message: f.request, why: f.note || undefined, expect: { tools: [], replyNot: "can['’]?t|unable" } }, null, 2);
+  const reviewed = async (f) => { try { await api(`/admin/hive-feedback/${encodeURIComponent(f.id)}/reviewed`, 'POST', {}); load(); } catch (e) { toast(e.message); } };
+  return (
+    <Panel title="Hive AI feedback (30 days)" pad={false} actions={<small className="muted">{rated ? `${Math.round((d.up / rated) * 100)}% 👍 · ${d.up} 👍 · ${d.down} 👎` : 'No ratings yet'}</small>}>
+      {!d.list.length ? <p className="muted sm" style={{ padding: 18 }}>No 👎 replies waiting for review.</p> : (
+        <div className="hv-fb">{d.list.map((f) => (
+          <div key={f.id} className="hv-fb-i">
+            <div className="hv-fb-h"><b>{f.email}</b><small className="muted">{ago(f.at)}{f.industry ? ` · ${f.industry}` : ''}</small></div>
+            <p><span className="muted">Asked:</span> {f.request}</p>
+            {f.note && <p><span className="muted">What went wrong:</span> {f.note}</p>}
+            <p className="muted sm">{f.tools.length ? f.tools.map((x) => `${x.ok === false ? '✗' : '✓'} ${x.summary || x.name}`).join(' · ') : 'No steps taken'}</p>
+            <details><summary className="sm">Hive’s reply</summary><p className="sm" style={{ whiteSpace: 'pre-wrap' }}>{f.reply}</p></details>
+            <div className="row" style={{ gap: 8, marginTop: 6 }}>
+              <button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(asCase(f)); toast('Copied — add it to server/evals/hive-bank.json and fill in what it should do'); }}>Copy as test case</button>
+              <button className="btn ghost sm" onClick={() => reviewed(f)}><Icon name="check" size={14} /> Mark reviewed</button>
+            </div>
+          </div>
+        ))}</div>
+      )}
+    </Panel>
+  );
+}
+
 function Overview() {
   const [d, setD] = useState(null);
   useEffect(() => { api('/admin/overview').then(setD).catch(loadFailed); }, []);
@@ -118,6 +148,7 @@ function Overview() {
         </div>
       </Panel>
       <HiveUsage />
+      <HiveFeedback />
       <Restore />
     </div>
   );
