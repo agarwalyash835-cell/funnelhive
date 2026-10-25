@@ -13,3 +13,4 @@ server/.env
 *.log
 .claude/
 server/evals/reports/
+HANDOFF.md
