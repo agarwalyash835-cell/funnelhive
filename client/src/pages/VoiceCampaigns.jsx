@@ -10,7 +10,7 @@ const STATUS = { draft: ['Draft', ''], launching: ['Launching…', 'warn'], sche
 const RESULT = { connected: 'Talked', busy: 'Busy', no_answer: 'No answer', failed: 'Failed' };
 const outcomeOf = (o = {}) => ['outcome', 'disposition', 'interest', 'interested', 'call_outcome', 'lead_status', 'status', 'result'].map((k) => o[k]).find((x) => x != null && x !== '');
 
-export function VoiceCampaigns({ meta, funnels, newSignal }) {
+export function VoiceCampaigns({ meta, funnels, newSignal, openId }) {
   const [d, setD] = useState(null);
   const [sel, setSel] = useState(null);
   const [editConn, setEditConn] = useState(false);
@@ -18,6 +18,7 @@ export function VoiceCampaigns({ meta, funnels, newSignal }) {
   useEffect(() => { load(); }, []);
   const create = async () => { try { const c = await api('/voice/campaigns', 'POST', { name: 'New AI calling campaign', segment: {} }); await load(); setSel(c.id); } catch (e) { toast(e.message); } };
   useEffect(() => { if (newSignal && d?.connected) create(); }, [newSignal]);
+  useEffect(() => { if (openId) load().then(() => setSel(openId)); }, [openId]);
   if (d === false) return null;
   if (!d) return <div className="skeleton" />;
   if (!d.connected || editConn) return <Connect d={d} onDone={() => { setEditConn(false); load(); }} onCancel={d.connected ? () => setEditConn(false) : null} />;
@@ -154,6 +155,12 @@ function CallEditor({ c, d, meta, funnels, onBack, onChange }) {
               {v.appId && <button type="button" className="btn ghost sm" disabled={busy} onClick={testCall}><Icon name="phone" size={14} /> Test call to my phone</button>}
             </fieldset>
           </Panel>
+          {c.script && (
+            <Panel title="Agent script" actions={<button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(c.script); toast('Script copied'); }}><Icon name="copy" size={14} /> Copy</button>}>
+              <p className="muted sm">Paste this into your Sarvam agent’s instructions so it says what this campaign is about.</p>
+              <pre className="vc-tr">{c.script}</pre>
+            </Panel>
+          )}
           {detail?.calls?.length > 0 && (
             <Panel pad={false} title={`Calls (${num(detail.calls.length)}${detail.calls.length >= 100 ? '+' : ''})`}>
               <table className="tbl compact"><tbody>{detail.calls.map((x) => (

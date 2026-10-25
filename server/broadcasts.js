@@ -98,7 +98,11 @@ function clean(b = {}, userId, cur = {}) {
     segment: cleanSegment(b.segment ?? cur.segment, userId),
   };
 }
+// a detail from a template that's still to be filled in, e.g. [batch start date]
+const unfilled = (...parts) => /\[[^\]\n]{2,60}\]/.exec(parts.join('\n'))?.[0];
 function problems(x, u) {
+  const gap = x.channel === 'email' ? unfilled(x.subject, x.body) : unfilled(x.wa?.params);
+  if (gap) return `Fill in ${gap} first — it’s a detail only you know`;
   if (x.channel === 'email') {
     if (!x.subject) return 'Add a subject line';
     if (!x.body.trim()) return 'Write the email';

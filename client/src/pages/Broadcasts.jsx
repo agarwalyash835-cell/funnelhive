@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Panel, Icon, Empty, toast, num, ago, inr, useWaTemplates, WaTemplateSelect, WaTemplateInfo, confirmDialog } from '../ui';
 import { VoiceCampaigns } from './VoiceCampaigns';
+import { TemplatePicker, AiBuilder } from './CampaignTemplates';
 
 const STATUS = { draft: ['Draft', ''], scheduled: ['Scheduled', 'info'], sending: ['Sending…', 'warn'], sent: ['Sent', 'ok'], cancelled: ['Cancelled', 'bad'] };
 const VARS = ['first_name', 'name', 'email', 'phone', 'business'];
@@ -18,6 +19,9 @@ export default function Broadcasts() {
   const [sel, setSel] = useState(null);
   const [tab, setTab] = useState(() => { try { return localStorage.getItem('ff_camp_tab') || 'all'; } catch { return 'all'; } });
   const [newCall, setNewCall] = useState(0);
+  const [modal, setModal] = useState(null); // 'templates' | 'ai'
+  const [openCall, setOpenCall] = useState(null);
+  const used = async (r) => { setModal(null); if (r.channel === 'call') { pickTab('calls'); setOpenCall(r.id); } else { await load(); pickTab(r.channel); setSel(r.id); } };
   const pickTab = (k) => { setTab(k); setSel(null); try { localStorage.setItem('ff_camp_tab', k); } catch {} };
   const [funnels, setFunnels] = useState([]);
   const load = () => api('/broadcasts').then((x) => { setD(x); return x; });
@@ -34,13 +38,15 @@ export default function Broadcasts() {
   const current = d?.broadcasts.find((b) => b.id === sel);
   return (
     <Layout title="Campaigns" subtitle="WhatsApp, email and AI calling campaigns to a segment of your contacts — now or at a time you pick, with follow-ups and the sales each one brought." actions={<>
+      <button className="btn ghost" onClick={() => setModal('templates')}><Icon name="layout" size={16} /> Templates</button>
+      <button className="btn ghost" onClick={() => setModal('ai')}><Icon name="sparkles" size={16} /> Build with AI</button>
       <button className="btn ghost" onClick={() => { pickTab('whatsapp'); create('whatsapp'); }}><Icon name="send" size={16} /> WhatsApp</button>
       <button className="btn ghost" onClick={() => { pickTab('calls'); setNewCall((n) => n + 1); }}><Icon name="phone" size={16} /> AI calls</button>
       <button className="btn primary" onClick={() => { pickTab('email'); create('email'); }}><Icon name="mail" size={16} /> Email</button>
     </>}>
       {!current && <div className="seg camp-tabs" role="tablist">{TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => pickTab(k)}>{l}</button>)}</div>}
       {!d ? <div className="skeleton" /> : tab === 'calls' && !current ? (
-        <VoiceCampaigns meta={d} funnels={funnels} newSignal={newCall} />
+        <VoiceCampaigns meta={d} funnels={funnels} newSignal={newCall} openId={openCall} />
       ) : current ? (
         <Editor key={current.id} b={current} meta={d} funnels={funnels} onBack={() => setSel(null)} onChange={load} onOpen={(id) => setSel(id)} />
       ) : (
@@ -69,6 +75,8 @@ export default function Broadcasts() {
           </Panel>
         </>
       )}
+      {modal === 'templates' && <TemplatePicker onClose={() => setModal(null)} onUsed={used} />}
+      {modal === 'ai' && <AiBuilder onClose={() => setModal(null)} onUsed={used} />}
     </Layout>
   );
 }

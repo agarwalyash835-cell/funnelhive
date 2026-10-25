@@ -32,7 +32,7 @@ const ANY = /^\/api\/(me(\/menu)?$|team\/(workspaces|switch|leave|accept)$|hive\
 // secrets and account-wide settings: admins only (GET /api/channels itself only says what's connected)
 const SECRET = /^\/api\/(vault\/secrets|settings|lead-sources|voice\/connect|webhooks|keys|adspend\/meta|v1\/hooks|hive\/tokens|channels\/|domains|demo|conversions\/[^/]+\/retry)/;
 const WRITE = {
-  marketer: /^\/api\/(vault\/(files|folders|shares)|funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|voice\/(campaigns|audience|test-call)|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
+  marketer: /^\/api\/(vault\/(files|folders|shares)|funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|campaign-templates|voice\/(campaigns|audience|test-call)|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
   sales: /^\/api\/(vault\/(files|folders|shares)|contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$|school\/(questions|posts|comments|students))/,
   viewer: null,
 };
@@ -73,7 +73,7 @@ export const AREAS = [
   { key: 'webinars', label: 'Webinars', desc: 'Webinars, sign-ups and reminders', levels: ALL3, re: /^\/api\/webinars(\/|$)/ },
   { key: 'quotes', label: 'Quotes', desc: 'Custom quotes and quote templates', levels: ALL3, re: /^\/api\/(quotes|quote-templates)(\/|$)/ },
   { key: 'automations', label: 'Automations', desc: 'Follow-up emails and WhatsApp that run by themselves', levels: ALL3, re: /^\/api\/automations(\/|$)/ },
-  { key: 'broadcasts', label: 'Campaigns', desc: 'WhatsApp and email campaigns to a segment of your list, and AI calling campaigns', levels: ALL3, re: /^\/api\/(broadcasts|voice)(\/|$)/, viewPost: /^\/api\/(broadcasts|voice)\/audience$/ },
+  { key: 'broadcasts', label: 'Campaigns', desc: 'WhatsApp and email campaigns to a segment of your list, and AI calling campaigns', levels: ALL3, re: /^\/api\/(broadcasts|voice|campaign-templates)(\/|$)/, viewPost: /^\/api\/(broadcasts|voice)\/audience$/ },
   { key: 'files', label: 'Vault files', desc: 'Private files and folders, and sharing them', levels: ALL3, re: /^\/api\/vault(\/(files|folders|shares)(\/|$)|$)/ },
   { key: 'secrets', label: 'Vault passwords & notes', desc: 'Saved passwords and secure notes (view = can reveal them)', levels: ALL3, re: /^\/api\/vault\/secrets(\/|$)/, viewPost: /^\/api\/vault\/secrets\/[^/]+\/reveal$/ },
   { key: 'ads', label: 'Ads & ad spend', desc: 'Ad spend (Meta sync, CSV), conversions sent to ad platforms', levels: ALL3, re: /^\/api\/(adspend|conversions|gads)(\/|$)/ },

@@ -2747,3 +2747,21 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .camp-tabs { margin-bottom: 14px; }
 .camp-follow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .vc-tr { white-space: pre-wrap; font: inherit; font-size: 12.5px; max-height: 260px; overflow: auto; margin: 6px 0 0; }
+
+/* Campaign templates */
+.ct-cols { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 14px; margin-top: 10px; }
+.ct-list { display: grid; gap: 6px; align-content: start; max-height: 62vh; overflow: auto; }
+.ct-item { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border: 1px solid var(--c-line); border-radius: 12px; background: var(--c-surface); font-size: 13px; }
+.ct-item.on { border-color: var(--c-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 14%, transparent); }
+.ct-item small { font-size: 12px; }
+.ct-side { min-width: 0; }
+.ct-prev { display: grid; gap: 10px; }
+.ct-prev-h { display: grid; gap: 2px; }
+.ct-box { border: 1px solid var(--c-line); border-radius: 12px; padding: 12px; background: var(--c-surface-2); max-height: 46vh; overflow: auto; }
+.ct-wa .ct-body { background: #e7fbe0; border-radius: 10px; padding: 10px; color: #1f2d1b; }
+.ct-subj { margin: 0 0 8px; font-weight: 600; font-size: 13.5px; }
+.ct-body { white-space: pre-wrap; font: inherit; font-size: 13.5px; line-height: 1.55; margin: 0; }
+.ct-fill { background: #fdeccf; color: #8a4b00; border-radius: 4px; padding: 0 3px; }
+.ct-var { color: var(--c-accent); font-weight: 600; }
+.ct-vars { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; display: grid; gap: 3px; }
+@media (max-width: 760px) { .ct-cols { grid-template-columns: 1fr; } .ct-list { max-height: 30vh; } }
