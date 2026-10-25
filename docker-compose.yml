@@ -17,12 +17,14 @@ services:
     logging: *logging
     ports:
       - "127.0.0.1:4000:4000"   # only via Caddy (HTTPS) from outside; localhost:4000 still works on the server
+      - "25:2525"               # the lead inbox: forwarded portal emails for leads-…@INBOUND_EMAIL_DOMAIN (receive only)
     env_file:
       - path: ./server/.env
         required: false
     environment:
       NODE_ENV: production
       DATA_DIR: /data
+      INBOUND_SMTP_PORT: "2525"
       # APP_URL, ADMIN_EMAILS, WEB_CONCURRENCY etc. come from server/.env
     volumes:
       - funnelhive-data:/data

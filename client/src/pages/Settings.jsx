@@ -11,6 +11,7 @@ import { AppsPanel } from './AppsPanel';
 import { ActivityPanel } from './Agency';
 import { allZones, zoneOption } from '../tzfmt';
 import { EmailPanel, WhatsAppPanel, DomainsPanel, RazorpayPanel, StripePanel, HiveMcpPanel } from './SettingsChannels';
+import { LeadSourcesPanel } from './LeadSources';
 
 
 // flat coupons are in one currency (₹500 off never applies to a $ price)
@@ -61,6 +62,8 @@ export default function Settings() {
           </div>
           <button className="btn primary" onClick={() => save()}>{t('Save')}</button>
         </Panel>
+
+        <LeadSourcesPanel />
 
         <Panel title={t('Payments')}>
           <RazorpayPanel />

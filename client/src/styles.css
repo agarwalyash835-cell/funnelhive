@@ -2727,3 +2727,18 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .hv-fb-i { padding: 14px 18px; border-top: 1px solid var(--c-line); display: grid; gap: 4px; }
 .hv-fb-i p { margin: 0; }
 .hv-fb-h { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+
+/* Settings → Lead sources */
+.ls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 12px; }
+.ls-card { display: grid; gap: 8px; align-content: start; padding: 16px; border: 1px solid var(--c-line); border-radius: 14px; background: var(--c-surface); min-width: 0; }
+.ls-card header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.ls-card header b { font-size: 15px; }
+.ls-card h5 { margin: 6px 0 0; font-size: 13px; }
+.ls-card > .btn { justify-self: start; }
+.ls-steps { margin: 0; padding-left: 18px; font-size: 13px; color: var(--c-ink-2); display: grid; gap: 3px; }
+.ls-copy { display: grid; gap: 4px; font-size: 12.5px; }
+.ls-copy-row { display: flex; gap: 6px; }
+.ls-copy-row input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 12px; }
+.ls-on { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ls-h4 { margin: 18px 0 6px; font-size: 14px; }
+.settings > .ls-panel { grid-column: 1 / -1; }

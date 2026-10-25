@@ -17,6 +17,7 @@ import { scoreQuiz, resultView, quizCounts } from './quiz.js';
 import { registerAds } from './adtrack.js';
 import { registerQuoteTemplates } from './quotetpl.js';
 import { registerPartners, partnerForHost, attachSignup } from './partners.js';
+import { registerLeadSources, indiaMartJob, startMailReceiver } from './leadsources.js';
 import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, popupCounts, bumpRate, campaigns, refundsTotal } from './analytics.js';
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
@@ -951,6 +952,9 @@ registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerAds(app, { auth });
 registerQuoteTemplates(app, { auth, wrap });
 registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl });
+// lead sources (IndiaMART, JustDial, Google Ads lead forms, portal emails); JustDial may post a plain form
+app.use('/api/leads/in', express.urlencoded({ extended: false, limit: '256kb' }));
+registerLeadSources(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerBroadcasts(app, { auth, rateLimit, isTest });
 registerTeam(app, { auth, sign, rateLimit, isTest });
 registerPlans(app, { auth, resolveToken });
@@ -1791,6 +1795,8 @@ function housekeeping() {
   trimRollups(now - EVENTS_KEEP_DAYS * DAY).catch((e) => console.error('page-view totals trim failed', e.message));
 }
 if (JOBS && !isTest) { setTimeout(housekeeping, 60000).unref(); setInterval(housekeeping, 6 * 3600000).unref(); }
+// IndiaMART enquiries every 15 minutes; forwarded portal emails (when INBOUND_SMTP_PORT and INBOUND_EMAIL_DOMAIN are set)
+if (JOBS && !isTest) { setInterval(() => indiaMartJob().catch((e) => console.error('IndiaMART pull failed', e.message)), 15 * 60000).unref(); startMailReceiver().catch((e) => console.error('Lead inbox didn’t start:', e.message)); }
 
 // ---------- serve built client in production ----------
 const CLIENT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../client');

@@ -102,6 +102,8 @@ const SCHEMA = {
   members: { cols: { ownerId: 0, userId: 0, email: (m) => lower(m.email), status: 0, at: 0 }, unique: [['ownerId', 'email']], index: [['userId', 'status']] },
   roles: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // custom team roles an owner made (a permission per area, team.js)
   adspend: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // ad spend per campaign per day (Meta sync, CSV)
+  leadTokens: { cols: { userId: 0, kind: 0 }, index: [['kind']] }, // lead-source addresses → the account (leadsources.js)
+  leadEvents: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // every enquiry a lead source delivered (leadsources.js)
   hiveFeedback: { cols: { userId: 0, at: 0 }, index: [['at']] }, // 👍 / 👎 on Hive replies, with the request and steps, for review (hive.js)
   hiveUndo: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // what each Hive reply changed, so it can be undone (hive.js)
   hiveUsage: { cols: { userId: 0, at: 0 }, index: [['at']] }, // Hive AI per account per day: turns, model calls, tokens (hive.js)
