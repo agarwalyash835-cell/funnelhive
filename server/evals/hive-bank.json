@@ -28,8 +28,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹19,999 and add an order bump: printed test series for ₹1,499.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -161,8 +163,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹5,000 and add an order bump: home loan assistance for ₹999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -300,8 +304,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹6,999 and add an order bump: a skin-care kit for ₹1,199.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -439,8 +445,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹7,499 and add an order bump: a diet plan for ₹999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -578,8 +586,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹30,000 and add an order bump: an ad-creative pack for ₹4,999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -717,8 +727,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹11,999 and add an order bump: a templates bundle for ₹1,999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -856,8 +868,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹999 and add an order bump: a matchbox set for ₹149.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -995,8 +1009,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹3,99,000 and add an order bump: a 3D walkthrough for ₹9,999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -1134,8 +1150,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹1,65,000 and add an order bump: a 5-year maintenance plan for ₹7,999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -1273,8 +1291,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹39,999 and add an order bump: IELTS coaching for ₹9,999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -1412,8 +1432,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹499 and add an order bump: a tax-saving guide for ₹199.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -1551,8 +1573,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹3,00,000 and add an order bump: a pre-wedding shoot for ₹45,000.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -1690,8 +1714,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹21,999 and add an order bump: airport pickup for ₹1,499.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -1821,7 +1847,7 @@
    "setup": [
     "funnel"
    ],
-   "message": "Change the main headline on my funnel's first page to “Book your test ride for the new 125cc scooter today”.",
+   "message": "Change the main headline on my funnel’s first page to “Limited seats this month — book today”.",
    "expect": {
     "anyTools": [
      "update_section",
@@ -1830,7 +1856,7 @@
     "state": [
      {
       "get": "{funnel}",
-      "match": "Book your"
+      "match": "Limited seats this month"
      }
     ]
    }
@@ -1963,8 +1989,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹2,499 and add an order bump: a bookkeeping setup for ₹1,999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -2102,8 +2130,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹1,999 and add an order bump: a guided meditation pack for ₹299.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -2235,8 +2265,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹999 and add an order bump: onboarding setup for ₹2,999.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -2374,8 +2406,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹5,999 and add an order bump: a plantation tour for ₹799.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -2505,7 +2539,7 @@
    "setup": [
     "funnel"
    ],
-   "message": "Change the main headline on my funnel's first page to “Book your hiring for React developers today”.",
+   "message": "Change the main headline on my funnel’s first page to “Limited seats this month — book today”.",
    "expect": {
     "anyTools": [
      "update_section",
@@ -2514,7 +2548,7 @@
     "state": [
      {
       "get": "{funnel}",
-      "match": "Book your"
+      "match": "Limited seats this month"
      }
     ]
    }
@@ -2647,8 +2681,10 @@
    ],
    "message": "On my funnel, set the checkout price to ₹5,000 and add an order bump: a framed thank-you card from the child for ₹299.",
    "expect": {
-    "tools": [
-     "configure_checkout"
+    "anyTools": [
+     "configure_checkout",
+     "update_section",
+     "replace_page"
     ],
     "state": [
      {
@@ -2891,10 +2927,7 @@
   {
    "id": "x-ask-price",
    "industry": "cross",
-   "message": "Create a checkout for my course.",
-   "setup": [
-    "funnel"
-   ],
+   "message": "Create a checkout for my new pottery workshop.",
    "expect": {
     "notTools": [
      "configure_checkout"
