@@ -41,6 +41,27 @@ function Kpi({ label, value, sub, warn }) {
   return <div className={`kpi ${warn ? 'warn' : ''}`}><span className="kpi-l">{label}</span><span className="kpi-v">{value}</span>{sub && <small>{sub}</small>}</div>;
 }
 
+// Hive AI: which accounts use the most model calls and tokens (heavy users, partner sub-accounts), and how busy it is now
+function HiveUsage() {
+  const [d, setD] = useState(null);
+  useEffect(() => { api('/admin/ai-usage?days=30').then(setD).catch(loadFailed); }, []);
+  if (!d) return null;
+  const k = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : num(n));
+  return (
+    <Panel title="Hive AI usage (30 days)" pad={false} actions={<small className="muted">Now: {d.live.live} running · {d.live.waiting} waiting (limit {d.live.max})</small>}>
+      <div className="status-list cols" style={{ padding: '14px 18px' }}>
+        <div><span>Messages</span><b>{num(d.total.turns)}</b></div>
+        <div><span>Model calls</span><b>{num(d.total.rounds)}</b></div>
+        <div><span>Tokens in</span><b>{k(d.total.tokensIn)}</b></div>
+        <div><span>Tokens out</span><b>{k(d.total.tokensOut)}</b></div>
+        <div><span>Tokens per message</span><b>{d.total.turns ? k(Math.round(d.total.tokensIn / d.total.turns)) : '—'}</b></div>
+      </div>
+      {d.top.length > 0 && <table className="tbl compact"><thead><tr><th>Account</th><th>Partner</th><th className="r">Messages</th><th className="r">Model calls</th><th className="r">Tokens in</th><th className="r">Per message</th></tr></thead>
+        <tbody>{d.top.slice(0, 20).map((x) => <tr key={x.userId}><td>{x.business || x.email}<small className="sub-t">{x.email}</small></td><td>{x.partner || '—'}</td><td className="r">{num(x.turns)}</td><td className="r">{num(x.rounds)}</td><td className="r strong">{k(x.tokensIn)}</td><td className="r">{k(Math.round(x.tokensIn / (x.turns || 1)))}</td></tr>)}</tbody></table>}
+    </Panel>
+  );
+}
+
 function Overview() {
   const [d, setD] = useState(null);
   useEffect(() => { api('/admin/overview').then(setD).catch(loadFailed); }, []);
@@ -96,6 +117,7 @@ function Overview() {
           <div><span>Latest backup</span><b>{s.backups[0] ? `${s.backups[0].name.replace(/^funnelhive-|\.db$/g, '')} · ${mb(s.backups[0].bytes)}` : 'None yet'}</b></div>
         </div>
       </Panel>
+      <HiveUsage />
       <Restore />
     </div>
   );

@@ -102,6 +102,7 @@ const SCHEMA = {
   members: { cols: { ownerId: 0, userId: 0, email: (m) => lower(m.email), status: 0, at: 0 }, unique: [['ownerId', 'email']], index: [['userId', 'status']] },
   roles: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // custom team roles an owner made (a permission per area, team.js)
   adspend: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // ad spend per campaign per day (Meta sync, CSV)
+  hiveUsage: { cols: { userId: 0, at: 0 }, index: [['at']] }, // Hive AI per account per day: turns, model calls, tokens (hive.js)
   partnerLedger: { cols: { partnerId: 0, at: 0 }, index: [['partnerId', 'at']] }, // a partner's wallet: top-ups in, account fees and AI usage out
   activity: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // who changed what in an account
   apikeys: { cols: { userId: 0, hash: 0 }, unique: [['hash']], index: [['userId']] }, // public API keys (hashed)

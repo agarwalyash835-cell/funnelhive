@@ -1,5 +1,6 @@
 // Admin panel API (platform owners only): business metrics, sellers, plan & price settings,
 // invoices, audit log, backups. Every change an admin makes is written to the audit log.
+import { hiveLoad } from './hive.js';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,6 +34,18 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     next();
   };
   const A = [auth, admin];
+
+  // ---------- Hive AI usage: which accounts use the most model calls and tokens, and how busy it is right now ----------
+  app.get('/api/admin/ai-usage', ...A, (req, res) => {
+    const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
+    const rows = T.hiveUsage.all({ at: { gte: Date.now() - days * 86400000 } });
+    const by = new Map();
+    for (const r of rows) { const x = by.get(r.userId) || { userId: r.userId, turns: 0, rounds: 0, tokensIn: 0, tokensOut: 0 }; for (const k of ['turns', 'rounds', 'tokensIn', 'tokensOut']) x[k] += r[k] || 0; by.set(r.userId, x); }
+    const total = { turns: 0, rounds: 0, tokensIn: 0, tokensOut: 0 };
+    for (const x of by.values()) for (const k in total) total[k] += x[k];
+    const top = [...by.values()].sort((a, b) => b.tokensIn - a.tokensIn).slice(0, 50).map((x) => { const u = T.users.get(x.userId); return { ...x, email: u?.email || '(deleted)', business: u?.settings?.businessName || u?.name || '', partner: u?.agencyId ? T.users.get(u.agencyId)?.email || null : null }; });
+    res.json({ days, total, top, live: hiveLoad() });
+  });
 
   // ---------- overview ----------
   app.get('/api/admin/overview', ...A, (req, res) => {

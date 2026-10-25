@@ -54,7 +54,7 @@ async function only(allowed, method, path, body) {
 }
 
 test('super admin tools: only the platform admin, and only with 2-step login', async () => {
-  for (const p of ['/admin/overview', '/admin/users', '/admin/settings', '/admin/partners', '/admin/audit']) await only(['super'], 'GET', p);
+  for (const p of ['/admin/overview', '/admin/users', '/admin/settings', '/admin/partners', '/admin/audit', '/admin/ai-usage']) await only(['super'], 'GET', p);
   await only(['super'], 'GET', `/admin/partners/${partnerId}/clients`);
   await only(['super'], 'POST', `/admin/partners/${partnerId}/wallet`, { amount: 10, note: 'test' });
   let n = 0;

@@ -41,12 +41,31 @@ async function kie(system, messages, json) {
 }
 // Hive AI: raw Responses-API call with tool definitions (kie.ai models other than Claude / Gemini)
 export const hiveReady = () => !!KIE_KEY && !KIE_MODEL.startsWith('claude-') && !KIE_MODEL.startsWith('gemini-');
-export async function kieResponses({ instructions, input, tools, signal }) {
+// A hiccup (rate limit, server error, dropped connection, timeout) is retried twice with a short, growing wait —
+// one blip in the middle of a long Hive turn shouldn't throw away the whole turn. A stop from the user is never retried.
+const RETRY_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 529]);
+const waitFor = (ms, signal) => new Promise((res, rej) => {
+  if (signal?.aborted) return rej(signal.reason || new Error('Stopped'));
+  const t = setTimeout(res, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); rej(signal.reason || new Error('Stopped')); }, { once: true });
+});
+export async function kieResponses({ instructions, input, tools, signal, retries = 2, backoffMs = 1500 }) {
   const url = `${KIE_BASE}/${KIE_MODEL.startsWith('gpt-') ? 'codex' : 'openai'}/v1/responses`;
-  const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${KIE_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: KIE_MODEL, instructions, input, tools, stream: false }), signal: signal || AbortSignal.timeout(TIMEOUT) });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok || !Array.isArray(d.output)) throw new Error(`AI service: ${d.msg || d.error?.message || `HTTP ${r.status}`}`);
-  return d;
+  const body = JSON.stringify({ model: KIE_MODEL, instructions, input, tools, stream: false });
+  for (let attempt = 0; ; attempt++) {
+    let r, d, err;
+    try {
+      const sig = signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT)]) : AbortSignal.timeout(TIMEOUT);
+      r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${KIE_KEY}`, 'Content-Type': 'application/json' }, body, signal: sig });
+      d = await r.json().catch(() => ({}));
+      if (r.ok && Array.isArray(d.output)) return d;
+      err = new Error(`AI service: ${d.msg || d.error?.message || `HTTP ${r.status}`}`);
+    } catch (e) { if (signal?.aborted) throw e; err = e; }
+    const again = !r || RETRY_STATUS.has(r.status);
+    if (!again || attempt >= retries) throw err;
+    const after = Number(r?.headers.get('retry-after')) * 1000;
+    await waitFor(Math.min(after > 0 ? after : backoffMs * 2 ** attempt + Math.random() * 400, 15000), signal);
+  }
 }
 
 // ---------- images (kie.ai market models: create a task, poll it, download the result) ----------

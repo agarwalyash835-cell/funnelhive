@@ -753,6 +753,7 @@ How to work:
 - Editing → get_funnel (ids) → get_page (current props) → update_section / add_section / remove_section / move_section / replace_page. Never invent ids.
 - Automations → list_pipelines if you need stage ids, then create_automation with activate=true when the user wants it live. Use WhatsApp templates (not plain text) for automated WhatsApp.
 - Several independent changes → make all the tool calls, then reply once.
+- You start with the funnel-building tools. If the tool you need isn't in your list (checkout, CRM, automations, broadcasts, calls, quotes, ads, school, website, account), call use_tools with its group first.
 - Publish only when the user asks to go live. Remove pages or sections only when asked.
 - Selling → configure_checkout: price & currency (₹ = Razorpay/UPI; $ € £ etc. = Stripe for buyers abroad), memberships (billing monthly/yearly), EMI-style payment plans (installments), order bump, shipping + Cash on Delivery for physical products, and the product delivered after payment (create_product / list_products first).
 - Calls → configure_calendar (hours, duration, time zone, meeting link, price and currency for paid calls, refund window); list_bookings. Webinars → configure_webinar (schedule, time zone, joining link, replay, reminders).
@@ -772,53 +773,165 @@ How to work:
 
 Reply style: short, warm and professional (no slang or nicknames for the user, e.g. no "anna", "bro", "dear"). Say what you built or changed (bullets for several things), then ONE smart next suggestion. Don't paste JSON or ids.`;
 
-const toolDefs = () => TOOLS.map((t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.schema }));
+// ---------- which tools a turn sees ----------
+// Sending all ~60 tool definitions on every model call costs ~14k tokens a call. A turn starts with the everyday
+// funnel tools plus the groups its words (and the tools used in the last replies) point to; the model can load
+// any other group with use_tools. Tools keep their registry order, so the prompt's start stays the same.
+const CORE_TOOLS = ['list_funnels', 'get_funnel', 'create_funnel', 'list_templates', 'create_funnel_from_template', 'get_page', 'update_section', 'remove_section', 'move_section', 'replace_page', 'add_step', 'remove_step', 'reorder_steps', 'update_funnel', 'publish_funnel', 'duplicate_funnel', 'get_sales', 'get_analytics', 'write_marketing_copy'];
+export const TOOL_GROUPS = {
+  sections: { about: 'add new sections to a page (hero, testimonials, FAQ, pricing, video, forms, timers…)', tools: ['add_section'], re: /\b(sections?|add|insert|block|testimonials?|faq|pricing|hero|video|form|countdown|timer|gallery|banner|logos?|reviews?|guarantee|bonus|page|design|layout)\b/i },
+  selling: { about: 'checkout, prices, products, coupons, order bumps, payment plans, A/B tests', tools: ['configure_checkout', 'list_products', 'create_product', 'create_coupon', 'list_coupons', 'split_test'], re: /\b(checkout|prices?|pricing|pay(ment)?s?|products?|coupons?|discount|bump|upsell|downsell|emi|instal+ments?|cod|cash on delivery|subscriptions?|membership|sell|a\/b|split|variant|razorpay|stripe|upi)\b|[₹$€£]/i },
+  crm: { about: 'contacts, leads, CRM fields and pipelines, tags', tools: ['find_contacts', 'update_contact', 'tag_contacts', 'list_pipelines', 'list_crm_fields', 'create_pipeline', 'setup_crm'], re: /\b(crm|contacts?|leads?|pipelines?|stages?|tags?|customers?|prospects?|fields?|deals?|patients?|students?|buyers?)\b/i },
+  automations: { about: 'automations: follow-up email / WhatsApp sequences, reminders, webhooks', tools: ['list_automations', 'create_automation', 'update_automation', 'list_pipelines', 'connect_webhook'], re: /\b(automat\w*|follow[- ]?ups?|whats ?app|emails?|sequences?|remind\w*|webhooks?|nurture|drip|trigger\w*|workflows?)\b/i },
+  broadcasts: { about: 'broadcasts: one-off emails / WhatsApp to a list', tools: ['draft_broadcast', 'send_broadcast', 'find_contacts'], re: /\b(broadcasts?|blast|newsletter|announce\w*|send (it )?to (all|my|everyone|the list))\b/i },
+  calls: { about: 'booking calendars, booked calls, webinars', tools: ['configure_calendar', 'list_bookings', 'configure_webinar'], re: /\b(book\w*|calls?|calendar|appointments?|slots?|webinars?|meetings?|demos?|sessions?|consultations?|site visits?|zoom|google meet)\b/i },
+  quotes: { about: 'custom quotes / proposals with a pay link', tools: ['create_quote', 'list_quotes'], re: /\b(quotes?|quotations?|proposals?|estimates?|invoices?|retainers?|packages?)\b/i },
+  ads: { about: 'Meta / Google ads (the seller’s connected accounts), ad reports, ad images, tracking pixels', tools: ['find_app_actions', 'run_app_action', 'ads_report', 'generate_image', 'set_tracking'], re: /\b(ads?|advert\w*|meta|facebook|instagram|google|campaigns?|roas|cpa|cpl|pixel|ga4|tracking|creatives?|reels?)\b/i },
+  school: { about: 'courses, quizzes, the members community', tools: ['school_overview', 'create_course', 'add_quiz', 'get_course', 'create_space', 'post_to_community'], re: /\b(courses?|school|lessons?|modules?|quiz\w*|community|members? area|students?|certificates?)\b/i },
+  website: { about: 'business websites, custom domains, images', tools: ['create_website', 'connect_domain', 'check_domain', 'generate_image'], re: /\b(website|site|about( us)?|home ?page|domains?|dns|cname|images?|photos?|pictures?)\b/i },
+  account: { about: 'business settings, team members, agency clients, tracking, webhooks', tools: ['update_business', 'list_team', 'invite_team_member', 'list_clients', 'copy_funnel_to_client', 'set_tracking', 'connect_webhook'], re: /\b(team|invite|staff|employees?|clients?|agency|business (name|settings)|time ?zone|consent|settings)\b/i },
+};
+const groupOf = Object.fromEntries(Object.entries(TOOL_GROUPS).flatMap(([g, x]) => x.tools.map((n) => [n, g])));
+const USE_TOOLS = {
+  type: 'function', name: 'use_tools',
+  description: `Load more tools for this request (you start with the funnel-building tools). Groups: ${Object.entries(TOOL_GROUPS).map(([g, x]) => `${g} — ${x.about}`).join('; ')}.`,
+  parameters: { type: 'object', properties: { groups: { type: 'array', items: { type: 'string', enum: Object.keys(TOOL_GROUPS) } } }, required: ['groups'], additionalProperties: false },
+};
+// the groups a turn starts with: its words, the last couple of messages, and the tools the last replies used
+export function startGroups(message, history = [], focused = false) {
+  const recent = history.slice(-2);
+  const text = [message, ...recent.map((m) => m.text || '')].join('\n');
+  const g = new Set(Object.entries(TOOL_GROUPS).filter(([, x]) => x.re.test(text)).map(([k]) => k));
+  for (const m of recent) for (const n of m.tools || []) if (groupOf[n]) g.add(groupOf[n]);
+  if (focused) g.add('sections'); // looking at a funnel: editing is likely
+  return g;
+}
+const defOf = (t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.schema });
+export const toolDefsFor = (groups) => {
+  const names = new Set([...CORE_TOOLS, ...[...groups].flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
+  return [...TOOLS.filter((t) => names.has(t.name)).map(defOf), USE_TOOLS];
+};
 
-export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal }) {
+// tools that only read: several in one reply run at the same time
+const READ_ONLY = new Set(['ads_report', 'school_overview', 'check_domain', 'find_app_actions', 'write_marketing_copy']);
+const readsOnly = (name) => READ_ONLY.has(name) || /^(list|get|find)_/.test(name);
+
+// ---------- limits ----------
+// a turn's input-token budget (a runaway turn stops politely), and how many model calls run at once platform-wide
+const TURN_TOKENS = Number(process.env.HIVE_TURN_TOKENS || 600000);
+const MAX_LIVE = Number(process.env.HIVE_MAX_CONCURRENT || 24);
+let live = 0;
+const waiting = [];
+async function slot(signal) {
+  if (live < MAX_LIVE) { live++; return; }
+  await new Promise((res, rej) => {
+    const w = { res, rej };
+    waiting.push(w);
+    signal?.addEventListener('abort', () => { const i = waiting.indexOf(w); if (i >= 0) { waiting.splice(i, 1); rej(new Error('Stopped')); } }, { once: true });
+  });
+}
+function freeSlot() { const w = waiting.shift(); if (w) w.res(); else live--; }
+export const hiveLoad = () => ({ live, waiting: waiting.length, max: MAX_LIVE });
+
+// older tool results are shortened before each model call: the last two rounds stay whole
+const KEEP_ROUNDS = 2, OLD_MAX = 1500;
+function compact(input, rounds, round) {
+  for (const it of input) {
+    if (it.type !== 'function_call_output' || it.output.length <= OLD_MAX) continue;
+    if (round - (rounds.get(it.call_id) ?? round) <= KEEP_ROUNDS) continue;
+    it.output = `${it.output.slice(0, OLD_MAX)}…(earlier result shortened — call the tool again if you need the rest)`;
+  }
+}
+const estTokens = (v) => Math.ceil(JSON.stringify(v).length / 3.8);
+
+// ---------- the turn ----------
+export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses }) {
   let context = '';
   if (focusFunnelId) { try { context = `\n\n[The user is looking at funnel ${focusFunnelId}: ${clip(outline(await ctx.call('GET', `/funnels/${focusFunnelId}`), ctx.origin)).slice(0, 3000)}]`; } catch {} }
   const input = [...history.slice(-12).map((m) => ({ role: m.role, content: m.text })), { role: 'user', content: message + context }];
-  const tools = toolDefs();
-  const done = [];
-  let text = '', focus = focusFunnelId || null;
+  const groups = startGroups(message, history, !!focusFunnelId);
+  const done = [], rounds = new Map(), seen = new Map();
+  const usage = { rounds: 0, tokensIn: 0, tokensOut: 0 };
+  let text = '', focus = focusFunnelId || null, stoppedForBudget = false;
+
+  // one tool call → { out, ok, summary } (emits its progress)
+  const exec = async (c) => {
+    let args = {};
+    try { args = JSON.parse(c.arguments || '{}'); } catch {}
+    if (c.name === 'use_tools') {
+      const add = (Array.isArray(args.groups) ? args.groups : []).filter((g) => TOOL_GROUPS[g]);
+      add.forEach((g) => groups.add(g));
+      return { out: { loaded: add.flatMap((g) => TOOL_GROUPS[g].tools) }, ok: true, summary: null };
+    }
+    const t = byName[c.name];
+    if (t && groupOf[c.name]) groups.add(groupOf[c.name]); // a tool it knew anyway: keep its group loaded
+    // the same call again in one turn: a change isn't repeated; a read can be, twice
+    const sig = `${c.name}:${JSON.stringify(args)}`, prev = seen.get(sig);
+    if (prev && (!readsOnly(c.name) || prev.n >= 2) && prev.ok) {
+      prev.n++;
+      return { out: { note: 'Already done earlier in this reply with the same details — don’t repeat it. Continue with the next step or answer the user.', earlier: prev.summary }, ok: true, summary: null };
+    }
+    emit({ type: 'tool', status: 'running', id: c.call_id, name: c.name, label: t?.description.split(/[.:\n]/)[0] || c.name });
+    const ask = ctx.pending && needsOk(c.name, args);
+    if (ask) {
+      const p = { id: uid(), name: c.name, args, label: ask, at: Date.now() };
+      ctx.pending.push(p);
+      const summary = `Needs your OK: ${ask}`;
+      done.push({ name: c.name, ok: true, summary, pending: p.id });
+      emit({ type: 'tool', status: 'confirm', id: c.call_id, name: c.name, summary, pending: p.id });
+      seen.set(sig, { n: 1, ok: true, summary });
+      return { out: { waitingForUser: true, note: 'NOT done yet: the seller must press Confirm under your reply. Tell them in one line what will happen and ask them to confirm. Do not call this tool again for it.' }, ok: true, summary: null };
+    }
+    let out, ok = true, summary;
+    try {
+      out = await runTool(ctx, c.name, args);
+      summary = t.summary ? t.summary(out, args) : `Ran ${c.name}`;
+      const fid = t.touchesResult ? out?.id : t.touches ? args[t.touches] : null;
+      if (fid) focus = fid;
+    } catch (e) { ok = false; out = { error: e.message }; summary = `${c.name.replace(/_/g, ' ')} failed: ${e.message}`; }
+    seen.set(sig, { n: (prev?.n || 0) + 1, ok, summary });
+    done.push({ name: c.name, ok, summary });
+    emit({ type: 'tool', status: ok ? 'done' : 'error', id: c.call_id, name: c.name, summary, funnelId: focus });
+    return { out, ok, summary };
+  };
+
   for (let i = 0; i < MAX_MODEL_CALLS; i++) {
     if (signal?.aborted) break;
-    const d = await kieResponses({ instructions: SYSTEM, input, tools, signal });
+    if (usage.tokensIn >= TURN_TOKENS) { stoppedForBudget = true; break; }
+    compact(input, rounds, i);
+    const tools = toolDefsFor(groups);
+    await slot(signal);
+    let d;
+    try { d = await model({ instructions: SYSTEM, input, tools, signal }); } finally { freeSlot(); }
+    usage.rounds++;
+    usage.tokensIn += d.usage?.input_tokens || estTokens([SYSTEM, input, tools]);
+    usage.tokensOut += d.usage?.output_tokens || estTokens(d.output);
     const say = d.output.filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('').trim();
     const calls = d.output.filter((o) => o.type === 'function_call');
     if (say) { text = say; if (calls.length) emit({ type: 'thinking', text: say }); }
     if (!calls.length) break;
     input.push(...calls);
-    for (const c of calls) {
-      let args = {};
-      try { args = JSON.parse(c.arguments || '{}'); } catch {}
-      const t = byName[c.name];
-      emit({ type: 'tool', status: 'running', id: c.call_id, name: c.name, label: t?.description.split(/[.:\n]/)[0] || c.name });
-      let out, ok = true, summary;
-      const ask = ctx.pending && needsOk(c.name, args);
-      if (ask) {
-        const p = { id: uid(), name: c.name, args, label: ask, at: Date.now() };
-        ctx.pending.push(p);
-        out = { waitingForUser: true, note: 'NOT done yet: the seller must press Confirm under your reply. Tell them in one line what will happen and ask them to confirm. Do not call this tool again for it.' };
-        summary = `Needs your OK: ${ask}`;
-        done.push({ name: c.name, ok, summary, pending: p.id });
-        emit({ type: 'tool', status: 'confirm', id: c.call_id, name: c.name, summary, pending: p.id });
-        input.push({ type: 'function_call_output', call_id: c.call_id, output: clip(out) });
-        continue;
-      }
-      try {
-        out = await runTool(ctx, c.name, args);
-        summary = t.summary ? t.summary(out, args) : `Ran ${c.name}`;
-        const fid = t.touchesResult ? out?.id : t.touches ? args[t.touches] : null;
-        if (fid) focus = fid;
-      } catch (e) { ok = false; out = { error: e.message }; summary = `${c.name.replace(/_/g, ' ')} failed: ${e.message}`; }
-      done.push({ name: c.name, ok, summary });
-      emit({ type: 'tool', status: ok ? 'done' : 'error', id: c.call_id, name: c.name, summary, funnelId: focus });
-      input.push({ type: 'function_call_output', call_id: c.call_id, output: clip(out) });
+    // reads next to each other run together; anything that changes something runs on its own, in order
+    const results = [];
+    for (let k = 0; k < calls.length;) {
+      let j = k;
+      while (j < calls.length && readsOnly(calls[j].name)) j++;
+      if (j > k + 1) { results.push(...await Promise.all(calls.slice(k, j).map(exec))); k = j; } else { results.push(await exec(calls[k])); k++; }
     }
+    calls.forEach((c, n) => { rounds.set(c.call_id, i); input.push({ type: 'function_call_output', call_id: c.call_id, output: clip(results[n].out) }); });
   }
+  if (stoppedForBudget) text = `${text ? `${text}\n\n` : ''}That was a big job, so I’ve paused here to keep things quick. Say “continue” and I’ll pick up where I left off.`;
   if (!text) text = done.length ? 'Done.' : 'Sorry — I couldn’t work that out. Could you say it another way?';
-  return { text, tools: done, funnelId: focus };
+  return { text, tools: done, funnelId: focus, usage };
+}
+
+// what Hive turns cost: one row per account per day (model calls and tokens), for the admin panel
+function logUsage(userId, u) {
+  if (!u?.rounds) return;
+  const day = new Date().toISOString().slice(0, 10), id = `${userId}:${day}`;
+  const add = (x) => { x.turns = (x.turns || 0) + 1; x.rounds = (x.rounds || 0) + u.rounds; x.tokensIn = (x.tokensIn || 0) + u.tokensIn; x.tokensOut = (x.tokensOut || 0) + u.tokensOut; };
+  if (T.hiveUsage.get(id)) T.hiveUsage.update(id, add);
+  else { const row = { id, userId, day, at: Date.now() }; add(row); T.hiveUsage.insert(row); }
 }
 
 // ---------- routes: chat, threads, MCP, access tokens ----------
@@ -856,13 +969,14 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     const ac = new AbortController();
     res.on('close', () => { if (!res.writableFinished) ac.abort(); });
     const ping = setInterval(() => emit({ type: 'ping' }), 15000);
-    const history = t.messages.map((m) => ({ role: m.role, text: m.text }));
+    const history = t.messages.map((m) => ({ role: m.role, text: m.text, tools: (m.tools || []).map((x) => x.name) }));
     t.messages.push({ role: 'user', text: message, at: Date.now() });
     T.hive.put(t);
     try {
       const ctx = { ...ctxFor(req.user, appUrl(req), req.actor), pending: [] };
       const out = await hiveTurn({ ctx, history, message, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal });
       t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now() });
+      logUsage(req.user.id, out.usage);
       if (out.funnelId) t.funnelId = out.funnelId;
       if (ctx.pending.length) t.pending = [...(t.pending || []).filter((p) => Date.now() - p.at < PENDING_TTL), ...ctx.pending].slice(-20);
       emit({ type: 'reply', text: out.text, tools: out.tools, funnelId: t.funnelId });
