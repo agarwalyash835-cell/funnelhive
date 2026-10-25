@@ -2,8 +2,9 @@
 // Sending is a background job: the audience is frozen when the broadcast starts (one row per recipient),
 // rows are claimed one by one (safe with several server processes) and sent a batch at a time, so a big list
 // never blocks the server. Only contacts who opted in to marketing are sent to, unsubscribed ones never;
-// email opens and clicks are tracked.
-import { T, q, tx, uid, JOBS } from './db.js';
+// email opens and clicks are tracked. A campaign can be followed up (retargeted) — the same people, or those who
+// didn't open / click / receive it — and shows the sales its recipients made in the 7 days after it reached them.
+import { T, q, tx, uid, JOBS, paidOrder, ordersByPhone } from './db.js';
 import { sendEmail, sendWhatsApp, emailStatus, whatsappStatus } from './messaging.js';
 import { contactList, metaFor, logActivity, pipelinesFor } from './crm.js';
 import { fill, emailTracking } from './automations.js';
@@ -35,7 +36,22 @@ export function cleanSegment(s = {}, userId) {
   if (s.source) out.source = str(s.source, 60);
   if (Number(s.days) > 0) out.days = Math.min(3650, Math.round(Number(s.days)));
   if (Number(s.minSpend) > 0) out.minSpend = Math.round(Number(s.minSpend));
+  // a follow-up: the people an earlier campaign of this account reached (all, or by what they did with it)
+  const fb = s.from?.broadcastId && T.broadcasts.get(s.from.broadcastId);
+  if (fb && fb.userId === userId && RETARGET[s.from.who]) out.from = { broadcastId: fb.id, who: s.from.who };
   return out;
+}
+// who a follow-up goes to (opens and clicks are tracked for email only)
+export const RETARGET = { all: 'Everyone it reached', not_opened: 'Didn’t open it', opened: 'Opened it', not_clicked: 'Didn’t click a link', clicked: 'Clicked a link', failed: 'Didn’t receive it (failed)' };
+function retargetKeys(from) {
+  const rows = T.bsends.all({ broadcastId: from.broadcastId });
+  if (from.who === 'failed') return new Set(rows.filter((r) => r.status === 'failed').map((r) => r.key));
+  const sent = rows.filter((r) => r.status === 'sent').map((r) => r.key);
+  if (from.who === 'all') return new Set(sent);
+  const seen = new Map();
+  for (const m of T.msgs.all({ broadcastId: from.broadcastId })) seen.set(m.key, { opened: m.opens > 0 || m.clicks > 0, clicked: m.clicks > 0 });
+  const pick = { not_opened: (x) => !x?.opened, opened: (x) => !!x?.opened, not_clicked: (x) => !x?.clicked, clicked: (x) => !!x?.clicked }[from.who];
+  return new Set(sent.filter((k) => pick(seen.get(k))));
 }
 const matches = (c, s, now) => {
   if (s.type === 'leads' && c.type !== 'lead') return false;
@@ -56,7 +72,8 @@ const demoKeys = (userId) => new Set(q("SELECT ckey FROM leads WHERE userId = ? 
 export function audience(userId, segment, channel) {
   const now = Date.now();
   const demo = demoKeys(userId);
-  const all = contactList(userId).filter((c) => !demo.has(c.key) && matches(c, segment, now));
+  const only = segment.from ? retargetKeys(segment.from) : null;
+  const all = contactList(userId).filter((c) => !demo.has(c.key) && (!only || only.has(c.key)) && matches(c, segment, now));
   const reach = [], left = { unsubscribed: 0, notOptedIn: 0, noAddress: 0 };
   for (const c of all) {
     if (c.unsubscribed || (channel === 'whatsapp' && c.waOptOut)) left.unsubscribed++;
@@ -185,6 +202,27 @@ export async function broadcastTick(now = Date.now()) {
   } catch (e) { console.error('broadcast job failed', e); } finally { busy = false; }
 }
 
+// ---------- results: what recipients bought in the 7 days after it reached them ----------
+const WINDOW = 7 * DAY;
+export function campaignSales(b) {
+  if (!b.startedAt) return null;
+  const sent = T.bsends.all({ broadcastId: b.id, status: 'sent' });
+  if (!sent.length) return { buyers: 0, orders: 0, revenue: 0 };
+  const byKey = new Map(sent.map((r) => [r.key, r]));
+  const until = Math.max(...sent.map((r) => r.sentAt || 0)) + WINDOW;
+  const found = new Map();
+  const take = (o, r) => { if (o.at >= (r.sentAt || 0) && o.at <= (r.sentAt || 0) + WINDOW && paidOrder(o) && !o.demo) found.set(o.id, { o, key: r.key }); };
+  for (const row of q('SELECT data FROM orders WHERE userId = ? AND at >= ? AND at <= ?').all(b.userId, b.startedAt, until)) {
+    const o = JSON.parse(row.data), r = byKey.get(String(o.email || '').trim().toLowerCase());
+    if (r) take(o, r);
+  }
+  for (const r of sent) if (!r.email && r.phone) for (const o of ordersByPhone({ userId: b.userId }, r.phone, (r.sentAt || 0) - 1)) take(o, r);
+  const list = [...found.values()];
+  // the paid value in ₹ (foreign-currency orders converted, refunds taken off) as the orders table keeps it
+  const net = (id) => q('SELECT net FROM orders WHERE id = ?').get(id)?.net || 0;
+  return { buyers: new Set(list.map((x) => x.key)).size, orders: list.length, revenue: Math.round(list.reduce((a, x) => a + net(x.o.id), 0)) };
+}
+
 // ---------- API ----------
 const view = (b) => { const { userId, ...x } = b; return x; };
 export function registerBroadcasts(app, { auth, rateLimit, isTest }) {
@@ -211,7 +249,8 @@ export function registerBroadcasts(app, { auth, rateLimit, isTest }) {
   app.get('/api/broadcasts/:bid', auth, (req, res) => {
     const b = own(req, res); if (!b) return;
     const failed = T.bsends.all({ broadcastId: b.id, status: 'failed' }, { limit: 200 }).map((s) => ({ name: s.name, email: s.email, phone: s.phone, error: s.error }));
-    res.json({ ...view(b), audience: ['draft', 'scheduled'].includes(b.status) ? summary(req.user.id, b) : null, failed });
+    const from = b.segment?.from && T.broadcasts.get(b.segment.from.broadcastId);
+    res.json({ ...view(b), audience: ['draft', 'scheduled'].includes(b.status) ? summary(req.user.id, b) : null, failed, sales: campaignSales(b), followsUp: from ? { id: from.id, name: from.name, who: RETARGET[b.segment.from.who] } : null });
   });
   app.put('/api/broadcasts/:bid', auth, (req, res) => {
     const b = own(req, res); if (!b) return;
@@ -221,6 +260,16 @@ export function registerBroadcasts(app, { auth, rateLimit, isTest }) {
   app.post('/api/broadcasts/:bid/duplicate', auth, (req, res) => {
     const b = own(req, res); if (!b) return;
     res.json(view(T.broadcasts.insert({ id: uid(), userId: req.user.id, ...clean({}, req.user.id, b), name: `${b.name} (copy)`.slice(0, 100), status: 'draft', stats: {}, at: Date.now() })));
+  });
+  // a follow-up draft: the same message (edit it) to everyone it reached, or those who didn't open / click / receive it
+  app.post('/api/broadcasts/:bid/retarget', auth, (req, res) => {
+    const b = own(req, res); if (!b) return;
+    if (!['sending', 'sent', 'cancelled'].includes(b.status)) return res.status(400).json({ error: 'Send it first — then follow up' });
+    const who = String(req.body?.who || 'all');
+    if (!RETARGET[who] || (b.channel !== 'email' && !['all', 'failed'].includes(who))) return res.status(400).json({ error: b.channel === 'email' ? 'Pick who to follow up with' : 'WhatsApp follow-ups go to everyone it reached, or those it failed to reach' });
+    const x = clean({}, req.user.id, b);
+    const n = T.broadcasts.insert({ id: uid(), userId: req.user.id, ...x, name: `${b.name} — follow-up`.slice(0, 100), segment: { type: 'all', tags: [], notTags: [], from: { broadcastId: b.id, who } }, status: 'draft', stats: {}, at: Date.now() });
+    res.json({ ...view(n), audience: summary(req.user.id, n) });
   });
   app.delete('/api/broadcasts/:bid', auth, (req, res) => {
     const b = own(req, res); if (!b) return;

@@ -18,6 +18,7 @@ import { registerAds } from './adtrack.js';
 import { registerQuoteTemplates } from './quotetpl.js';
 import { registerPartners, partnerForHost, attachSignup } from './partners.js';
 import { registerLeadSources, indiaMartJob, startMailReceiver } from './leadsources.js';
+import { registerVoice } from './voice.js';
 import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, popupCounts, bumpRate, campaigns, refundsTotal } from './analytics.js';
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
@@ -955,6 +956,7 @@ registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl });
 // lead sources (IndiaMART, JustDial, Google Ads lead forms, portal emails); JustDial may post a plain form
 app.use('/api/leads/in', express.urlencoded({ extended: false, limit: '256kb' }));
 registerLeadSources(app, { auth, wrap, rateLimit, isTest, appUrl });
+registerVoice(app, { auth, wrap, rateLimit, isTest });
 registerBroadcasts(app, { auth, rateLimit, isTest });
 registerTeam(app, { auth, sign, rateLimit, isTest });
 registerPlans(app, { auth, resolveToken });

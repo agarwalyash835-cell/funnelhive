@@ -145,6 +145,7 @@ const app = onDomain ? (
         <Route path="/q/:id" element={L(QuotePublic)} />
         <Route path="/webinars" element={P(Webinars)} />
         <Route path="/broadcasts" element={P(Broadcasts)} />
+        <Route path="/campaigns" element={P(Broadcasts)} />
         <Route path="/developers" element={P(Developers)} />
         <Route path="/agency" element={P(Agency)} />
         <Route path="/webinar/:id" element={L(WebinarJoin)} />
