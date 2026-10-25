@@ -10,7 +10,7 @@
 //   node evals/run.mjs --only education,cpn  cases whose industry or id starts with these
 //   node evals/run.mjs --limit 20 --concurrency 4 --min 0.9
 // On the server:  docker compose exec app node server/evals/run.mjs --limit 30
-// Writes evals/reports/hive-<time>.json; exits 1 when the pass rate is under --min (default 0.9).
+// Writes evals/reports/hive-<time>.json (or the temp folder when that is read-only); exits 1 when the pass rate is under --min (default 0.9).
 import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
@@ -117,8 +117,9 @@ export async function main({ only = arg('only'), limit = arg('limit'), concurren
     const sum = summarise(results);
     say(`\n${sum.pass}/${sum.total} passed (${(sum.rate * 100).toFixed(1)}%)\n`);
     for (const [ind, x] of Object.entries(sum.byIndustry).sort()) say(`  ${ind.padEnd(14)} ${x.pass}/${x.total}\n`);
-    const dir = path.join(here, 'reports');
-    fs.mkdirSync(dir, { recursive: true });
+    // next to the bank, or (in the app's container, where the code is read-only) the temp folder; EVALS_REPORTS to choose
+    let dir = process.env.EVALS_REPORTS || path.join(here, 'reports');
+    try { fs.mkdirSync(dir, { recursive: true }); fs.accessSync(dir, fs.constants.W_OK); } catch { dir = path.join(os.tmpdir(), 'fh-evals-reports'); fs.mkdirSync(dir, { recursive: true }); }
     const file = path.join(dir, `hive-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
     fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), model: process.env.KIE_MODEL || null, ...sum, results }, null, 2));
     say(`Report: ${file}\n`);
