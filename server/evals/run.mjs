@@ -52,7 +52,16 @@ export async function startApp(env = {}) {
 }
 
 const SETUP = {
-  funnel: async (api, tk) => { const t = (await api('/templates')).data; const tpl = t.find((x) => /sales/i.test(`${x.kind} ${x.name}`)) || t[0]; await api(`/templates/${tpl.id}/use`, 'POST', {}, tk); },
+  // a plain sales funnel: sales page → checkout → … → thank-you (not an application or webinar funnel)
+  funnel: async (api, tk) => {
+    const list = (await api('/templates')).data;
+    let tpl = null;
+    for (const x of list.filter((y) => ['product', 'course'].includes(y.kind))) {
+      const types = ((await api(`/templates/${x.id}`)).data.steps || []).map((s) => s.type);
+      if (types.includes('checkout') && types.includes('thankyou')) { tpl = x; break; }
+    }
+    await api(`/templates/${(tpl || list[0]).id}/use`, 'POST', {}, tk);
+  },
   product: async (api, tk) => { await api('/products', 'POST', { name: 'Starter programme', description: 'The main programme' }, tk); },
   contacts: async (api, tk) => { for (const [n, e] of [['Asha Rao', 'asha@example.com'], ['Vikram Shah', 'vikram@example.com'], ['Neha Gupta', 'neha@example.com']]) await api('/contacts', 'POST', { name: n, email: e }, tk); },
 };

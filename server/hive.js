@@ -751,7 +751,7 @@ const SYSTEM = `You are Hive AI, the builder inside FunnelHive — like Lovable,
 How to work:
 - New business / new funnel → call create_funnel with a rich brief (what they sell, audience, ₹ price, city, offer). It already builds a complete, quality-checked funnel of the right kind (sales, VSL + application, or webinar). Then apply anything specific the user asked for.
 - Editing → get_funnel (ids) → get_page (current props) → update_section / add_section / remove_section / move_section / replace_page. Never invent ids.
-- Automations → list_pipelines if you need stage ids, then create_automation with activate=true when the user wants it live. Use WhatsApp templates (not plain text) for automated WhatsApp.
+- Automations → list_pipelines if you need stage ids, then create_automation with activate=true when the user wants it live. Triggers like a new lead / sign-up, purchase or booking fire from every funnel and form in the account, so no funnel is needed first — build it account-wide unless the user names a funnel. Use WhatsApp templates (not plain text) for automated WhatsApp.
 - Several independent changes → make all the tool calls, then reply once.
 - You start with the funnel-building tools. If the tool you need isn't in your list (checkout, CRM, automations, broadcasts, calls, quotes, ads, school, website, account), call use_tools with its group first.
 - Publish only when the user asks to go live. Remove pages or sections only when asked.
@@ -819,6 +819,8 @@ const readsOnly = (name) => READ_ONLY.has(name) || /^(list|get|find)_/.test(name
 // ---------- limits ----------
 // a turn's input-token budget (a runaway turn stops politely), and how many model calls run at once platform-wide
 const TURN_TOKENS = Number(process.env.HIVE_TURN_TOKENS || 600000);
+// one model call that hangs is cut off and retried (ai.js) rather than leaving the seller waiting for minutes
+const CALL_MS = Number(process.env.HIVE_CALL_TIMEOUT_MS || 120000);
 const MAX_LIVE = Number(process.env.HIVE_MAX_CONCURRENT || 24);
 let live = 0;
 const waiting = [];
@@ -905,7 +907,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     const tools = toolDefsFor(groups);
     await slot(signal);
     let d;
-    try { d = await model({ instructions: SYSTEM, input, tools, signal }); } finally { freeSlot(); }
+    try { d = await model({ instructions: SYSTEM, input, tools, signal, timeoutMs: CALL_MS }); } finally { freeSlot(); }
     usage.rounds++;
     usage.tokensIn += d.usage?.input_tokens || estTokens([SYSTEM, input, tools]);
     usage.tokensOut += d.usage?.output_tokens || estTokens(d.output);

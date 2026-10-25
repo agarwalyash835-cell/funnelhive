@@ -49,13 +49,13 @@ const waitFor = (ms, signal) => new Promise((res, rej) => {
   const t = setTimeout(res, ms);
   signal?.addEventListener('abort', () => { clearTimeout(t); rej(signal.reason || new Error('Stopped')); }, { once: true });
 });
-export async function kieResponses({ instructions, input, tools, signal, retries = 2, backoffMs = 1500 }) {
+export async function kieResponses({ instructions, input, tools, signal, retries = 2, backoffMs = 1500, timeoutMs = TIMEOUT }) {
   const url = `${KIE_BASE}/${KIE_MODEL.startsWith('gpt-') ? 'codex' : 'openai'}/v1/responses`;
   const body = JSON.stringify({ model: KIE_MODEL, instructions, input, tools, stream: false });
   for (let attempt = 0; ; attempt++) {
     let r, d, err;
     try {
-      const sig = signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT)]) : AbortSignal.timeout(TIMEOUT);
+      const sig = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
       r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${KIE_KEY}`, 'Content-Type': 'application/json' }, body, signal: sig });
       d = await r.json().catch(() => ({}));
       if (r.ok && Array.isArray(d.output)) return d;
