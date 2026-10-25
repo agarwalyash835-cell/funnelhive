@@ -843,6 +843,9 @@ function compact(input, rounds, round) {
   }
 }
 const estTokens = (v) => Math.ceil(JSON.stringify(v).length / 3.8);
+// a reply that turns the user down ("I can't…", "there's no way to…"): checked again with every tool before it's shown
+const REFUSAL = /\b(can(?:no|['’])?t|unable to|not able to|isn['’]t (?:possible|supported)|not (?:possible|supported)|don['’]t have (?:a |the |any )?(?:tool|way|ability|access)|no (?:tool|way) to|outside (?:of )?what i can)\b/i;
+const GROUP_COUNT = Object.keys(TOOL_GROUPS).length;
 
 // ---------- the turn ----------
 export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses }) {
@@ -852,7 +855,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
   const groups = startGroups(message, history, !!focusFunnelId);
   const done = [], rounds = new Map(), seen = new Map();
   const usage = { rounds: 0, tokensIn: 0, tokensOut: 0 };
-  let text = '', focus = focusFunnelId || null, stoppedForBudget = false;
+  let text = '', focus = focusFunnelId || null, stoppedForBudget = false, rechecked = false;
 
   // one tool call → { out, ok, summary } (emits its progress)
   const exec = async (c) => {
@@ -908,6 +911,14 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     usage.tokensOut += d.usage?.output_tokens || estTokens(d.output);
     const say = d.output.filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('').trim();
     const calls = d.output.filter((o) => o.type === 'function_call');
+    if (!calls.length && !rechecked && REFUSAL.test(say) && groups.size < GROUP_COUNT) {
+      // about to say "I can't" without every tool in view: load them all and let it look again (the user never
+      // sees the first answer)
+      rechecked = true;
+      Object.keys(TOOL_GROUPS).forEach((g) => groups.add(g));
+      input.push({ role: 'assistant', content: say }, { role: 'user', content: '[Note from the app: every tool is loaded now — check the full list. If any tool can do what I asked, do it instead of saying you can’t; otherwise explain what you can do instead.]' });
+      continue;
+    }
     if (say) { text = say; if (calls.length) emit({ type: 'thinking', text: say }); }
     if (!calls.length) break;
     input.push(...calls);

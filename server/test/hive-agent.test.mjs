@@ -120,3 +120,17 @@ test('a hiccup from the AI service is retried', async () => {
   assert.equal(hits.length, 2, 'a 503, then the answer');
   assert.equal(d.output[0].content[0].text, 'hi');
 });
+
+test('before saying “I can’t”, Hive looks again with every tool loaded — the user only sees the second answer', async () => {
+  await load();
+  const r = ctxWith();
+  const { model, seen } = script([reply(text('Sorry, I can’t create quotes.')), reply(fc('create_quote', { title: 'Retainer', items: [{ name: 'SEO', price: 20000 }] })), reply(text('Your quote is ready.'))]);
+  const out = await turn(model, r.ctx, 'make a proposal for Acme');
+  assert.ok(seen[1].tools.includes('create_quote') && seen[1].tools.includes('add_section'), 'every tool on the second look');
+  assert.equal(out.text, 'Your quote is ready.');
+  // only once: a real “can’t” after the second look is shown
+  const s2 = script([reply(text('I can’t do that.')), reply(text('I can’t book flights, but I can build a travel funnel.'))]);
+  const out2 = await turn(s2.model, ctxWith().ctx, 'book me a flight');
+  assert.equal(s2.seen.length, 2);
+  assert.match(out2.text, /travel funnel/);
+});

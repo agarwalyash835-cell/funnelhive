@@ -2706,3 +2706,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 
 /* menu: reset to the industry's layout */
 .nav-reset { margin: 0 8px 8px; }
+
+/* Hive: what it's doing now, plus a rotating playful line */
+.hv-typing { flex-wrap: wrap; }
+.hv-typing b { color: var(--c-ink-2); font-weight: 600; }
+.hv-magic { animation: hvmagic .45s ease-out; }
+.hv-long { flex-basis: 100%; margin-left: 27px; font-size: 11.5px; }
+@keyframes hvmagic { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .hv-magic { animation: none; } }

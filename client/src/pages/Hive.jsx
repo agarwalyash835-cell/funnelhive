@@ -31,13 +31,40 @@ function Rich({ text }) {
   return <div className="rich">{out}</div>;
 }
 
+// what Hive is doing right now, in plain words (the step names stay the same; only the live line is friendlier)
+const DOING = {
+  create_funnel: 'Building your funnel', create_funnel_from_template: 'Setting up the template', create_website: 'Building your website', duplicate_funnel: 'Copying the funnel',
+  get_funnel: 'Looking at your funnel', get_page: 'Reading the page', list_funnels: 'Looking at your funnels', list_templates: 'Browsing templates',
+  update_section: 'Updating the page', add_section: 'Adding a section', remove_section: 'Removing a section', move_section: 'Rearranging the page', replace_page: 'Rewriting the page',
+  add_step: 'Adding a page', remove_step: 'Removing a page', reorder_steps: 'Reordering pages', update_funnel: 'Updating the funnel', publish_funnel: 'Getting it ready to go live',
+  write_marketing_copy: 'Writing your copy', generate_image: 'Creating your image', configure_checkout: 'Setting up checkout', create_product: 'Creating your product', list_products: 'Checking your products',
+  create_coupon: 'Creating your coupon', split_test: 'Setting up the A/B test', get_sales: 'Checking your sales', get_analytics: 'Checking your traffic', ads_report: 'Reading your ad results',
+  create_automation: 'Writing your follow-ups', update_automation: 'Updating the automation', find_contacts: 'Finding contacts', tag_contacts: 'Tagging contacts', draft_broadcast: 'Drafting your broadcast',
+  configure_calendar: 'Setting up your calendar', configure_webinar: 'Setting up your webinar', create_quote: 'Preparing your quote', create_course: 'Writing your course', add_quiz: 'Writing the quiz',
+  setup_crm: 'Setting up your CRM', create_pipeline: 'Creating your pipeline', connect_domain: 'Connecting your domain', run_app_action: 'Working in your ads account', find_app_actions: 'Checking your ads account',
+};
+const LONG = new Set(['create_funnel', 'create_website', 'create_course', 'generate_image']);
+const MAGIC = ['Working the magic ✨', 'Genie under way 🧞', 'Brewing something good ☕', 'Polishing the pixels', 'Teaching your page to sell', 'Lining up the details', 'Sprinkling some conversion dust', 'Almost there…'];
+function LiveStatus({ tools }) {
+  const [n, setN] = useState(0);
+  useEffect(() => { const t = setInterval(() => setN((x) => x + 1), 3200); return () => clearInterval(t); }, []);
+  const run = [...tools].reverse().find((t) => t.status === 'running');
+  const doing = run ? DOING[run.name] || 'Working on it' : tools.length ? 'Putting it all together' : 'Thinking it through';
+  return (
+    <span className="hv-typing" aria-live="polite">
+      <i /><i /><i /> <b>{doing}…</b> <span className="hv-magic" key={n}>{MAGIC[n % MAGIC.length]}</span>
+      {run && LONG.has(run.name) && <small className="hv-long">Big job — usually about a minute</small>}
+    </span>
+  );
+}
+
 // an action Hive proposed that waits for the seller (sending, publishing, deleting…): Confirm / Cancel
 const waiting = (t) => t.pending && !t.resolved;
 const ToolChips = ({ tools, onDecide, deciding }) => (tools?.length ? (
   <ul className="hv-tools">{tools.map((t, i) => (
     <li key={t.id || i} className={waiting(t) ? 'confirm' : t.resolved === 'cancelled' ? 'cancelled' : t.status === 'confirm' ? 'confirm' : t.status || (t.ok === false ? 'error' : 'done')}>
       {t.status === 'running' ? <Loader2 size={13} className="spin-i" /> : t.ok === false || t.status === 'error' || t.resolved === 'cancelled' ? <X size={13} /> : waiting(t) ? <Square size={13} /> : <Check size={13} />}
-      <span>{t.summary || t.label || t.name}</span>
+      <span>{t.summary || (t.status === 'running' && DOING[t.name] ? `${DOING[t.name]}…` : t.label || t.name)}</span>
       {waiting(t) && onDecide && (
         <span className="hv-ok">
           <button className="btn sm primary" disabled={deciding === t.pending} onClick={() => onDecide(t.pending, true)}>Confirm</button>
@@ -221,7 +248,7 @@ export default function Hive() {
                 <div className="hv-bub">
                   {live.thinking && <Rich text={live.thinking} />}
                   <ToolChips tools={live.tools} />
-                  <span className="hv-typing"><i /><i /><i /> {live.tools.some((t) => t.status === 'running' && t.name === 'create_funnel') ? 'Building your funnel — about a minute' : 'Working'}</span>
+                  <LiveStatus tools={live.tools} />
                 </div>
               </div>
             )}
