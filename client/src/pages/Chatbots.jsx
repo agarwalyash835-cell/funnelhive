@@ -53,6 +53,9 @@ export function problemsOf(f) {
     if (n.type === 'tag' && !d.add.length) bad(n.id, 'Add a tag: choose the tag');
     if (n.type === 'webhook' && !/^https?:\/\/[^\s/]+\.[^\s]+$/.test(d.url)) bad(n.id, 'Webhook: enter the web address');
     if (n.type === 'condition' && !d.rules.length) bad(n.id, 'Condition: add a rule');
+    const words = [d.text, d.button, ...(d.buttons || []).map((b) => b.title), ...(d.rows || []).flatMap((r) => [r.title, r.desc])].filter(Boolean).join(' ');
+    const ph = /\[[^\]\n]{2,}\]/.exec(words);
+    if (ph) bad(n.id, `${NT[n.type][0]}: fill in ${ph[0]}`);
   }
   return out;
 }
@@ -61,7 +64,8 @@ const triggerText = (t) => (t.type === 'keyword' ? (t.keywords.length ? `Keyword
 export default function Chatbots() {
   const { id } = useParams();
   const [sp, setSp] = useSearchParams();
-  const tab = sp.get('tab') === 'agent' ? 'agent' : 'bots';
+  const tab = ['agent', 'rules'].includes(sp.get('tab')) ? sp.get('tab') : 'bots';
+  const [ind, setInd] = useState(null); // whose industry's ready-made chatbots are shown
   const nav = useNavigate();
   const [d, setD] = useState(null);
   const [draft, setDraft] = useState(null); // an AI-drafted / template flow that isn't saved yet
@@ -75,9 +79,10 @@ export default function Chatbots() {
       <div className="seg" style={{ justifySelf: 'start' }}>
         <button className={tab === 'bots' ? 'on' : ''} onClick={() => setSp({})}><Icon name="bot" size={14} />Chatbots</button>
         <button className={tab === 'agent' ? 'on' : ''} onClick={() => setSp({ tab: 'agent' })}><Icon name="sparkles" size={14} />AI agent</button>
+        <button className={tab === 'rules' ? 'on' : ''} onClick={() => setSp({ tab: 'rules' })}><Icon name="bolt" size={14} />Inbox automations</button>
       </div>
       {d && !d.connected && <div className="app-banner info" style={{ margin: 0 }}><Icon name="chat" size={15} /><span>Connect your Hive WhatsApp number in Settings → Channels so chatbots can reply to real customers. You can build and test them now.</span><Link to="/settings">Settings</Link></div>}
-      {tab === 'agent' ? <Agent /> : !d ? <span className="spin dark" /> : (
+      {tab === 'agent' ? <Agent /> : tab === 'rules' ? <InboxRules /> : !d ? <span className="spin dark" /> : (
         <>
           <AiDraft ai={d.ai} onDraft={(f) => { setDraft(f); nav('/chatbots/new'); }} />
           {d.flows.length > 0 && (
@@ -87,7 +92,23 @@ export default function Chatbots() {
               </div>
             </Panel>
           )}
-          <Panel title="Start from a ready-made chatbot" actions={<button className="btn ghost sm" onClick={() => create('')}><Icon name="plus" size={14} />Blank chatbot</button>}>
+          {(() => {
+            const cur = d.industries?.find((x) => x.id === (ind || d.industry)) || d.industries?.[0];
+            return cur && (
+              <Panel title={<>Ready-made for {cur.icon} {cur.name}</>} actions={<div className="ind-pick"><select value={cur.id} onChange={(e) => setInd(e.target.value)} aria-label="Industry">{d.industries.map((x) => <option key={x.id} value={x.id}>{x.icon} {x.name}{x.id === d.industry ? ' (your industry)' : ''}</option>)}</select></div>}>
+                <p className="hint top">Written for your industry — your answers, questions and booking words. Fill in the details in [brackets], test it on the phone, then go live.</p>
+                <div className="cb-grid">
+                  {cur.templates.map((t) => (
+                    <button key={t.id} className="cb-card" onClick={() => create(t.id)}>
+                      <span className="ic"><Icon name={t.icon} size={18} /></span>
+                      <b>{t.title}</b><small>{t.desc}</small>
+                    </button>
+                  ))}
+                </div>
+              </Panel>
+            );
+          })()}
+          <Panel title="Ready-made for any business" actions={<button className="btn ghost sm" onClick={() => create('')}><Icon name="plus" size={14} />Blank chatbot</button>}>
             <div className="cb-grid">
               {d.templates.map((t) => (
                 <button key={t.id} className="cb-card" onClick={() => create(t.id)}>
@@ -132,7 +153,7 @@ function FlowCard({ f, onOpen, onChange }) {
   const del = async (e) => { e.stopPropagation(); if (!await confirmDialog({ title: `Delete “${f.name}”?`, text: 'Chats it is running stop where they are.', confirm: 'Delete', danger: true })) return; await api(`/waflows/${f.id}`, 'DELETE'); onChange(); };
   return (
     <div className="cb-card click" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => e.key === 'Enter' && onOpen()} style={{ cursor: 'pointer' }}>
-      <div className="row"><span className={`cb-live ${f.active ? '' : 'off'}`}>{f.trigger.type === 'manual' ? 'Manual' : f.active ? 'Live' : 'Off'}</span><span className="row" style={{ gap: 2 }}>{f.trigger.type !== 'manual' && <button className="btn ghost sm" onClick={toggle}>{f.active ? 'Switch off' : 'Go live'}</button>}<button className="icon-btn danger" onClick={del} aria-label="Delete"><Icon name="trash" size={15} /></button></span></div>
+      <div className="row"><span className={`cb-live ${f.active ? '' : 'idle'}`}>{f.trigger.type === 'manual' ? 'Manual' : f.active ? 'Live' : 'Off'}</span><span className="row" style={{ gap: 2 }}>{f.trigger.type !== 'manual' && <button className="btn ghost sm" onClick={toggle}>{f.active ? 'Switch off' : 'Go live'}</button>}<button className="icon-btn danger" onClick={del} aria-label="Delete"><Icon name="trash" size={15} /></button></span></div>
       <b>{f.name}</b>
       <small>{triggerText(f.trigger)}</small>
       {f.problems.length > 0 && <small style={{ color: 'var(--c-warn)' }}>⚠ {f.problems[0].msg}</small>}
@@ -186,7 +207,7 @@ function Builder({ initial, ai, onClose, onSaved }) {
         <button className="icon-btn" onClick={close} aria-label="Back"><Icon name="chevron" className="flip" /></button>
         <span className="k" style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', background: '#eef2ff', color: '#4338ca' }}><Icon name="bot" size={16} /></span>
         <input className="name" value={f.name} onChange={(e) => set((g) => { g.name = e.target.value; })} aria-label="Chatbot name" />
-        {f.trigger.type !== 'manual' && <span className={`cb-live ${active ? '' : 'off'}`}>{active ? 'Live' : 'Off'}</span>}
+        {f.trigger.type !== 'manual' && <span className={`cb-live ${active ? '' : 'idle'}`}>{active ? 'Live' : 'Off'}</span>}
         <span className="sp" />
         {probs.length > 0 && <button className="pill warn" style={{ cursor: 'pointer' }} onClick={() => { setSel(probs[0].node); setPanel('edit'); }}>⚠ {probs.length} to fix</button>}
         <button className={`btn sm ${panel === 'test' ? 'primary' : 'ghost'}`} onClick={() => setPanel(panel === 'test' ? 'edit' : 'test')}><Icon name="phone" size={14} />Test</button>
@@ -484,7 +505,7 @@ function TestPhone({ f, onNode }) {
       <div className="phone-b" ref={box}>
         {!msgs.length && <div className="fxn">Type as your customer would — {f.trigger.type === 'keyword' ? `e.g. “${f.trigger.keywords[0] || 'hi'}”` : '“Hi”'} — to start</div>}
         {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : (
-          <div key={i} className={`bub ${m.dir === 'in' ? 'out' : `in ${m.ai ? '' : ''}`}`} style={m.dir === 'in' ? undefined : m.ai ? { border: '1.5px solid #8b5cf6' } : undefined}>
+          <div key={i} className={`bub ${m.dir === 'in' ? 'b-out' : 'b-in'}`} style={m.dir === 'in' ? undefined : m.ai ? { border: '1.5px solid #8b5cf6' } : undefined}>
             {m.ai && <div className="by"><span className="ai-txt">✦ AI agent</span></div>}
             {m.image && <span className="pill">📷 photo</span>}{waFmt(m.text)}
             {m.kind === 'list' && <div className="bub-btns"><span>☰ {m.button}</span></div>}
@@ -502,16 +523,24 @@ function TestPhone({ f, onNode }) {
 }
 
 // ---------- the AI agent ----------
-const pickA = (x) => ({ on: x.on, auto: x.auto, name: x.name, tone: x.tone, knowledge: x.knowledge, faqs: x.faqs, capture: x.capture, handoff: x.handoff });
+const pickA = (x) => ({ on: x.on, auto: x.auto, name: x.name, role: x.role, tone: x.tone, knowledge: x.knowledge, faqs: x.faqs, capture: x.capture, handoff: x.handoff });
 const TONES = [['friendly', 'Friendly'], ['professional', 'Professional'], ['fun', 'Fun & lively'], ['calm', 'Calm & caring']];
 function Agent() {
   const [a, setA] = useState(null);
   const [saved, setSaved] = useState('');
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState('');
-  useEffect(() => { api('/wa-agent').then((x) => { setA(x); setSaved(JSON.stringify(pickA(x))); }).catch((e) => toast(e.message)); }, []);
+  const [preset, setPreset] = useState('general');
+  useEffect(() => { api('/wa-agent').then((x) => { setA(x); setPreset(x.industry || 'general'); setSaved(JSON.stringify(pickA(x))); }).catch((e) => toast(e.message)); }, []);
   if (!a) return <span className="spin dark" />;
   const dirty = JSON.stringify(pickA(a)) !== saved;
+  const placeholders = [a.knowledge, ...a.faqs.map((f) => f.a)].join('\n').match(/\[[^\]\n]{2,}\]/g)?.length || 0;
+  const usePreset = async () => {
+    if ((a.knowledge.trim() || a.faqs.length) && !await confirmDialog({ title: 'Replace what the agent knows?', text: 'Its name, role, knowledge, questions and hand-over rules are replaced with the industry outline. Nothing is saved until you press Save.', confirm: 'Replace' })) return;
+    setBusy('preset');
+    try { const p = await api(`/wa-agent/preset/${preset}`); setA({ ...a, ...p }); toast('Filled in — replace the [brackets] with your details'); } catch (e) { toast(e.message); }
+    setBusy('');
+  };
   const save = async (patch = {}) => {
     setBusy('save');
     try { const x = await api('/wa-agent', 'PUT', { ...pickA(a), ...patch }); setA(x); setSaved(JSON.stringify(pickA(x))); toast(patch.on === true ? `✦ ${x.name} is answering your WhatsApp` : patch.on === false ? 'AI agent switched off' : 'Saved'); } catch (e) { toast(e.message); }
@@ -531,16 +560,26 @@ function Agent() {
           <div className="ag-id">
             <span className={`ag-orb ${a.on ? 'on' : ''}`}><Icon name="sparkles" size={26} /></span>
             <div style={{ flex: 1 }}>
-              <b style={{ fontSize: 16 }}>{a.name}</b> <span className={`cb-live ${a.on ? '' : 'off'}`} style={{ marginLeft: 6 }}>{a.on ? 'Answering' : 'Off'}</span>
+              <b style={{ fontSize: 16 }}>{a.name}</b> <span className={`cb-live ${a.on ? '' : 'idle'}`} style={{ marginLeft: 6 }}>{a.on ? 'Answering' : 'Off'}</span>
               <p className="hint" style={{ margin: '2px 0 0' }}>Answers your customers on WhatsApp in their language, day and night — from your offers, prices and FAQs — and passes the chat to your team when a person is needed.</p>
             </div>
             {a.on ? <button className="btn ghost" onClick={() => save({ on: false })} disabled={!!busy}>Switch off</button> : <button className="btn ai" onClick={() => save({ on: true })} disabled={!!busy || !a.ai}><Icon name="play" size={14} />Switch on</button>}
           </div>
           {!a.ai && <p className="hint">AI isn’t switched on for this account yet.</p>}
         </Panel>
+        <Panel title="Start from your industry">
+          <div className="ind-pick">
+            <select value={preset} onChange={(e) => setPreset(e.target.value)} aria-label="Industry">{a.presets.map((x) => <option key={x.id} value={x.id}>{x.icon} {x.name}{x.id === a.industry ? ' (your industry)' : ''}</option>)}</select>
+            <button className="btn ghost" onClick={usePreset} disabled={busy === 'preset'}>{busy === 'preset' ? <span className="spin dark" /> : <Icon name="wand" size={14} />}Fill in for this industry</button>
+          </div>
+          <p className="hint">Sets the agent’s name, role, a knowledge outline, the questions your customers usually ask and when to hand over — written for that industry. Replace the [brackets] with your details, test it on the phone, then save.</p>
+        </Panel>
         <Panel title="Personality">
           <div style={{ display: 'grid', gap: 12 }}>
-            <label className="sm strong">Name<input value={a.name} maxLength={40} onChange={(e) => setA({ ...a, name: e.target.value })} /></label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 10 }}>
+              <label className="sm strong">Name<input value={a.name} maxLength={40} onChange={(e) => setA({ ...a, name: e.target.value })} /></label>
+              <label className="sm strong">Role<input value={a.role || ''} maxLength={60} onChange={(e) => setA({ ...a, role: e.target.value })} placeholder="e.g. admissions counsellor, property advisor" /></label>
+            </div>
             <div className="sm strong">Tone<div className="tones" style={{ marginTop: 6 }}>{TONES.map(([k, l]) => <button key={k} className={a.tone === k ? 'on' : ''} onClick={() => setA({ ...a, tone: k })}>{l}</button>)}</div></div>
             <label className="tog"><input type="checkbox" checked={a.auto} onChange={(e) => setA({ ...a, auto: e.target.checked })} /><span />Answer new chats automatically <small className="muted">· off: only when a chatbot or your team hands a chat to it</small></label>
             <label className="tog"><input type="checkbox" checked={a.capture} onChange={(e) => setA({ ...a, capture: e.target.checked })} /><span />Ask for their name and email (saved on the contact)</label>
@@ -551,6 +590,7 @@ function Agent() {
             <label className="sm strong">About your business — offers, prices, timings, address, policies, how to pay
               <textarea rows={9} value={a.knowledge} maxLength={20000} onChange={(e) => setA({ ...a, knowledge: e.target.value })} placeholder={'We run online yoga classes for working women.\nBatches: 6:30 am and 7 pm, Mon–Fri.\nMonthly plan ₹999, quarterly ₹2,499.\nFree trial class every Saturday.\nRefunds within 7 days if you haven’t attended.'} />
               <span className="hint">{a.knowledge.length.toLocaleString('en-IN')} / 20,000 characters</span>
+              {placeholders > 0 && <span className="hint" style={{ color: 'var(--c-warn)' }}>⚠ {placeholders} detail{placeholders > 1 ? 's' : ''} still in [brackets] — the agent treats {placeholders > 1 ? 'them' : 'it'} as unknown until you fill {placeholders > 1 ? 'them' : 'it'} in.</span>}
             </label>
             <form className="row" onSubmit={learn} style={{ flexWrap: 'nowrap' }}><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://yourbusiness.in/about — read a page of your website" /><button className="btn ghost" disabled={!url || busy === 'learn'}>{busy === 'learn' ? <span className="spin dark" /> : <Icon name="globe" size={14} />}Read page</button></form>
             <div className="sm strong">Questions people ask</div>
@@ -598,7 +638,7 @@ function AgentPhone({ a, name, ai }) {
       <div className="phone-h"><span className="cav sm" style={{ background: AI_BG }}><Icon name="sparkles" size={15} /></span><div>{name}<small>Test chat · uses your unsaved changes</small></div><button className="icon-btn" onClick={() => setMsgs([])} aria-label="Start again" title="Start again"><Icon name="undo" size={16} /></button></div>
       <div className="phone-b" ref={box}>
         {!msgs.length && <div className="fxn">{ai ? 'Ask what your customers ask — “What’s the price?”, “Kal ka slot milega?”' : 'AI isn’t switched on for this account'}</div>}
-        {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : <div key={i} className={`bub ${m.dir === 'in' ? 'out' : 'in'}`}>{waFmt(m.text)}</div>)}
+        {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : <div key={i} className={`bub ${m.dir === 'in' ? 'b-out' : 'b-in'}`}>{waFmt(m.text)}</div>)}
         {lastBtns?.length > 0 && <div className="opts">{lastBtns.map((b) => <button key={b} onClick={() => send(b)}>{b}</button>)}</div>}
         {busy && <div className="ctyping"><i /><i /><i /></div>}
       </div>
@@ -606,6 +646,75 @@ function AgentPhone({ a, name, ai }) {
         <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Message" disabled={!ai} />
         <button aria-label="Send" disabled={!ai}><Icon name="send" size={16} /></button>
       </form>
+    </div>
+  );
+}
+
+// ---------- inbox automations: rules the inbox runs by itself ----------
+const DAY_LABELS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+function Rule({ on, onToggle, icon, color, title, text, children }) {
+  return (
+    <section className={`rule ${on ? 'on' : ''}`}>
+      <div className="rule-h">
+        <span className="ic" style={{ background: color }}><Icon name={icon} size={18} /></span>
+        <div><b>{title}</b><small>{text}</small></div>
+        <label className="tog"><input type="checkbox" checked={on} onChange={(e) => onToggle(e.target.checked)} /><span /></label>
+      </div>
+      {on && children}
+    </section>
+  );
+}
+function InboxRules() {
+  const [r, setR] = useState(null);
+  const [meta, setMeta] = useState(null);
+  const [saved, setSaved] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api('/inbox/rules').then((x) => { setR(x); setSaved(JSON.stringify(x.rules)); }).catch((e) => toast(e.message));
+    api('/inbox/meta').then(setMeta).catch(() => {});
+  }, []);
+  if (!r) return <span className="spin dark" />;
+  const ru = r.rules;
+  const set = (k, patch) => setR({ ...r, rules: { ...ru, [k]: { ...ru[k], ...patch } } });
+  const dirty = JSON.stringify(ru) !== saved;
+  const save = async () => { setBusy(true); try { const x = await api('/inbox/rules', 'PUT', ru); setR({ ...r, ...x }); setSaved(JSON.stringify(x.rules)); toast('Inbox automations saved'); } catch (e) { toast(e.message); } setBusy(false); };
+  const team = meta?.team || [];
+  return (
+    <div className="rules cb">
+      <p className="hint top" style={{ margin: 0 }}>These run on every WhatsApp chat, next to your chatbots and AI agent. For anything bigger — emails, CRM stages, tags, webhooks — use <Link to="/automations">Automations</Link> with the WhatsApp triggers (“A contact messages you on WhatsApp”, “A chat is handed to your team”, “A chat is resolved”).</p>
+      <Rule on={ru.hours.on} onToggle={(v) => set('hours', { on: v, ...(v && !ru.hours.days.length ? { days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'] } : {}) })} icon="clock" color="#0ea5e9" title="Business hours & away reply" text={`Outside your hours, a chat waiting for a person gets an automatic reply (once every 12 hours). Right now you’re ${r.open ? 'open' : 'closed'} (${r.timezone}).`}>
+        <div className="days">{DAY_LABELS.map(([k, l]) => <button key={k} className={ru.hours.days.includes(k) ? 'on' : ''} onClick={() => set('hours', { days: ru.hours.days.includes(k) ? ru.hours.days.filter((x) => x !== k) : [...ru.hours.days, k] })}>{l}</button>)}</div>
+        <div className="grid2"><label>Open from<input type="time" value={ru.hours.from} onChange={(e) => set('hours', { from: e.target.value })} /></label><label>Until<input type="time" value={ru.hours.to} onChange={(e) => set('hours', { to: e.target.value })} /></label></div>
+        <label>Away reply<textarea rows={2} maxLength={600} value={ru.hours.away} onChange={(e) => set('hours', { away: e.target.value })} /><span className="hint">{'{{opens}}'} becomes when you next open, e.g. “Mon 9:00 am”. Chatbots and the AI agent keep answering out of hours.</span></label>
+      </Rule>
+      <Rule on={ru.assign.on} onToggle={(v) => set('assign', { on: v, ...(v && !ru.assign.people.length ? { people: team.map((p) => p.id) } : {}) })} icon="users" color="#8b5cf6" title="Auto-assign chats" text="A chat that needs a person and has no owner goes to the next person in turn (round robin) — they get the notification.">
+        <div className="days" style={{ gap: 6 }}>{team.map((p) => <button key={p.id} style={{ width: 'auto', padding: '0 12px' }} className={ru.assign.people.includes(p.id) ? 'on' : ''} onClick={() => set('assign', { people: ru.assign.people.includes(p.id) ? ru.assign.people.filter((x) => x !== p.id) : [...ru.assign.people, p.id] })}>{p.name}</button>)}</div>
+        {team.length < 2 && <p className="hint" style={{ margin: 0 }}>Invite your team in Settings → Team to share chats between them.</p>}
+      </Rule>
+      <Rule on={ru.sla.on} onToggle={(v) => set('sla', { on: v })} icon="bell" color="#f59e0b" title="Reply-time alert" text="When a customer has waited too long for a reply (during business hours), alert your team — or let the AI agent answer.">
+        <div className="grid2">
+          <label>After (minutes)<input type="number" min={2} max={1440} value={ru.sla.minutes} onChange={(e) => set('sla', { minutes: Number(e.target.value) || 15 })} /></label>
+          <label>Then<select value={ru.sla.action} onChange={(e) => set('sla', { action: e.target.value })}><option value="notify">Notify my team</option><option value="ai">Let the AI agent reply{meta?.agent?.on ? '' : ' (switch it on first)'}</option></select></label>
+        </div>
+      </Rule>
+      <Rule on={ru.resolve.on} onToggle={(v) => set('resolve', { on: v })} icon="check" color="#16a34a" title="Close quiet chats" text="When you’ve replied and the customer goes quiet, the chat is marked resolved — your open list stays short. It reopens if they write again.">
+        <label style={{ maxWidth: 220 }}>After (hours with no reply)<input type="number" min={1} max={720} value={ru.resolve.hours} onChange={(e) => set('resolve', { hours: Number(e.target.value) || 24 })} /></label>
+      </Rule>
+      <Rule on={ru.labels.length > 0} onToggle={(v) => setR({ ...r, rules: { ...ru, labels: v ? [{ word: 'price', label: 'Pricing' }] : [] } })} icon="tag" color="#ec4899" title="Auto-labels" text="Label a chat when the customer’s message has a word — e.g. “refund” → Refund, “bulk” → Wholesale. Filter and report on them in the inbox.">
+        {ru.labels.map((x, i) => (
+          <div key={i} className="grid2" style={{ gridTemplateColumns: '1fr 1fr auto', alignItems: 'end' }}>
+            <label>When the message has<input value={x.word} onChange={(e) => setR({ ...r, rules: { ...ru, labels: ru.labels.map((y, j) => (j === i ? { ...y, word: e.target.value } : y)) } })} placeholder="refund" /></label>
+            <label>Add the label<input value={x.label} onChange={(e) => setR({ ...r, rules: { ...ru, labels: ru.labels.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)) } })} placeholder="Refund" /></label>
+            <button className="icon-btn danger" onClick={() => setR({ ...r, rules: { ...ru, labels: ru.labels.filter((_, j) => j !== i) } })} aria-label="Remove"><Icon name="trash" size={15} /></button>
+          </div>
+        ))}
+        <button className="btn ghost sm" style={{ justifySelf: 'start' }} onClick={() => setR({ ...r, rules: { ...ru, labels: [...ru.labels, { word: '', label: '' }] } })}><Icon name="plus" size={13} />Add a rule</button>
+      </Rule>
+      <Rule on={ru.csat.on} onToggle={(v) => set('csat', { on: v })} icon="bookmark" color="#ea580c" title="Feedback after a chat" text="When a person resolves a chat, run a chatbot — e.g. “Feedback & reviews” to collect a rating and ask happy customers for a Google review.">
+        <label style={{ maxWidth: 320 }}>Chatbot<select value={ru.csat.flowId} onChange={(e) => set('csat', { flowId: e.target.value })}><option value="">Choose a chatbot…</option>{r.flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
+        {!r.flows.length && <p className="hint" style={{ margin: 0 }}>Make one from the “Feedback & reviews” template in Chatbots first.</p>}
+      </Rule>
+      <div className="row" style={{ position: 'sticky', bottom: 12 }}><button className="btn primary lg" onClick={save} disabled={!dirty || busy}>{busy && <span className="spin" />}{dirty ? 'Save inbox automations' : 'All changes saved'}</button></div>
     </div>
   );
 }

@@ -125,7 +125,8 @@ function optOut(userId, key, num, why) {
 // ---------- sending ----------
 // One record per logical message (ikey): a retry reuses it and Hive's Idempotency-Key stops a double send.
 // → { status: 'sent', id } (duplicate: true when it already went); throws on a provider error
-async function send(u, to, payload, { ikey, event = '', ckey = '' } = {}) {
+// cloud: payload is Meta Cloud API JSON (for what Hive's own shape lacks, e.g. a location), sent through Hive's pass-through
+async function send(u, to, payload, { ikey, event = '', ckey = '', cloud = false } = {}) {
   const h = live(u);
   if (!h) return { status: 'not-configured' };
   const num = waNumber(to);
@@ -140,7 +141,9 @@ async function send(u, to, payload, { ikey, event = '', ckey = '' } = {}) {
     }
   } else rec = T.wamsgs.update(rec.id, (x) => { x.status = 'sending'; delete x.error; });
   try {
-    const r = await call(keyOf(h), 'POST', '/messages', { ...payload, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': ikey });
+    const r = cloud
+      ? await call(keyOf(h), 'POST', `/cloud/${encodeURIComponent(h.from)}/messages`, { messaging_product: 'whatsapp', recipient_type: 'individual', ...payload, to: num }, { 'Idempotency-Key': ikey })
+      : await call(keyOf(h), 'POST', '/messages', { ...payload, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': ikey });
     T.wamsgs.update(rec.id, (x) => { x.status = 'sent'; x.hiveId = r.id || null; x.wamid = r.wamid || null; x.sentAt = Date.now(); });
     return { status: 'sent', id: r.id || rec.id };
   } catch (e) {
@@ -185,6 +188,19 @@ export async function waApproved(u) {
   if (!h) return [];
   const list = (await call(keyOf(h), 'GET', `/templates?from=${encodeURIComponent(h.from)}&status=APPROVED`)).templates || [];
   return list.filter((t) => String(t.status).toUpperCase() === 'APPROVED').map((t) => { const body = part(t, 'BODY'); return { name: t.name, category: t.category || '', language: t.language || 'en', vars: varsIn(body), body }; });
+}
+// a file the seller sends (photo, video, voice note, document): uploaded to Hive first → its media id (16 MB at most)
+export async function waUpload(u, buf, mime, filename) {
+  const h = live(u);
+  if (!h) throw Object.assign(new Error('WhatsApp isn’t connected'), { status: 400 });
+  const form = new FormData();
+  form.append('from', h.from);
+  form.append('file', new Blob([buf], { type: mime }), filename || 'file');
+  let r;
+  try { r = await fetch(`${API()}/media`, { method: 'POST', headers: { Authorization: `Bearer ${keyOf(h)}` }, body: form, signal: AbortSignal.timeout(60000) }); } catch { throw new Error('Couldn’t reach Hive WhatsApp — please try again in a minute'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.id) throw new Error(`Hive WhatsApp couldn’t take this file: ${String(d.error?.message || d.error || d.message || `HTTP ${r.status}`).slice(0, 160)}`);
+  return String(d.id);
 }
 // a customer's photo / document / voice note, streamed from Hive (files over 20 MB are refused there)
 export async function waMedia(u, id) {

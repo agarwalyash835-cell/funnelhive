@@ -42,6 +42,9 @@ export const TRIGGERS = {
   quote_accepted: 'A client accepts a quote (without paying online)',
   quote_declined: 'A client declines a quote',
   inbound: 'A webhook is received (Zapier, Pabbly, Make, Google Forms…)',
+  wa_message: 'A contact messages you on WhatsApp (any message, or one with a keyword)',
+  wa_handoff: 'A WhatsApp chat is handed to your team (by a chatbot, the AI agent or a person)',
+  wa_resolved: 'A WhatsApp chat is marked resolved',
   manual: 'Only when I add a contact to it',
 };
 const STEP_TYPES = ['wait', 'email', 'whatsapp', 'tag', 'stage', 'field', 'access', 'enroll', 'note', 'meta', 'webhook', 'notify', 'condition', 'split', 'exit'];
@@ -87,6 +90,7 @@ function cleanTrigger(t = {}, userId) {
   if (type === 'abandoned') out.delayMin = Math.min(10080, Math.max(5, Math.round(Number(t.delayMin) || 30)));
   if (type === 'stage') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); }
   if (type === 'tag') out.tag = str(t.tag, 30).trim();
+  if (type === 'wa_message') out.keyword = str(t.keyword, 60).trim(); // blank = any message
   if (type === 'quiz') out.outcome = str(t.outcome, 120).trim(); // blank = any result
   if (COURSE_EVENTS.includes(type) && t.productId && T.products.get(t.productId)?.userId === userId) out.productId = t.productId; // blank = any course
   if (type === 'field') { out.fieldId = str(t.fieldId, 20); out.value = str(t.value, 200).trim(); } // value: blank = any change
@@ -241,6 +245,7 @@ export function fire(userId, event, data = {}) {
       if (event === 'stage' && (t.pipelineId !== data.pipelineId || t.stageId !== data.stageId)) continue;
       if (event === 'quiz' && t.outcome && t.outcome.toLowerCase() !== String(data.outcome || '').toLowerCase()) continue;
       if (event === 'tag' && String(t.tag).toLowerCase() !== String(data.tag || '').toLowerCase()) continue;
+      if (event === 'wa_message' && t.keyword && !String(data.text || '').toLowerCase().includes(t.keyword.toLowerCase())) continue;
       if (COURSE_EVENTS.includes(event) && t.productId && t.productId !== data.productId) continue;
       if (event === 'field' && (t.fieldId !== data.fieldId || (t.value && String(t.value).trim().toLowerCase() !== String(data.value ?? '').trim().toLowerCase()))) continue;
       start(a, data);

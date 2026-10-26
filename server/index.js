@@ -95,6 +95,7 @@ app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/stripe/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/billing/stripe-webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/hive/webhook', express.raw({ type: '*/*', limit: '1mb' })); // Hive WhatsApp events (signed raw body)
+app.use(/^\/api\/inbox\/[\w-]+\/upload$/, express.raw({ type: '*/*', limit: '17mb' })); // files sent from the WhatsApp inbox (bytes, not JSON)
 app.use(express.json({ limit: '4mb' }));
 // Requests on a seller's own domain (offer.theirbrand.in) show their funnel
 app.use(domainRouter((...a) => renderFunnel(...a)));

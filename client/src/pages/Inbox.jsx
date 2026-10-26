@@ -11,7 +11,7 @@ const REWRITE = [['polish', 'Fix grammar & polish'], ['friendly', 'Make it frien
 const HUES = ['#16a34a', '#0d9488', '#0891b2', '#2563eb', '#7c3aed', '#c026d3', '#db2777', '#ea580c', '#ca8a04'];
 const hue = (s) => HUES[[...String(s)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % HUES.length];
 const initials = (c) => (c.name || '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '#';
-export const Avatar = ({ c, sm, dot }) => <span className={`cav ${sm ? 'sm' : ''}`} style={{ background: `linear-gradient(135deg, ${hue(c.num || c.name)}, ${hue(`${c.num}x`)})` }}>{initials(c)}{dot != null && <i className={`cdot ${dot ? '' : 'off'}`} />}</span>;
+export const Avatar = ({ c, sm, dot }) => <span className={`cav ${sm ? 'sm' : ''}`} style={{ background: `linear-gradient(135deg, ${hue(c.num || c.name)}, ${hue(`${c.num}x`)})` }}>{initials(c)}{dot != null && <i className={`cdot ${dot ? '' : 'gone'}`} />}</span>;
 const clock = (t) => new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
 const short = (t) => { const d = new Date(t), now = new Date(); if (d.toDateString() === now.toDateString()) return clock(t); const y = new Date(now - 86400000); if (d.toDateString() === y.toDateString()) return 'Yesterday'; return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); };
 const dayOf = (t) => { const d = new Date(t), now = new Date(); if (d.toDateString() === now.toDateString()) return 'Today'; if (d.toDateString() === new Date(now - 86400000).toDateString()) return 'Yesterday'; return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }); };
@@ -57,6 +57,8 @@ export default function Inbox() {
   const connected = meta ? meta.connected : true;
   return (
     <Layout wide title="Inbox" subtitle="Every WhatsApp chat in one place — your team, chatbots and the AI agent working together." actions={<>
+      {meta && meta.open === false && <span className="pill warn" title="Away replies go out until you open">Closed now</span>}
+      <Link className="btn ghost sm" to="/chatbots?tab=rules"><Icon name="bolt" size={15} />Inbox automations{meta?.rules?.length > 0 && <span className="pill ok" style={{ marginLeft: 2 }}>{meta.rules.length} on</span>}</Link>
       <Link className="btn ghost sm" to="/chatbots"><Icon name="bot" size={15} />Chatbots &amp; AI agent</Link>
       {connected && <button className="btn primary sm" onClick={() => setStartOpen(true)}><Icon name="plus" size={15} />New chat</button>}
     </>}>
@@ -132,6 +134,7 @@ function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
     lastCount.current = n;
   }, [d]);
   const patch = async (body) => { try { const r = await api(`/inbox/${id}`, 'PATCH', body); setD((x) => ({ ...x, conv: r.conv })); load(); onChange(); } catch (e) { toast(e.message); } };
+  const [hand, setHand] = useState(false);
   if (err) return <section className="ib-thread"><div className="ib-empty"><p>{err}</p><button className="btn ghost sm" onClick={onBack}>Back to the inbox</button></div></section>;
   if (!d) return <section className="ib-thread"><div className="ib-empty"><span className="spin dark" /></div></section>;
   const c = d.conv;
@@ -153,12 +156,14 @@ function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
             <option value="">Unassigned</option>
             {(meta?.team || []).map((p) => <option key={p.id} value={p.id}>{p.id === meta.me ? `${p.name} (you)` : p.name}</option>)}
           </select>
+          {c.status !== 'resolved' && <button className="btn ghost sm" onClick={() => setHand(true)} title="Hand this chat to a teammate or the AI agent"><Icon name="users" size={14} />Hand off</button>}
           {c.status === 'resolved' ? <button className="btn ghost sm" onClick={() => patch({ status: 'open' })}>Reopen</button> : <button className="btn live sm" onClick={() => patch({ status: 'resolved' })}><Icon name="check" size={14} />Resolve</button>}
-          <button className="icon-btn" onClick={toggleSide} title={side ? 'Hide details' : 'Show details'} aria-label="Contact details"><Icon name="users" size={17} /></button>
+          <button className="icon-btn" onClick={toggleSide} title={side ? 'Hide details' : 'Show details'} aria-label="Contact details"><Icon name="eye" size={17} /></button>
         </header>
-        {c.ai && <div className="ib-banner ai"><Icon name="sparkles" size={15} /><span><b>{meta?.agent?.name || 'The AI agent'}</b> is replying to this chat{c.intent ? ` · topic: ${c.intent}` : ''}</span><button className="btn ghost sm" onClick={() => patch({ ai: false })}>Take over</button></div>}
-        {c.bot && <div className="ib-banner bot"><Icon name="bot" size={15} /><span>Chatbot <b>{c.bot.name}</b> is {c.bot.wait === 'time' ? 'waiting to send the next step' : 'waiting for an answer'}</span><button className="btn ghost sm" onClick={() => patch({ stopBot: true })}>Stop & take over</button></div>}
-        {c.human && c.handoff && c.status !== 'resolved' && !c.ai && <div className="ib-banner hand"><Icon name="bell" size={15} /><span>Needs a person — {c.handoff.reason}</span>{meta?.agent?.on && <button className="btn ghost sm" onClick={() => patch({ ai: true })}><Icon name="sparkles" size={14} />Hand back to AI</button>}</div>}
+        {hand && <HandOff c={c} meta={meta} onClose={() => setHand(false)} onDone={(conv) => { setHand(false); if (conv) setD((x) => ({ ...x, conv })); load(); onChange(); }} patch={patch} />}
+        {c.ai && <div className="ib-banner bn-ai"><Icon name="sparkles" size={15} /><span><b>{meta?.agent?.name || 'The AI agent'}</b> is replying to this chat{c.intent ? ` · topic: ${c.intent}` : ''}</span><button className="btn ghost sm" onClick={() => patch({ ai: false })}>Take over</button></div>}
+        {c.bot && <div className="ib-banner bn-bot"><Icon name="bot" size={15} /><span>Chatbot <b>{c.bot.name}</b> is {c.bot.wait === 'time' ? 'waiting to send the next step' : 'waiting for an answer'}</span><button className="btn ghost sm" onClick={() => patch({ stopBot: true })}>Stop & take over</button></div>}
+        {c.human && c.handoff && c.status !== 'resolved' && !c.ai && <div className="ib-banner bn-hand"><Icon name="bell" size={15} /><span>Needs a person — {c.handoff.reason}</span>{meta?.agent?.on && <button className="btn ghost sm" onClick={() => patch({ ai: true })}><Icon name="sparkles" size={14} />Hand back to AI</button>}</div>}
         <div className="ib-msgs" ref={box} onScroll={(e) => { const el = e.currentTarget; atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
           {items}
         </div>
@@ -172,13 +177,14 @@ function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
 const Tick = ({ s }) => (s === 'read' ? <span className="read">✓✓</span> : s === 'delivered' ? <span>✓✓</span> : s === 'failed' ? <span className="fail">!</span> : s === 'sending' ? <span>◷</span> : <span>✓</span>);
 function Msg({ m, convId, agent }) {
   if (m.dir === 'note') return <div className={`ib-note ${m.by === 'system' ? 'sys' : ''}`}>{m.by !== 'system' && <b>Note{m.author ? ` · ${m.author}` : ''}</b>}{m.text}</div>;
-  const cls = m.dir === 'in' ? 'in' : `out ${m.by === 'bot' ? 'bot' : m.by === 'ai' ? 'ai' : ''}`;
+  const cls = m.dir === 'in' ? 'b-in' : `b-out ${m.by === 'bot' ? 'b-bot' : m.by === 'ai' ? 'b-ai' : ''}`;
   const by = m.dir === 'out' && (m.by === 'ai' ? <><Icon name="sparkles" size={11} /><span className="ai-txt">{agent || 'AI agent'}</span></> : m.by === 'bot' ? <><Icon name="bot" size={11} />Chatbot</> : m.author || WHO[m.by]);
   return (
     <div className={`bub ${cls}`}>
       {by && <div className="by">{by}{m.type === 'template' && <span className="pill" style={{ fontSize: 10 }}>template</span>}</div>}
       {m.media && <Media m={m} convId={convId} />}
-      {m.text ? waFmt(m.text) : m.media ? '' : <span className="muted">(empty message)</span>}
+      {m.location ? <a className="bub-loc" href={`https://www.google.com/maps?q=${m.location.lat},${m.location.lng}`} target="_blank" rel="noreferrer noopener"><span className="pin">📍</span><span><b>{m.location.name || 'Location'}</b>{m.location.address && <small>{m.location.address}</small>}<em>Open in Google Maps →</em></span></a>
+        : m.text && !(m.media?.type === 'document' && m.text === m.media.caption) ? waFmt(m.text) : m.media ? '' : <span className="muted">(empty message)</span>}
       {(m.buttons?.length > 0 || m.list) && <div className="bub-btns">{(m.buttons || m.list.rows).map((b, i) => <span key={i}>{b}</span>)}</div>}
       {m.error && <div className="bub-err">Not delivered: {m.error}</div>}
       <div className="meta">{clock(m.at)}{m.dir === 'out' && <Tick s={m.status} />}</div>
@@ -193,8 +199,11 @@ function Media({ m, convId }) {
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Couldn’t open the file');
     return URL.createObjectURL(await r.blob());
   };
-  useEffect(() => { if (m.media.type === 'image' && m.media.has && !url) fetchIt().then(setUrl).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const inline = ['image', 'audio', 'voice', 'video'].includes(m.media.type);
+  useEffect(() => { if (inline && m.media.has && !url) fetchIt().then(setUrl).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (m.media.type === 'image' && url) return <a className="bub-media" href={url} target="_blank" rel="noreferrer"><img src={url} alt={m.media.caption || 'Photo'} /></a>;
+  if ((m.media.type === 'audio' || m.media.type === 'voice') && url) return <audio className="bub-audio" controls preload="metadata" src={url} />;
+  if (m.media.type === 'video' && url) return <video className="bub-media" controls preload="metadata" src={url} style={{ maxWidth: '100%', maxHeight: 320 }} />;
   const label = { image: '📷 Photo', video: '🎬 Video', audio: '🎤 Voice note', voice: '🎤 Voice note', document: `📄 ${m.media.filename || 'Document'}`, sticker: '🙂 Sticker' }[m.media.type] || 'File';
   const open = async () => { try { const u = await fetchIt(); const a = document.createElement('a'); a.href = u; a.download = m.media.filename || `whatsapp-${m.media.type}`; a.click(); } catch (e) { toast(e.message); } };
   return <button className="bub-file" onClick={open} disabled={!m.media.has}><Icon name="download" size={15} />{label}{m.media.caption && <span className="muted"> — {m.media.caption}</span>}</button>;
@@ -227,17 +236,27 @@ function Composer({ c, contact, meta, onSent, patch }) {
   };
   const suggest = async () => { setBusy('sug'); setSugs([]); try { setSugs((await api(`/inbox/${c.id}/ai/suggest`, 'POST')).suggestions); } catch (e) { toast(e.message); setSugs(null); } setBusy(''); };
   const rewrite = async (m) => { setMenu(''); setBusy('rw'); try { setText((await api('/inbox/ai/rewrite', 'POST', { text, mode: m })).text); } catch (e) { toast(e.message); } setBusy(''); };
-  const attach = async (file) => {
+  const docIn = useRef();
+  const [rec, setRec] = useState(false);
+  const [locOpen, setLocOpen] = useState(false);
+  // a photo, video, document or voice note: the file goes to WhatsApp (through Hive) and the typed text is its caption
+  const attach = async (file, voice) => {
     if (!file) return;
-    if (!/^image\//.test(file.type)) return toast('Send a photo (JPG, PNG or WebP)');
+    if (file.size > 16 * 1024 * 1024) return toast('Files can be up to 16 MB');
     setBusy('send');
     try {
-      const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
-      const up = await api('/uploads', 'POST', { type: file.type, data });
-      await api(`/inbox/${c.id}/messages`, 'POST', { image: new URL(up.url, location.origin).href, text: text.trim() });
-      setText(''); onSent();
-    } catch (e) { toast(e.message); }
+      await uploadTo(c.id, file, { ...(file.name ? { name: file.name } : {}), ...(text.trim() && !voice ? { caption: text.trim() } : {}), ...(voice ? { voice: '1' } : {}) });
+      if (!voice) setText('');
+      onSent();
+    } catch (e) { toast(e.message); if (e.data?.window === false) setTpl(true); }
     setBusy('');
+  };
+  const sendLocation = async (loc, save) => {
+    setLocOpen(false);
+    try {
+      if (save) { const r = await api('/inbox/location', 'PUT', loc); meta.location = r.location; }
+      await send({ location: loc });
+    } catch (e) { toast(e.message); }
   };
   const [bots, setBots] = useState(null);
   const runBot = async () => {
@@ -267,16 +286,32 @@ function Composer({ c, contact, meta, onSent, patch }) {
         </div>
       ) : (
         <>
-          <div className="ib-input">
-            <textarea ref={ta} rows={1} value={text} onChange={(e) => { setText(e.target.value); setQi(0); }} onKeyDown={key} placeholder={mode === 'note' ? 'A note only your team sees…' : 'Type a reply…  ( / for quick replies)'} disabled={busy === 'rw'} />
-            <button className="ib-send" onClick={submit} disabled={!text.trim() || !!busy} aria-label="Send" style={mode === 'note' ? { background: '#ca8a04' } : undefined}>{busy === 'send' ? <span className="spin" /> : <Icon name={mode === 'note' ? 'check' : 'send'} size={18} />}</button>
-          </div>
+          {rec ? <VoiceRecorder onCancel={() => setRec(false)} onDone={(blob) => { setRec(false); attach(blob, true); }} /> : (
+            <div className="ib-input">
+              {mode === 'reply' && (
+                <div style={{ position: 'relative' }}>
+                  <button className="ib-attach" onClick={() => setMenu(menu === 'att' ? '' : 'att')} aria-label="Attach" title="Attach a file, photo or location"><Icon name="plus" size={20} /></button>
+                  {menu === 'att' && <div className="ib-menu" style={{ left: 0 }}>
+                    <button onClick={() => { setMenu(''); fileIn.current?.click(); }}><span className="att-ic" style={{ background: '#7c3aed' }}><Icon name="image" size={14} /></span>Photo or video</button>
+                    <button onClick={() => { setMenu(''); docIn.current?.click(); }}><span className="att-ic" style={{ background: '#2563eb' }}><Icon name="attach" size={14} /></span>Document</button>
+                    <button onClick={() => { setMenu(''); setLocOpen(true); }}><span className="att-ic" style={{ background: '#16a34a' }}><Icon name="globe" size={14} /></span>Location</button>
+                    <button onClick={() => { setMenu(''); setTpl(true); }}><span className="att-ic" style={{ background: '#ca8a04' }}><Icon name="mail" size={14} /></span>Template</button>
+                  </div>}
+                </div>
+              )}
+              <input ref={fileIn} type="file" accept="image/png,image/jpeg,video/mp4,video/3gpp" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
+              <input ref={docIn} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
+              <textarea ref={ta} rows={1} value={text} onChange={(e) => { setText(e.target.value); setQi(0); }} onKeyDown={key} placeholder={mode === 'note' ? 'A note only your team sees…' : 'Type a reply…  ( / for quick replies)'} disabled={busy === 'rw'} />
+              {mode === 'reply' && !text.trim()
+                ? <button className="ib-send" onClick={() => setRec(true)} disabled={!!busy} aria-label="Record a voice note" title="Record a voice note">{busy === 'send' ? <span className="spin" /> : <Icon name="mic" size={18} />}</button>
+                : <button className="ib-send" onClick={submit} disabled={!text.trim() || !!busy} aria-label="Send" style={mode === 'note' ? { background: '#ca8a04' } : undefined}>{busy === 'send' ? <span className="spin" /> : <Icon name={mode === 'note' ? 'check' : 'send'} size={18} />}</button>}
+            </div>
+          )}
+          {locOpen && <LocationPicker saved={meta?.location} onClose={() => setLocOpen(false)} onSend={sendLocation} />}
           {mode === 'reply' && (
             <div className="ib-tools" style={{ position: 'relative' }}>
               {meta?.ai && <button className="btn ai sm" onClick={suggest} disabled={busy === 'sug'}><Icon name="sparkles" size={14} />Suggest replies</button>}
               {meta?.ai && <button className="btn ghost sm" onClick={() => setMenu(menu === 'rw' ? '' : 'rw')} disabled={!text.trim() || busy === 'rw'}>{busy === 'rw' ? <span className="spin dark" /> : <Icon name="wand" size={14} />}Rewrite</button>}
-              <button className="icon-btn" title="Send a photo" onClick={() => fileIn.current?.click()}><Icon name="image" size={16} /></button>
-              <input ref={fileIn} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
               <button className="icon-btn" title="Quick replies" onClick={() => setMenu(menu === 'quick' ? '' : 'quick')}><Icon name="bolt" size={16} /></button>
               <button className="icon-btn" title="More" onClick={() => setMenu(menu === 'more' ? '' : 'more')}><Icon name="menu" size={16} /></button>
               {menu === 'rw' && <div className="ib-menu" style={{ left: 120 }}>{REWRITE.map(([k, l]) => <button key={k} onClick={() => rewrite(k)}>{l}</button>)}</div>}
@@ -326,6 +361,117 @@ function QuickEditor({ quick, meta, onClose }) {
   );
 }
 
+// sends the file's bytes as they are (not JSON): the server passes them to WhatsApp
+async function uploadTo(convId, blob, params) {
+  const r = await fetch(`/api/inbox/${convId}/upload?${new URLSearchParams(params)}`, { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('ff_token')}`, 'Content-Type': blob.type || 'application/octet-stream' }, body: blob });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(d.error || 'Couldn’t send the file'), { data: d });
+  return d;
+}
+
+// a voice note: recorded in a format WhatsApp plays (Ogg/Opus, else MP4/AAC), up to 5 minutes
+const VOICE_TYPES = ['audio/ogg;codecs=opus', 'audio/mp4', 'audio/mpeg', 'audio/aac'];
+function VoiceRecorder({ onDone, onCancel }) {
+  const [secs, setSecs] = useState(0);
+  const [err, setErr] = useState('');
+  const rec = useRef(null), chunks = useRef([]), keep = useRef(false), stream = useRef(null);
+  useEffect(() => {
+    let timer;
+    const type = typeof MediaRecorder !== 'undefined' && VOICE_TYPES.find((t) => MediaRecorder.isTypeSupported(t));
+    if (!type) { setErr('This browser can’t record WhatsApp voice notes — try the latest Chrome, Edge, Safari or Firefox.'); return undefined; }
+    navigator.mediaDevices?.getUserMedia({ audio: true }).then((s) => {
+      stream.current = s;
+      const r = new MediaRecorder(s, { mimeType: type });
+      r.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data); };
+      r.onstop = () => { s.getTracks().forEach((t) => t.stop()); if (keep.current && chunks.current.length) onDone(new Blob(chunks.current, { type })); };
+      r.start(250);
+      rec.current = r;
+      timer = setInterval(() => setSecs((x) => { if (x + 1 >= 300) stop(true); return x + 1; }), 1000);
+    }).catch(() => setErr('Allow the microphone for this site to record a voice note.'));
+    return () => { clearInterval(timer); if (rec.current?.state === 'recording') { keep.current = false; rec.current.stop(); } stream.current?.getTracks().forEach((t) => t.stop()); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const stop = (send) => { keep.current = send; if (rec.current?.state === 'recording') rec.current.stop(); if (!send) onCancel(); };
+  if (err) return <div className="ib-rec"><span className="muted sm" style={{ flex: 1 }}>{err}</span><button className="btn ghost sm" onClick={onCancel}>Close</button></div>;
+  return (
+    <div className="ib-rec">
+      <button className="icon-btn danger" onClick={() => stop(false)} aria-label="Discard the recording" title="Discard"><Icon name="trash" size={17} /></button>
+      <span className="rec-dot" /><b className="rec-t">{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}</b>
+      <span className="rec-wave">{Array.from({ length: 28 }, (_, i) => <i key={i} style={{ animationDelay: `${(i % 7) * 0.09}s` }} />)}</span>
+      <button className="ib-send" onClick={() => stop(true)} disabled={secs < 1} aria-label="Send the voice note"><Icon name="send" size={18} /></button>
+    </div>
+  );
+}
+
+// a location: the business's saved one, where you are now, a pasted Google Maps link, or typed coordinates
+function LocationPicker({ saved, onClose, onSend }) {
+  const [l, setL] = useState(saved ? { ...saved } : { lat: '', lng: '', name: '', address: '' });
+  const [save, setSave] = useState(!saved);
+  const [busy, setBusy] = useState(false);
+  const here = () => {
+    if (!navigator.geolocation) return toast('This browser can’t share its location');
+    setBusy(true);
+    navigator.geolocation.getCurrentPosition((p) => { setL((x) => ({ ...x, lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6) })); setBusy(false); }, () => { toast('Allow location access for this site, or paste a Google Maps link'); setBusy(false); }, { enableHighAccuracy: true, timeout: 15000 });
+  };
+  // "…/@18.52,73.85,17z", "…?q=18.52,73.85", "18.52, 73.85"
+  const paste = (v) => { const m = /@(-?\d+\.\d+),(-?\d+\.\d+)/.exec(v) || /[?&](?:q|ll|query)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/.exec(v) || /^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/.exec(v); if (m) setL((x) => ({ ...x, lat: +m[1], lng: +m[2] })); else if (v.trim()) toast('Couldn’t find coordinates in that link — open the place in Google Maps and copy the link from the address bar'); };
+  const ok = Number.isFinite(+l.lat) && Number.isFinite(+l.lng) && l.lat !== '' && l.lng !== '' && Math.abs(+l.lat) <= 90 && Math.abs(+l.lng) <= 180;
+  return (
+    <Modal title="Share a location" onClose={onClose} width={520}>
+      <div style={{ display: 'grid', gap: 10 }}>
+        <div className="row">
+          {saved && <button className="btn ghost sm" onClick={() => setL({ ...saved })}><Icon name="bookmark" size={14} />{saved.name || 'My business location'}</button>}
+          <button className="btn ghost sm" onClick={here} disabled={busy}>{busy ? <span className="spin dark" /> : <Icon name="target" size={14} />}Use my current location</button>
+        </div>
+        <label className="sm strong">Or paste a Google Maps link<input placeholder="https://maps.google.com/…" onBlur={(e) => paste(e.target.value)} onPaste={(e) => paste(e.clipboardData.getData('text'))} /></label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <label className="sm strong">Latitude<input value={l.lat} onChange={(e) => setL({ ...l, lat: e.target.value })} placeholder="18.5204" /></label>
+          <label className="sm strong">Longitude<input value={l.lng} onChange={(e) => setL({ ...l, lng: e.target.value })} placeholder="73.8567" /></label>
+        </div>
+        <label className="sm strong">Place name<input value={l.name} maxLength={120} onChange={(e) => setL({ ...l, name: e.target.value })} placeholder="Ananya Yoga Studio" /></label>
+        <label className="sm strong">Address<input value={l.address} maxLength={300} onChange={(e) => setL({ ...l, address: e.target.value })} placeholder="2nd floor, FC Road, Pune 411004" /></label>
+        {ok && <a className="sm" href={`https://www.google.com/maps?q=${l.lat},${l.lng}`} target="_blank" rel="noreferrer noopener">Check it on Google Maps →</a>}
+        <label className="tog"><input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} /><span />Save as my business location (one tap next time)</label>
+        <div className="row end"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!ok} onClick={() => onSend({ lat: +l.lat, lng: +l.lng, name: l.name.trim(), address: l.address.trim() }, save)}><Icon name="send" size={14} />Send location</button></div>
+      </div>
+    </Modal>
+  );
+}
+
+// hands the chat to a teammate (or the whole team) with a note — or to the AI agent
+function HandOff({ c, meta, onClose, onDone, patch }) {
+  const [to, setTo] = useState('');
+  const [note, setNote] = useState('');
+  const [tell, setTell] = useState(c.window.open);
+  const [msg, setMsg] = useState('Thanks for your patience 🙏 I’m passing you to a colleague who will reply here shortly.');
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    try {
+      if (to === 'ai') { await patch({ ai: true }); onDone(null); }
+      else onDone((await api(`/inbox/${c.id}/handoff`, 'POST', { to, note, tell, message: msg })).conv);
+      toast(to === 'ai' ? 'The AI agent has this chat now' : 'Handed off — they’ve been notified');
+    } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  return (
+    <Modal title="Hand off this chat" onClose={onClose} width={500}>
+      <div style={{ display: 'grid', gap: 12 }}>
+        <div className="handoff-to">
+          <button className={to === '' ? 'on' : ''} onClick={() => setTo('')}><Icon name="users" size={16} /><span><b>Anyone on the team</b><small>{meta?.rules?.includes('assign') ? 'Assigned in turn (auto-assign is on)' : 'Shows as “Needs you” for everyone'}</small></span></button>
+          {(meta?.team || []).filter((p) => p.id !== c.assignee || p.id === meta.me).map((p) => <button key={p.id} className={to === p.id ? 'on' : ''} onClick={() => setTo(p.id)}><Avatar c={{ name: p.name, num: p.id }} sm /><span><b>{p.name}{p.id === meta.me ? ' (you)' : ''}</b><small>Assign and notify</small></span></button>)}
+          {meta?.agent?.on && !c.ai && <button className={to === 'ai' ? 'on' : ''} onClick={() => setTo('ai')}><span className="cav sm" style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb 55%, #06b6d4)' }}><Icon name="sparkles" size={14} /></span><span><b className="ai-txt">{meta.agent.name} (AI agent)</b><small>Replies now and hands back if needed</small></span></button>}
+        </div>
+        {to !== 'ai' && <>
+          <label className="sm strong">Note for them<input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Wants a bulk quote — call before 6 pm" /></label>
+          <label className="tog"><input type="checkbox" checked={tell} disabled={!c.window.open} onChange={(e) => setTell(e.target.checked)} /><span />Tell the customer {!c.window.open && <small className="muted">· not possible: the 24-hour window is closed</small>}</label>
+          {tell && <textarea rows={2} value={msg} maxLength={500} onChange={(e) => setMsg(e.target.value)} />}
+        </>}
+        <div className="row end"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={go} disabled={busy}>{busy ? <span className="spin" /> : <Icon name="send" size={14} />}Hand off</button></div>
+      </div>
+    </Modal>
+  );
+}
+
 // an approved template, with its variables filled in (the first one defaults to the contact's first name)
 function TemplateSend({ convId, phone, name, onSent }) {
   const [list, setList] = useState(null);
@@ -350,7 +496,7 @@ function TemplateSend({ convId, phone, name, onSent }) {
       <select value={pick?.name || ''} onChange={(e) => choose(e.target.value)}><option value="">{list.length ? 'Choose an approved template…' : 'No approved templates yet — create one in Settings → Channels'}</option>{list.map((t) => <option key={`${t.name}${t.language}`} value={t.name}>{t.name} · {t.category.toLowerCase()}</option>)}</select>
       {pick && <>
         {vals.map((v, i) => <input key={i} value={v} onChange={(e) => setVals(vals.map((x, j) => (j === i ? e.target.value : x)))} placeholder={`Value for {{${i + 1}}}`} />)}
-        <div className="bub out" style={{ alignSelf: 'stretch', maxWidth: '100%' }}>{preview}</div>
+        <div className="bub b-out" style={{ alignSelf: 'stretch', maxWidth: '100%' }}>{preview}</div>
         <button className="btn primary sm" onClick={go} disabled={busy || vals.some((v) => !v.trim())}>{busy ? <span className="spin" /> : <Icon name="send" size={14} />}Send template</button>
       </>}
     </div>

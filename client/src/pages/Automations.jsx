@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Clock, Mail, MessageCircle, Tag, ArrowRightLeft, Webhook, BellRing, Zap, Plus, Trash2, ChevronUp, ChevronDown, Copy, UserPlus,
   ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass, KeyRound, StickyNote, GripVertical, Search, X, GraduationCap, BadgeCheck, Award, MessagesSquare, Eye, FileX,
-  CalendarCheck, CalendarX, Target, ListTodo, Check, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX,
+  CalendarCheck, CalendarX, Target, ListTodo, Check, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX, CheckCheck, Handshake,
 } from 'lucide-react';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
@@ -43,6 +43,7 @@ const TRIGGER_ICON = {
   lead: UserPlus, quiz: ListTodo, purchase: ShoppingBag, offer: TrendingUp, abandoned: ShoppingCart, refund: Undo2, renewal: RefreshCw, payment_failed: CreditCard, shipped: Truck,
   booking: CalendarCheck, booking_cancelled: CalendarX, webinar_registered: Presentation, webinar_attended: UserCheck, webinar_missed: UserX,
   stage: Kanban, tag: Tag, field: PenLine, stuck: Hourglass, date: CalendarDays, inbound: Link2, manual: Hand,
+  wa_message: MessageCircle, wa_handoff: Handshake, wa_resolved: CheckCheck,
   student_joined: GraduationCap, quiz_passed: BadgeCheck, course_completed: Award, community_post: MessagesSquare, quote_viewed: Eye, quote_accepted: Check, quote_declined: FileX,
 };
 // the pickers: grouped like Zapier, with a line on what each one is for
@@ -50,6 +51,7 @@ const TRIGGER_GROUPS = [
   ['Leads & forms', ['lead', 'quiz', 'inbound', 'manual']],
   ['Sales & payments', ['purchase', 'offer', 'abandoned', 'refund', 'renewal', 'payment_failed', 'shipped']],
   ['CRM', ['stage', 'stuck', 'field', 'tag', 'date']],
+  ['WhatsApp inbox', ['wa_message', 'wa_handoff', 'wa_resolved']],
   ['Calls & webinars', ['booking', 'booking_cancelled', 'webinar_registered', 'webinar_attended', 'webinar_missed']],
   ['Courses & community', ['student_joined', 'quiz_passed', 'course_completed', 'community_post']],
   ['Quotes', ['quote_viewed', 'quote_accepted', 'quote_declined']],
@@ -62,6 +64,7 @@ const TRIGGER_HELP = {
   webinar_attended: 'After the webinar — they showed up', webinar_missed: 'After the webinar — they didn’t',
   stage: 'A contact moves to a pipeline stage', stuck: 'A contact sits in a stage for N days', field: 'A CRM field changes — e.g. Home loan → Needed',
   tag: 'A tag is added to a contact', date: 'A date field arrives — site visit, renewal, birthday',
+  wa_message: 'A contact writes to you on WhatsApp — any message, or one with a word', wa_handoff: 'A chatbot, the AI agent or a teammate hands a chat to your team', wa_resolved: 'A WhatsApp chat is marked resolved',
   student_joined: 'First sign-in to your members area', quiz_passed: 'A lesson quiz is passed', course_completed: 'Every lesson done (certificate earned)', community_post: 'A student posts in your community',
   quote_viewed: 'A client opens the quote you sent', quote_accepted: 'A client says yes (when online payment isn’t set up) — follow up on payment', quote_declined: 'A client declines a quote',
 };
@@ -562,6 +565,7 @@ function Builder({ id }) {
       </>}
       {a.trigger.type === 'quiz' && <><label>Result<input value={a.trigger.outcome || ''} onChange={(e) => setTrigger({ outcome: e.target.value })} placeholder="Any result (leave empty) — or e.g. The Starter Path" /></label><p className="hint">Use {'{{quiz_result}}'} in messages for the result they got. Answer tags (set in the quiz) also start “A tag is added” automations.</p></>}
       {a.trigger.type === 'tag' && <label>Tag<input value={a.trigger.tag || ''} onChange={(e) => setTrigger({ tag: e.target.value })} placeholder="e.g. webinar" /></label>}
+      {a.trigger.type === 'wa_message' && <><label>Only when the message has<input value={a.trigger.keyword || ''} onChange={(e) => setTrigger({ keyword: e.target.value })} placeholder="Any message (leave empty) — or e.g. price list" /></label><p className="hint">Each contact goes through once (unless repeats are allowed). Replies inside the chat belong to chatbots and the AI agent — use this for follow-ups: tags, stages, emails, tasks.</p></>}
       {a.trigger.type === 'field' && (() => { const fd = fields.find((x) => x.id === a.trigger.fieldId); return <>
         <label>Field<select value={a.trigger.fieldId || ''} onChange={(e) => setTrigger({ fieldId: e.target.value, value: '' })}><option value="">Choose…</option>{fields.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label>
         <label>Changes to{fd?.type === 'select'
