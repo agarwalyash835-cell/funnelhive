@@ -6,7 +6,7 @@ import '../chat.css';
 
 // /inbox/:id? — every WhatsApp conversation in one place: the team replies, chatbots and the AI agent work
 // alongside, and AI suggests replies, rewrites drafts and sums a chat up. Refreshes itself every few seconds.
-const FILTERS = [['all', 'Open'], ['mine', 'Mine'], ['unassigned', 'Unassigned'], ['bots', 'Bots & AI'], ['resolved', 'Resolved']];
+const FILTERS = [['all', 'Open'], ['mine', 'Mine'], ['unassigned', 'Unassigned'], ['bots', 'Bots & AI'], ['ads', 'From ads'], ['resolved', 'Resolved']];
 const REWRITE = [['polish', 'Fix grammar & polish'], ['friendly', 'Make it friendlier'], ['formal', 'Make it professional'], ['shorter', 'Make it shorter'], ['hinglish', 'Hinglish'], ['hindi', 'Hindi (देवनागरी)'], ['english', 'English']];
 const HUES = ['#16a34a', '#0d9488', '#0891b2', '#2563eb', '#7c3aed', '#c026d3', '#db2777', '#ea580c', '#ca8a04'];
 const hue = (s) => HUES[[...String(s)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % HUES.length];
@@ -38,7 +38,7 @@ export default function Inbox() {
   const nav = useNavigate();
   const [meta, setMeta] = useState(null);
   const [list, setList] = useState(null);
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState(() => { const f = new URLSearchParams(window.location.search).get('filter'); return FILTERS.some(([k]) => k === f) ? f : 'all'; }); // /inbox?filter=ads from the Ads page
   const [q, setQ] = useState('');
   const wideScreen = () => typeof window !== 'undefined' && window.innerWidth >= 1500;
   const [side, setSide] = useState(() => { try { return wideScreen() && localStorage.getItem('ff_ib_side') !== '0'; } catch { return wideScreen(); } });
@@ -81,7 +81,8 @@ export default function Inbox() {
                   <div>
                     <div className="t1"><b>{display(c)}</b><time>{short(c.lastAt)}</time></div>
                     <div className="t2"><span>{c.lastDir === 'out' && `${c.lastBy === 'ai' ? '✨ ' : c.lastBy === 'bot' ? '🤖 ' : 'You: '}`}{c.lastText || '…'}</span>{c.unread > 0 && <em className="ib-n">{c.unread}</em>}</div>
-                    {(c.ai || c.bot || c.labels.length > 0 || (c.human && c.handoff)) && <div className="t3">
+                    {(c.ai || c.bot || c.ad || c.labels.length > 0 || (c.human && c.handoff)) && <div className="t3">
+                      {c.ad && <span className="ctwa-chip" title={`Started from the ad “${c.ad.headline || c.ad.id}”`}><Icon name="target" size={11} />Ad</span>}
                       {c.ai && <span className="ai-chip"><Icon name="sparkles" size={11} />AI replying</span>}
                       {c.bot && <span className="bot-chip"><Icon name="bot" size={11} />{c.bot.name}</span>}
                       {c.human && c.handoff && c.status !== 'resolved' && <span className="pill warn">Needs you</span>}
@@ -99,6 +100,19 @@ export default function Inbox() {
       )}
       {startOpen && <StartChat onClose={() => setStartOpen(false)} onDone={(cid) => { setStartOpen(false); loadList(); nav(`/inbox/${cid}`); }} />}
     </Layout>
+  );
+}
+
+// the click-to-WhatsApp ad that started this chat (and the first one, if they came back from another ad)
+function AdChip({ ad, first }) {
+  const name = (a) => a.headline || `Ad ${a.id}`;
+  return (
+    <div className="ctwa-bar">
+      <span className="ctwa-chip"><Icon name="target" size={12} />From ad</span>
+      {ad.url ? <a href={ad.url} target="_blank" rel="noopener noreferrer" title="Open the ad">{name(ad)} <Icon name="external" size={11} /></a> : <b>{name(ad)}</b>}
+      {ad.id && <small>ID {ad.id}</small>}
+      {first && <small>· first came from {name(first)}</small>}
+    </div>
   );
 }
 
@@ -161,6 +175,7 @@ function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
           {c.status === 'resolved' ? <button className="btn ghost sm" onClick={() => patch({ status: 'open' })}>Reopen</button> : <button className="btn live sm" onClick={() => patch({ status: 'resolved' })}><Icon name="check" size={14} />Resolve</button>}
           <button className="icon-btn" onClick={toggleSide} title={side ? 'Hide details' : 'Show details'} aria-label="Contact details"><Icon name="eye" size={17} /></button>
         </header>
+        {c.ad && <AdChip ad={c.ad} first={c.firstAd} />}
         {hand && <HandOff c={c} meta={meta} onClose={() => setHand(false)} onDone={(conv) => { setHand(false); if (conv) setD((x) => ({ ...x, conv })); load(); onChange(); }} patch={patch} />}
         {c.ai && <div className="ib-banner bn-ai"><Icon name="sparkles" size={15} /><span><b>{meta?.agent?.name || 'The AI agent'}</b> is replying to this chat{c.intent ? ` · topic: ${c.intent}` : ''}</span><button className="btn ghost sm" onClick={() => patch({ ai: false })}>Take over</button></div>}
         {c.bot && <div className="ib-banner bn-bot"><Icon name="bot" size={15} /><span>Chatbot <b>{c.bot.name}</b> is {c.bot.wait === 'time' ? 'waiting to send the next step' : 'waiting for an answer'}</span><button className="btn ghost sm" onClick={() => patch({ stopBot: true })}>Stop & take over</button></div>}

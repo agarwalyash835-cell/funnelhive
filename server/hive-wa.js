@@ -400,6 +400,9 @@ function handle(userId, ev, d = {}, env = {}) {
     setHive(userId, (x) => { x.quality = { rating: clip(d.quality_rating, 20) || x.quality?.rating || '', event: clip(d.event, 40), limit: clip(d.limit, 40) || x.quality?.limit || '', at: Date.now() }; });
   }
 }
+// A customer's message that came in some other way (the Meta Cloud API webhook: ctwa.js metaInbound turns Meta's
+// body into these): the same contact, inbox, chatbots and ad tracking as a Hive message
+export function receiveWhatsApp(userId, d) { if (T.users.get(userId)) handle(userId, 'message.inbound', d); }
 const tsOf = (v) => { if (v == null || v === '') return null; const n = /^\d+$/.test(String(v)) ? Number(v) : Date.parse(v); return Number.isFinite(n) ? (n < 1e12 ? n * 1000 : n) : null; };
 const sameHex = (a, b) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
