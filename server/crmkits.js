@@ -7,6 +7,14 @@ import { pipelinesFor, FIELD_TYPES, ensureMeta, ensureContact, logActivity } fro
 import { fire as fireAutomation } from './automations.js';
 import { sellerTz, localYmd } from './tz.js';
 import { aiEnabled, aiJson } from './ai.js';
+import { cleanCalendar } from './bookings.js';
+// an AI draft, cleaned like a saved call type (nothing is stored until the seller creates it)
+const cleanDraft = (d) => {
+  let c = cleanCalendar(d);
+  if (c.error) c = cleanCalendar({ ...d, timezone: undefined }); // a time zone the AI made up: the seller's own is used
+  const { slug, reminders, blocked, ...draft } = c;
+  return draft;
+};
 
 const S = (name, color, flag) => ({ name, color, ...(flag ? { [flag]: true } : {}) });
 const sel = (id, label, options) => ({ id, label, type: 'select', options });
@@ -389,6 +397,60 @@ export function kitBooking(u) {
     },
   };
 }
+// ---------- the gallery of ready-made call types, one per industry (Bookings → Ready-made call types) ----------
+// the two styles with no CRM booking of their own get one here; hours suited to the business where it differs
+const EXTRA_BOOKING = {
+  general: { name: 'Discovery call', duration: 30, where: '', ask: [], own: [['What would you like help with?', 'long']] },
+  ngo: { name: 'Meeting with our team', duration: 30, where: '', ask: [], own: [['How would you like to help?', 'select', 'Donate, Volunteer, CSR partnership, Something else']] },
+};
+const SUN = [['10:00', '18:00']];
+const HOURS = {
+  realestate: { sun: SUN, sat: [['10:00', '18:00']] }, auto: { sun: SUN, sat: [['10:00', '18:00']] }, hospitality: { sat: [['10:00', '20:00']], sun: [['10:00', '20:00']] },
+  fitness: Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((d) => [d, [['06:00', '10:00'], ['16:00', '20:00']]])), clinic: Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((d) => [d, [['10:00', '13:00'], ['17:00', '20:00']]])),
+  education: { sat: [['10:00', '17:00']], sun: [['10:00', '13:00']] },
+};
+// → [{ id (the industry), industry, icon, mine, name, duration, location, description, hours, questions, crm }] —
+// questions linked to the seller's CRM fields when they have them (answers then land in those fields)
+export function bookingTemplates(u) {
+  const mine = currentKit(u)?.id;
+  const have = new Set((u.crmFields || []).map((x) => x.id));
+  const own = kitBooking(u);
+  return KITS.map((k) => {
+    const spec = KIT_BOOKING[k.id] || EXTRA_BOOKING[k.id];
+    if (!spec) return null;
+    const def = (id) => k.fields.find((x) => x.id === id);
+    const questions = [
+      ...spec.ask.map(def).filter(Boolean).map((x) => ({ label: x.label.replace(/ \(₹\)$/, ''), type: QTYPE[x.type] || 'text', ...(have.has(x.id) ? { fieldId: x.id } : {}), ...(x.type === 'select' ? { options: String(x.options || '').split(',').map((o) => o.trim()).filter(Boolean) } : {}) })),
+      ...(spec.own || []).map(([label, type, options]) => ({ label, type, ...(options ? { options: options.split(',').map((o) => o.trim()) } : {}) })),
+    ].map((q, i) => ({ ...q, required: i === 0 }));
+    const hours = { mon: [['10:00', '18:00']], tue: [['10:00', '18:00']], wed: [['10:00', '18:00']], thu: [['10:00', '18:00']], fri: [['10:00', '18:00']], sat: [['10:00', '14:00']], sun: [], ...HOURS[k.id] };
+    return {
+      id: k.id, industry: k.name, icon: k.icon, mine: k.id === mine, name: spec.name, duration: spec.duration, location: spec.where || '', hours, questions,
+      description: `Book a ${spec.name.toLowerCase()} with us — pick a time that suits you.`,
+      // what it does in the CRM: only for the seller's own style (its fields and stages exist)
+      crm: k.id === mine && own ? { kit: own.kit, dateField: own.dateField?.label || null, booked: own.booked?.name || null, done: own.done?.name || null } : null,
+    };
+  }).filter(Boolean).sort((a, b) => Number(b.mine) - Number(a.mine));
+}
+// a call type described in a sentence → a draft the seller reviews before it's created (not saved here)
+const CAL_SYSTEM = `You set up a booking calendar (a call type people book online) for a small business, Indian context unless told otherwise. Reply with ONLY JSON:
+{"name": "what the booking is called (e.g. Site visit, Free trial class, Consultation)", "duration": minutes, "durations": [other lengths people may pick, optional], "description": "one or two friendly lines for the booking page",
+ "location": "where it happens, or '' for an online / phone call", "hours": {"mon": [["10:00","18:00"]], "tue": [...], "wed": [...], "thu": [...], "fri": [...], "sat": [...], "sun": []},
+ "buffer": minutes between bookings, "noticeHours": minimum notice in hours, "daysAhead": how many days ahead people can book, "perDay": max bookings a day (0 = no cap),
+ "price": 0 for free or the price per booking, "currency": "INR",
+ "questions": [{"label": "question on the booking form", "type": "text|long|phone|select", "required": true|false, "options": ["for select only"]}]}
+Rules: use exactly what the owner asked for (days, times in 24-hour HH:MM, length, price); fill sensible defaults for the rest; 0–5 short questions that help the business prepare (budget, need, location…), never passwords, card numbers, Aadhaar or PAN; several time windows a day are allowed (e.g. a lunch break).`;
+export async function draftCalendar(u, prompt) {
+  const tpl = bookingTemplates(u).find((t) => t.mine);
+  const fields = (u.crmFields || []).map((x) => `${x.label}${x.type === 'select' ? ` (${x.options})` : ''}`).join('; ');
+  const r = await aiJson(CAL_SYSTEM, `Business: ${u.settings?.businessName || u.name || ''}${tpl ? `\nIndustry: ${tpl.industry} — their usual booking: ${tpl.name}, ${tpl.duration} min` : ''}${fields ? `\nTheir CRM fields (reuse these names for questions when they fit): ${fields}` : ''}\n\nWhat they want: ${String(prompt).slice(0, 1500)}`);
+  if (!r || typeof r !== 'object') throw new Error('The AI couldn’t set this up — try describing it differently');
+  // questions named like a CRM field are linked to it (the answer lands on the contact)
+  const byLabel = new Map((u.crmFields || []).map((x) => [x.label.replace(/ \(₹\)$/, '').toLowerCase(), x.id]));
+  const questions = (Array.isArray(r.questions) ? r.questions : []).slice(0, 6).map((q) => ({ ...q, ...(byLabel.has(String(q?.label || '').toLowerCase()) ? { fieldId: byLabel.get(String(q.label).toLowerCase()) } : {}) }));
+  return { ...r, questions };
+}
+
 // moves the contact forward only (a booking never pulls someone back from Negotiation to Site visit scheduled)
 function moveForward(userId, m, pipeId, st, why) {
   const pipe = pipelinesFor(userId).find((x) => x.id === pipeId);
@@ -434,6 +496,16 @@ export function syncBooking(b, cal, what) {
 export function registerCrmKits(app, { auth, wrap, rateLimit, isTest, credits }) {
   // the Bookings screen: what bookings do in this CRM style, and a ready calendar for it
   app.get('/api/crm/kit-booking', auth, (req, res) => res.json(kitBooking(T.users.get(req.user.id)) || { kit: null }));
+  // the ready-made call types for every industry (yours first), and a call type drafted by AI from a description
+  // (under /api/calendars: the same team permission as call types)
+  app.get('/api/calendars/templates', auth, (req, res) => res.json({ templates: bookingTemplates(T.users.get(req.user.id)), ai: aiEnabled() }));
+  const aiLimit = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 10, key: (req) => req.user.id, message: 'Too many AI requests — wait a minute.' });
+  app.post('/api/calendars/ai', auth, aiLimit, credits('chat'), wrap(async (req, res) => {
+    if (!aiEnabled()) return res.status(400).json({ error: 'AI isn’t switched on for this account yet' });
+    const prompt = String(req.body?.prompt || '').trim();
+    if (prompt.length < 8) return res.status(400).json({ error: 'Describe the bookings you want — what, how long, which days and times' });
+    try { res.json({ draft: cleanDraft(await draftCalendar(T.users.get(req.user.id), prompt)) }); } catch (e) { res.locals.aiFailed = true; res.status(503).json({ error: e.message }); }
+  }));
   app.get('/api/crm/kit-automations', auth, (req, res) => res.json(kitAutomations(T.users.get(req.user.id)) || { kit: null, recipes: [] }));
   const view = (u) => ({ current: currentKit(u), kits: KITS });
   app.get('/api/crm/kits', auth, (req, res) => res.json(view(req.user)));

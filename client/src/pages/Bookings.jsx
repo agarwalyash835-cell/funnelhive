@@ -30,31 +30,98 @@ export default function Bookings() {
   return (
     <Layout title={t('Bookings')} subtitle={t('Your booking page, your call types, and every call booked.')}>
       {handle && cals && <BookingPage handle={handle} setHandle={setHandle} cals={cals} onEdit={(id) => setQs({ tab: 'calendars', cal: id })} />}
-      {cals && <KitBookings cals={cals} onCreated={(c) => { loadCals(); setQs({ tab: 'calendars', cal: c.id }); }} />}
+      {cals && <NewCallType cals={cals} onCreated={(c) => { loadCals(); setQs({ tab: 'calendars', cal: c.id }); }} />}
       <div className="seg pr-tabs">{[['upcoming', 'Upcoming calls'], ['past', 'Past & cancelled'], ['calendars', 'Call types & hours']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setQs({ tab: k })}>{t(l)}</button>)}</div>
       {tab === 'calendars' ? <Calendars handle={handle} initial={qs.get('cal')} onChange={loadCals} /> : <BookingList past={tab === 'past'} handle={handle} />}
     </Layout>
   );
 }
 
-// what a booking does in the seller's CRM style (a site visit for real estate, an appointment for a clinic…),
-// and its ready-made call type
-function KitBookings({ cals, onCreated }) {
-  const [k, setK] = useState(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { api('/crm/kit-booking').then(setK).catch(() => {}); }, []);
-  if (!k?.kit) return null;
-  const have = cals.find((c) => c.name.toLowerCase() === k.name.toLowerCase());
-  const create = async () => { setBusy(true); try { const c = await api('/calendars', 'POST', k.preset); toast(`${k.name} call type created`); onCreated(c); } catch (e) { toast(e.message); } setBusy(false); };
+// "Mon–Sat 10:00–18:00 · Sun closed"-style summary of weekly hours
+const SHORT_DAYS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
+export function hoursText(h = {}) {
+  const groups = [];
+  for (const d of Object.keys(SHORT_DAYS)) {
+    const w = (h[d] || []).map(([a, b]) => `${a}–${b}`).join(', ');
+    const last = groups.at(-1);
+    if (last && last.w === w) last.to = d; else groups.push({ from: d, to: d, w });
+  }
+  return groups.filter((g) => g.w).map((g) => `${SHORT_DAYS[g.from]}${g.to !== g.from ? `–${SHORT_DAYS[g.to]}` : ''} ${g.w}`).join(' · ') || 'No hours set';
+}
+const AI_IDEAS = ['Free 30-min site visits, Mon–Sun 10am–6pm, ask budget, BHK and preferred area', 'Paid ₹500 consultation, 20 min, weekday evenings 6–9pm', 'Free trial yoga class, 45 min, mornings 6–9am, ask health issues', 'Test drives on weekends 10am–5pm, ask which model'];
+// a new call type: described to AI, or one of the ready-made ones for every industry (your own first)
+function NewCallType({ cals, onCreated }) {
+  const [d, setD] = useState(null);
+  const [ind, setInd] = useState(null);
+  const [prompt, setPrompt] = useState('');
+  const [busy, setBusy] = useState('');
+  const [draft, setDraft] = useState(null);
+  useEffect(() => { api('/calendars/templates').then((x) => { setD(x); setInd(x.templates[0]?.id || null); }).catch(() => {}); }, []);
+  if (!d) return null;
+  const tpl = d.templates.find((x) => x.id === ind) || d.templates[0];
+  const have = (name) => cals.find((c) => c.name.toLowerCase() === String(name).toLowerCase());
+  const create = async (body, what) => {
+    setBusy(what);
+    try { const c = await api('/calendars', 'POST', body); toast(t('“{name}” call type created — check the hours and questions', { name: c.name })); setDraft(null); onCreated(c); } catch (e) { toast(e.message); }
+    setBusy('');
+  };
+  const useTemplate = () => { const { id, industry, icon, mine, crm, ...body } = tpl; create(body, 'tpl'); };
+  const askAi = async (e) => {
+    e?.preventDefault();
+    if (prompt.trim().length < 8) return toast(t('Describe the bookings you want — what, how long, which days and times'));
+    setBusy('ai');
+    try { setDraft((await api('/calendars/ai', 'POST', { prompt })).draft); } catch (er) { toast(er.message); }
+    setBusy('');
+  };
   return (
-    <Panel className="kit-book" title={<span className="kit-book-t"><span className="ti-box sm"><KitIcon type={k.kitId} size={14} /></span>Bookings in your {k.kit} CRM</span>}>
-      <ul className="kit-book-l">
-        <li>Each booking is a <b>{k.name}</b>{k.dateField && <> — its date goes into <b>{k.dateField.label}</b></>}{k.preset.questions.length > 0 && <>, and the form’s answers ({k.preset.questions.map((q) => q.label).join(', ')}) into the lead’s fields</>}.</li>
-        {k.booked && <li>The lead moves to <b>{k.booked.name}</b>{k.done && <>; marking it <b>Completed</b> moves them to <b>{k.done.name}</b></>}. Stage automations run as usual.</li>}
-        <li>A <b>No-show</b> is tagged <code>no-show</code> — great for a re-booking automation. Everyone who books shows up in your CRM.</li>
-      </ul>
-      {have ? <p className="hint"><Icon name="check" size={13} /> Your “{have.name}” call type is set up.</p>
-        : <button className="btn primary sm" disabled={busy} onClick={create}><Icon name="plus" size={14} /> Create the “{k.name}” call type</button>}
+    <Panel className="nct" title={t('Add a call type')}>
+      <form className="nct-ai" onSubmit={askAi}>
+        <span className="nct-ai-ic"><Icon name="sparkles" size={16} /></span>
+        <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t('Describe it — e.g. “Free 30-min site visits, Mon–Sun 10–6, ask budget and BHK”')} disabled={!d.ai || busy === 'ai'} />
+        <button className="btn ai sm" disabled={!d.ai || busy === 'ai'}>{busy === 'ai' ? <><span className="spin" />{t('Setting up…')}</> : <><Icon name="sparkles" size={14} />{t('Set up with AI')}</>}</button>
+      </form>
+      {d.ai ? <div className="nct-ideas">{AI_IDEAS.map((x) => <button key={x} type="button" onClick={() => setPrompt(x)}>{x}</button>)}</div> : <p className="hint">{t('AI isn’t switched on for this account — start from a ready-made call type below.')}</p>}
+      <div className="nct-gal">
+        <div className="nct-h"><b>{t('Ready-made for your industry')}</b>
+          <select value={tpl.id} onChange={(e) => setInd(e.target.value)} aria-label={t('Industry')}>{d.templates.map((x) => <option key={x.id} value={x.id}>{x.icon} {x.industry}{x.mine ? ` (${t('yours')})` : ''}</option>)}</select>
+        </div>
+        <div className="nct-card">
+          <div className="nct-top">
+            <span className="ti-box"><KitIcon type={tpl.id} size={18} /></span>
+            <div><b>{tpl.name}</b><small>{lengthLabel(tpl.duration)} · {tpl.location || t('Online or phone')} · {t('Free')}</small></div>
+            {have(tpl.name) ? <span className="pill ok"><Icon name="check" size={12} /> {t('Set up')}</span>
+              : <button className="btn primary sm" onClick={useTemplate} disabled={busy === 'tpl'}>{busy === 'tpl' ? <span className="spin" /> : <Icon name="plus" size={14} />}{t('Use this')}</button>}
+          </div>
+          <div className="nct-meta">
+            <span><Icon name="clock" size={13} /> {hoursText(tpl.hours)}</span>
+            {tpl.questions.length > 0 && <span><Icon name="list" size={13} /> {t('Asks')}: {tpl.questions.map((q) => q.label).join(', ')}</span>}
+          </div>
+          {tpl.crm ? (
+            <ul className="kit-book-l">
+              <li>{t('In your')} {tpl.crm.kit} CRM{tpl.crm.dateField && <> {t('its date goes into')} <b>{tpl.crm.dateField}</b></>}{tpl.questions.some((q) => q.fieldId) && <>, {t('and the answers into the lead’s fields')}</>}.</li>
+              {tpl.crm.booked && <li>{t('The lead moves to')} <b>{tpl.crm.booked}</b>{tpl.crm.done && <>; {t('marking it')} <b>{t('Completed')}</b> {t('moves them to')} <b>{tpl.crm.done}</b></>}. {t('No-shows are tagged')} <code>no-show</code>.</li>}
+            </ul>
+          ) : <p className="hint" style={{ margin: 0 }}>{t('Everyone who books shows up in your CRM. Change anything after creating it — hours, length, price, questions.')}</p>}
+        </div>
+      </div>
+      {draft && (
+        <Modal title={t('Your new call type')} onClose={() => setDraft(null)} width={560}>
+          <div className="nct-draft">
+            <label className="sm strong">{t('Name')}<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+            <div className="row" style={{ flexWrap: 'nowrap' }}>
+              <label className="sm strong" style={{ flex: 1 }}>{t('Length (minutes)')}<input type="number" min={10} max={240} value={draft.duration} onChange={(e) => setDraft({ ...draft, duration: Number(e.target.value) || 30 })} /></label>
+              <label className="sm strong" style={{ flex: 1 }}>{t('Price')} ({draft.currency || 'INR'}, 0 = {t('free')})<input type="number" min={0} value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) || 0 })} /></label>
+            </div>
+            <label className="sm strong">{t('Where')}<input value={draft.location || ''} onChange={(e) => setDraft({ ...draft, location: e.target.value })} placeholder={t('Online or phone')} /></label>
+            <div className="sm"><b>{t('Hours')}:</b> {hoursText(draft.hours)}</div>
+            <div className="sm"><b>{t('Booking rules')}:</b> {t('{n} min between bookings', { n: draft.buffer })} · {t('book {h} h ahead at least', { h: draft.noticeHours })} · {t('up to {d} days ahead', { d: draft.daysAhead })}{draft.perDay ? ` · ${t('max {n} a day', { n: draft.perDay })}` : ''}</div>
+            {draft.questions?.length > 0 && <div className="sm"><b>{t('Questions')}:</b><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{draft.questions.map((q) => <li key={q.id}>{q.label}{q.required ? ' *' : ''}{q.options?.length ? <span className="muted"> — {q.options.join(', ')}</span> : ''}{q.fieldId ? <span className="pill" style={{ marginLeft: 6 }}>{t('saved to CRM')}</span> : ''}</li>)}</ul></div>}
+            {draft.description && <p className="hint" style={{ margin: 0 }}>{draft.description}</p>}
+            <p className="hint" style={{ margin: 0 }}>{t('You can fine-tune everything after creating it.')}</p>
+            <div className="row end"><button className="btn ghost" onClick={() => setDraft(null)}>{t('Cancel')}</button><button className="btn primary" onClick={() => create(draft, 'draft')} disabled={busy === 'draft'}>{busy === 'draft' ? <span className="spin" /> : <Icon name="check" size={14} />}{t('Create call type')}</button></div>
+          </div>
+        </Modal>
+      )}
     </Panel>
   );
 }

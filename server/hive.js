@@ -373,6 +373,26 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Updated the “${r.name}” calendar (${r.duration} min${r.price ? `, ${r.currency && r.currency !== 'INR' ? `${r.currency} ` : '₹'}${r.price}` : ', free'})`,
   },
   {
+    name: 'create_calendar',
+    description: 'Create a NEW call type people book online (its own booking link), e.g. "Site visit", "Free trial class", "Test drive". template = an industry id to start from its ready-made call type (realestate, clinic, consultant, education, fitness, finance, interior, events, travel, auto, professional, recruitment, homeservices, hospitality, abroad, wellness, saas, ngo, general — the seller’s own industry when it fits); anything else given overrides it: name, duration (min), hours {mon:[["10:00","18:00"]], …, sun:[]}, location ("" = online / phone), description, price (0 = free) and currency, questions [{label, type: text|long|phone|select, required, options}]. Use configure_calendar to change an existing one.',
+    schema: S({ template: str('Industry id to start from (optional)'), name: str('Call name'), duration: num('Minutes'), hours: obj('Weekly hours by day'), location: str('Where it happens; empty for online'), description: str('Line for the booking page'), price: num('Price per booking, 0 = free'), currency: str('INR, USD, EUR, GBP, AUD, CAD, SGD or AED'), questions: arr('Booking form questions [{label, type, required, options}]') }),
+    run: async (ctx, a) => {
+      const { template, ...over } = a;
+      let base = {};
+      if (template) {
+        const t = (await ctx.call('GET', '/calendars/templates')).templates.find((x) => x.id === template);
+        if (!t) throw new Error(`No ready-made call type for “${template}”`);
+        base = { name: t.name, duration: t.duration, location: t.location, description: t.description, hours: t.hours, questions: t.questions };
+      }
+      const body = { ...base, ...Object.fromEntries(Object.entries(over).filter(([, v]) => v != null && v !== '')) };
+      if (!body.name) throw new Error('Give the call type a name, or a template to start from');
+      const r = await ctx.call('POST', '/calendars', body);
+      const handle = (await ctx.call('GET', '/booking-page')).handle;
+      return { ok: true, id: r.id, name: r.name, duration: r.duration, price: r.price || 0, link: `/meet/${handle}/${r.slug}`, questions: (r.questions || []).map((q) => q.label) };
+    },
+    summary: (r) => `Created the “${r.name}” call type (${r.duration} min${r.price ? `, ₹${r.price}` : ', free'})`,
+  },
+  {
     name: 'list_bookings', description: 'Booked calls (upcoming by default): when, who, status, paid.',
     schema: S({ past: bool('Past / cancelled instead of upcoming') }),
     run: async (ctx, a) => { const now = Date.now(); return (await ctx.call('GET', '/bookings')).filter((b) => (a.past ? b.status !== 'confirmed' || b.end < now : b.status === 'confirmed' && b.end >= now)).slice(0, 30).map((b) => ({ start: new Date(b.start).toISOString(), timezone: b.calendar?.timezone, name: b.name, email: b.email, status: b.status, paid: b.paid || null, call: b.calendar?.name })); },
@@ -756,7 +776,7 @@ How to work:
 - You start with the funnel-building tools. If the tool you need isn't in your list (checkout, CRM, automations, broadcasts, calls, quotes, ads, school, website, account), call use_tools with its group first.
 - Publish only when the user asks to go live. Remove pages or sections only when asked.
 - Selling → configure_checkout: price & currency (₹ = Razorpay/UPI; $ € £ etc. = Stripe for buyers abroad), memberships (billing monthly/yearly), EMI-style payment plans (installments), order bump, shipping + Cash on Delivery for physical products, and the product delivered after payment (create_product / list_products first).
-- Calls → configure_calendar (hours, duration, time zone, meeting link, price and currency for paid calls, refund window); list_bookings. Webinars → configure_webinar (schedule, time zone, joining link, replay, reminders).
+- Calls → create_calendar for a NEW call type (start from the seller's industry template: site visit, appointment, demo class, test drive…), configure_calendar to change one (hours, duration, time zone, meeting link, price and currency for paid calls, refund window); list_bookings. Webinars → configure_webinar (schedule, time zone, joining link, replay, reminders).
 - Numbers → get_sales (revenue, refunds, ROAS by campaign, COD to collect, orders to ship, failing payment plans) or get_analytics (traffic and conversion).
 - Custom work for one client (consulting, coaching packages, agency retainers) → create_quote: a proposal with line items, an optional deposit and a private pay link; send it only when asked. list_quotes shows who has paid.
 - Contacts → find_contacts / tag_contacts. Broadcasts → draft_broadcast ALWAYS first and tell the user who it reaches; call send_broadcast only when the user explicitly says to send or schedule that draft.
@@ -784,7 +804,7 @@ export const TOOL_GROUPS = {
   crm: { about: 'contacts, leads, CRM fields and pipelines, tags', tools: ['find_contacts', 'update_contact', 'tag_contacts', 'list_pipelines', 'list_crm_fields', 'create_pipeline', 'setup_crm'], re: /\b(crm|contacts?|leads?|pipelines?|stages?|tags?|customers?|prospects?|fields?|deals?|patients?|students?|buyers?)\b/i },
   automations: { about: 'automations: follow-up email / WhatsApp sequences, reminders, webhooks', tools: ['list_automations', 'create_automation', 'update_automation', 'list_pipelines', 'connect_webhook'], re: /\b(automat\w*|follow[- ]?ups?|whats ?app|emails?|sequences?|remind\w*|webhooks?|nurture|drip|trigger\w*|workflows?)\b/i },
   broadcasts: { about: 'broadcasts: one-off emails / WhatsApp to a list', tools: ['draft_broadcast', 'send_broadcast', 'find_contacts'], re: /\b(broadcasts?|blast|newsletter|announce\w*|send (it )?to (all|my|everyone|the list))\b/i },
-  calls: { about: 'booking calendars, booked calls, webinars', tools: ['configure_calendar', 'list_bookings', 'configure_webinar'], re: /\b(book\w*|calls?|calendar|appointments?|slots?|webinars?|meetings?|demos?|sessions?|consultations?|site visits?|zoom|google meet)\b/i },
+  calls: { about: 'booking calendars, booked calls, webinars', tools: ['create_calendar', 'configure_calendar', 'list_bookings', 'configure_webinar'], re: /\b(book\w*|calls?|calendar|appointments?|slots?|webinars?|meetings?|demos?|sessions?|consultations?|site visits?|zoom|google meet)\b/i },
   quotes: { about: 'custom quotes / proposals with a pay link', tools: ['create_quote', 'list_quotes'], re: /\b(quotes?|quotations?|proposals?|estimates?|invoices?|retainers?|packages?)\b/i },
   ads: { about: 'Meta / Google ads (the seller’s connected accounts), ad reports, ad images, tracking pixels', tools: ['find_app_actions', 'run_app_action', 'ads_report', 'generate_image', 'set_tracking'], re: /\b(ads?|advert\w*|meta|facebook|instagram|google|campaigns?|roas|cpa|cpl|pixel|ga4|tracking|creatives?|reels?)\b/i },
   school: { about: 'courses, quizzes, the members community', tools: ['school_overview', 'create_course', 'add_quiz', 'get_course', 'create_space', 'post_to_community'], re: /\b(courses?|school|lessons?|modules?|quiz\w*|community|members? area|students?|certificates?)\b/i },
@@ -956,7 +976,7 @@ function logUsage(userId, u) {
 const CREATES = [
   [/^\/(funnels|ai\/generate|templates\/[^/]+\/use|funnels\/[^/]+\/duplicate)$/, 'funnels', 'a funnel'],
   [/^\/products$/, 'products', 'a product'], [/^\/coupons$/, 'coupons', 'a coupon'], [/^\/automations$/, 'automations', 'an automation'],
-  [/^\/pipelines$/, 'pipelines', 'a pipeline'], [/^\/quotes$/, 'quotes', 'a quote'], [/^\/school\/spaces$/, 'school/spaces', 'a community space'], [/^\/broadcasts$/, 'broadcasts', 'a broadcast draft'],
+  [/^\/pipelines$/, 'pipelines', 'a pipeline'], [/^\/calendars$/, 'calendars', 'a call type'], [/^\/quotes$/, 'quotes', 'a quote'], [/^\/school\/spaces$/, 'school/spaces', 'a community space'], [/^\/broadcasts$/, 'broadcasts', 'a broadcast draft'],
 ];
 const FIELDS = { products: 'products', automations: 'automations', webinars: 'webinars', calendars: 'calendars' }; // PUT /<table>/:id
 const NO_CHANGE = /^\/(broadcasts\/audience|ai\/(quiz|agent|crm-kit|course))$/; // asks, previews and AI writing: nothing saved

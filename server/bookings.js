@@ -31,7 +31,7 @@ const intIn = (v, lo, hi, d) => { const n = Math.round(Number(v)); return Number
 const toMin = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 
 export const DEFAULT_HOURS = { mon: [['10:00', '18:00']], tue: [['10:00', '18:00']], wed: [['10:00', '18:00']], thu: [['10:00', '18:00']], fri: [['10:00', '18:00']], sat: [['10:00', '14:00']], sun: [] };
-function cleanCalendar(b = {}, cur = {}) {
+export function cleanCalendar(b = {}, cur = {}) {
   const out = { ...cur };
   if ('name' in b || !cur.id) out.name = clip(b.name, 80) || cur.name || 'Strategy call';
   if ('description' in b) out.description = clip(b.description, 600);
