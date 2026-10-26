@@ -407,12 +407,13 @@ test('WhatsApp inbox triggers start automations', async () => {
 test('industry chatbots and AI agent presets: every industry gets three, written for it', async () => {
   const d = (await api('/waflows', 'GET', null, T)).data;
   assert.equal(d.industries.length, 20);
-  assert.ok(d.industries.every((i) => i.templates.length === 3 && i.name && i.icon));
+  // three each, plus a WhatsApp form chatbot where one fits (real estate, clinics)
+  assert.ok(d.industries.every((i) => i.templates.length === (['realestate', 'clinic'].includes(i.id) ? 4 : 3) && i.name && i.icon));
   assert.equal(d.industry, 'general');
   // every one builds, and the only things to fix are the [details] the business fills in
   for (const ind of d.industries) for (const t of ind.templates) {
     const f = (await api('/waflows', 'POST', { template: t.id }, T)).data;
-    assert.ok(f.nodes.length >= 5, t.id);
+    assert.ok(f.nodes.length >= (t.id.endsWith(':form') ? 4 : 5), t.id);
     assert.ok(f.problems.every((p) => /\[brackets\]/.test(p.msg)), `${t.id}: ${JSON.stringify(f.problems)}`);
     for (const n of f.nodes) {
       for (const b of n.data.buttons || []) assert.ok(b.title.length <= 20, `${t.id} button ${b.title}`);

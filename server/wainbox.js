@@ -23,6 +23,8 @@ import { creditsShort, spendCredits, AI_COST } from './billing.js';
 import { fire } from './automations.js';
 import { checkPublicHost } from './webhooks.js';
 import { funnelUrl } from './domains.js';
+import { cleanForm, formProblems, formLive, formResult, formReplyOf, readToken, formToken, flowPayload, publishForm, metaOf, askField, choiceOf, rawAnswers, formText, CHOICE as FORM_CHOICE, CHECK as FORM_CHECK } from './waforms.js';
+import crypto from 'node:crypto';
 
 const DAY = 86400000, WINDOW = DAY;
 const TICK = Number(process.env.WA_INBOX_TICK_MS || 30000);
@@ -87,6 +89,7 @@ function payloadOf(o) {
   const body = clip(o.text, 1024) || '…';
   if (o.kind === 'buttons' && o.buttons?.length) return { type: 'interactive', interactive: { type: 'button', body: { text: body }, action: { buttons: o.buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id, title: clip(b.title, 20) || 'OK' } })) } } };
   if (o.kind === 'list' && o.rows?.length) return { type: 'interactive', interactive: { type: 'list', body: { text: body }, action: { button: clip(o.button, 20) || 'Choose', sections: [{ title: 'Options', rows: o.rows.slice(0, 10).map((r) => ({ id: r.id, title: clip(r.title, 24) || 'Option', ...(r.desc ? { description: clip(r.desc, 72) } : {}) })) }] } } };
+  if (o.kind === 'flow') return flowPayload(o); // a WhatsApp form (waforms.js), in Meta Cloud API JSON
   if (o.kind === 'image' && o.image) return { type: 'image', image: { link: o.image, ...(o.text ? { caption: clip(o.text, 1024) } : {}) } };
   // a file uploaded to Hive: { kind: 'media', media: { type, id, filename, caption } }
   if (o.kind === 'media') { const m = o.media; return { type: m.type, [m.type]: { id: m.id, ...(m.caption && m.type !== 'audio' ? { caption: clip(m.caption, 1024) } : {}), ...(m.type === 'document' && m.filename ? { filename: m.filename } : {}) } }; }
@@ -96,9 +99,9 @@ function payloadOf(o) {
 }
 async function sendOut(u, conv, o, by, extra = {}) {
   const type = { image: 'image', text: 'text', media: o.media?.type, location: 'location' }[o.kind] || 'interactive';
-  const msg = addMsg(conv, { dir: 'out', by, type, text: clip(o.text, 4096), ...(o.buttons?.length ? { buttons: o.buttons.map((b) => b.title) } : {}), ...(o.rows?.length ? { list: { button: o.button, rows: o.rows.map((r) => r.title) } } : {}), ...(o.image ? { media: { type: 'image', link: o.image } } : {}), ...(o.media ? { media: o.media } : {}), ...(o.location ? { location: o.location } : {}), status: 'sending', ...extra });
+  const msg = addMsg(conv, { dir: 'out', by, type, text: clip(o.text, 4096), ...(o.buttons?.length ? { buttons: o.buttons.map((b) => b.title) } : {}), ...(o.rows?.length ? { list: { button: o.button, rows: o.rows.map((r) => r.title) } } : {}), ...(o.image ? { media: { type: 'image', link: o.image } } : {}), ...(o.media ? { media: o.media } : {}), ...(o.location ? { location: o.location } : {}), ...(o.flow ? { form: { title: o.flow.title, cta: o.flow.cta } } : {}), status: 'sending', ...extra });
   try {
-    const r = await waSession(u, conv.num, payloadOf(o), { ckey: conv.ckey, event: `inbox:${by}`, cloud: o.kind === 'location' });
+    const r = await waSession(u, conv.num, payloadOf(o), { ckey: conv.ckey, event: `inbox:${by}`, cloud: o.kind === 'location' || o.kind === 'flow' });
     return T.wachat.update(msg.id, (m) => { m.status = 'sent'; m.waRec = r.rec; });
   } catch (e) {
     T.wachat.update(msg.id, (m) => { m.status = 'failed'; m.error = clip(e.message, 300); });
@@ -330,7 +333,7 @@ function addTags(u, conv, tags) {
 }
 
 // ---------- chatbot flows ----------
-export const NODE_TYPES = ['start', 'message', 'buttons', 'list', 'ask', 'condition', 'tag', 'ai_route', 'ai_agent', 'handoff', 'wait', 'webhook', 'end'];
+export const NODE_TYPES = ['start', 'message', 'buttons', 'list', 'ask', 'condition', 'tag', 'ai_route', 'ai_agent', 'handoff', 'wait', 'webhook', 'end', 'form'];
 const SAVES = ['', 'name', 'email', 'phone'];
 const CHECKS = ['text', 'email', 'phone', 'number', 'date'];
 const OPS = ['eq', 'neq', 'contains', 'exists', 'missing', 'has', 'not_has'];
@@ -361,6 +364,7 @@ function cleanData(type, d = {}) {
     case 'wait': return { minutes: num(d.minutes, 1, 1380, 60) };
     case 'webhook': return { url: clip(d.url, 500) };
     case 'end': return { text: clip(d.text, 1024), resolve: !!d.resolve };
+    case 'form': return cleanForm(d);
     default: return {};
   }
 }
@@ -406,6 +410,7 @@ export function flowProblems(f) {
     if (n.type === 'tag' && !d.add.length) bad(n.id, 'Choose a tag to add');
     if (n.type === 'webhook' && !/^https?:\/\/[^\s/]+\.[^\s]+$/.test(d.url)) bad(n.id, 'Enter the web address to send to (https://…)');
     if (n.type === 'condition' && !d.rules.length) bad(n.id, 'Add a rule');
+    if (n.type === 'form' && formProblems(d)) bad(n.id, formProblems(d));
     // details only the business knows, left as [placeholders] in a template
     const words = [d.text, d.button, ...arr(d.buttons).map((b) => b.title), ...arr(d.rows).flatMap((r) => [r.title, r.desc])].filter(Boolean).join(' ');
     if (/\[[^\]\n]{2,}\]/.test(words)) bad(n.id, `Fill in the details in [brackets]: ${words.match(/\[[^\]\n]{2,}\]/)[0]}`);
@@ -485,6 +490,34 @@ export async function runFlow(flow, state, input, env) {
         if (n.data.save) { fx.push({ type: 'save', field: n.data.save, value: v }); if (n.data.save === 'name' || n.data.save === 'email') env[n.data.save] = v; }
       }
       cur = nextOf(n.id, 'next');
+    } else if (n.type === 'form') {
+      const d = n.data;
+      const done = (got) => { const r = formResult(d, got); Object.assign(vars, r.vars); for (const x of r.saves) if (x.field === 'name' || x.field === 'email') env[x.field] = x.value; fx.push({ type: 'form', title: d.title, answers: r.answers, saves: r.saves }); };
+      if (input.form) { done(input.form); cur = nextOf(n.id, 'next'); }
+      else {
+        // asking in the chat, one question at a time: no WhatsApp form went, or the customer typed instead of opening it
+        const got = { ...(state.got || {}) }, start = !Number.isInteger(state.field);
+        if (!start) {
+          const f = d.fields[state.field];
+          if (f) {
+            const choice = FORM_CHOICE.includes(f.type);
+            const v = !f.required && /^\s*skip\s*$/i.test(input.text || '') ? '' : choice ? choiceOf(f, input) : valueOk(FORM_CHECK[f.type], input.text);
+            if (v == null && (state.tries || 0) < 2) {
+              say(n, f.type === 'checkbox' ? { kind: 'text', text: 'Please reply with the numbers of your choices, e.g. 1, 3' } : choice ? { ...askField(f, state.field, d.fields.length), text: 'Please tap one of the options below 👇' } : { kind: 'text', text: RETRY[FORM_CHECK[f.type]] });
+              return { out, fx, state: { ...state, vars, got, tries: (state.tries || 0) + 1 } };
+            }
+            if (v) got[f.id] = v;
+          }
+        }
+        const at = start ? 0 : state.field + 1;
+        if (at < d.fields.length) {
+          if (start && (d.text || !input.formStart)) say(n, input.formStart ? { kind: 'text', text: d.text } : { kind: 'text', text: 'No problem — let’s do it right here 🙂' });
+          say(n, askField(d.fields[at], at, d.fields.length));
+          return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0, field: at, got } };
+        }
+        done(got);
+        cur = nextOf(n.id, 'next');
+      }
     } else cur = nextOf(n.id, 'next');
   } else if (state?.wait === 'time') cur = nextOf(state.node, 'next');
   else cur = nextOf(flow.nodes.find((n) => n.type === 'start')?.id, 'next');
@@ -518,6 +551,14 @@ export async function runFlow(flow, state, input, env) {
       case 'handoff':
         fx.push({ type: 'handoff', text: d.text ? fillText(d.text, env) : '', assignee: d.assignee, note: d.note ? fillText(d.note, env) : '' });
         return { out, fx, state: null, aiUsed };
+      case 'form': {
+        if (!d.fields.length) { cur = nextOf(n.id, 'next'); break; }
+        // the WhatsApp form when it's published on Meta; else the same questions one by one in the chat
+        if (env.forms && formLive(d)) { say(n, { kind: 'flow', text: d.text || 'Please fill in this short form 👇', flow: { id: d.flowId, cta: d.cta, title: d.title } }); return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0, form: 'flow' }, aiUsed }; }
+        if (d.text) say(n, { kind: 'text', text: d.text });
+        say(n, askField(d.fields[0], 0, d.fields.length));
+        return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0, field: 0, got: {} }, aiUsed };
+      }
       case 'wait': return { out, fx, state: { node: n.id, wait: 'time', until: Date.now() + d.minutes * 60000, vars }, aiUsed };
       case 'webhook': fx.push({ type: 'webhook', url: d.url, vars: { ...vars } }); cur = nextOf(n.id, 'next'); break;
       case 'end':
@@ -532,7 +573,7 @@ export async function runFlow(flow, state, input, env) {
 
 function envOf(u, conv, lastText) {
   const m = conv.ckey ? T.crm.find({ userId: u.id, key: conv.ckey }) : null;
-  return { name: conv.name || m?.name || '', email: m?.email || '', num: conv.num, business: bizName(u), tags: [...(m?.tags || [])], lastText: lastText || '' };
+  return { name: conv.name || m?.name || '', email: m?.email || '', num: conv.num, business: bizName(u), tags: [...(m?.tags || [])], lastText: lastText || '', forms: !!metaOf(u) };
 }
 async function postHook(u, conv, url, vars) {
   try {
@@ -543,13 +584,22 @@ async function postHook(u, conv, url, vars) {
 // a flow step for this conversation, for real: sends, saves, tags, hands over, then remembers where it waits
 async function runBot(u, conv, flow, state, input) {
   const r = await runFlow(flow, state, input, envOf(u, conv, input.text));
+  r.out = r.out.map((o) => (o.kind === 'flow' ? { ...o, flow: { ...o.flow, token: formToken(formKey(u), conv.id, flow.id, o.node) } } : o));
   if (!state) T.waflows.update(flow.id, (f) => { f.stats = { ...f.stats, runs: (f.stats?.runs || 0) + 1 }; });
   if (r.aiUsed) spendCredits(u, AI_COST.agent);
   conv = T.waconvs.update(conv.id, (c) => { c.bot = r.state ? { ...r.state, flowId: flow.id, name: flow.name, at: Date.now() } : null; c.wakeAt = r.state?.wait === 'time' ? r.state.until : null; });
-  await sendAll(u, conv, r.out, 'bot');
+  const sentOk = await sendAll(u, conv, r.out, 'bot');
+  // the WhatsApp form didn't go (e.g. the number isn't on the Meta account it was published on): ask in the chat
+  if (!sentOk && r.state?.form === 'flow') {
+    addMsg(conv, { dir: 'note', by: 'system', text: 'The WhatsApp form couldn’t be sent — the chatbot is asking the questions in the chat instead' });
+    const r2 = await runFlow(flow, r.state, { text: '', formStart: true }, envOf(u, conv, ''));
+    conv = T.waconvs.update(conv.id, (c) => { c.bot = r2.state ? { ...r2.state, flowId: flow.id, name: flow.name, at: Date.now() } : null; });
+    await sendAll(u, conv, r2.out, 'bot');
+  }
   for (const e of r.fx) {
     if (e.type === 'save') saveField(u, conv, e.field, e.value);
     else if (e.type === 'tag') addTags(u, conv, e.tags);
+    else if (e.type === 'form') formSaved(u, conv, e);
     else if (e.type === 'webhook') await postHook(u, conv, e.url, e.vars);
     else if (e.type === 'handoff') { await handoff(u, conv, e.note || `Chatbot “${flow.name}” handed over`, { say: e.text, assignee: e.assignee, flowId: flow.id }); return; }
     else if (e.type === 'end') T.waconvs.update(conv.id, (c) => { if (e.resolve) { c.status = 'resolved'; c.human = false; } });
@@ -559,6 +609,33 @@ async function runBot(u, conv, flow, state, input) {
     conv = T.waconvs.update(conv.id, (c) => { c.ai = true; c.aiNote = typeof r.agent === 'string' ? r.agent : ''; });
     await runAgent(u, conv);
   }
+}
+
+// ---------- WhatsApp forms (waforms.js) ----------
+// the seller's own key for signing form tokens (made the first time a form goes)
+function formKey(u) {
+  if (u.waFormKey) return u.waFormKey;
+  return T.users.update(u.id, (x) => { x.waFormKey ||= crypto.randomBytes(24).toString('base64url'); }).waFormKey;
+}
+// a filled form: the answers on the contact (mapped fields) and its timeline
+function formSaved(u, conv, { title, answers, saves }) {
+  for (const s of saves || []) saveField(u, convOf(conv.id) || conv, s.field, s.value);
+  if (conv.ckey) logActivity(u.id, conv.ckey, { type: 'whatsapp', title: `Filled WhatsApp form: ${title}`, text: answers.map((a) => `${a.label}: ${a.value}`).join('\n'), status: 'received', by: 'contact' });
+}
+// the form reply's chatbot and node, when its token is ours and for this conversation
+function formMatch(u, conv, fr) {
+  const t = u.waFormKey && readToken(u.waFormKey, fr.token);
+  const f = t && t.convId === conv.id && T.waflows.get(t.flowId);
+  const n = f && f.userId === u.id && f.nodes.find((x) => x.id === t.nodeId && x.type === 'form');
+  return n ? { flowId: f.id, nodeId: n.id, title: n.data.title, ...formResult(n.data, fr.values) } : null;
+}
+// the chatbot waiting on this form goes on; otherwise (stopped, moved on, a person took over) the answers are still saved
+async function formIn(u, conv, x) {
+  const f = T.waflows.get(x.flowId), n = f?.nodes.find((y) => y.id === x.nodeId);
+  if (!f || !n) return needsPerson(u, conv, 'Filled a WhatsApp form');
+  if (!conv.human && conv.bot?.wait === 'reply' && conv.bot.flowId === f.id && conv.bot.node === n.id && (f.active || f.trigger.type === 'manual')) return runBot(u, conv, f, conv.bot, { text: '', form: x.values });
+  formSaved(u, conv, { title: n.data.title, ...formResult(n.data, x.values) });
+  if (conv.human) return needsPerson(u, conv, `Filled the form “${n.data.title}”`);
 }
 
 // the AI agent answers the latest message (or hands over)
@@ -631,6 +708,7 @@ async function automate(userId, convId, msg, isNew) {
   // a voice note: its words first (Sarvam), so chatbots, the AI agent, keyword rules and the team all read it
   if (['audio', 'voice'].includes(msg.media?.type) && msg.media.id && !msg.text) msg = await transcribeNote(u, conv, msg);
   if (conv.ckey) fire(u.id, 'wa_message', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}`, text: msg.text || '' });
+  if (msg.type === 'form') return msg.formIn ? formIn(u, conv, msg.formIn) : needsPerson(u, conv, msg.text);
   const input = { text: msg.text || '', id: msg.iid || '' };
   if (conv.human) return needsPerson(u, conv, msg.text);
   if (HUMAN.test(input.text) && (conv.bot || conv.ai || flowsOf(userId).length || agentOn(u))) return handoff(u, conv, 'The customer asked for a person', { say: 'Sure — connecting you with our team. Someone will reply here shortly 🙏', flowId: conv.bot?.flowId });
@@ -657,6 +735,15 @@ onWaInbox({
     let conv = convFor(u.id, num, key, d.contact_name);
     const isNew = !conv.lastInAt;
     const loc = locationOf(d);
+    // a filled WhatsApp form (Meta's nfm_reply): its answers, matched to the chatbot node that sent it
+    const fr = formReplyOf(d);
+    if (fr) {
+      const fm = formMatch(u, conv, fr), answers = fm ? fm.answers : rawAnswers(fr.values);
+      const msg = addMsg(conv, { dir: 'in', by: 'contact', type: 'form', text: clip(formText(fm?.title, answers), 4000), form: { title: fm?.title || 'Form', answers }, ...(fm ? { formIn: { flowId: fm.flowId, nodeId: fm.nodeId, values: fr.values } } : {}) });
+      conv = T.waconvs.update(conv.id, (c) => { c.lastInAt = Date.now(); c.ckey = key || c.ckey; if (c.status === 'resolved') { c.status = 'open'; c.human = false; } });
+      serial(conv.id, () => automate(u.id, conv.id, msg, isNew));
+      return;
+    }
     const msg = addMsg(conv, { dir: 'in', by: 'contact', type: clip(d.type, 20) || 'text', text: clip(text === '[location]' || text === `[${d.type}]` ? '' : text, 4000) || (loc ? `📍 ${loc.name || loc.address || 'Location'}` : ''), ...(d.interactive_id ? { iid: clip(d.interactive_id, 100) } : {}), ...(mediaOf(d) ? { media: mediaOf(d) } : {}), ...(loc ? { location: loc } : {}) });
     // the seller's keyword → label rules
     const low = String(text || '').toLowerCase();
@@ -826,6 +913,15 @@ function industryFlows(kit) {
       ],
       edges: [[0, 'next', 1], [1, 'next', 2], [2, 'm', 3], [2, 'a', 3], [2, 'e', 3], [2, 'other', 3], [3, 'next', 4]],
     }) },
+    // a WhatsApp form where one fits (asked one question at a time until it's published on Meta)
+    ...(x.form ? [{ id: `ind:${kit}:form`, title: x.form.name, desc: `One short WhatsApp form for a ${w} — tags it “${x.form.tag}” and asks your team to confirm`, icon: 'clip', make: () => build(x.form.name, { type: 'keyword', keywords: x.form.keys }, {
+      nodes: [
+        ['form', { text: x.form.text, title: x.form.title, cta: x.form.cta, submit: x.form.submit, fields: x.form.fields }, 0, 1],
+        ['tag', { add: [x.form.tag] }, 1, 1],
+        ['handoff', { text: x.form.done, note: x.form.note }, 2, 1],
+      ],
+      edges: [[0, 'next', 1], [1, 'next', 2], [2, 'next', 3]],
+    }) }] : []),
   ];
 }
 const INDUSTRY_FLOWS = Object.fromEntries(Object.keys(INDUSTRY).map((k) => [k, industryFlows(k)]));
@@ -856,6 +952,7 @@ const FLOW_SPEC = `A WhatsApp chatbot is a graph. Node types and their data:
 - ai_agent {"note"} — the AI agent takes over the chat (ends the flow)
 - handoff {"text","note"} — passes the chat to a person (ends the flow)
 - wait {"minutes"} — pauses; port "next"
+- form {"text","title" (≤30),"cta" (≤20),"submit" (≤30),"fields":[{"id","type":"text"|"long"|"email"|"phone"|"number"|"date"|"dropdown"|"radio"|"checkbox","label" (≤20),"required":true|false,"var","save" (""|"name"|"email"|"phone"),"options":[{"id","title"}] (choices only)}] (1–8)} — a WhatsApp form (or the same questions one by one); port "next"
 - end {"text","resolve":true|false} — ends the flow
 Edges: {"from":node id,"port":port,"to":node id}. Texts may use {{first_name}}, {{business}} and {{<var>}} from ask nodes. Every flow must end in end, handoff or ai_agent.`;
 
@@ -865,8 +962,8 @@ const convView = (c, flows) => ({
   lastAt: c.lastAt, lastText: c.lastText || '', lastDir: c.lastDir || '', lastBy: c.lastBy || '', ai: !!c.ai, human: !!c.human, bot: c.bot ? { flowId: c.bot.flowId, name: flows?.get(c.bot.flowId)?.name || c.bot.name || 'Chatbot', wait: c.bot.wait } : null,
   window: winOpen(c) ? { open: true, closesAt: c.lastInAt + WINDOW } : { open: false }, intent: c.intent || '', summary: c.summary || null, handoff: c.handoff || null, memory: c.memory?.text || '',
 });
-const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, ...(m.transcribed ? { transcribed: true, lang: m.lang || '' } : {}), status: m.status || '', error: m.error || '', at: m.at });
-const flowView = (f) => ({ ...f, problems: flowProblems(f) });
+const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, ...(m.transcribed ? { transcribed: true, lang: m.lang || '' } : {}), ...(m.form ? { form: m.form } : {}), status: m.status || '', error: m.error || '', at: m.at });
+const flowView = (f) => ({ ...f, problems: flowProblems(f), forms: Object.fromEntries(f.nodes.filter((n) => n.type === 'form').map((n) => [n.id, formLive(n.data)])) });
 const FILTERS = {
   all: "status <> 'resolved'",
   mine: "status <> 'resolved' AND json_extract(data, '$.assignee') = $me",
@@ -1088,7 +1185,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
   // ----- chatbots -----
   const tplView = ({ id, title, desc, icon }) => ({ id, title, desc, icon });
   // the ready-made chatbots: general ones, and three for every industry (the seller's own industry first in the app)
-  app.get('/api/waflows', auth, (req, res) => res.json({ flows: T.waflows.all({ userId: req.user.id }, { order: 'at', desc: true }).map(flowView), templates: FLOW_TEMPLATES.map(tplView), industry: req.user.settings?.crmKit?.id || 'general', industries: Object.entries(INDUSTRY_FLOWS).map(([id, list]) => ({ ...(({ name, icon }) => ({ id, name, icon }))(kitName(id)), templates: list.map(tplView) })), ai: aiEnabled(), connected: !!waLive(req.user) }));
+  app.get('/api/waflows', auth, (req, res) => res.json({ flows: T.waflows.all({ userId: req.user.id }, { order: 'at', desc: true }).map(flowView), templates: FLOW_TEMPLATES.map(tplView), industry: req.user.settings?.crmKit?.id || 'general', industries: Object.entries(INDUSTRY_FLOWS).map(([id, list]) => ({ ...(({ name, icon }) => ({ id, name, icon }))(kitName(id)), templates: list.map(tplView) })), ai: aiEnabled(), connected: !!waLive(req.user), meta: !!metaOf(req.user) }));
   app.post('/api/waflows', auth, (req, res) => {
     if (T.waflows.count({ userId: req.user.id }) >= 100) return res.status(400).json({ error: 'You can have up to 100 chatbots' });
     const tpl = templateById(req.body?.template);
@@ -1112,7 +1209,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
   const simulate = async (req, res, flow) => {
     const b = req.body || {};
     const env = { name: clip(b.name, 80) || req.user.name || 'Priya', email: '', num: '919800000000', business: bizName(req.user), tags: arr(b.tags).map((t) => clip(t, 40)), lastText: clip(b.input?.text, 1000), sim: true, aiOk: aiEnabled() && !creditsShort(req.user, AI_COST.agent) };
-    const st = b.state && typeof b.state === 'object' ? { node: clip(b.state.node, 40), wait: ['reply', 'time'].includes(b.state.wait) ? b.state.wait : null, vars: b.state.vars && typeof b.state.vars === 'object' ? Object.fromEntries(Object.entries(b.state.vars).slice(0, 40).map(([k, v]) => [clip(k, 40), clip(v, 500)])) : {}, tries: num(b.state.tries, 0, 5, 0) } : null;
+    const st = b.state && typeof b.state === 'object' ? { node: clip(b.state.node, 40), wait: ['reply', 'time'].includes(b.state.wait) ? b.state.wait : null, vars: b.state.vars && typeof b.state.vars === 'object' ? Object.fromEntries(Object.entries(b.state.vars).slice(0, 40).map(([k, v]) => [clip(k, 40), clip(v, 500)])) : {}, tries: num(b.state.tries, 0, 5, 0), ...(Number.isInteger(b.state.field) ? { field: num(b.state.field, 0, 20, 0), got: Object.fromEntries(Object.entries(b.state.got && typeof b.state.got === 'object' ? b.state.got : {}).slice(0, 20).map(([k, v]) => [clip(k, 40), Array.isArray(v) ? v.slice(0, 10).map((x) => clip(x, 40)) : clip(v, 500)])) } : {}) } : null;
     try {
       const r = await runFlow(flow, st?.wait ? st : null, { text: clip(b.input?.text, 1000), id: clip(b.input?.id, 100) }, env);
       let agent = null;
@@ -1149,6 +1246,16 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
     for (const r of q("SELECT id FROM waconvs WHERE userId = ? AND json_extract(data, '$.bot.flowId') = ?").all(req.user.id, f.id)) T.waconvs.update(r.id, (c) => { c.bot = null; c.wakeAt = null; });
     res.json({ ok: true });
   });
+  // publishes a form node's WhatsApp form on the seller's Meta account (the saved chatbot's copy of the node)
+  app.post('/api/waflows/:id/forms/:node/publish', auth, sendLimiter, wrap(async (req, res) => {
+    const f = ownFlow(req, res); if (!f) return;
+    const n = f.nodes.find((x) => x.id === req.params.node && x.type === 'form');
+    if (!n) return res.status(404).json({ error: 'Save the chatbot first, then publish the form' });
+    if (formLive(n.data)) return res.json(flowView(f));
+    let p;
+    try { p = await publishForm(req.user, n.data, f.name); } catch (e) { return res.status(400).json({ error: e.message }); }
+    res.json(flowView(T.waflows.update(f.id, (x) => { const y = x.nodes.find((z) => z.id === n.id); if (y) Object.assign(y.data, p); })));
+  }));
   app.post('/api/waflows/:id/simulate', auth, aiLimiter, wrap(async (req, res) => { const f = ownFlow(req, res); if (f) await simulate(req, res, req.body?.flow ? cleanFlow(req.body.flow, f) : f); }));
 
   // ----- the AI agent -----

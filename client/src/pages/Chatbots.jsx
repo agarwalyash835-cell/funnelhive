@@ -23,21 +23,30 @@ export const NT = {
   wait: ['Wait', 'clock', '#78716c', 'Pause before the next step'],
   webhook: ['Webhook', 'link', '#0f766e', 'Send the answers to another app'],
   end: ['End', 'check', '#1c1917', 'Finish (optionally resolve)'],
+  form: ['WhatsApp form', 'clip', '#0d9488', 'A short form inside WhatsApp'],
 };
-const PALETTE = [['Messages', ['message', 'buttons', 'list', 'ask']], ['AI', ['ai_route', 'ai_agent']], ['Logic & actions', ['condition', 'tag', 'wait', 'webhook']], ['Finish', ['handoff', 'end']]];
+const PALETTE = [['Messages', ['message', 'buttons', 'list', 'ask', 'form']], ['AI', ['ai_route', 'ai_agent']], ['Logic & actions', ['condition', 'tag', 'wait', 'webhook']], ['Finish', ['handoff', 'end']]];
 const DEFAULTS = {
   message: { text: '' }, buttons: { text: '', buttons: [{ id: 'b1', title: 'Yes' }, { id: 'b2', title: 'No' }] }, list: { text: '', button: 'Choose', rows: [{ id: 'r1', title: 'Option 1', desc: '' }, { id: 'r2', title: 'Option 2', desc: '' }] },
   ask: { text: '', var: 'answer', save: '', validate: 'text', retry: '' }, condition: { match: 'all', rules: [{ field: 'tag', op: 'has', value: '' }] }, tag: { add: [] },
   ai_route: { intents: [{ id: 'i1', label: 'Sales', desc: 'wants to buy or asks the price' }, { id: 'i2', label: 'Support', desc: 'needs help with something' }] }, ai_agent: { note: '' },
   handoff: { text: 'Someone from our team will reply here shortly 🙏', note: '' }, wait: { minutes: 60 }, webhook: { url: '' }, end: { text: '', resolve: false },
+  form: { text: 'Please fill in this short form 👇', title: 'Your details', cta: 'Fill the form', submit: 'Submit', fields: [{ id: 'name', type: 'text', label: 'Your name', required: true, var: 'name', save: 'name' }, { id: 'email', type: 'email', label: 'Email', required: false, var: 'email', save: 'email' }] },
 };
+// WhatsApp form questions (Meta's label limits: 30 for radio / checkbox, 20 for the rest)
+const FIELD_TYPES = [['text', 'Short text'], ['long', 'Long text'], ['email', 'Email'], ['phone', 'Phone'], ['number', 'Number'], ['date', 'Date'], ['dropdown', 'Dropdown'], ['radio', 'Pick one'], ['checkbox', 'Pick several']];
+const CHOICE = ['dropdown', 'radio', 'checkbox'];
+const labelMax = (t) => (t === 'radio' || t === 'checkbox' ? 30 : 20);
+const toVar = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 'q_$1').slice(0, 31) || 'answer';
+// what Meta holds for a published form: an edit to these needs publishing again
+const formSig = (d) => JSON.stringify([d.title, d.submit, d.fields.map((x) => [x.id, x.type, x.label, !!x.required, (x.options || []).map((o) => [o.id, o.title])])]);
 const TRIG = { keyword: 'When a message has a keyword', welcome: 'A new contact’s first message', default: 'Any message nothing else answers', manual: 'Only when started from the inbox' };
 const IDEAS = ['Take cake orders with flavour, size and delivery date', 'Book a free demo class and ask the child’s age', 'Qualify home-loan leads by income and city', 'Collect a review after a salon visit', 'Answer gym membership questions, pass hot leads to sales'];
 const rid = (p = 'n') => `${p}${Math.random().toString(36).slice(2, 8)}`;
 export const portsOf = (n) => (n.type === 'buttons' ? [...n.data.buttons.map((b) => [b.id, b.title || 'Button']), ['other', 'Anything else']]
   : n.type === 'list' ? [...n.data.rows.map((r) => [r.id, r.title || 'Option']), ['other', 'Anything else']]
     : n.type === 'ai_route' ? [...n.data.intents.map((i) => [i.id, i.label || 'Topic']), ['other', 'Something else']]
-      : n.type === 'condition' ? [['yes', 'Yes'], ['no', 'No']] : ['ai_agent', 'handoff', 'end'].includes(n.type) ? [] : [['next', n.type === 'start' ? 'Begin' : n.type === 'ask' ? 'After the answer' : 'Next']]);
+      : n.type === 'condition' ? [['yes', 'Yes'], ['no', 'No']] : ['ai_agent', 'handoff', 'end'].includes(n.type) ? [] : [['next', n.type === 'start' ? 'Begin' : n.type === 'ask' ? 'After the answer' : n.type === 'form' ? 'After the form' : 'Next']]);
 // the same checks the server runs before a chatbot goes live
 export function problemsOf(f) {
   const out = [], bad = (node, msg) => out.push({ node, msg });
@@ -53,6 +62,9 @@ export function problemsOf(f) {
     if (n.type === 'tag' && !d.add.length) bad(n.id, 'Add a tag: choose the tag');
     if (n.type === 'webhook' && !/^https?:\/\/[^\s/]+\.[^\s]+$/.test(d.url)) bad(n.id, 'Webhook: enter the web address');
     if (n.type === 'condition' && !d.rules.length) bad(n.id, 'Condition: add a rule');
+    if (n.type === 'form' && !d.fields.length) bad(n.id, 'WhatsApp form: add a question');
+    if (n.type === 'form' && d.fields.some((x) => !x.label?.trim())) bad(n.id, 'WhatsApp form: give every question a label');
+    if (n.type === 'form' && d.fields.some((x) => CHOICE.includes(x.type) && (!x.options?.length || x.options.some((o) => !o.title?.trim())))) bad(n.id, 'WhatsApp form: give every choice question its options');
     const words = [d.text, d.button, ...(d.buttons || []).map((b) => b.title), ...(d.rows || []).flatMap((r) => [r.title, r.desc])].filter(Boolean).join(' ');
     const ph = /\[[^\]\n]{2,}\]/.exec(words);
     if (ph) bad(n.id, `${NT[n.type][0]}: fill in ${ph[0]}`);
@@ -72,7 +84,7 @@ export default function Chatbots() {
   const load = () => api('/waflows').then(setD).catch(() => setD({ flows: [], templates: [] }));
   useEffect(() => { load(); }, []);
   const open = id ? (id === 'new' ? draft : d?.flows.find((f) => f.id === id)) : null;
-  if (id && open) return <Builder key={open.id || 'new'} initial={open} ai={d?.ai} onClose={() => { setDraft(null); nav('/chatbots'); load(); }} onSaved={(f) => { load(); if (!open.id) { setDraft(null); nav(`/chatbots/${f.id}`, { replace: true }); } }} />;
+  if (id && open) return <Builder key={open.id || 'new'} initial={open} ai={d?.ai} meta={!!d?.meta} onClose={() => { setDraft(null); nav('/chatbots'); load(); }} onSaved={(f) => { load(); if (!open.id) { setDraft(null); nav(`/chatbots/${f.id}`, { replace: true }); } }} />;
   const create = async (template) => { try { const f = await api('/waflows', 'POST', { template }); await load(); nav(`/chatbots/${f.id}`); } catch (e) { toast(e.message); } };
   return (
     <Layout title="Chatbots & AI agent" subtitle="Automate WhatsApp: chatbots that collect details and route chats, and an AI agent that answers like your best salesperson." actions={<Link className="btn ghost sm" to="/inbox"><Icon name="chat" size={15} />Open inbox</Link>}>
@@ -163,7 +175,7 @@ function FlowCard({ f, onOpen, onChange }) {
 }
 
 // ---------- the builder ----------
-function Builder({ initial, ai, onClose, onSaved }) {
+function Builder({ initial, ai, meta, onClose, onSaved }) {
   const [f, setF] = useState(() => structuredClone({ name: initial.name, trigger: initial.trigger, nodes: initial.nodes, edges: initial.edges }));
   const [saved, setSaved] = useState(() => JSON.stringify({ name: initial.name, trigger: initial.trigger, nodes: initial.nodes, edges: initial.edges }));
   const [active, setActive] = useState(!!initial.active);
@@ -172,6 +184,10 @@ function Builder({ initial, ai, onClose, onSaved }) {
   const [view, setView] = useState({ x: 40, y: 40, z: 0.9 });
   const [now, setNow] = useState(null); // the node the test phone is on
   const [busy, setBusy] = useState(false);
+  const [crmFields, setCrmFields] = useState([]);
+  useEffect(() => { api('/crm/fields').then((x) => setCrmFields(Array.isArray(x) ? x : [])).catch(() => {}); }, []);
+  // the WhatsApp forms published on Meta, as they were published (a changed form needs publishing again)
+  const pub = useRef(Object.fromEntries(initial.nodes.filter((n) => n.type === 'form' && initial.forms?.[n.id]).map((n) => [n.id, formSig(n.data)])));
   const dirty = JSON.stringify(f) !== saved;
   const probs = problemsOf(f);
   const set = (fn) => setF((x) => { const n = structuredClone(x); fn(n); return n; });
@@ -188,6 +204,23 @@ function Builder({ initial, ai, onClose, onSaved }) {
       onSaved(r);
       toast(extra.active ? '🚀 Chatbot is live' : extra.active === false ? 'Chatbot switched off' : 'Saved');
     } catch (e) { toast(e.message); if (e.data?.problems?.[0]?.node) setSel(e.data.problems[0].node); }
+    setBusy(false);
+  };
+  // saves the chatbot (the server publishes its saved copy), then publishes the form node on Meta
+  const publish = async (nid) => {
+    if (!initial.id) { toast('Save the chatbot first, then publish the form'); return; }
+    if (dirty) await save();
+    setBusy(true);
+    try {
+      const r = await api(`/waflows/${initial.id}/forms/${nid}/publish`, 'POST', {});
+      const nd = r.nodes.find((n) => n.id === nid)?.data || {};
+      const next = structuredClone(f), x = next.nodes.find((n) => n.id === nid);
+      if (x) Object.assign(x.data, { flowId: nd.flowId, flowHash: nd.flowHash, flowAt: nd.flowAt });
+      setF(next); setSaved(JSON.stringify(next));
+      if (x) pub.current[nid] = formSig(x.data);
+      onSaved(r);
+      toast('📋 Form published on WhatsApp');
+    } catch (e) { toast(e.message); }
     setBusy(false);
   };
   const close = async () => { if (dirty && !await confirmDialog({ title: 'Leave without saving?', text: 'Your changes to this chatbot will be lost.', confirm: 'Leave', danger: true })) return; onClose(); };
@@ -232,7 +265,7 @@ function Builder({ initial, ai, onClose, onSaved }) {
         <aside className="wfb-right">
           {panel === 'test' ? <TestPhone f={f} onNode={setNow} /> : (
             <div className="wfb-insp">
-              {node ? <Inspector key={node.id} n={node} f={f} set={set} setNode={setNode} onDelete={() => delNode(node.id)} /> : <FlowSettings f={f} set={set} probs={probs} onPick={setSel} />}
+              {node ? <Inspector key={node.id} n={node} f={f} set={set} setNode={setNode} onDelete={() => delNode(node.id)} forms={{ meta, crmFields, live: pub.current[node.id] === formSig(node.data), published: !!node.data.flowId, publish: () => publish(node.id), busy, saved: !!initial.id }} /> : <FlowSettings f={f} set={set} probs={probs} onPick={setSel} />}
             </div>
           )}
         </aside>
@@ -371,6 +404,7 @@ function NodeBody({ n }) {
     case 'handoff': return <div className="wfb-nb">{txt(d.text, 'No message — just notifies your team')}</div>;
     case 'wait': return <div className="wfb-nb">Wait {d.minutes >= 60 ? `${Math.round((d.minutes / 60) * 10) / 10} h` : `${d.minutes} min`}</div>;
     case 'webhook': return <div className="wfb-nb">{txt(d.url, 'https://…')}</div>;
+    case 'form': return <div className="wfb-nb"><div className="txt"><b>📋 {d.title}</b></div><div className="muted" style={{ fontStyle: 'normal' }}>{d.fields.length ? d.fields.map((x) => x.label || '…').join(' · ') : 'Add questions…'}</div></div>;
     case 'end': return <div className="wfb-nb">{txt(d.text, 'Ends quietly')}{d.resolve && <span className="pill ok" style={{ justifySelf: 'start' }}>resolves the chat</span>}</div>;
     default: return null;
   }
@@ -379,7 +413,7 @@ function NodeBody({ n }) {
 const VARS = ['first_name', 'name', 'business'];
 function TextField({ label, value, onChange, f, rows = 4, max = 1024 }) {
   const ref = useRef();
-  const asked = [...new Set(f.nodes.filter((n) => n.type === 'ask').map((n) => n.data.var))].filter((v) => !VARS.includes(v));
+  const asked = [...new Set(f.nodes.flatMap((n) => (n.type === 'ask' ? [n.data.var] : n.type === 'form' ? n.data.fields.map((x) => x.var) : [])))].filter((v) => !VARS.includes(v));
   const insert = (v) => { const el = ref.current, s = el.selectionStart ?? value.length; onChange(`${value.slice(0, s)}{{${v}}}${value.slice(el.selectionEnd ?? s)}`); };
   return (
     <label>{label}
@@ -404,7 +438,7 @@ function Options({ items, max, titleMax, onChange, f, nodeId, fields = [['title'
   );
 }
 
-function Inspector({ n, f, set, setNode, onDelete }) {
+function Inspector({ n, f, set, setNode, onDelete, forms }) {
   const d = n.data;
   const up = (fn) => setNode(n.id, (x) => fn(x.data));
   const opts = (key) => (list, removedId) => set((g) => { const x = g.nodes.find((y) => y.id === n.id); x.data[key] = list; if (removedId) g.edges = g.edges.filter((e) => !(e.from === n.id && e.port === removedId)); });
@@ -413,7 +447,7 @@ function Inspector({ n, f, set, setNode, onDelete }) {
     <>
       <div className="row" style={{ gap: 10 }}><span className="k" style={{ width: 32, height: 32, borderRadius: 10, display: 'grid', placeItems: 'center', color: '#fff', background: color }}><Icon name={ic} size={16} /></span><div style={{ flex: 1 }}><b>{label}</b><div className="hint" style={{ margin: 0 }}>{desc}</div></div>{n.type !== 'start' && <button className="icon-btn danger" onClick={onDelete} aria-label="Delete step"><Icon name="trash" size={16} /></button>}</div>
       {n.type === 'start' && <FlowSettings f={f} set={set} probs={problemsOf(f)} compact />}
-      {['message', 'buttons', 'list', 'ask', 'handoff', 'end'].includes(n.type) && <TextField label={n.type === 'handoff' ? 'Message to the customer (optional)' : n.type === 'end' ? 'Last message (optional)' : 'Message'} value={d.text || ''} onChange={(v) => up((x) => { x.text = v; })} f={f} />}
+      {['message', 'buttons', 'list', 'ask', 'handoff', 'end', 'form'].includes(n.type) && <TextField label={n.type === 'handoff' ? 'Message to the customer (optional)' : n.type === 'end' ? 'Last message (optional)' : n.type === 'form' ? 'Message with the form' : 'Message'} value={d.text || ''} onChange={(v) => up((x) => { x.text = v; })} f={f} />}
       {n.type === 'message' && <label>Photo link (optional)<input value={d.image || ''} onChange={(e) => up((x) => { x.image = e.target.value; })} placeholder="https://…/menu.jpg" /></label>}
       {n.type === 'buttons' && <label>Buttons <span className="muted">(up to 3, 20 characters)</span><Options items={d.buttons} max={3} titleMax={20} onChange={opts('buttons')} /></label>}
       {n.type === 'list' && <>
@@ -445,7 +479,52 @@ function Inspector({ n, f, set, setNode, onDelete }) {
       {n.type === 'handoff' && <label>Note for your team (optional)<input value={d.note} onChange={(e) => up((x) => { x.note = e.target.value; })} placeholder="Hot lead — call them today" /></label>}
       {n.type === 'wait' && <label>Wait for (minutes)<input type="number" min={1} max={1380} value={d.minutes} onChange={(e) => up((x) => { x.minutes = Number(e.target.value) || 1; })} /><span className="hint">Up to 23 hours — WhatsApp only allows free replies for 24 hours after the customer’s last message.</span></label>}
       {n.type === 'webhook' && <label>Send the answers to<input value={d.url} onChange={(e) => up((x) => { x.url = e.target.value; })} placeholder="https://hooks.zapier.com/…" /><span className="hint">We POST the contact’s name, phone and every answer as JSON — for Zapier, Pabbly, Make or your own app.</span></label>}
+      {n.type === 'form' && <FormEditor d={d} up={up} forms={forms} />}
       {n.type === 'end' && <label className="tog"><input type="checkbox" checked={!!d.resolve} onChange={(e) => up((x) => { x.resolve = e.target.checked; })} /><span />Mark the chat resolved</label>}
+    </>
+  );
+}
+
+// the WhatsApp form node: the screen, its questions (each can be saved on the contact) and publishing on Meta
+function FormEditor({ d, up, forms }) {
+  const setField = (i, fn) => up((x) => { fn(x.fields[i]); });
+  const move = (i, by) => up((x) => { const [it] = x.fields.splice(i, 1); x.fields.splice(i + by, 0, it); });
+  const add = () => up((x) => { x.fields.push({ id: rid('q'), type: 'text', label: '', required: false, var: `answer_${x.fields.length + 1}`, save: '' }); });
+  return (
+    <>
+      <label>Form title<input value={d.title} maxLength={30} onChange={(e) => up((x) => { x.title = e.target.value; })} /></label>
+      <div className="row" style={{ gap: 8 }}>
+        <label style={{ flex: 1 }}>Button to open it<input value={d.cta} maxLength={20} onChange={(e) => up((x) => { x.cta = e.target.value; })} /></label>
+        <label style={{ flex: 1 }}>Submit button<input value={d.submit} maxLength={30} onChange={(e) => up((x) => { x.submit = e.target.value; })} /></label>
+      </div>
+      <b className="sm">Questions <span className="muted">(up to 8)</span></b>
+      {d.fields.map((q, i) => (
+        <div key={q.id} className="wff-q">
+          <div className="row" style={{ gap: 6 }}>
+            <input style={{ flex: 1 }} value={q.label} maxLength={labelMax(q.type)} placeholder="Question, e.g. Your name" onChange={(e) => setField(i, (x) => { const auto = !x.var || x.var === toVar(x.label) || /^answer_\d+$/.test(x.var); x.label = e.target.value; if (auto) x.var = toVar(e.target.value); })} />
+            <button className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up" title="Move up">↑</button>
+            <button className="icon-btn danger" onClick={() => up((x) => { x.fields.splice(i, 1); })} aria-label="Remove question"><Icon name="trash" size={14} /></button>
+          </div>
+          <div className="row" style={{ gap: 6 }}>
+            <select value={q.type} onChange={(e) => setField(i, (x) => { x.type = e.target.value; x.label = x.label.slice(0, labelMax(x.type)); if (CHOICE.includes(x.type) && !x.options?.length) x.options = [{ id: 'o1', title: '' }, { id: 'o2', title: '' }]; })}>{FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+            <label className="tog" style={{ margin: 0 }}><input type="checkbox" checked={!!q.required} onChange={(e) => setField(i, (x) => { x.required = e.target.checked; })} /><span />Required</label>
+          </div>
+          {CHOICE.includes(q.type) && <Options items={q.options || []} max={10} titleMax={30} onChange={(list) => setField(i, (x) => { x.options = list; })} />}
+          <select value={q.save || ''} onChange={(e) => setField(i, (x) => { x.save = e.target.value; })} title="Where the answer is saved on the contact">
+            <option value="">Don’t save to the CRM</option><option value="name">Save to CRM → Name</option><option value="email">Save to CRM → Email</option><option value="phone">Save to CRM → Phone</option>
+            {forms.crmFields.map((c) => <option key={c.id} value={`custom:${c.id}`}>Save to CRM → {c.label}</option>)}
+          </select>
+          <span className="hint" style={{ margin: 0 }}>Use it later as {`{{${q.var}}}`}</span>
+        </div>
+      ))}
+      {d.fields.length < 8 && <button className="btn ghost sm" onClick={add}><Icon name="plus" size={13} />Add question</button>}
+      <div className="wff-pub">
+        {!forms.meta ? <p className="hint" style={{ margin: 0 }}>WhatsApp forms need a direct Meta connection (Settings → Channels → WhatsApp Business account ID and token). Until then the chatbot asks these questions one by one in the chat.</p>
+          : <>
+            <p className="hint" style={{ margin: 0 }}>{forms.live ? '✅ Published — customers get this as a form inside WhatsApp.' : forms.published ? 'Changed since you published it — publish again so customers get the new form. Until then the chatbot asks the questions one by one.' : 'Publish it once on WhatsApp so customers fill it inside the chat. Until then the chatbot asks the questions one by one.'}</p>
+            {!forms.live && <button className="btn primary sm" onClick={forms.publish} disabled={forms.busy || !forms.saved || !d.fields.length} title={forms.saved ? '' : 'Save the chatbot first'}>{forms.busy ? <span className="spin" /> : <Icon name="send" size={13} />}{forms.published ? 'Publish again' : 'Publish form'}</button>}
+          </>}
+      </div>
     </>
   );
 }
@@ -480,7 +559,7 @@ function TestPhone({ f, onNode }) {
   const [tags, setTags] = useState([]);
   const box = useRef();
   useEffect(() => { box.current && (box.current.scrollTop = box.current.scrollHeight); }, [msgs, busy]);
-  const FX = { tag: (e) => `🏷 Tagged: ${e.tags.join(', ')}`, save: (e) => `💾 Saved ${e.field}: ${e.value}`, handoff: (e) => `🙋 Handed to your team${e.note ? ` — ${e.note}` : ''}`, webhook: (e) => `🔗 Sent answers to ${e.url}`, route: (e) => `✦ AI picked: ${e.intent}`, agent: () => '✦ The AI agent takes over', end: (e) => (e.resolve ? '✅ Chat resolved' : '— end of chatbot —') };
+  const FX = { form: (e) => `📋 Form filled: ${e.answers.map((a) => `${a.label}: ${a.value}`).join(' · ') || 'no answers'}`, tag: (e) => `🏷 Tagged: ${e.tags.join(', ')}`, save: (e) => `💾 Saved ${e.field}: ${e.value}`, handoff: (e) => `🙋 Handed to your team${e.note ? ` — ${e.note}` : ''}`, webhook: (e) => `🔗 Sent answers to ${e.url}`, route: (e) => `✦ AI picked: ${e.intent}`, agent: () => '✦ The AI agent takes over', end: (e) => (e.resolve ? '✅ Chat resolved' : '— end of chatbot —') };
   const send = async (input, shown) => {
     if (busy) return;
     const next = [...msgs, { dir: 'in', text: shown ?? input.text }];
