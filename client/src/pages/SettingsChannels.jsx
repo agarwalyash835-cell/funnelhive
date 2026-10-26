@@ -3,6 +3,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { Copy, RefreshCw, Trash2, Plus, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { Panel, toast, confirmDialog, loadFailed } from '../ui';
+import WaConnect from './WaConnect';
 
 const SMTP_PRESETS = [
   ['custom', 'Other / custom', '', 465],
@@ -63,6 +64,7 @@ export function WhatsAppPanel() {
   const using = ch.whatsapp.provider === 'hive' ? 'Hive WhatsApp' : 'Meta direct';
   return (
     <Panel title="WhatsApp" actions={<span className={`pill ${ch.whatsapp.configured ? 'ok' : 'warn'}`}>{ch.whatsapp.configured ? `Connected · ${using}` : 'Not connected'}</span>}>
+      <WaConnect onChange={reload} />
       <div className="seg" role="tablist" style={{ marginBottom: 10 }}>
         <button type="button" role="tab" className={tab === 'hive' ? 'on' : ''} onClick={() => setTab('hive')}>WhatsApp (Hive)</button>
         <button type="button" role="tab" className={tab === 'meta' ? 'on' : ''} onClick={() => setTab('meta')}>Meta direct (Cloud API)</button>

@@ -27,6 +27,8 @@ export const DEFAULTS = {
   announcement: '',
   captcha: { siteKey: '', secretEnc: '' }, // Cloudflare Turnstile on sign-up (server env TURNSTILE_* wins)
   googleClientId: '', // "Continue with Google" (OAuth client ID from Google Cloud)
+  // sellers connect WhatsApp themselves through Meta Embedded Signup (meta-signup.js): the owner's Meta app
+  metaSignup: { appId: '', configId: '', secretEnc: '', graphVersion: 'v26.0', esVersion: 'v5', verifyToken: '' },
 };
 
 const ID = 'settings';
@@ -48,6 +50,7 @@ export function platform() {
     embeddings: { ...DEFAULTS.embeddings, ...s.embeddings },
     sarvam: { ...DEFAULTS.sarvam, ...s.sarvam },
     captcha: { ...DEFAULTS.captcha, ...s.captcha },
+    metaSignup: { ...DEFAULTS.metaSignup, ...s.metaSignup },
   };
   cacheAt = Date.now();
   return cache;

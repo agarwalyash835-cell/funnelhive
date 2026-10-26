@@ -127,7 +127,7 @@ function optOut(userId, key, num, why) {
 // → { status: 'sent', id } (duplicate: true when it already went); throws on a provider error
 // cloud: payload is Meta Cloud API JSON (for what Hive's own shape lacks, e.g. a location), sent through Hive's pass-through
 async function send(u, to, payload, { ikey, event = '', ckey = '', cloud = false } = {}) {
-  const h = live(u);
+  const h = live(u) || meta?.live(u); // a number connected through Meta Embedded Signup (meta-signup.js) goes to Meta
   if (!h) return { status: 'not-configured' };
   const num = waNumber(to);
   if (!num) throw new Error('Not a valid phone number');
@@ -141,8 +141,8 @@ async function send(u, to, payload, { ikey, event = '', ckey = '', cloud = false
     }
   } else rec = T.wamsgs.update(rec.id, (x) => { x.status = 'sending'; delete x.error; });
   try {
-    const r = cloud
-      ? await call(keyOf(h), 'POST', `/cloud/${encodeURIComponent(h.from)}/messages`, { messaging_product: 'whatsapp', recipient_type: 'individual', ...payload, to: num }, { 'Idempotency-Key': ikey })
+    const r = h.meta ? await meta.post(u, payload, num)
+      : cloud ? await call(keyOf(h), 'POST', `/cloud/${encodeURIComponent(h.from)}/messages`, { messaging_product: 'whatsapp', recipient_type: 'individual', ...payload, to: num }, { 'Idempotency-Key': ikey })
       : await call(keyOf(h), 'POST', '/messages', { ...payload, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': ikey });
     T.wamsgs.update(rec.id, (x) => { x.status = 'sent'; x.hiveId = r.id || null; x.wamid = r.wamid || null; x.sentAt = Date.now(); });
     return { status: 'sent', id: r.id || rec.id };
@@ -173,7 +173,12 @@ registerWhatsAppProvider('hive', { configured: isOn, send: providerSend });
 // only lands on the contact's timeline with a notification, as before.
 let inbox = null;
 export function onWaInbox(h) { inbox = h; }
-export const waLive = (u) => live(u);
+export const waInbox = () => inbox;
+// a number connected straight to Meta through Embedded Signup (meta-signup.js registers here): the inbox runs on it too
+var meta; // var: set while meta-signup.js loads, which imports this file
+export function useMetaWhatsApp(m) { meta = m; }
+const metaLive = (u) => (live(u) ? null : meta?.live(u) || null);
+export const waLive = (u) => live(u) || metaLive(u);
 // a message inside the 24-hour window (text, interactive buttons / list, media) or a template; the contact must not
 // have opted out. → { status: 'sent', id, rec } (rec: our record, whose statuses come back on the webhook)
 export async function waSession(u, to, payload, opts = {}) {
@@ -184,6 +189,7 @@ export async function waSession(u, to, payload, opts = {}) {
 }
 export const waTemplateParam = param;
 export async function waApproved(u) {
+  if (metaLive(u)) return meta.approved(u);
   const h = live(u);
   if (!h) return [];
   const list = (await call(keyOf(h), 'GET', `/templates?from=${encodeURIComponent(h.from)}&status=APPROVED`)).templates || [];
@@ -191,6 +197,7 @@ export async function waApproved(u) {
 }
 // a file the seller sends (photo, video, voice note, document): uploaded to Hive first → its media id (16 MB at most)
 export async function waUpload(u, buf, mime, filename) {
+  if (metaLive(u)) return meta.upload(u, buf, mime, filename);
   const h = live(u);
   if (!h) throw Object.assign(new Error('WhatsApp isn’t connected'), { status: 400 });
   const form = new FormData();
@@ -204,6 +211,7 @@ export async function waUpload(u, buf, mime, filename) {
 }
 // a customer's photo / document / voice note, streamed from Hive (files over 20 MB are refused there)
 export async function waMedia(u, id) {
+  if (metaLive(u)) return meta.media(u, id);
   const h = live(u);
   if (!h) throw Object.assign(new Error('WhatsApp isn’t connected'), { status: 400 });
   const r = await fetch(`${API()}/media/${encodeURIComponent(id)}?from=${encodeURIComponent(h.from)}`, { headers: { Authorization: `Bearer ${keyOf(h)}` }, signal: AbortSignal.timeout(30000) });
@@ -338,6 +346,9 @@ export async function hiveTick(now = Date.now()) {
 }
 
 // ---------- the webhook ----------
+// the same events from Meta's own webhook (meta-signup.js), already in Hive's shape
+export const waHandle = (userId, ev, d, env) => handle(userId, ev, d, env);
+export const waContact = (userId, num, name) => contactFor(userId, num, name);
 const STOP = /^\s*(stop|stop all|unsubscribe|opt[\s-]?out)\s*[.!]*\s*$/i;
 const RANK = { sending: 0, queued: 1, sent: 2, delivered: 3, read: 4 };
 function handle(userId, ev, d = {}, env = {}) {

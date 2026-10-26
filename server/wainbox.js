@@ -680,6 +680,25 @@ onWaInbox({
     addMsg(conv, { dir: 'out', by: 'app', type: 'text', text: clip(text, 4000), status: 'sent' });
     T.waconvs.update(conv.id, (c) => { c.human = true; c.ai = false; c.bot = null; c.wakeAt = null; });
   },
+  // old chats from the WhatsApp Business app (the seller opted in): stored as they were, marked imported — no
+  // chatbot, AI agent, rule or unread count. items: [{ dir, by, type, text, wamid, at }] → how many were added
+  history(u, { num, key, items }) {
+    const conv = convFor(u.id, num, key);
+    let last = null, n = 0;
+    for (const m of items) {
+      if (m.wamid && q("SELECT 1 FROM wachat WHERE convId = ? AND json_extract(data, '$.wamid') = ? LIMIT 1").get(conv.id, m.wamid)) continue;
+      const msg = T.wachat.insert({ id: uid(), userId: u.id, convId: conv.id, ...m, text: clip(m.text, 4000), imported: true });
+      n++;
+      if (!last || msg.at > last.at) last = msg;
+    }
+    if (last) {
+      T.waconvs.update(conv.id, (c) => {
+        // never lastInAt: chats in the app don't open WhatsApp's 24-hour reply window for the API
+        if (!c.lastText || last.at >= c.lastAt) { c.lastAt = last.at; c.lastText = clip(last.text, 140); c.lastDir = last.dir; c.lastBy = last.by; }
+      });
+    }
+    return n;
+  },
 });
 // the timed inbox rules: a customer left waiting too long, and quiet chats closed
 async function rulesTick(now = Date.now()) {
@@ -865,7 +884,7 @@ const convView = (c, flows) => ({
   lastAt: c.lastAt, lastText: c.lastText || '', lastDir: c.lastDir || '', lastBy: c.lastBy || '', ai: !!c.ai, human: !!c.human, bot: c.bot ? { flowId: c.bot.flowId, name: flows?.get(c.bot.flowId)?.name || c.bot.name || 'Chatbot', wait: c.bot.wait } : null,
   window: winOpen(c) ? { open: true, closesAt: c.lastInAt + WINDOW } : { open: false }, intent: c.intent || '', summary: c.summary || null, handoff: c.handoff || null, memory: c.memory?.text || '',
 });
-const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, ...(m.transcribed ? { transcribed: true, lang: m.lang || '' } : {}), status: m.status || '', error: m.error || '', at: m.at });
+const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, ...(m.transcribed ? { transcribed: true, lang: m.lang || '' } : {}), ...(m.imported ? { imported: true } : {}), status: m.status || '', error: m.error || '', at: m.at });
 const flowView = (f) => ({ ...f, problems: flowProblems(f) });
 const FILTERS = {
   all: "status <> 'resolved'",

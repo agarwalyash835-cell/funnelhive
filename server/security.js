@@ -115,6 +115,8 @@ if (JOBS && process.env.NODE_ENV !== 'test') setInterval(() => { try { q('DELETE
 const PAY = ['https://checkout.razorpay.com', 'https://js.stripe.com', 'https://*.js.stripe.com'];
 const PIXELS = ['https://connect.facebook.net', 'https://www.googletagmanager.com', 'https://www.googleadservices.com', 'https://googleads.g.doubleclick.net', 'https://www.google.com'];
 const SIGNIN = ['https://accounts.google.com', 'https://challenges.cloudflare.com'];
+// "Connect with Facebook" for WhatsApp (meta-signup.js): the Facebook SDK, loaded only when a seller clicks it
+const FBSDK = ['https://connect.facebook.net', 'https://*.facebook.com'];
 // the storage buckets the browser fetches signed links from (course video pieces): added to connect-src.
 // var + function declaration: platform.js registers this while modules are still loading
 var connectHosts;
@@ -125,12 +127,12 @@ export function csp(kind = 'app', { nonce, frameAncestors = "'self'" } = {}) {
   const app = kind === 'app';
   const d = {
     'default-src': ["'self'"],
-    'script-src': kind === 'embed' ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https:'] : ["'self'", ...(nonce ? [`'nonce-${nonce}'`] : []), ...PAY, ...(app ? SIGNIN : PIXELS)],
+    'script-src': kind === 'embed' ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https:'] : ["'self'", ...(nonce ? [`'nonce-${nonce}'`] : []), ...PAY, ...(app ? [...SIGNIN, ...FBSDK] : PIXELS)],
     'style-src': app ? ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://accounts.google.com'] : ["'self'", "'unsafe-inline'", 'https:'],
     'font-src': app ? ["'self'", 'data:', 'https://fonts.gstatic.com'] : ["'self'", 'data:', 'https:'],
     'img-src': ["'self'", 'data:', 'blob:', 'https:'],
     'media-src': ["'self'", 'data:', 'blob:', 'https:'],
-    'connect-src': app ? ["'self'", 'https://*.razorpay.com', 'https://*.stripe.com', ...SIGNIN, 'https://*.ingest.sentry.io', 'https://*.ingest.de.sentry.io', ...bucketHosts()] : ["'self'", 'https:', ...(kind === 'embed' ? ['wss:'] : [])],
+    'connect-src': app ? ["'self'", 'https://*.razorpay.com', 'https://*.stripe.com', ...SIGNIN, ...FBSDK, 'https://*.ingest.sentry.io', 'https://*.ingest.de.sentry.io', ...bucketHosts()] : ["'self'", 'https:', ...(kind === 'embed' ? ['wss:'] : [])],
     // video blocks take any https address (YouTube, Vimeo, Loom, Drive…); checkouts open their own frames
     'frame-src': ["'self'", 'https:', 'data:', 'blob:'],
     'worker-src': ["'self'", 'blob:'],
