@@ -10,13 +10,13 @@
 // hand-over; a fresh ad tap → that ad's chatbot; the flow waiting for this answer; a keyword flow; the AI agent on this chat; a new contact's welcome
 // flow; the AI agent for new chats; the default flow; else the seller is notified.
 import { T, q, uid, hit, JOBS } from './db.js';
-import { onWaInbox, waSession, waLive, waApproved, waMedia, waUpload, waNumber, waOptedOut, waTemplateParam } from './hive-wa.js';
+import { onWaInbox, waSession, waLive, waApproved, waMedia, waUpload, waNumber, waOptedOut, waTemplateParam, waSetOptOut } from './hive-wa.js';
 import { INDUSTRY, industryOf } from './waindustry.js';
 import { hasKnowledge, searchKnowledge, knowledgeBlock, customerProfile, rememberFacts, refreshMemory, learnFromChat, pdfPages, pageLabel } from './waknow.js';
 import { vaultBytes } from './vault.js';
 import { sarvamReady, transcribe, oggSeconds } from './sarvam.js';
 import { KITS } from './crmkits.js';
-import { ensureMeta, logActivity } from './crm.js';
+import { ensureMeta, logActivity, pipelinesFor, stageFor } from './crm.js';
 import { notify } from './notify.js';
 import { aiEnabled, aiJson, aiText } from './ai.js';
 import { creditsShort, spendCredits, AI_COST } from './billing.js';
@@ -88,8 +88,14 @@ function locationOf(d = {}) {
 // out: { kind: 'text' | 'buttons' | 'list' | 'image', text, buttons: [{ id, title }], button, rows, image }
 function payloadOf(o) {
   const body = clip(o.text, 1024) || '…';
-  if (o.kind === 'buttons' && o.buttons?.length) return { type: 'interactive', interactive: { type: 'button', body: { text: body }, action: { buttons: o.buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id, title: clip(b.title, 20) || 'OK' } })) } } };
-  if (o.kind === 'list' && o.rows?.length) return { type: 'interactive', interactive: { type: 'list', body: { text: body }, action: { button: clip(o.button, 20) || 'Choose', sections: [{ title: 'Options', rows: o.rows.slice(0, 10).map((r) => ({ id: r.id, title: clip(r.title, 24) || 'Option', ...(r.desc ? { description: clip(r.desc, 72) } : {}) })) }] } } };
+  const footer = o.footer ? { footer: { text: clip(o.footer, 60) } } : {};
+  if (o.kind === 'buttons' && o.buttons?.length) return { type: 'interactive', interactive: { type: 'button', ...(o.image ? { header: { type: 'image', image: { link: o.image } } } : {}), body: { text: body }, ...footer, action: { buttons: o.buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id, title: clip(b.title, 20) || 'OK' } })) } } };
+  if (o.kind === 'list' && o.rows?.length) return { type: 'interactive', interactive: { type: 'list', ...(o.header ? { header: { type: 'text', text: clip(o.header, 60) } } : {}), body: { text: body }, ...footer, action: { button: clip(o.button, 20) || 'Choose', sections: [{ title: 'Options', rows: o.rows.slice(0, 10).map((r) => ({ id: r.id, title: clip(r.title, 24) || 'Option', ...(r.desc ? { description: clip(r.desc, 72) } : {}) })) }] } } };
+  // a button that opens a web page (a funnel, a booking page, any link)
+  if (o.kind === 'cta') return { type: 'interactive', interactive: { type: 'cta_url', ...(o.image ? { header: { type: 'image', image: { link: o.image } } } : {}), body: { text: body }, ...footer, action: { name: 'cta_url', parameters: { display_text: clip(o.cta.label, 20) || 'Open', url: o.cta.url } } } };
+  // a photo, video, document or voice note by its web address
+  if (o.kind === 'media_link') { const m = o.media; return { type: m.type, [m.type]: { link: m.link, ...(o.text && m.type !== 'audio' ? { caption: clip(o.text, 1024) } : {}), ...(m.type === 'document' && m.filename ? { filename: clip(m.filename, 120) } : {}) } }; }
+  if (o.kind === 'template') return { type: 'template', template: { name: o.template.name, language: o.template.language || 'en', body: o.template.params.map(waTemplateParam) } };
   if (o.kind === 'flow') return flowPayload(o); // a WhatsApp form (waforms.js), in Meta Cloud API JSON
   if (o.kind === 'image' && o.image) return { type: 'image', image: { link: o.image, ...(o.text ? { caption: clip(o.text, 1024) } : {}) } };
   // a file uploaded to Hive: { kind: 'media', media: { type, id, filename, caption } }
@@ -99,13 +105,16 @@ function payloadOf(o) {
   return { type: 'text', text: { body: clip(o.text, 4096) || '…' } };
 }
 async function sendOut(u, conv, o, by, extra = {}) {
-  const type = { image: 'image', text: 'text', media: o.media?.type, location: 'location' }[o.kind] || 'interactive';
-  const msg = addMsg(conv, { dir: 'out', by, type, text: clip(o.text, 4096), ...(o.buttons?.length ? { buttons: o.buttons.map((b) => b.title) } : {}), ...(o.rows?.length ? { list: { button: o.button, rows: o.rows.map((r) => r.title) } } : {}), ...(o.image ? { media: { type: 'image', link: o.image } } : {}), ...(o.media ? { media: o.media } : {}), ...(o.location ? { location: o.location } : {}), ...(o.flow ? { form: { title: o.flow.title, cta: o.flow.cta } } : {}), status: 'sending', ...extra });
+  const type = { image: 'image', text: 'text', media: o.media?.type, media_link: o.media?.type, location: 'location', template: 'template' }[o.kind] || 'interactive';
+  const text = o.kind === 'cta' ? `${clip(o.text, 3800)}\n\n🔗 ${o.cta.label}: ${o.cta.url}` : o.kind === 'template' ? clip(o.text, 4096) || `Template: ${o.template.name}` : clip(o.text, 4096);
+  const msg = addMsg(conv, { dir: 'out', by, type, text, ...(o.buttons?.length ? { buttons: o.buttons.map((b) => b.title) } : {}), ...(o.rows?.length ? { list: { button: o.button, rows: o.rows.map((r) => r.title) } } : {}), ...(o.image ? { media: { type: 'image', link: o.image } } : {}), ...(o.media ? { media: o.media } : {}), ...(o.location ? { location: o.location } : {}), ...(o.flow ? { form: { title: o.flow.title, cta: o.flow.cta } } : {}), status: 'sending', ...extra });
   try {
-    const r = await waSession(u, conv.num, payloadOf(o), { ckey: conv.ckey, event: `inbox:${by}`, cloud: o.kind === 'location' || o.kind === 'flow' });
+    const r = await waSession(u, conv.num, payloadOf(o), { ckey: conv.ckey, event: `inbox:${by}`, cloud: ['location', 'flow', 'cta'].includes(o.kind) });
     return T.wachat.update(msg.id, (m) => { m.status = 'sent'; m.waRec = r.rec; });
   } catch (e) {
     T.wachat.update(msg.id, (m) => { m.status = 'failed'; m.error = clip(e.message, 300); });
+    // a link button the number can't send yet: the same words with the link in them
+    if (o.kind === 'cta') return sendOut(u, conv, { kind: 'text', text }, by, extra);
     throw e;
   }
 }
@@ -334,38 +343,64 @@ function addTags(u, conv, tags) {
 }
 
 // ---------- chatbot flows ----------
-export const NODE_TYPES = ['start', 'message', 'buttons', 'list', 'ask', 'condition', 'tag', 'ai_route', 'ai_agent', 'handoff', 'wait', 'webhook', 'end', 'form'];
+export const NODE_TYPES = ['start', 'message', 'buttons', 'list', 'ask', 'condition', 'tag', 'ai_route', 'ai_agent', 'handoff', 'wait', 'webhook', 'end', 'form', 'link', 'template', 'set', 'api', 'hours', 'split', 'goto'];
 const SAVES = ['', 'name', 'email', 'phone'];
-const CHECKS = ['text', 'email', 'phone', 'number', 'date'];
-const OPS = ['eq', 'neq', 'contains', 'exists', 'missing', 'has', 'not_has'];
+const CHECKS = ['text', 'email', 'phone', 'number', 'date', 'location', 'file'];
+const OPS = ['eq', 'neq', 'contains', 'exists', 'missing', 'has', 'not_has', 'gt', 'lt', 'starts'];
 const TRIGGERS = ['keyword', 'welcome', 'default', 'manual', 'ad'];
+const MEDIA = ['image', 'video', 'document', 'audio'];
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+const SET_DO = ['var', 'field', 'untag', 'stage', 'optout', 'optin'];
+// a step that waits for the customer can also go on when they don't answer in time
+const timed = (n) => (['buttons', 'list', 'ask', 'form'].includes(n?.type) && n.data?.timeout > 0 ? ['timeout'] : []);
 export const portsOf = (n) => {
   switch (n?.type) {
-    case 'buttons': return [...arr(n.data?.buttons).map((b) => b.id), 'other'];
-    case 'list': return [...arr(n.data?.rows).map((r) => r.id), 'other'];
+    case 'buttons': return [...arr(n.data?.buttons).map((b) => b.id), 'other', ...timed(n)];
+    case 'list': return [...arr(n.data?.rows).map((r) => r.id), 'other', ...timed(n)];
     case 'ai_route': return [...arr(n.data?.intents).map((i) => i.id), 'other'];
     case 'condition': return ['yes', 'no'];
-    case 'ai_agent': case 'handoff': case 'end': return [];
-    default: return ['next'];
+    case 'api': return ['ok', 'fail'];
+    case 'hours': return ['open', 'closed'];
+    case 'split': return arr(n.data?.branches).map((b) => b.id);
+    case 'ai_agent': case 'handoff': case 'end': case 'goto': return [];
+    default: return ['next', ...timed(n)];
   }
 };
+const urlOk = (v) => /^https?:\/\/[^\s/]+\.[^\s]+$/.test(v || '');
+const saveOk = (v) => (SAVES.includes(v) || /^custom:[\w-]{1,40}$/.test(v || '') ? v : '');
 const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d; };
 const idsFrom = (list, prefix, fn) => { const seen = new Set(); return list.map((x, i) => { let id = ID.test(x?.id) && !seen.has(x.id) ? x.id : `${prefix}${i + 1}`; while (seen.has(id)) id += 'x'; seen.add(id); return fn(x || {}, id); }); };
 function cleanData(type, d = {}) {
   switch (type) {
-    case 'message': return { text: clip(d.text, 1024), image: /^https?:\/\/\S+$/.test(d.image || '') ? clip(d.image, 500) : '' };
-    case 'buttons': return { text: clip(d.text, 1024), buttons: idsFrom(arr(d.buttons).slice(0, 3), 'b', (b, id) => ({ id, title: clip(b.title, 20) })) };
-    case 'list': return { text: clip(d.text, 1024), button: clip(d.button, 20) || 'Choose', rows: idsFrom(arr(d.rows).slice(0, 10), 'r', (r, id) => ({ id, title: clip(r.title, 24), desc: clip(r.desc, 72) })) };
-    case 'ask': return { text: clip(d.text, 1024), var: /^[a-z][a-z0-9_]{0,30}$/.test(d.var || '') ? d.var : 'answer', save: SAVES.includes(d.save) || /^custom:[\w-]{1,40}$/.test(d.save || '') ? d.save : '', validate: CHECKS.includes(d.validate) ? d.validate : 'text', retry: clip(d.retry, 300) };
+    case 'message': {
+      const m = d.media && MEDIA.includes(d.media.type) && urlOk(d.media.url) ? { type: d.media.type, url: clip(d.media.url, 500), filename: clip(d.media.filename, 120) } : null;
+      return { text: clip(d.text, 1024), image: !m && urlOk(d.image) ? clip(d.image, 500) : '', media: m };
+    }
+    case 'buttons': return { text: clip(d.text, 1024), image: urlOk(d.image) ? clip(d.image, 500) : '', footer: clip(d.footer, 60), buttons: idsFrom(arr(d.buttons).slice(0, 3), 'b', (b, id) => ({ id, title: clip(b.title, 20) })), timeout: num(d.timeout, 0, 1380, 0) };
+    case 'list': return { text: clip(d.text, 1024), header: clip(d.header, 60), footer: clip(d.footer, 60), button: clip(d.button, 20) || 'Choose', rows: idsFrom(arr(d.rows).slice(0, 10), 'r', (r, id) => ({ id, title: clip(r.title, 24), desc: clip(r.desc, 72) })), timeout: num(d.timeout, 0, 1380, 0) };
+    case 'ask': return { text: clip(d.text, 1024), var: /^[a-z][a-z0-9_]{0,30}$/.test(d.var || '') ? d.var : 'answer', save: saveOk(d.save), validate: CHECKS.includes(d.validate) ? d.validate : 'text', retry: clip(d.retry, 300), timeout: num(d.timeout, 0, 1380, 0) };
     case 'condition': return { match: d.match === 'any' ? 'any' : 'all', rules: arr(d.rules).slice(0, 10).map((r) => ({ field: clip(r?.field, 60) || 'tag', op: OPS.includes(r?.op) ? r.op : 'eq', value: clip(r?.value, 200) })) };
+    // a button to a web page: a funnel, a booking page, a product, any link
+    case 'link': return { text: clip(d.text, 1024), label: clip(d.label, 20) || 'Open', url: clip(d.url, 500), image: urlOk(d.image) ? clip(d.image, 500) : '', footer: clip(d.footer, 60) };
+    // an approved WhatsApp template: the only thing that can go more than 24 hours after the customer's last message
+    case 'template': return { name: clip(d.name, 120).replace(/[^\w]/g, ''), language: clip(d.language, 10) || 'en', params: arr(d.params).slice(0, 10).map((p) => clip(p, 500)), preview: clip(d.preview, 1024) };
+    case 'set': return { actions: arr(d.actions).slice(0, 10).map((a) => ({ do: SET_DO.includes(a?.do) ? a.do : 'var', key: clip(a?.key, 60), value: clip(a?.value, 500) })) };
+    case 'api': return {
+      method: METHODS.includes(d.method) ? d.method : 'POST', url: clip(d.url, 500),
+      headers: arr(d.headers).slice(0, 10).map((h) => ({ key: clip(h?.key, 60).replace(/[^\w-]/g, ''), value: clip(h?.value, 500) })).filter((h) => h.key),
+      body: clip(d.body, 4000), map: arr(d.map).slice(0, 10).map((m) => ({ var: clip(m?.var, 31).toLowerCase().replace(/[^a-z0-9_]/g, '_'), path: clip(m?.path, 120) })).filter((m) => m.var && m.path),
+    };
+    case 'hours': return {};
+    case 'split': return { branches: idsFrom(arr(d.branches).slice(0, 4), 's', (b, id) => ({ id, label: clip(b.label, 24), weight: num(b.weight, 1, 100, 50) })) };
+    case 'goto': return { flowId: clip(d.flowId, 40) };
     case 'tag': return { add: arr(d.add).map((t) => clip(t, 40)).filter(Boolean).slice(0, 10) };
     case 'ai_route': return { intents: idsFrom(arr(d.intents).slice(0, 8), 'i', (x, id) => ({ id, label: clip(x.label, 40), desc: clip(x.desc, 200) })) };
     case 'ai_agent': return { note: clip(d.note, 500) };
     case 'handoff': return { text: clip(d.text, 1024), assignee: clip(d.assignee, 40), note: clip(d.note, 300) };
-    case 'wait': return { minutes: num(d.minutes, 1, 1380, 60) };
+    case 'wait': return { minutes: num(d.minutes, 1, 43200, 60) };
     case 'webhook': return { url: clip(d.url, 500) };
     case 'end': return { text: clip(d.text, 1024), resolve: !!d.resolve };
-    case 'form': return cleanForm(d);
+    case 'form': return { ...cleanForm(d), timeout: num(d.timeout, 0, 1380, 0) };
     default: return {};
   }
 }
@@ -414,6 +449,15 @@ export function flowProblems(f) {
     if (n.type === 'webhook' && !/^https?:\/\/[^\s/]+\.[^\s]+$/.test(d.url)) bad(n.id, 'Enter the web address to send to (https://…)');
     if (n.type === 'condition' && !d.rules.length) bad(n.id, 'Add a rule');
     if (n.type === 'form' && formProblems(d)) bad(n.id, formProblems(d));
+    if (n.type === 'message' && d.media && !d.media.url) bad(n.id, 'Add the file’s web address');
+    if (n.type === 'link' && !urlOk(d.url.replace(/\{\{[^}]*\}\}/g, 'x'))) bad(n.id, 'Link button: enter the web address (https://…)');
+    if (n.type === 'link' && !d.text) bad(n.id, 'Link button: write the message');
+    if (n.type === 'template' && !d.name) bad(n.id, 'Template: choose an approved template');
+    if (n.type === 'set' && (!d.actions.length || d.actions.some((a) => ['var', 'field', 'untag', 'stage'].includes(a.do) && !a.key))) bad(n.id, 'Update contact: finish every action');
+    if (n.type === 'api' && !urlOk(d.url.replace(/\{\{[^}]*\}\}/g, 'x'))) bad(n.id, 'API request: enter the web address (https://…)');
+    if (n.type === 'split' && d.branches.length < 2) bad(n.id, 'Random split: add at least two paths');
+    if (n.type === 'goto' && !d.flowId) bad(n.id, 'Go to chatbot: choose the chatbot');
+    if (n.type === 'wait' && d.minutes > 1380 && f.edges.find((e) => e.from === n.id) && f.nodes.find((x) => x.id === f.edges.find((e) => e.from === n.id).to)?.type !== 'template') bad(n.id, 'Waits over 23 hours must be followed by a template message (WhatsApp’s 24-hour rule)');
     // details only the business knows, left as [placeholders] in a template
     const words = [d.text, d.button, ...arr(d.buttons).map((b) => b.title), ...arr(d.rows).flatMap((r) => [r.title, r.desc])].filter(Boolean).join(' ');
     if (/\[[^\]\n]{2,}\]/.test(words)) bad(n.id, `Fill in the details in [brackets]: ${words.match(/\[[^\]\n]{2,}\]/)[0]}`);
@@ -421,10 +465,14 @@ export function flowProblems(f) {
   return out;
 }
 
-const fillText = (s, env) => String(s || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, k) => {
-  const v = k === 'first_name' ? first(env.name) : k === 'name' ? env.name : k === 'phone' ? `+${env.num}` : k === 'business' ? env.business : env.vars?.[k.replace(/^var\./, '')];
-  return v == null || v === '' ? (k === 'first_name' || k === 'name' ? 'there' : '') : String(v);
+// {{first_name}}, {{business}}, {{<answer>}}… — json: for an API request's body (the value goes inside a JSON string)
+const fillText = (s, env, json = false) => String(s || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, k) => {
+  const v = k === 'first_name' ? first(env.name) : k === 'name' ? env.name : k === 'phone' ? `+${env.num}` : k === 'email' ? env.email : k === 'business' ? env.business : env.vars?.[k.replace(/^var\./, '')];
+  const out = v == null || v === '' ? (!json && (k === 'first_name' || k === 'name') ? 'there' : '') : String(v);
+  return json ? JSON.stringify(out).slice(1, -1) : out;
 });
+// a value in an API's JSON answer by its path: "data.status", "items.0.name"
+const atPath = (obj, path) => String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 function valueOk(kind, raw) {
   const v = String(raw || '').trim();
   if (!v) return null;
@@ -434,15 +482,19 @@ function valueOk(kind, raw) {
   if (kind === 'date') return /\d/.test(v) ? v : null;
   return v.slice(0, 500);
 }
-const RETRY = { email: 'That doesn’t look like an email address — could you check it?', phone: 'Please send the number with the country code, e.g. +91 98765 43210.', number: 'Please reply with a number.', date: 'Please send the date, e.g. 12 March.', text: 'Please type your answer.' };
+const RETRY = { email: 'That doesn’t look like an email address — could you check it?', phone: 'Please send the number with the country code, e.g. +91 98765 43210.', number: 'Please reply with a number.', date: 'Please send the date, e.g. 12 March.', text: 'Please type your answer.', location: 'Please share your location: tap 📎 → Location.', file: 'Please send it as a photo or file: tap 📎.' };
 function evalRule(r, env) {
   const tags = env.tags.map((t) => t.toLowerCase());
   if (r.field === 'tag') return r.op === 'not_has' ? !tags.includes(r.value.toLowerCase()) : tags.includes(r.value.toLowerCase());
-  const v = String((r.field.startsWith('var:') ? env.vars?.[r.field.slice(4)] : r.field === 'name' ? env.name : r.field === 'email' ? env.email : r.field === 'last_message' ? env.lastText : '') ?? '').trim().toLowerCase();
+  const v = String((r.field.startsWith('var:') ? env.vars?.[r.field.slice(4)] : r.field.startsWith('custom:') ? env.custom?.[r.field.slice(7)] : r.field === 'name' ? env.name : r.field === 'email' ? env.email : r.field === 'phone' ? `+${env.num}` : r.field === 'last_message' ? env.lastText : '') ?? '').trim().toLowerCase();
   const x = r.value.trim().toLowerCase();
+  const n1 = Number(v.replace(/[,₹\s]/g, '')), n2 = Number(x.replace(/[,₹\s]/g, ''));
   switch (r.op) {
     case 'eq': return v === x;
     case 'neq': return v !== x;
+    case 'gt': return v !== '' && Number.isFinite(n1) && Number.isFinite(n2) && n1 > n2;
+    case 'lt': return v !== '' && Number.isFinite(n1) && Number.isFinite(n2) && n1 < n2;
+    case 'starts': return !!x && v.startsWith(x);
     case 'contains': return !!x && v.includes(x);
     case 'exists': return !!v;
     case 'missing': return !v;
@@ -469,11 +521,18 @@ export async function runFlow(flow, state, input, env) {
   const vars = { ...(state?.vars || {}) };
   env = { ...env, vars };
   let cur = null, aiUsed = false;
+  const seen = env.seen || []; // the steps this run went through (each step's "reached" count)
   const say = (n, o) => out.push({ ...o, text: fillText(o.text, env), node: n.id });
+  // waiting for the customer; with a time limit when the step has one (its "No reply" path)
+  const waitReply = (n, extra = {}) => ({ node: n.id, wait: 'reply', vars, tries: 0, ...(n.data.timeout > 0 ? { until: Date.now() + n.data.timeout * 60000 } : {}), ...extra });
   if (state?.wait === 'reply') {
     const n = nodes.get(state.node);
     if (!n) return { out, fx, state: null };
-    if (n.type === 'buttons' || n.type === 'list') {
+    if (input.timeout) {
+      fx.push({ type: 'timeout', minutes: n.data.timeout });
+      cur = nextOf(n.id, 'timeout');
+      if (!cur) return { out, fx, state: null, done: true, aiUsed };
+    } else if (n.type === 'buttons' || n.type === 'list') {
       const opts = n.type === 'buttons' ? n.data.buttons : n.data.rows;
       const hitOpt = pick(opts, input);
       if (hitOpt) { vars[`${n.id}_choice`] = hitOpt.title; cur = nextOf(n.id, hitOpt.id); }
@@ -483,7 +542,10 @@ export async function runFlow(flow, state, input, env) {
         return { out, fx, state: { ...state, vars, tries: (state.tries || 0) + 1 } };
       }
     } else if (n.type === 'ask') {
-      const v = valueOk(n.data.validate, input.text);
+      const k = n.data.validate, loc = input.location, med = input.media;
+      // a shared location → a map link; a photo or file → what it is (the file stays in the inbox)
+      const v = k === 'location' ? (loc ? `https://maps.google.com/?q=${loc.lat},${loc.lng}${loc.name ? ` (${loc.name})` : ''}` : null)
+        : k === 'file' ? (med ? `[${med.type || 'file'}${med.filename ? `: ${med.filename}` : ''}]` : null) : valueOk(k, input.text);
       if (v == null && (state.tries || 0) < 2) {
         say(n, { kind: 'text', text: n.data.retry || RETRY[n.data.validate] });
         return { out, fx, state: { ...state, vars, tries: (state.tries || 0) + 1 } };
@@ -516,7 +578,7 @@ export async function runFlow(flow, state, input, env) {
         if (at < d.fields.length) {
           if (start && (d.text || !input.formStart)) say(n, input.formStart ? { kind: 'text', text: d.text } : { kind: 'text', text: 'No problem — let’s do it right here 🙂' });
           say(n, askField(d.fields[at], at, d.fields.length));
-          return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0, field: at, got } };
+          return { out, fx, state: waitReply(n, { field: at, got }) };
         }
         done(got);
         cur = nextOf(n.id, 'next');
@@ -528,14 +590,50 @@ export async function runFlow(flow, state, input, env) {
   for (let i = 0; cur && i < 40; i++) {
     const n = nodes.get(cur);
     if (!n) break;
+    seen.push(n.id);
     const d = n.data;
     switch (n.type) {
       case 'message':
-        say(n, d.image ? { kind: 'image', image: d.image, text: d.text } : { kind: 'text', text: d.text });
+        say(n, d.media ? { kind: 'media_link', media: { type: d.media.type, link: d.media.url, filename: d.media.filename }, text: d.text } : d.image ? { kind: 'image', image: d.image, text: d.text } : { kind: 'text', text: d.text });
         cur = nextOf(n.id, 'next'); break;
-      case 'buttons': say(n, { kind: 'buttons', text: d.text, buttons: d.buttons }); return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0 }, aiUsed };
-      case 'list': say(n, { kind: 'list', text: d.text, button: d.button, rows: d.rows }); return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0 }, aiUsed };
-      case 'ask': say(n, { kind: 'text', text: d.text }); return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0 }, aiUsed };
+      case 'link':
+        say(n, { kind: 'cta', text: d.text, image: d.image, footer: d.footer, cta: { label: d.label, url: fillText(d.url, env) } });
+        cur = nextOf(n.id, 'next'); break;
+      case 'template':
+        say(n, { kind: 'template', text: d.preview ? fillText(d.preview, env) : `Template: ${d.name}`, template: { name: d.name, language: d.language, params: d.params.map((p) => fillText(p, env)) } });
+        cur = nextOf(n.id, 'next'); break;
+      case 'set':
+        for (const a of d.actions) {
+          const val = fillText(a.value, env);
+          if (a.do === 'var' && a.key) vars[a.key] = val;
+          else if (a.do === 'field' && a.key) { fx.push({ type: 'save', field: a.key, value: val }); if (a.key === 'name' || a.key === 'email') env[a.key] = val; }
+          else if (a.do === 'untag' && a.key) { fx.push({ type: 'untag', tags: [a.key] }); env.tags = env.tags.filter((t) => t.toLowerCase() !== a.key.toLowerCase()); }
+          else if (a.do === 'stage' && a.key && a.value) fx.push({ type: 'stage', pipelineId: a.key, stageId: a.value });
+          else if (a.do === 'optout' || a.do === 'optin') fx.push({ type: a.do });
+        }
+        cur = nextOf(n.id, 'next'); break;
+      case 'api': {
+        // the seller's own system (order status, stock, a booking…): its answer saved into variables
+        let r = null;
+        try { r = env.http ? await env.http({ method: d.method, url: fillText(d.url, env), headers: d.headers.map((h) => ({ key: h.key, value: fillText(h.value, env) })), body: d.method === 'GET' ? '' : fillText(d.body, env, true) }) : null; } catch (e) { r = { ok: false, status: 0, error: e.message }; }
+        vars.api_status = String(r?.status ?? 0);
+        for (const m of d.map) { const v = r?.json != null ? atPath(r.json, m.path) : undefined; vars[m.var] = v == null ? '' : typeof v === 'object' ? JSON.stringify(v).slice(0, 500) : String(v).slice(0, 500); }
+        fx.push({ type: 'api', url: fillText(d.url, env), status: r?.status ?? 0, ok: !!r?.ok, error: r?.error || '' });
+        cur = nextOf(n.id, r?.ok ? 'ok' : 'fail'); break;
+      }
+      case 'hours': cur = nextOf(n.id, env.open === false ? 'closed' : 'open'); break;
+      case 'split': {
+        // A/B test: each path by its weight
+        const total = d.branches.reduce((a, b) => a + b.weight, 0);
+        let r = Math.random() * total, b = d.branches[0];
+        for (const x of d.branches) { if (r < x.weight) { b = x; break; } r -= x.weight; }
+        fx.push({ type: 'split', label: b?.label || '' });
+        cur = b ? nextOf(n.id, b.id) : null; break;
+      }
+      case 'goto': fx.push({ type: 'goto', flowId: d.flowId }); return { out, fx, state: null, goto: d.flowId, vars, aiUsed };
+      case 'buttons': say(n, { kind: 'buttons', text: d.text, buttons: d.buttons, image: d.image, footer: d.footer }); return { out, fx, state: waitReply(n), aiUsed };
+      case 'list': say(n, { kind: 'list', text: d.text, button: d.button, rows: d.rows, header: d.header, footer: d.footer }); return { out, fx, state: waitReply(n), aiUsed };
+      case 'ask': say(n, { kind: 'text', text: d.text }); return { out, fx, state: waitReply(n), aiUsed };
       case 'condition': {
         const ok = d.match === 'any' ? d.rules.some((r) => evalRule(r, env)) : d.rules.every((r) => evalRule(r, env));
         cur = nextOf(n.id, ok ? 'yes' : 'no'); break;
@@ -557,10 +655,10 @@ export async function runFlow(flow, state, input, env) {
       case 'form': {
         if (!d.fields.length) { cur = nextOf(n.id, 'next'); break; }
         // the WhatsApp form when it's published on Meta; else the same questions one by one in the chat
-        if (env.forms && formLive(d)) { say(n, { kind: 'flow', text: d.text || 'Please fill in this short form 👇', flow: { id: d.flowId, cta: d.cta, title: d.title } }); return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0, form: 'flow' }, aiUsed }; }
+        if (env.forms && formLive(d)) { say(n, { kind: 'flow', text: d.text || 'Please fill in this short form 👇', flow: { id: d.flowId, cta: d.cta, title: d.title } }); return { out, fx, state: waitReply(n, { form: 'flow' }), aiUsed }; }
         if (d.text) say(n, { kind: 'text', text: d.text });
         say(n, askField(d.fields[0], 0, d.fields.length));
-        return { out, fx, state: { node: n.id, wait: 'reply', vars, tries: 0, field: 0, got: {} }, aiUsed };
+        return { out, fx, state: waitReply(n, { field: 0, got: {} }), aiUsed };
       }
       case 'wait': return { out, fx, state: { node: n.id, wait: 'time', until: Date.now() + d.minutes * 60000, vars }, aiUsed };
       case 'webhook': fx.push({ type: 'webhook', url: d.url, vars: { ...vars } }); cur = nextOf(n.id, 'next'); break;
@@ -576,7 +674,35 @@ export async function runFlow(flow, state, input, env) {
 
 function envOf(u, conv, lastText) {
   const m = conv.ckey ? T.crm.find({ userId: u.id, key: conv.ckey }) : null;
-  return { name: conv.name || m?.name || '', email: m?.email || '', num: conv.num, business: bizName(u), tags: [...(m?.tags || [])], lastText: lastText || '', forms: !!metaOf(u) };
+  return { name: conv.name || m?.name || '', email: m?.email || '', num: conv.num, business: bizName(u), tags: [...(m?.tags || [])], custom: { ...(m?.custom || {}) }, lastText: lastText || '', forms: !!metaOf(u), open: isOpen(u), http: apiCall, seen: [] };
+}
+// a chatbot's API request: public addresses only, 8 seconds, no redirects, the first 100 KB of the answer
+async function apiCall({ method, url, headers, body }) {
+  const host = new URL(url).hostname;
+  await checkPublicHost(host);
+  const h = { Accept: 'application/json', ...Object.fromEntries(headers.map((x) => [x.key, x.value])) };
+  if (body && !Object.keys(h).some((k) => k.toLowerCase() === 'content-type')) h['Content-Type'] = 'application/json';
+  const res = await fetch(url, { method, headers: h, ...(body ? { body } : {}), signal: AbortSignal.timeout(8000), redirect: 'error' });
+  const text = (await res.text()).slice(0, 100000);
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* not JSON: only the status counts */ }
+  return { ok: res.ok, status: res.status, json };
+}
+// a chatbot step moved the contact to a pipeline stage (the same as moving them on the Contacts page)
+function moveStage(u, conv, pipelineId, stageId) {
+  if (!conv.ckey) return;
+  const p = pipelinesFor(u.id).find((x) => x.id === pipelineId), s = p?.stages.find((x) => x.id === stageId);
+  if (!s) return;
+  const m = ensureMeta(u.id, conv.ckey);
+  if (stageFor(p, m, false) === s.id && m.stages?.[p.id]) return;
+  T.crm.update(m.id, (x) => { x.stages = { ...x.stages, [p.id]: s.id }; x.stagesAt = { ...x.stagesAt, [p.id]: Date.now() }; x.activities = [...(x.activities || []), { id: uid(), at: Date.now(), type: 'stage', title: `Moved to ${s.name}`, text: `${p.name} · WhatsApp chatbot` }].slice(-500); });
+  fire(u.id, 'stage', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}`, pipelineId: p.id, stageId: s.id });
+}
+function removeTags(u, conv, tags) {
+  if (!conv.ckey) return;
+  const m = ensureMeta(u.id, conv.ckey), drop = new Set(tags.map((t) => t.toLowerCase()));
+  if (!(m.tags || []).some((t) => drop.has(t.toLowerCase()))) return;
+  T.crm.update(m.id, (x) => { x.tags = (x.tags || []).filter((t) => !drop.has(t.toLowerCase())); });
 }
 async function postHook(u, conv, url, vars) {
   try {
@@ -585,12 +711,14 @@ async function postHook(u, conv, url, vars) {
   } catch (e) { addMsg(conv, { dir: 'note', by: 'system', text: `Chatbot webhook didn’t go through: ${clip(e.message, 150)}` }); }
 }
 // a flow step for this conversation, for real: sends, saves, tags, hands over, then remembers where it waits
-async function runBot(u, conv, flow, state, input) {
-  const r = await runFlow(flow, state, input, envOf(u, conv, input.text));
+async function runBot(u, conv, flow, state, input, depth = 0) {
+  const env = envOf(u, conv, input.text);
+  const r = await runFlow(flow, state, input, env);
   r.out = r.out.map((o) => (o.kind === 'flow' ? { ...o, flow: { ...o.flow, token: formToken(formKey(u), conv.id, flow.id, o.node) } } : o));
-  if (!state) T.waflows.update(flow.id, (f) => { f.stats = { ...f.stats, runs: (f.stats?.runs || 0) + 1 }; });
+  // runs, and how many chats reached each step (the builder shows it on the canvas)
+  T.waflows.update(flow.id, (f) => { const nodes = { ...(f.stats?.nodes || {}) }; for (const id of new Set(env.seen)) nodes[id] = (nodes[id] || 0) + 1; f.stats = { ...f.stats, ...(!state?.wait ? { runs: (f.stats?.runs || 0) + 1 } : {}), nodes }; });
   if (r.aiUsed) spendCredits(u, AI_COST.agent);
-  conv = T.waconvs.update(conv.id, (c) => { c.bot = r.state ? { ...r.state, flowId: flow.id, name: flow.name, at: Date.now() } : null; c.wakeAt = r.state?.wait === 'time' ? r.state.until : null; });
+  conv = T.waconvs.update(conv.id, (c) => { c.bot = r.state ? { ...r.state, flowId: flow.id, name: flow.name, at: Date.now() } : null; c.wakeAt = r.state?.until || null; });
   const sentOk = await sendAll(u, conv, r.out, 'bot');
   // the WhatsApp form didn't go (e.g. the number isn't on the Meta account it was published on): ask in the chat
   if (!sentOk && r.state?.form === 'flow') {
@@ -603,9 +731,20 @@ async function runBot(u, conv, flow, state, input) {
     if (e.type === 'save') saveField(u, conv, e.field, e.value);
     else if (e.type === 'tag') addTags(u, conv, e.tags);
     else if (e.type === 'form') formSaved(u, conv, e);
+    else if (e.type === 'untag') removeTags(u, conv, e.tags);
+    else if (e.type === 'stage') moveStage(u, conv, e.pipelineId, e.stageId);
+    else if (e.type === 'optout' || e.type === 'optin') { if (conv.ckey) waSetOptOut(u.id, conv.ckey, conv.num, e.type === 'optout'); }
+    else if (e.type === 'api' && !e.ok) addMsg(conv, { dir: 'note', by: 'system', text: `Chatbot API request didn’t work (${e.status || clip(e.error, 120) || 'no answer'}) — it took the “Didn’t work” path` });
     else if (e.type === 'webhook') await postHook(u, conv, e.url, e.vars);
     else if (e.type === 'handoff') { await handoff(u, conv, e.note || `Chatbot “${flow.name}” handed over`, { say: e.text, assignee: e.assignee, flowId: flow.id }); return; }
     else if (e.type === 'end') T.waconvs.update(conv.id, (c) => { if (e.resolve) { c.status = 'resolved'; c.human = false; } });
+  }
+  // "Go to chatbot": the other chatbot carries on from its start, with the answers so far
+  if (r.goto) {
+    const next = T.waflows.get(r.goto);
+    if (next && next.userId === u.id && next.id !== flow.id && depth < 3) return runBot(u, convOf(conv.id), next, { vars: r.vars }, { text: '' }, depth + 1);
+    addMsg(conv, { dir: 'note', by: 'system', text: 'Chatbot “Go to chatbot” step: that chatbot no longer exists' });
+    return;
   }
   if (r.done || r.agent) T.waflows.update(flow.id, (f) => { f.stats = { ...f.stats, done: (f.stats?.done || 0) + 1 }; });
   if (r.agent) {
@@ -714,7 +853,7 @@ async function automate(userId, convId, msg, isNew) {
   if (['audio', 'voice'].includes(msg.media?.type) && msg.media.id && !msg.text) msg = await transcribeNote(u, conv, msg);
   if (conv.ckey) fire(u.id, 'wa_message', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}`, text: msg.text || '' });
   if (msg.type === 'form') return msg.formIn ? formIn(u, conv, msg.formIn) : needsPerson(u, conv, msg.text);
-  const input = { text: msg.text || '', id: msg.iid || '' };
+  const input = { text: msg.text || '', id: msg.iid || '', ...(msg.location ? { location: msg.location } : {}), ...(msg.media ? { media: msg.media } : {}) };
   if (conv.human) return needsPerson(u, conv, msg.text);
   if (HUMAN.test(input.text) && (conv.bot || conv.ai || flowsOf(userId).length || agentOn(u))) return handoff(u, conv, 'The customer asked for a person', { say: 'Sure — connecting you with our team. Someone will reply here shortly 🙏', flowId: conv.bot?.flowId });
   // a fresh tap on an ad starts that ad's chatbot (over keywords and a flow waiting from before)
@@ -830,9 +969,14 @@ async function wakeTick(now = Date.now()) {
     T.waconvs.update(c.id, (x) => { x.wakeAt = null; });
     serial(c.id, async () => {
       const conv = convOf(c.id), u = T.users.get(c.userId), f = conv?.bot && T.waflows.get(conv.bot.flowId);
-      if (!conv || !u || !f || !(f.active || f.trigger.type === 'manual') || conv.bot?.wait !== 'time' || conv.human) return;
-      if (!winOpen(conv)) { T.waconvs.update(conv.id, (x) => { x.bot = null; }); return addMsg(conv, { dir: 'note', by: 'system', text: `Chatbot “${f.name}” stopped: more than 24 hours since the customer wrote` }); }
-      await runBot(u, conv, f, conv.bot, { text: '' });
+      if (!conv || !u || !f || !(f.active || f.trigger.type === 'manual') || conv.human) return;
+      // a wait ended, or the customer didn't answer in time (the step's "No reply" path)
+      const timeout = conv.bot?.wait === 'reply' && conv.bot.until;
+      if (conv.bot?.wait !== 'time' && !timeout) return;
+      // past WhatsApp's 24 hours only an approved template can go
+      const nextId = f.edges.find((e) => e.from === conv.bot.node && e.port === (timeout ? 'timeout' : 'next'))?.to;
+      if (!winOpen(conv) && f.nodes.find((n) => n.id === nextId)?.type !== 'template') { T.waconvs.update(conv.id, (x) => { x.bot = null; }); return addMsg(conv, { dir: 'note', by: 'system', text: `Chatbot “${f.name}” stopped: more than 24 hours since the customer wrote` }); }
+      await runBot(u, conv, f, conv.bot, { text: '', ...(timeout ? { timeout: true } : {}) });
     });
   }
 }
@@ -984,6 +1128,12 @@ const FLOW_SPEC = `A WhatsApp chatbot is a graph. Node types and their data:
 - wait {"minutes"} — pauses; port "next"
 - form {"text","title" (≤30),"cta" (≤20),"submit" (≤30),"fields":[{"id","type":"text"|"long"|"email"|"phone"|"number"|"date"|"dropdown"|"radio"|"checkbox","label" (≤20),"required":true|false,"var","save" (""|"name"|"email"|"phone"),"options":[{"id","title"}] (choices only)}] (1–8)} — a WhatsApp form (or the same questions one by one); port "next"
 - end {"text","resolve":true|false} — ends the flow
+- link {"text","label" (≤20),"url"} — a message with a button that opens a web page (a product, booking page, payment or catalogue link); port "next"
+- set {"actions":[{"do":"var"|"field"|"untag"|"optout"|"optin","key","value"}]} — sets a variable, saves a contact field ("name"|"email"|"phone"), removes a tag, or (un)subscribes; port "next"
+- hours {} — ports "open","closed" (the business's working hours)
+- split {"branches":[{"id","label","weight"}] (2–4)} — random A/B split by weight; one port per branch id
+- api {"method":"GET"|"POST","url","body","map":[{"var","path"}]} — calls the business's own system and saves fields of its JSON answer; ports "ok","fail" (only when the owner names an API)
+Buttons, list, ask and form nodes take "timeout" (minutes, 0 = none); with it they get a "timeout" port for no reply.
 Edges: {"from":node id,"port":port,"to":node id}. Texts may use {{first_name}}, {{business}} and {{<var>}} from ask nodes. Every flow must end in end, handoff or ai_agent.`;
 
 // ---------- API ----------
@@ -1217,7 +1367,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
   // ----- chatbots -----
   const tplView = ({ id, title, desc, icon }) => ({ id, title, desc, icon });
   // the ready-made chatbots: general ones, and three for every industry (the seller's own industry first in the app)
-  app.get('/api/waflows', auth, (req, res) => res.json({ flows: T.waflows.all({ userId: req.user.id }, { order: 'at', desc: true }).map(flowView), templates: FLOW_TEMPLATES.map(tplView), industry: req.user.settings?.crmKit?.id || 'general', industries: Object.entries(INDUSTRY_FLOWS).map(([id, list]) => ({ ...(({ name, icon }) => ({ id, name, icon }))(kitName(id)), templates: list.map(tplView) })), ai: aiEnabled(), connected: !!waLive(req.user), meta: !!metaOf(req.user) }));
+  app.get('/api/waflows', auth, (req, res) => res.json({ flows: T.waflows.all({ userId: req.user.id }, { order: 'at', desc: true }).map(flowView), templates: FLOW_TEMPLATES.map(tplView), industry: req.user.settings?.crmKit?.id || 'general', industries: Object.entries(INDUSTRY_FLOWS).map(([id, list]) => ({ ...(({ name, icon }) => ({ id, name, icon }))(kitName(id)), templates: list.map(tplView) })), ai: aiEnabled(), connected: !!waLive(req.user), meta: !!metaOf(req.user), number: ((n) => (n.length >= 10 ? n : ''))(String(waLive(req.user)?.from || waLive(req.user)?.display || '').replace(/\D/g, '')) }));
   app.post('/api/waflows', auth, (req, res) => {
     if (T.waflows.count({ userId: req.user.id }) >= 100) return res.status(400).json({ error: 'You can have up to 100 chatbots' });
     const tpl = templateById(req.body?.template);
@@ -1240,10 +1390,16 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
   // a dry run in the builder's test phone: nothing is sent or saved; AI steps use real AI (and credits)
   const simulate = async (req, res, flow) => {
     const b = req.body || {};
-    const env = { name: clip(b.name, 80) || req.user.name || 'Priya', email: '', num: '919800000000', business: bizName(req.user), tags: arr(b.tags).map((t) => clip(t, 40)), lastText: clip(b.input?.text, 1000), sim: true, aiOk: aiEnabled() && !creditsShort(req.user, AI_COST.agent) };
+    const env = { name: clip(b.name, 80) || req.user.name || 'Priya', email: '', num: '919800000000', business: bizName(req.user), tags: arr(b.tags).map((t) => clip(t, 40)), lastText: clip(b.input?.text, 1000), sim: true, http: apiCall, open: isOpen(req.user), custom: {}, seen: [], aiOk: aiEnabled() && !creditsShort(req.user, AI_COST.agent) };
     const st = b.state && typeof b.state === 'object' ? { node: clip(b.state.node, 40), wait: ['reply', 'time'].includes(b.state.wait) ? b.state.wait : null, vars: b.state.vars && typeof b.state.vars === 'object' ? Object.fromEntries(Object.entries(b.state.vars).slice(0, 40).map(([k, v]) => [clip(k, 40), clip(v, 500)])) : {}, tries: num(b.state.tries, 0, 5, 0), ...(Number.isInteger(b.state.field) ? { field: num(b.state.field, 0, 20, 0), got: Object.fromEntries(Object.entries(b.state.got && typeof b.state.got === 'object' ? b.state.got : {}).slice(0, 20).map(([k, v]) => [clip(k, 40), Array.isArray(v) ? v.slice(0, 10).map((x) => clip(x, 40)) : clip(v, 500)])) } : {}) } : null;
     try {
-      const r = await runFlow(flow, st?.wait ? st : null, { text: clip(b.input?.text, 1000), id: clip(b.input?.id, 100) }, env);
+      const sample = { lat: 19.076, lng: 72.8777, name: 'Mumbai' }; // the test phone's "share location"
+      let r = await runFlow(flow, st?.wait ? st : null, { text: clip(b.input?.text, 1000), id: clip(b.input?.id, 100), ...(b.input?.timeout ? { timeout: true } : {}), ...(b.input?.location ? { location: sample } : {}), ...(b.input?.file ? { media: { type: 'image', filename: 'photo.jpg' } } : {}) }, env);
+      // "Go to chatbot": the test carries on in that chatbot
+      if (r.goto) {
+        const next = T.waflows.get(r.goto);
+        if (next && next.userId === req.user.id) { const r2 = await runFlow(next, { vars: r.vars }, { text: '' }, env); r = { ...r2, out: [...r.out, ...r2.out], fx: [...r.fx, ...r2.fx], aiUsed: r.aiUsed || r2.aiUsed, flowId: next.id }; }
+      }
       let agent = null;
       if (r.agent) {
         if (env.aiOk) {
@@ -1255,7 +1411,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
         }
       }
       if (r.aiUsed && env.aiOk) spendCredits(req.user, AI_COST.agent);
-      res.json({ out: r.out, fx: r.fx, state: r.state, done: !r.state, agent });
+      res.json({ out: r.out, fx: r.fx, state: r.flowId ? null : r.state, done: !r.state || !!r.flowId, agent, seen: env.seen });
     } catch (e) { res.status(400).json({ error: e.message }); }
   };
   app.post('/api/waflows/simulate', auth, aiLimiter, wrap((req, res) => simulate(req, res, cleanFlow(req.body?.flow || {}))));

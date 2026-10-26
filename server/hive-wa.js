@@ -116,6 +116,13 @@ function contactFor(userId, num, name) {
   }
   return key;
 }
+// a chatbot's "Update contact" step: unsubscribe, or subscribe again (the customer asked for it)
+export function waSetOptOut(userId, key, num, on) {
+  if (on) return optOut(userId, key, num, 'Unsubscribed by a chatbot step');
+  const m = ensureMeta(userId, key);
+  if (!m.waOptOut) return;
+  T.crm.update(m.id, (x) => { x.waOptOut = false; delete x.waOptPhone; delete x.waOptAt; x.activities = [...(x.activities || []), { id: uid(), at: Date.now(), type: 'note', title: 'Subscribed to WhatsApp again', text: 'By a chatbot step' }].slice(-500); });
+}
 function optOut(userId, key, num, why) {
   const m = ensureMeta(userId, key);
   if (m.waOptOut) return;

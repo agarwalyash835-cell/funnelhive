@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Modal, toast, confirmDialog } from '../ui';
+import { Layout, Panel, Icon, Modal, toast, confirmDialog, useWaTemplates, pagesOrigin } from '../ui';
 import { waFmt } from './Inbox';
 import '../chat.css';
 
@@ -11,27 +11,37 @@ import '../chat.css';
 const AI_BG = 'linear-gradient(135deg, #7c3aed, #2563eb 55%, #06b6d4)';
 export const NT = {
   start: ['Start', 'bolt', '#16a34a', 'Where the chat begins'],
-  message: ['Send a message', 'chat', '#0ea5e9', 'Text or a photo'],
+  message: ['Send a message', 'chat', '#0ea5e9', 'Text, photo, video, document or voice note'],
   buttons: ['Buttons', 'grip', '#6366f1', 'Up to 3 tap-to-reply buttons'],
   list: ['List menu', 'list', '#8b5cf6', 'A menu of up to 10 options'],
-  ask: ['Ask a question', 'edit', '#f59e0b', 'Saves the answer to the contact'],
-  condition: ['Condition', 'split', '#64748b', 'Yes / no on tags or answers'],
-  tag: ['Add a tag', 'tag', '#ec4899', 'Tag the contact (starts automations)'],
+  link: ['Link button', 'link', '#0284c7', 'A button that opens a page — pay, book, buy'],
+  template: ['Template message', 'mail', '#475569', 'An approved template — works after 24 hours'],
+  ask: ['Ask a question', 'edit', '#f59e0b', 'Text, number, email, date, location or a file'],
+  form: ['WhatsApp form', 'clip', '#0d9488', 'A short form inside WhatsApp'],
   ai_route: ['AI router', 'sparkles', AI_BG, 'AI sorts the message by topic'],
   ai_agent: ['AI agent', 'sparkles', AI_BG, 'The AI agent takes the chat'],
-  handoff: ['Hand to a person', 'users', '#ea580c', 'Notifies your team'],
+  condition: ['Condition', 'split', '#64748b', 'Yes / no on answers, tags or contact fields'],
+  split: ['Random split', 'layers', '#a855f7', 'A/B test 2–4 paths'],
+  hours: ['Business hours', 'bell', '#059669', 'One path when open, one when closed'],
   wait: ['Wait', 'clock', '#78716c', 'Pause before the next step'],
-  webhook: ['Webhook', 'link', '#0f766e', 'Send the answers to another app'],
+  tag: ['Add a tag', 'tag', '#ec4899', 'Tag the contact (starts automations)'],
+  set: ['Update contact', 'card', '#be185d', 'Fields, tags, pipeline stage, opt-out'],
+  api: ['API request', 'globe', '#0f766e', 'Call your own system, use its answer'],
+  webhook: ['Webhook', 'send', '#115e59', 'Send the answers to another app'],
+  handoff: ['Hand to a person', 'users', '#ea580c', 'Notifies your team'],
+  goto: ['Go to chatbot', 'flow', '#334155', 'Carry on in another chatbot'],
   end: ['End', 'check', '#1c1917', 'Finish (optionally resolve)'],
-  form: ['WhatsApp form', 'clip', '#0d9488', 'A short form inside WhatsApp'],
 };
-const PALETTE = [['Messages', ['message', 'buttons', 'list', 'ask', 'form']], ['AI', ['ai_route', 'ai_agent']], ['Logic & actions', ['condition', 'tag', 'wait', 'webhook']], ['Finish', ['handoff', 'end']]];
+const PALETTE = [['Send', ['message', 'buttons', 'list', 'link', 'template']], ['Collect', ['ask', 'form']], ['AI', ['ai_route', 'ai_agent']], ['Logic', ['condition', 'split', 'hours', 'wait']], ['Actions', ['tag', 'set', 'api', 'webhook']], ['Finish', ['handoff', 'goto', 'end']]];
 const DEFAULTS = {
-  message: { text: '' }, buttons: { text: '', buttons: [{ id: 'b1', title: 'Yes' }, { id: 'b2', title: 'No' }] }, list: { text: '', button: 'Choose', rows: [{ id: 'r1', title: 'Option 1', desc: '' }, { id: 'r2', title: 'Option 2', desc: '' }] },
-  ask: { text: '', var: 'answer', save: '', validate: 'text', retry: '' }, condition: { match: 'all', rules: [{ field: 'tag', op: 'has', value: '' }] }, tag: { add: [] },
+  message: { text: '', media: null }, buttons: { text: '', image: '', footer: '', timeout: 0, buttons: [{ id: 'b1', title: 'Yes' }, { id: 'b2', title: 'No' }] }, list: { text: '', header: '', footer: '', timeout: 0, button: 'Choose', rows: [{ id: 'r1', title: 'Option 1', desc: '' }, { id: 'r2', title: 'Option 2', desc: '' }] },
+  link: { text: '', label: 'Open', url: '', image: '', footer: '' }, template: { name: '', language: 'en', params: [], preview: '' },
+  ask: { text: '', var: 'answer', save: '', validate: 'text', retry: '', timeout: 0 }, condition: { match: 'all', rules: [{ field: 'tag', op: 'has', value: '' }] }, tag: { add: [] },
+  split: { branches: [{ id: 'a', label: 'Path A', weight: 50 }, { id: 'b', label: 'Path B', weight: 50 }] }, hours: {},
+  set: { actions: [{ do: 'var', key: '', value: '' }] }, api: { method: 'GET', url: '', headers: [], body: '', map: [] }, goto: { flowId: '' },
   ai_route: { intents: [{ id: 'i1', label: 'Sales', desc: 'wants to buy or asks the price' }, { id: 'i2', label: 'Support', desc: 'needs help with something' }] }, ai_agent: { note: '' },
-  handoff: { text: 'Someone from our team will reply here shortly 🙏', note: '' }, wait: { minutes: 60 }, webhook: { url: '' }, end: { text: '', resolve: false },
-  form: { text: 'Please fill in this short form 👇', title: 'Your details', cta: 'Fill the form', submit: 'Submit', fields: [{ id: 'name', type: 'text', label: 'Your name', required: true, var: 'name', save: 'name' }, { id: 'email', type: 'email', label: 'Email', required: false, var: 'email', save: 'email' }] },
+  handoff: { text: 'Someone from our team will reply here shortly 🙏', note: '', assignee: '' }, wait: { minutes: 60 }, webhook: { url: '' }, end: { text: '', resolve: false },
+  form: { text: 'Please fill in this short form 👇', title: 'Your details', cta: 'Fill the form', submit: 'Submit', timeout: 0, fields: [{ id: 'name', type: 'text', label: 'Your name', required: true, var: 'name', save: 'name' }, { id: 'email', type: 'email', label: 'Email', required: false, var: 'email', save: 'email' }] },
 };
 // WhatsApp form questions (Meta's label limits: 30 for radio / checkbox, 20 for the rest)
 const FIELD_TYPES = [['text', 'Short text'], ['long', 'Long text'], ['email', 'Email'], ['phone', 'Phone'], ['number', 'Number'], ['date', 'Date'], ['dropdown', 'Dropdown'], ['radio', 'Pick one'], ['checkbox', 'Pick several']];
@@ -42,11 +52,26 @@ const toVar = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+
 const formSig = (d) => JSON.stringify([d.title, d.submit, d.fields.map((x) => [x.id, x.type, x.label, !!x.required, (x.options || []).map((o) => [o.id, o.title])])]);
 const TRIG = { keyword: 'When a message has a keyword', welcome: 'A new contact’s first message', default: 'Any message nothing else answers', manual: 'Only when started from the inbox', ad: 'A chat started from a Facebook / Instagram ad' };
 const IDEAS = ['Take cake orders with flavour, size and delivery date', 'Book a free demo class and ask the child’s age', 'Qualify home-loan leads by income and city', 'Collect a review after a salon visit', 'Answer gym membership questions, pass hot leads to sales'];
+const MEDIA = [['image', '📷 Photo'], ['video', '🎬 Video'], ['document', '📄 Document'], ['audio', '🎧 Audio']];
+const SET_DO = [['var', 'Set a variable'], ['field', 'Save to a contact field'], ['untag', 'Remove a tag'], ['stage', 'Move to a pipeline stage'], ['optout', 'Unsubscribe from WhatsApp'], ['optin', 'Subscribe again']];
 const rid = (p = 'n') => `${p}${Math.random().toString(36).slice(2, 8)}`;
-export const portsOf = (n) => (n.type === 'buttons' ? [...n.data.buttons.map((b) => [b.id, b.title || 'Button']), ['other', 'Anything else']]
-  : n.type === 'list' ? [...n.data.rows.map((r) => [r.id, r.title || 'Option']), ['other', 'Anything else']]
-    : n.type === 'ai_route' ? [...n.data.intents.map((i) => [i.id, i.label || 'Topic']), ['other', 'Something else']]
-      : n.type === 'condition' ? [['yes', 'Yes'], ['no', 'No']] : ['ai_agent', 'handoff', 'end'].includes(n.type) ? [] : [['next', n.type === 'start' ? 'Begin' : n.type === 'ask' ? 'After the answer' : n.type === 'form' ? 'After the form' : 'Next']]);
+const dur = (m) => (m >= 1440 ? `${Math.round((m / 1440) * 10) / 10} d` : m >= 60 ? `${Math.round((m / 60) * 10) / 10} h` : `${m} min`);
+const urlOk = (v) => /^https?:\/\/[^\s/]+\.[^\s]+$/.test(String(v || '').replace(/\{\{[^}]*\}\}/g, 'x'));
+const timed = (n) => (['buttons', 'list', 'ask', 'form'].includes(n.type) && n.data.timeout > 0 ? [['timeout', `⏱ No reply in ${dur(n.data.timeout)}`]] : []);
+export const portsOf = (n) => {
+  const d = n.data;
+  switch (n.type) {
+    case 'buttons': return [...d.buttons.map((b) => [b.id, b.title || 'Button']), ['other', 'Anything else'], ...timed(n)];
+    case 'list': return [...d.rows.map((r) => [r.id, r.title || 'Option']), ['other', 'Anything else'], ...timed(n)];
+    case 'ai_route': return [...d.intents.map((i) => [i.id, i.label || 'Topic']), ['other', 'Something else']];
+    case 'condition': return [['yes', 'Yes'], ['no', 'No']];
+    case 'api': return [['ok', 'Worked'], ['fail', 'Didn’t work']];
+    case 'hours': return [['open', 'Open now'], ['closed', 'Closed']];
+    case 'split': { const total = d.branches.reduce((a, b) => a + (Number(b.weight) || 0), 0) || 1; return d.branches.map((b) => [b.id, `${b.label || 'Path'} · ${Math.round(((Number(b.weight) || 0) / total) * 100)}%`]); }
+    case 'ai_agent': case 'handoff': case 'end': case 'goto': return [];
+    default: return [['next', n.type === 'start' ? 'Begin' : n.type === 'ask' ? 'After the answer' : n.type === 'form' ? 'After the form' : 'Next'], ...timed(n)];
+  }
+};
 // the same checks the server runs before a chatbot goes live
 export function problemsOf(f) {
   const out = [], bad = (node, msg) => out.push({ node, msg });
@@ -55,13 +80,22 @@ export function problemsOf(f) {
   if (!f.edges.some((e) => e.from === start?.id)) bad(start?.id, 'Connect the start to the first step');
   for (const n of f.nodes) {
     const d = n.data;
-    if (['message', 'buttons', 'list', 'ask'].includes(n.type) && !d.text && !d.image) bad(n.id, `${NT[n.type][0]}: write the message`);
+    if (['message', 'buttons', 'list', 'ask'].includes(n.type) && !d.text && !d.image && !d.media) bad(n.id, `${NT[n.type][0]}: write the message`);
+    if (n.type === 'message' && d.media && !d.media.url) bad(n.id, 'Send a message: add the file’s web address');
     if (n.type === 'buttons' && (!d.buttons.length || d.buttons.some((b) => !b.title))) bad(n.id, 'Buttons: give every button a title');
     if (n.type === 'list' && (!d.rows.length || d.rows.some((r) => !r.title))) bad(n.id, 'List: give every option a title');
     if (n.type === 'ai_route' && (!d.intents.length || d.intents.some((i) => !i.label))) bad(n.id, 'AI router: name every topic');
     if (n.type === 'tag' && !d.add.length) bad(n.id, 'Add a tag: choose the tag');
-    if (n.type === 'webhook' && !/^https?:\/\/[^\s/]+\.[^\s]+$/.test(d.url)) bad(n.id, 'Webhook: enter the web address');
+    if (n.type === 'webhook' && !urlOk(d.url)) bad(n.id, 'Webhook: enter the web address');
     if (n.type === 'condition' && !d.rules.length) bad(n.id, 'Condition: add a rule');
+    if (n.type === 'link' && !d.text) bad(n.id, 'Link button: write the message');
+    if (n.type === 'link' && !urlOk(d.url)) bad(n.id, 'Link button: enter the web address (https://…)');
+    if (n.type === 'template' && !d.name) bad(n.id, 'Template message: choose an approved template');
+    if (n.type === 'set' && (!d.actions.length || d.actions.some((a) => ['var', 'field', 'untag', 'stage'].includes(a.do) && !a.key))) bad(n.id, 'Update contact: finish every action');
+    if (n.type === 'api' && !urlOk(d.url)) bad(n.id, 'API request: enter the web address (https://…)');
+    if (n.type === 'split' && d.branches.length < 2) bad(n.id, 'Random split: add at least two paths');
+    if (n.type === 'goto' && !d.flowId) bad(n.id, 'Go to chatbot: choose the chatbot');
+    if (n.type === 'wait' && d.minutes > 1380) { const to = f.edges.find((e) => e.from === n.id)?.to; if (to && f.nodes.find((x) => x.id === to)?.type !== 'template') bad(n.id, 'Wait: over 23 hours, the next step must be a template message'); }
     if (n.type === 'form' && !d.fields.length) bad(n.id, 'WhatsApp form: add a question');
     if (n.type === 'form' && d.fields.some((x) => !x.label?.trim())) bad(n.id, 'WhatsApp form: give every question a label');
     if (n.type === 'form' && d.fields.some((x) => CHOICE.includes(x.type) && (!x.options?.length || x.options.some((o) => !o.title?.trim())))) bad(n.id, 'WhatsApp form: give every choice question its options');
@@ -72,6 +106,17 @@ export function problemsOf(f) {
   return out;
 }
 const triggerText = (t) => (t.type === 'keyword' ? (t.keywords.length ? `Keywords: ${t.keywords.join(', ')}` : 'No keywords yet') : t.type === 'ad' && t.adIds?.length ? `From ad ${t.adIds.join(', ')}` : TRIG[t.type]);
+const pickFlow = (f) => ({ name: f.name, trigger: f.trigger, nodes: f.nodes, edges: f.edges });
+// left-to-right by distance from the start; steps nothing reaches go in a last column
+function arrange(f) {
+  const start = f.nodes.find((n) => n.type === 'start'), depth = new Map([[start?.id, 0]]), order = [start?.id];
+  for (let i = 0; i < order.length; i++) for (const e of f.edges.filter((x) => x.from === order[i])) if (!depth.has(e.to)) { depth.set(e.to, depth.get(order[i]) + 1); order.push(e.to); }
+  const last = Math.max(0, ...depth.values()) + 1, cols = new Map();
+  for (const n of f.nodes) { const c = depth.get(n.id) ?? last; cols.set(c, [...(cols.get(c) || []), n]); }
+  for (const [c, list] of cols) list.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)).forEach((n, i) => { n.x = 40 + c * 320; n.y = 60 + i * 210 - (list.length - 1) * 105 + 200; });
+}
+const download = (name, data) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+let CLIP = null; // a copied step (Ctrl+C), pasted into any chatbot
 
 export default function Chatbots() {
   const { id } = useParams();
@@ -81,11 +126,24 @@ export default function Chatbots() {
   const nav = useNavigate();
   const [d, setD] = useState(null);
   const [draft, setDraft] = useState(null); // an AI-drafted / template flow that isn't saved yet
+  const file = useRef();
   const load = () => api('/waflows').then(setD).catch(() => setD({ flows: [], templates: [] }));
   useEffect(() => { load(); }, []);
   const open = id ? (id === 'new' ? draft : d?.flows.find((f) => f.id === id)) : null;
-  if (id && open) return <Builder key={open.id || 'new'} initial={open} ai={d?.ai} meta={!!d?.meta} onClose={() => { setDraft(null); nav('/chatbots'); load(); }} onSaved={(f) => { load(); if (!open.id) { setDraft(null); nav(`/chatbots/${f.id}`, { replace: true }); } }} />;
+  if (id && open) return <Builder key={open.id || 'new'} initial={open} ai={d?.ai} meta={!!d?.meta} number={d?.number || ''} flows={d?.flows || []} onClose={() => { setDraft(null); nav('/chatbots'); load(); }} onSaved={(f) => { load(); if (!open.id) { setDraft(null); nav(`/chatbots/${f.id}`, { replace: true }); } }} />;
   const create = async (template) => { try { const f = await api('/waflows', 'POST', { template }); await load(); nav(`/chatbots/${f.id}`); } catch (e) { toast(e.message); } };
+  // a chatbot exported from here (or another account): opens as a new, switched-off chatbot
+  const importFile = async (e) => {
+    const fl = e.target.files?.[0];
+    e.target.value = '';
+    if (!fl) return;
+    try {
+      const j = JSON.parse(await fl.text());
+      if (!Array.isArray(j.nodes)) throw new Error('That file isn’t a FunnelHive chatbot');
+      const f = await api('/waflows', 'POST', { flow: { ...pickFlow(j), name: j.name || 'Imported chatbot' } });
+      await load(); nav(`/chatbots/${f.id}`); toast('Chatbot imported — it’s switched off until you go live');
+    } catch (er) { toast(er instanceof SyntaxError ? 'That file isn’t a FunnelHive chatbot' : er.message); }
+  };
   return (
     <Layout title="Chatbots & AI agent" subtitle="Automate WhatsApp: chatbots that collect details and route chats, and an AI agent that answers like your best salesperson." actions={<Link className="btn ghost sm" to="/inbox"><Icon name="chat" size={15} />Open inbox</Link>}>
       <div className="seg" style={{ justifySelf: 'start' }}>
@@ -97,8 +155,9 @@ export default function Chatbots() {
       {tab === 'agent' ? <Agent /> : tab === 'rules' ? <InboxRules /> : !d ? <span className="spin dark" /> : (
         <>
           <AiDraft ai={d.ai} onDraft={(f) => { setDraft(f); nav('/chatbots/new'); }} />
+          <input ref={file} type="file" accept="application/json,.json" hidden onChange={importFile} />
           {d.flows.length > 0 && (
-            <Panel title="Your chatbots">
+            <Panel title="Your chatbots" actions={<button className="btn ghost sm" onClick={() => file.current.click()}><Icon name="download" size={14} />Import</button>}>
               <div className="cb-grid">
                 {d.flows.map((f) => <FlowCard key={f.id} f={f} onOpen={() => nav(`/chatbots/${f.id}`)} onChange={load} />)}
               </div>
@@ -120,7 +179,7 @@ export default function Chatbots() {
               </Panel>
             );
           })()}
-          <Panel title="Ready-made for any business" actions={<button className="btn ghost sm" onClick={() => create('')}><Icon name="plus" size={14} />Blank chatbot</button>}>
+          <Panel title="Ready-made for any business" actions={<div className="row" style={{ gap: 6 }}>{!d.flows.length && <button className="btn ghost sm" onClick={() => file.current.click()}>Import</button>}<button className="btn ghost sm" onClick={() => create('')}><Icon name="plus" size={14} />Blank chatbot</button></div>}>
             <div className="cb-grid">
               {d.templates.map((t) => (
                 <button key={t.id} className="cb-card" onClick={() => create(t.id)}>
@@ -163,11 +222,20 @@ function FlowCard({ f, onOpen, onChange }) {
   const s = f.stats || {};
   const toggle = async (e) => { e.stopPropagation(); try { await api(`/waflows/${f.id}`, 'PUT', { active: !f.active }); onChange(); toast(f.active ? 'Chatbot switched off' : 'Chatbot is live'); } catch (er) { toast(er.message); } };
   const del = async (e) => { e.stopPropagation(); if (!await confirmDialog({ title: `Delete “${f.name}”?`, text: 'Chats it is running stop where they are.', confirm: 'Delete', danger: true })) return; await api(`/waflows/${f.id}`, 'DELETE'); onChange(); };
+  const copy = async (e) => { e.stopPropagation(); try { await api('/waflows', 'POST', { flow: { ...pickFlow(f), name: `${f.name} (copy)`.slice(0, 80) } }); onChange(); toast('Copied — the copy is switched off'); } catch (er) { toast(er.message); } };
+  const exp = (e) => { e.stopPropagation(); download(`${f.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'chatbot'}.json`, pickFlow(f)); };
   return (
     <div className="cb-card click" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => e.key === 'Enter' && onOpen()} style={{ cursor: 'pointer' }}>
-      <div className="row"><span className={`cb-live ${f.active ? '' : 'idle'}`}>{f.trigger.type === 'manual' ? 'Manual' : f.active ? 'Live' : 'Off'}</span><span className="row" style={{ gap: 2 }}>{f.trigger.type !== 'manual' && <button className="btn ghost sm" onClick={toggle}>{f.active ? 'Switch off' : 'Go live'}</button>}<button className="icon-btn danger" onClick={del} aria-label="Delete"><Icon name="trash" size={15} /></button></span></div>
+      <div className="row"><span className={`cb-live ${f.active ? '' : 'idle'}`}>{f.trigger.type === 'manual' ? 'Manual' : f.active ? 'Live' : 'Off'}</span>
+        <span className="row" style={{ gap: 2 }}>
+          {f.trigger.type !== 'manual' && <button className="btn ghost sm" onClick={toggle}>{f.active ? 'Switch off' : 'Go live'}</button>}
+          <button className="icon-btn" onClick={copy} aria-label="Duplicate" title="Duplicate"><Icon name="copy" size={15} /></button>
+          <button className="icon-btn" onClick={exp} aria-label="Export" title="Download as a file"><Icon name="download" size={15} /></button>
+          <button className="icon-btn danger" onClick={del} aria-label="Delete" title="Delete"><Icon name="trash" size={15} /></button>
+        </span>
+      </div>
       <b>{f.name}</b>
-      <small>{triggerText(f.trigger)}</small>
+      <small>{triggerText(f.trigger)} · {f.nodes.length - 1} step{f.nodes.length === 2 ? '' : 's'}</small>
       {f.problems.length > 0 && <small style={{ color: 'var(--c-warn)' }}>⚠ {f.problems[0].msg}</small>}
       <div className="stats"><span><b>{s.runs || 0}</b> chats</span><span><b>{s.done || 0}</b> finished</span><span><b>{s.handoffs || 0}</b> to your team</span></div>
     </div>
@@ -175,25 +243,58 @@ function FlowCard({ f, onOpen, onChange }) {
 }
 
 // ---------- the builder ----------
-function Builder({ initial, ai, meta, onClose, onSaved }) {
-  const [f, setF] = useState(() => structuredClone({ name: initial.name, trigger: initial.trigger, nodes: initial.nodes, edges: initial.edges }));
-  const [saved, setSaved] = useState(() => JSON.stringify({ name: initial.name, trigger: initial.trigger, nodes: initial.nodes, edges: initial.edges }));
+// what the step editors pick from: CRM fields and pipelines, team, funnels, booking pages, templates, other chatbots
+function useBuilderData(flows, selfId) {
+  const [x, setX] = useState({ crmFields: [], pipelines: [], team: [], funnels: [], calendars: [], handle: '', flows: [] });
+  useEffect(() => {
+    const get = (p, fn) => api(p).then((r) => setX((s) => ({ ...s, ...fn(r) }))).catch(() => {});
+    get('/crm/fields', (r) => ({ crmFields: Array.isArray(r) ? r : [] }));
+    get('/pipelines', (r) => ({ pipelines: Array.isArray(r) ? r : [] }));
+    get('/inbox/meta', (r) => ({ team: r.team || [] }));
+    get('/funnels', (r) => ({ funnels: (Array.isArray(r) ? r : []).filter((f) => f.published) }));
+    get('/calendars', (r) => ({ calendars: Array.isArray(r) ? r : [] }));
+    get('/booking-page', (r) => ({ handle: r.handle || '' }));
+  }, []);
+  return { ...x, flows: flows.filter((f) => f.id !== selfId) };
+}
+
+function Builder({ initial, ai, meta, number, flows, onClose, onSaved }) {
+  const [f, setF] = useState(() => structuredClone(pickFlow(initial)));
+  const [saved, setSaved] = useState(() => JSON.stringify(pickFlow(initial)));
   const [active, setActive] = useState(!!initial.active);
   const [sel, setSel] = useState(null);
   const [panel, setPanel] = useState('edit');
   const [view, setView] = useState({ x: 40, y: 40, z: 0.9 });
   const [now, setNow] = useState(null); // the node the test phone is on
   const [busy, setBusy] = useState(false);
-  const [crmFields, setCrmFields] = useState([]);
-  useEffect(() => { api('/crm/fields').then((x) => setCrmFields(Array.isArray(x) ? x : [])).catch(() => {}); }, []);
+  const [q, setQ] = useState(''); // palette search
+  const data = useBuilderData(flows, initial.id);
+  const templates = useWaTemplates();
   // the WhatsApp forms published on Meta, as they were published (a changed form needs publishing again)
   const pub = useRef(Object.fromEntries(initial.nodes.filter((n) => n.type === 'form' && initial.forms?.[n.id]).map((n) => [n.id, formSig(n.data)])));
+  // undo / redo: every change is a step, except a run of typing or dragging on the same step (merged)
+  const hist = useRef({ past: [], future: [], at: 0, key: '' });
+  const cur = useRef(f);
+  cur.current = f;
   const dirty = JSON.stringify(f) !== saved;
   const probs = problemsOf(f);
-  const set = (fn) => setF((x) => { const n = structuredClone(x); fn(n); return n; });
-  const setNode = (nid, fn) => set((x) => { const n = x.nodes.find((y) => y.id === nid); if (n) fn(n); });
-  const addNode = (type, x, y) => { const n = { id: rid(), type, x: Math.round(x), y: Math.round(y), data: structuredClone(DEFAULTS[type]) }; set((g) => { g.nodes.push(n); }); setSel(n.id); setPanel('edit'); };
+  const set = (fn, merge = '') => {
+    const h = hist.current;
+    if (!merge || merge !== h.key || Date.now() - h.at > 1200) { h.past.push(cur.current); if (h.past.length > 100) h.past.shift(); }
+    h.at = Date.now(); h.key = merge; h.future = [];
+    setF((x) => { const n = structuredClone(x); fn(n); return n; });
+  };
+  const undo = () => { const h = hist.current; if (!h.past.length) return; h.future.push(cur.current); setF(h.past.pop()); h.key = ''; };
+  const redo = () => { const h = hist.current; if (!h.future.length) return; h.past.push(cur.current); setF(h.future.pop()); h.key = ''; };
+  const setNode = (nid, fn) => set((x) => { const n = x.nodes.find((y) => y.id === nid); if (n) fn(n); }, `node:${nid}`);
+  const addNode = (type, x, y, link, data0) => {
+    const n = { id: rid(), type, x: Math.round(x / 10) * 10, y: Math.round(y / 10) * 10, data: structuredClone(data0 || DEFAULTS[type]) };
+    set((g) => { g.nodes.push(n); if (link) g.edges = [...g.edges.filter((e) => !(e.from === link.from && e.port === link.port)), { from: link.from, port: link.port, to: n.id }]; });
+    setSel(n.id); setPanel('edit');
+    return n.id;
+  };
   const delNode = (nid) => { if (f.nodes.find((n) => n.id === nid)?.type === 'start') return; set((g) => { g.nodes = g.nodes.filter((n) => n.id !== nid); g.edges = g.edges.filter((e) => e.from !== nid && e.to !== nid); }); setSel(null); };
+  const dupNode = (nid) => { const n = f.nodes.find((x) => x.id === nid); if (n && n.type !== 'start') addNode(n.type, n.x + 40, n.y + 40, null, n.data); };
   const save = async (extra = {}) => {
     setBusy(true);
     try {
@@ -226,22 +327,37 @@ function Builder({ initial, ai, meta, onClose, onSaved }) {
   const close = async () => { if (dirty && !await confirmDialog({ title: 'Leave without saving?', text: 'Your changes to this chatbot will be lost.', confirm: 'Leave', danger: true })) return; onClose(); };
   useEffect(() => {
     const k = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) delNode(sel);
+      const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName), mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
+      if (mod && key === 's') { e.preventDefault(); save(); return; }
+      if (typing) return;
+      if (mod && key === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      else if (mod && key === 'y') { e.preventDefault(); redo(); }
+      else if (mod && key === 'c' && sel) { const n = f.nodes.find((x) => x.id === sel); if (n && n.type !== 'start') { CLIP = structuredClone(n); toast('Step copied — Ctrl+V to paste'); } }
+      else if (mod && key === 'v' && CLIP) { e.preventDefault(); addNode(CLIP.type, CLIP.x + 50, CLIP.y + 50, null, CLIP.data); }
+      else if (mod && key === 'd' && sel) { e.preventDefault(); dupNode(sel); }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && sel) delNode(sel);
+      else if (e.key === 'Escape') setSel(null);
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   });
   const node = f.nodes.find((n) => n.id === sel);
+  const ql = q.trim().toLowerCase();
+  const reach = initial.stats?.nodes || {};
   // full screen over the app (a portal: the page-transition wrapper would otherwise contain a fixed layer)
   return createPortal(
     <div className="wfb">
       <header className="wfb-top">
         <button className="icon-btn" onClick={close} aria-label="Back"><Icon name="chevron" className="flip" /></button>
-        <span className="k" style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', background: '#eef2ff', color: '#4338ca' }}><Icon name="bot" size={16} /></span>
-        <input className="name" value={f.name} onChange={(e) => set((g) => { g.name = e.target.value; })} aria-label="Chatbot name" />
+        <span className="wfb-logo"><Icon name="bot" size={16} /></span>
+        <input className="name" value={f.name} onChange={(e) => set((g) => { g.name = e.target.value; }, 'name')} aria-label="Chatbot name" />
         {f.trigger.type !== 'manual' && <span className={`cb-live ${active ? '' : 'idle'}`}>{active ? 'Live' : 'Off'}</span>}
+        {initial.stats?.runs > 0 && <span className="wfb-runs" title="Chats this chatbot has run">{initial.stats.runs} chats · {initial.stats.done || 0} finished</span>}
         <span className="sp" />
+        <span className="wfb-hist">
+          <button className="icon-btn" onClick={undo} disabled={!hist.current.past.length} aria-label="Undo" title="Undo (Ctrl+Z)"><Icon name="undo" size={16} /></button>
+          <button className="icon-btn" onClick={redo} disabled={!hist.current.future.length} aria-label="Redo" title="Redo (Ctrl+Y)"><Icon name="redo" size={16} /></button>
+        </span>
         {probs.length > 0 && <button className="pill warn" style={{ cursor: 'pointer' }} onClick={() => { setSel(probs[0].node); setPanel('edit'); }}>⚠ {probs.length} to fix</button>}
         <button className={`btn sm ${panel === 'test' ? 'primary' : 'ghost'}`} onClick={() => setPanel(panel === 'test' ? 'edit' : 'test')}><Icon name="phone" size={14} />Test</button>
         <button className="btn ghost sm" onClick={() => save()} disabled={busy || (!dirty && initial.id)}>{dirty || !initial.id ? 'Save' : 'Saved'}</button>
@@ -249,23 +365,29 @@ function Builder({ initial, ai, meta, onClose, onSaved }) {
       </header>
       <div className="wfb-body">
         <aside className="wfb-pal">
-          {PALETTE.map(([g, types]) => (
-            <div key={g} style={{ display: 'contents' }}>
-              <h5>{g}</h5>
-              {types.map((t) => (
-                <button key={t} className="wfb-pi" draggable onDragStart={(e) => { e.dataTransfer.setData('text/fh-node', t); e.dataTransfer.effectAllowed = 'copy'; }} onClick={() => addNode(t, (300 - view.x) / view.z + Math.random() * 40, (200 - view.y) / view.z + Math.random() * 40)} title={NT[t][3]}>
-                  <span className="k" style={{ background: NT[t][2] }}><Icon name={NT[t][1]} size={14} /></span>{NT[t][0]}
-                </button>
-              ))}
-            </div>
-          ))}
+          <div className="wfb-search"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a step" aria-label="Find a step" /></div>
+          {PALETTE.map(([g, types]) => {
+            const shown = types.filter((t) => !ql || `${NT[t][0]} ${NT[t][3]}`.toLowerCase().includes(ql));
+            return shown.length > 0 && (
+              <div key={g} style={{ display: 'contents' }}>
+                <h5>{g}</h5>
+                {shown.map((t) => (
+                  <button key={t} className="wfb-pi" draggable onDragStart={(e) => { e.dataTransfer.setData('text/fh-node', t); e.dataTransfer.effectAllowed = 'copy'; }} onClick={() => addNode(t, (300 - view.x) / view.z + Math.random() * 40, (200 - view.y) / view.z + Math.random() * 40)} title={NT[t][3]}>
+                    <span className="k" style={{ background: NT[t][2] }}><Icon name={NT[t][1]} size={14} /></span>
+                    <span className="wfb-pt"><b>{NT[t][0]}</b><small>{NT[t][3]}</small></span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
           {!ai && <p className="hint">AI steps need AI switched on for this account.</p>}
         </aside>
-        <Canvas f={f} set={set} setNode={setNode} sel={sel} setSel={(x) => { setSel(x); if (x) setPanel('edit'); }} view={view} setView={setView} addNode={addNode} delNode={delNode} probs={probs} now={panel === 'test' ? now : null} />
+        <Canvas f={f} set={set} setNode={setNode} sel={sel} setSel={(x) => { setSel(x); if (x) setPanel('edit'); }} view={view} setView={setView} addNode={addNode} delNode={delNode} dupNode={dupNode} probs={probs} now={panel === 'test' ? now : null} reach={reach} runs={initial.stats?.runs || 0} flows={data.flows} onArrange={() => set((g) => arrange(g))} />
         <aside className="wfb-right">
           {panel === 'test' ? <TestPhone f={f} onNode={setNow} /> : (
             <div className="wfb-insp">
-              {node ? <Inspector key={node.id} n={node} f={f} set={set} setNode={setNode} onDelete={() => delNode(node.id)} forms={{ meta, crmFields, live: pub.current[node.id] === formSig(node.data), published: !!node.data.flowId, publish: () => publish(node.id), busy, saved: !!initial.id }} /> : <FlowSettings f={f} set={set} probs={probs} onPick={setSel} />}
+              {node ? <Inspector key={node.id} n={node} f={f} set={set} setNode={setNode} onDelete={() => delNode(node.id)} onDuplicate={() => dupNode(node.id)} data={data} templates={templates} reach={reach[node.id] || 0} runs={initial.stats?.runs || 0} forms={{ meta, crmFields: data.crmFields, live: node.type === 'form' && pub.current[node.id] === formSig(node.data), published: !!node.data.flowId, publish: () => publish(node.id), busy, saved: !!initial.id }} />
+                : <FlowSettings f={f} set={set} probs={probs} onPick={setSel} number={number} />}
             </div>
           )}
         </aside>
@@ -275,13 +397,15 @@ function Builder({ initial, ai, meta, onClose, onSaved }) {
   );
 }
 
-function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode, probs, now }) {
+function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode, dupNode, probs, now, reach, runs, flows, onArrange }) {
   const wrap = useRef(), world = useRef();
   const dots = useRef({});
   const [pts, setPts] = useState({});
   const [drag, setDrag] = useState(null); // { kind: 'pan' | 'node' | 'wire', … }
   const [wire, setWire] = useState(null); // the wire being drawn: { from, port, x, y }
   const [over, setOver] = useState(null);
+  const [quick, setQuick] = useState(null); // a wire dropped on empty canvas: pick the step it leads to
+  const [size, setSize] = useState({ w: 800, h: 600 });
   const bad = new Set(probs.map((p) => p.node));
   // where every output dot sits in world coordinates (nodes grow with their text, so measured, not computed)
   useLayoutEffect(() => {
@@ -291,45 +415,49 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
     for (const [k, el] of Object.entries(dots.current)) { if (!el) continue; const r = el.getBoundingClientRect(); next[k] = [(r.left + r.width / 2 - w.left) / view.z, (r.top + r.height / 2 - w.top) / view.z]; }
     if (JSON.stringify(next) !== JSON.stringify(pts)) setPts(next);
   });
+  useEffect(() => { const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height })); ro.observe(wrap.current); return () => ro.disconnect(); }, []);
   const capture = (e) => { try { wrap.current.setPointerCapture(e.pointerId); } catch { /* a pointer the browser no longer tracks */ } };
   const toWorld = (e) => { const r = wrap.current.getBoundingClientRect(); return [(e.clientX - r.left - view.x) / view.z, (e.clientY - r.top - view.y) / view.z]; };
   const down = (e) => {
-    if (e.button !== 0 || e.target.closest('.wfb-node, .wfb-zoom')) return;
-    setSel(null);
+    if (e.button !== 0 || e.target.closest('.wfb-node, .wfb-zoom, .wfb-mini, .wfb-quick')) return;
+    setSel(null); setQuick(null);
     setDrag({ kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y });
     capture(e);
   };
   const move = (e) => {
     if (!drag) return;
     if (drag.kind === 'pan') setView((v) => ({ ...v, x: drag.vx + e.clientX - drag.sx, y: drag.vy + e.clientY - drag.sy }));
-    else if (drag.kind === 'node') setNode(drag.id, (n) => { n.x = Math.round(drag.nx + (e.clientX - drag.sx) / view.z); n.y = Math.round(drag.ny + (e.clientY - drag.sy) / view.z); });
+    else if (drag.kind === 'node') setNode(drag.id, (n) => { n.x = Math.round((drag.nx + (e.clientX - drag.sx) / view.z) / 10) * 10; n.y = Math.round((drag.ny + (e.clientY - drag.sy) / view.z) / 10) * 10; });
     else if (drag.kind === 'wire') { const [x, y] = toWorld(e); setWire((w) => ({ ...w, x, y })); setOver(document.elementFromPoint(e.clientX, e.clientY)?.closest('.wfb-node')?.dataset.id || null); }
   };
   const up = (e) => {
     if (drag?.kind === 'wire') {
       const to = document.elementFromPoint(e.clientX, e.clientY)?.closest('.wfb-node')?.dataset.id;
       const target = to && f.nodes.find((n) => n.id === to);
-      if (target && target.type !== 'start') set((g) => { g.edges = [...g.edges.filter((x) => !(x.from === drag.from && x.port === drag.port)), { from: drag.from, port: drag.port, to }]; });
+      if (target && target.type !== 'start' && target.id !== drag.from) set((g) => { g.edges = [...g.edges.filter((x) => !(x.from === drag.from && x.port === drag.port)), { from: drag.from, port: drag.port, to }]; });
+      else if (!to) { const r = wrap.current.getBoundingClientRect(), [x, y] = toWorld(e); setQuick({ sx: Math.min(e.clientX - r.left, r.width - 250), sy: Math.min(e.clientY - r.top, r.height - 330), x, y, from: drag.from, port: drag.port }); }
       setWire(null); setOver(null);
     }
     setDrag(null);
   };
   const wheel = (e) => {
     const r = wrap.current.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-    setView((v) => { const z = Math.min(1.6, Math.max(0.3, v.z * Math.exp(-e.deltaY * 0.0012))); return { z, x: mx - ((mx - v.x) * z) / v.z, y: my - ((my - v.y) * z) / v.z }; });
+    setView((v) => { const z = Math.min(1.6, Math.max(0.25, v.z * Math.exp(-e.deltaY * 0.0012))); return { z, x: mx - ((mx - v.x) * z) / v.z, y: my - ((my - v.y) * z) / v.z }; });
   };
   useEffect(() => { const el = wrap.current; const h = (e) => e.preventDefault(); el.addEventListener('wheel', h, { passive: false }); return () => el.removeEventListener('wheel', h); }, []);
+  const bounds = () => { const xs = f.nodes.map((n) => n.x), ys = f.nodes.map((n) => n.y); const minX = Math.min(...xs), minY = Math.min(...ys); return { minX, minY, w: Math.max(...xs) - minX + 270, h: Math.max(...ys) - minY + 240 }; };
   const fit = () => {
-    const r = wrap.current.getBoundingClientRect();
-    const xs = f.nodes.map((n) => n.x), ys = f.nodes.map((n) => n.y);
-    const minX = Math.min(...xs), minY = Math.min(...ys), w = Math.max(...xs) - minX + 270, h = Math.max(...ys) - minY + 220;
-    const z = Math.min(1.1, Math.max(0.3, Math.min((r.width - 60) / w, (r.height - 60) / h)));
-    setView({ z, x: (r.width - w * z) / 2 - minX * z, y: (r.height - h * z) / 2 - minY * z });
+    const r = wrap.current.getBoundingClientRect(), b = bounds();
+    const z = Math.min(1.1, Math.max(0.25, Math.min((r.width - 60) / b.w, (r.height - 60) / b.h)));
+    setView({ z, x: (r.width - b.w * z) / 2 - b.minX * z, y: (r.height - b.h * z) / 2 - b.minY * z });
   };
   useEffect(() => { fit(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const path = ([x1, y1], [x2, y2]) => { const dx = Math.max(50, Math.abs(x2 - x1) / 2); return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`; };
   const inPt = (n) => [n.x, n.y + 25];
   const byId = Object.fromEntries(f.nodes.map((n) => [n.id, n]));
+  // the minimap: every step as a block, the visible area as a frame; click to look there
+  const mb = bounds(), MW = 168, MH = 104, ms = Math.min(MW / (mb.w + 200), MH / (mb.h + 200)), mx0 = mb.minX - 100, my0 = mb.minY - 100;
+  const miniGo = (e) => { const r = e.currentTarget.getBoundingClientRect(); const wx = (e.clientX - r.left) / ms + mx0, wy = (e.clientY - r.top) / ms + my0; setView((v) => ({ ...v, x: size.w / 2 - wx * v.z, y: size.h / 2 - wy * v.z })); };
   return (
     <div className={`wfb-canvas ${drag?.kind === 'pan' ? 'panning' : ''}`} ref={wrap} onPointerDown={down} onPointerMove={move} onPointerUp={up} onWheel={wheel}
       style={{ backgroundSize: `${22 * view.z}px ${22 * view.z}px`, backgroundPosition: `${view.x}px ${view.y}px` }}
@@ -345,7 +473,7 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
             return (
               <g key={`${e.from}:${e.port}`}>
                 <path className="hit" d={d} onClick={() => set((g) => { g.edges = g.edges.filter((x) => !(x.from === e.from && x.port === e.port)); })}><title>Click to remove this connection</title></path>
-                <path d={d} style={hot ? { stroke: '#6366f1', strokeWidth: 2.5 } : undefined} />
+                <path d={d} className={e.port === 'timeout' ? 'late' : e.port === 'fail' || e.port === 'no' || e.port === 'closed' ? 'neg' : ''} style={hot ? { stroke: '#6366f1', strokeWidth: 2.5 } : undefined} />
                 {hot && <path className="flow" d={d} />}
               </g>
             );
@@ -353,23 +481,24 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
           {wire && pts[`${wire.from}:${wire.port}`] && <path className="draft" d={path(pts[`${wire.from}:${wire.port}`], [wire.x, wire.y])} />}
         </svg>
         {f.nodes.map((n) => {
-          const [label, ic, color] = NT[n.type], ports = portsOf(n);
+          const [label, ic, color] = NT[n.type], ports = portsOf(n), r = reach[n.id] || 0;
           return (
-            <div key={n.id} data-id={n.id} className={`wfb-node ${sel === n.id ? 'sel' : ''} ${bad.has(n.id) ? 'bad' : ''} ${now === n.id ? 'now' : ''} ${over === n.id && wire ? 'drop' : ''}`} style={{ left: n.x, top: n.y }} onPointerDown={(e) => { if (!e.target.closest('.wfb-dot')) setSel(n.id); }}>
+            <div key={n.id} data-id={n.id} className={`wfb-node ${sel === n.id ? 'sel' : ''} ${bad.has(n.id) ? 'bad' : ''} ${now === n.id ? 'now' : ''} ${over === n.id && wire ? 'drop' : ''} t-${n.type}`} style={{ left: n.x, top: n.y, '--nc': color.startsWith('linear') ? '#7c3aed' : color }} onPointerDown={(e) => { if (!e.target.closest('.wfb-dot')) setSel(n.id); }}>
               {n.type !== 'start' && <span className="wfb-in" />}
               <div className="wfb-nh" onPointerDown={(e) => { if (e.button !== 0 || e.target.closest('button')) return; e.stopPropagation(); setSel(n.id); setDrag({ kind: 'node', id: n.id, sx: e.clientX, sy: e.clientY, nx: n.x, ny: n.y }); capture(e); }}>
                 <span className="k" style={{ background: color }}><Icon name={ic} size={13} /></span><b>{label}</b>
-                {n.type !== 'start' && <button className="icon-btn" onClick={() => delNode(n.id)} aria-label="Delete step"><Icon name="x" size={12} /></button>}
+                {r > 0 && <span className="wfb-reach" title={`${r} chat${r === 1 ? '' : 's'} reached this step${runs ? ` (${Math.round((r / runs) * 100)}% of all)` : ''}`}>{r > 999 ? `${Math.round(r / 100) / 10}k` : r}</span>}
+                {n.type !== 'start' && <span className="wfb-acts"><button className="icon-btn" onClick={() => dupNode(n.id)} aria-label="Duplicate step" title="Duplicate (Ctrl+D)"><Icon name="copy" size={11} /></button><button className="icon-btn" onClick={() => delNode(n.id)} aria-label="Delete step" title="Delete"><Icon name="x" size={12} /></button></span>}
               </div>
-              <NodeBody n={n} />
+              <NodeBody n={n} flows={flows} />
               {ports.length > 0 && (
                 <div className="wfb-ports">
                   {ports.map(([p, l]) => {
                     const wired = f.edges.some((e) => e.from === n.id && e.port === p);
                     return (
-                      <div key={p} className={`wfb-port ${p === 'other' ? 'other' : ''}`}>{l}
-                        <span ref={(el) => { dots.current[`${n.id}:${p}`] = el; }} className={`wfb-dot ${wired ? 'wired' : ''}`} title="Drag to the next step"
-                          onPointerDown={(e) => { e.stopPropagation(); const [x, y] = toWorld(e); setWire({ from: n.id, port: p, x, y }); setDrag({ kind: 'wire', from: n.id, port: p }); capture(e); }} />
+                      <div key={p} className={`wfb-port ${['other', 'timeout'].includes(p) ? 'other' : ''}`}>{l}
+                        <span ref={(el) => { dots.current[`${n.id}:${p}`] = el; }} className={`wfb-dot ${wired ? 'wired' : ''}`} title="Drag to the next step — or onto empty space to add one"
+                          onPointerDown={(e) => { e.stopPropagation(); setQuick(null); const [x, y] = toWorld(e); setWire({ from: n.id, port: p, x, y }); setDrag({ kind: 'wire', from: n.id, port: p }); capture(e); }} />
                       </div>
                     );
                   })}
@@ -379,57 +508,90 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
           );
         })}
       </div>
-      {f.nodes.length < 3 && <div className="wfb-hint">Drag steps from the left onto the canvas, then drag from a ● to connect them</div>}
+      {f.nodes.length < 3 && !quick && <div className="wfb-hint">Drag steps from the left onto the canvas — or drag from a ● into empty space to add the next step</div>}
+      {quick && (
+        <div className="wfb-quick" style={{ left: quick.sx, top: quick.sy }} onPointerDown={(e) => e.stopPropagation()}>
+          <div className="row" style={{ justifyContent: 'space-between' }}><b>Add the next step</b><button className="icon-btn" onClick={() => setQuick(null)} aria-label="Close"><Icon name="x" size={13} /></button></div>
+          <div className="wfb-qgrid">
+            {PALETTE.flatMap(([, ts]) => ts).map((t) => (
+              <button key={t} onClick={() => { addNode(t, quick.x + 30, quick.y - 25, { from: quick.from, port: quick.port }); setQuick(null); }} title={NT[t][3]}>
+                <span className="k" style={{ background: NT[t][2] }}><Icon name={NT[t][1]} size={12} /></span>{NT[t][0]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="wfb-zoom">
-        <button className="icon-btn" onClick={() => setView((v) => ({ ...v, z: Math.max(0.3, v.z - 0.1) }))} aria-label="Zoom out">−</button>
+        <button className="icon-btn" onClick={() => setView((v) => ({ ...v, z: Math.max(0.25, v.z - 0.1) }))} aria-label="Zoom out">−</button>
         <span>{Math.round(view.z * 100)}%</span>
         <button className="icon-btn" onClick={() => setView((v) => ({ ...v, z: Math.min(1.6, v.z + 0.1) }))} aria-label="Zoom in">+</button>
         <button className="btn ghost sm" onClick={fit}>Fit</button>
+        <button className="btn ghost sm" onClick={() => { onArrange(); setTimeout(fit, 30); }} title="Line the steps up neatly"><Icon name="layout" size={13} />Tidy up</button>
       </div>
+      {f.nodes.length > 3 && (
+        <svg className="wfb-mini" width={MW} height={MH} onClick={miniGo} aria-label="Map of the chatbot — click to move there">
+          {f.edges.map((e) => { const a = byId[e.from], b = byId[e.to]; return a && b && <line key={`${e.from}:${e.port}`} x1={(a.x + 250 - mx0) * ms} y1={(a.y + 30 - my0) * ms} x2={(b.x - mx0) * ms} y2={(b.y + 25 - my0) * ms} />; })}
+          {f.nodes.map((n) => <rect key={n.id} x={(n.x - mx0) * ms} y={(n.y - my0) * ms} width={250 * ms} height={Math.max(6, 90 * ms)} rx={2} style={{ fill: sel === n.id ? '#6366f1' : NT[n.type][2].startsWith('linear') ? '#7c3aed' : NT[n.type][2] }} />)}
+          <rect className="vp" x={(-view.x / view.z - mx0) * ms} y={(-view.y / view.z - my0) * ms} width={(size.w / view.z) * ms} height={(size.h / view.z) * ms} />
+        </svg>
+      )}
     </div>
   );
 }
 
-function NodeBody({ n }) {
+function NodeBody({ n, flows }) {
   const d = n.data;
   const txt = (s, empty = 'Write the message…') => (s ? <div className="txt">{s}</div> : <div className="txt muted">{empty}</div>);
+  const late = d.timeout > 0 && <span className="pill" style={{ justifySelf: 'start' }}>⏱ waits {dur(d.timeout)} for a reply</span>;
   switch (n.type) {
     case 'start': return <div className="wfb-nb"><span className="muted" style={{ fontStyle: 'normal' }}>The customer writes on WhatsApp</span></div>;
-    case 'message': return <div className="wfb-nb">{d.image && <span className="pill">📷 photo</span>}{txt(d.text)}</div>;
-    case 'buttons': case 'list': case 'ask': return <div className="wfb-nb">{txt(d.text)}{n.type === 'ask' && <span className="pill" style={{ justifySelf: 'start' }}>saves {`{{${d.var}}}`}{d.save ? ` → ${d.save.replace('custom:', '')}` : ''}</span>}</div>;
-    case 'condition': return <div className="wfb-nb">{d.rules.map((r, i) => <div key={i}>{r.field === 'tag' ? `Tag ${r.op === 'not_has' ? 'is not' : 'is'} “${r.value || '…'}”` : `${r.field.replace('var:', '')} ${r.op} ${r.value}`}</div>)}</div>;
+    case 'message': return <div className="wfb-nb">{d.media ? <span className="wfb-media">{MEDIA.find((m) => m[0] === d.media.type)?.[1]}{d.media.filename ? ` · ${d.media.filename}` : ''}</span> : d.image && <span className="wfb-media">📷 Photo</span>}{(d.text || !(d.media || d.image)) && txt(d.text)}</div>;
+    case 'buttons': return <div className="wfb-nb">{d.image && <span className="wfb-media">📷 Photo on top</span>}{txt(d.text)}{d.footer && <small className="wfb-foot">{d.footer}</small>}{late}</div>;
+    case 'list': return <div className="wfb-nb">{d.header && <b className="wfb-hd">{d.header}</b>}{txt(d.text)}<span className="wfb-fake">☰ {d.button || 'Choose'}</span>{late}</div>;
+    case 'ask': return <div className="wfb-nb">{txt(d.text)}<span className="pill" style={{ justifySelf: 'start' }}>{d.validate === 'location' ? '📍 location' : d.validate === 'file' ? '📎 photo / file' : d.validate} → {`{{${d.var}}}`}{d.save ? ` → ${d.save.replace('custom:', 'CRM ')}` : ''}</span>{late}</div>;
+    case 'link': return <div className="wfb-nb">{d.image && <span className="wfb-media">📷 Photo on top</span>}{txt(d.text)}<span className="wfb-fake">🔗 {d.label || 'Open'}</span>{d.url && <small className="wfb-url">{d.url}</small>}</div>;
+    case 'template': return <div className="wfb-nb">{d.name ? <><b className="wfb-hd">📨 {d.name}</b>{d.preview && <div className="txt">{d.preview}</div>}</> : <div className="txt muted">Choose an approved template…</div>}</div>;
+    case 'condition': return <div className="wfb-nb">{d.rules.map((r, i) => <div key={i}>{i > 0 && <small className="muted">{d.match === 'any' ? 'or ' : 'and '}</small>}{r.field === 'tag' ? `Tag ${r.op === 'not_has' ? 'is not' : 'is'} “${r.value || '…'}”` : `${r.field.replace(/^(var|custom):/, '')} ${({ eq: 'is', neq: 'is not', contains: 'contains', exists: 'is filled', missing: 'is empty', gt: '>', lt: '<', starts: 'starts with' })[r.op] || r.op} ${['exists', 'missing'].includes(r.op) ? '' : r.value}`}</div>)}</div>;
     case 'tag': return <div className="wfb-nb"><div className="row">{d.add.length ? d.add.map((t) => <span key={t} className="tag">{t}</span>) : <span className="muted">Choose a tag…</span>}</div></div>;
+    case 'set': return <div className="wfb-nb">{d.actions.map((a, i) => <div key={i} className="wfb-act">{({ var: `{{${a.key || '…'}}} = ${a.value || '…'}`, field: `${(a.key || '…').replace('custom:', '')} ← ${a.value || '…'}`, untag: `Remove tag “${a.key || '…'}”`, stage: 'Move to a pipeline stage', optout: 'Unsubscribe from WhatsApp', optin: 'Subscribe again' })[a.do]}</div>)}</div>;
+    case 'api': return <div className="wfb-nb"><code className="wfb-code"><b>{d.method}</b> {d.url || 'https://…'}</code>{d.map.length > 0 && <small className="muted" style={{ fontStyle: 'normal' }}>saves {d.map.map((m) => `{{${m.var}}}`).join(', ')}</small>}</div>;
+    case 'hours': return <div className="wfb-nb"><span className="muted" style={{ fontStyle: 'normal' }}>Your working hours (Inbox automations)</span></div>;
+    case 'split': return null;
+    case 'goto': return <div className="wfb-nb">{d.flowId ? <b className="wfb-hd">↪ {flows.find((x) => x.id === d.flowId)?.name || 'A deleted chatbot'}</b> : <div className="txt muted">Choose the chatbot…</div>}</div>;
     case 'ai_route': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>✦ AI reads the message and picks a topic</span></div>;
     case 'ai_agent': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>✦ The AI agent continues the chat</span>{d.note && <div className="txt">{d.note}</div>}</div>;
     case 'handoff': return <div className="wfb-nb">{txt(d.text, 'No message — just notifies your team')}</div>;
-    case 'wait': return <div className="wfb-nb">Wait {d.minutes >= 60 ? `${Math.round((d.minutes / 60) * 10) / 10} h` : `${d.minutes} min`}</div>;
+    case 'wait': return <div className="wfb-nb">Wait {dur(d.minutes)}</div>;
     case 'webhook': return <div className="wfb-nb">{txt(d.url, 'https://…')}</div>;
-    case 'form': return <div className="wfb-nb"><div className="txt"><b>📋 {d.title}</b></div><div className="muted" style={{ fontStyle: 'normal' }}>{d.fields.length ? d.fields.map((x) => x.label || '…').join(' · ') : 'Add questions…'}</div></div>;
+    case 'form': return <div className="wfb-nb"><div className="txt"><b>📋 {d.title}</b></div><div className="muted" style={{ fontStyle: 'normal' }}>{d.fields.length ? d.fields.map((x) => x.label || '…').join(' · ') : 'Add questions…'}</div>{late}</div>;
     case 'end': return <div className="wfb-nb">{txt(d.text, 'Ends quietly')}{d.resolve && <span className="pill ok" style={{ justifySelf: 'start' }}>resolves the chat</span>}</div>;
     default: return null;
   }
 }
 
-const VARS = ['first_name', 'name', 'business'];
-function TextField({ label, value, onChange, f, rows = 4, max = 1024 }) {
+const VARS = ['first_name', 'name', 'phone', 'email', 'business'];
+// every answer and variable the chatbot collects, for the {{…}} buttons
+const varsOf = (f) => [...new Set(f.nodes.flatMap((n) => (n.type === 'ask' ? [n.data.var] : n.type === 'form' ? n.data.fields.map((x) => x.var) : n.type === 'set' ? n.data.actions.filter((a) => a.do === 'var' && a.key).map((a) => a.key) : n.type === 'api' ? [...n.data.map.map((m) => m.var), 'api_status'] : [])))].filter((v) => v && !VARS.includes(v));
+function TextField({ label, value, onChange, f, rows = 4, max = 1024, placeholder = 'Hi {{first_name}}! 👋 …', input = false }) {
   const ref = useRef();
-  const asked = [...new Set(f.nodes.flatMap((n) => (n.type === 'ask' ? [n.data.var] : n.type === 'form' ? n.data.fields.map((x) => x.var) : [])))].filter((v) => !VARS.includes(v));
   const insert = (v) => { const el = ref.current, s = el.selectionStart ?? value.length; onChange(`${value.slice(0, s)}{{${v}}}${value.slice(el.selectionEnd ?? s)}`); };
   return (
     <label>{label}
-      <textarea ref={ref} rows={rows} maxLength={max} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Hi {{first_name}}! 👋 …" />
-      <span className="vars">{[...VARS, ...asked].map((v) => <button type="button" key={v} onClick={() => insert(v)}>{`{{${v}}}`}</button>)}</span>
+      {input ? <input ref={ref} maxLength={max} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} /> : <textarea ref={ref} rows={rows} maxLength={max} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />}
+      <span className="vars">{[...VARS, ...varsOf(f)].map((v) => <button type="button" key={v} onClick={() => insert(v)}>{`{{${v}}}`}</button>)}</span>
     </label>
   );
 }
 // a list of options (buttons / list rows / AI topics): renaming keeps the connection, removing drops it
-function Options({ items, max, titleMax, onChange, f, nodeId, fields = [['title', 'Title']] }) {
+function Options({ items, max, titleMax, onChange, fields = [['title', 'Title']] }) {
   const drop = (o) => { onChange(items.filter((x) => x !== o), o.id); };
+  const move = (i, by) => { const l = [...items]; const [it] = l.splice(i, 1); l.splice(i + by, 0, it); onChange(l); };
   return (
     <div style={{ display: 'grid', gap: 6 }}>
       {items.map((o, i) => (
-        <div key={o.id} className="opt" style={{ gridTemplateColumns: fields.length > 1 ? '1fr 1.3fr auto' : '1fr auto' }}>
+        <div key={o.id} className="opt" style={{ gridTemplateColumns: fields.length > 1 ? '1fr 1.3fr auto auto' : '1fr auto auto' }}>
           {fields.map(([k, ph]) => <input key={k} value={o[k] || ''} maxLength={k === 'title' || k === 'label' ? titleMax : 200} placeholder={ph} onChange={(e) => onChange(items.map((x, j) => (j === i ? { ...x, [k]: e.target.value } : x)))} />)}
+          <button className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up" title="Move up">↑</button>
           <button className="icon-btn danger" onClick={() => drop(o)} aria-label="Remove"><Icon name="trash" size={14} /></button>
         </div>
       ))}
@@ -437,50 +599,228 @@ function Options({ items, max, titleMax, onChange, f, nodeId, fields = [['title'
     </div>
   );
 }
+// "If they don't reply in …" — gives the step a "No reply" path
+function Timeout({ d, up }) {
+  const on = d.timeout > 0, hours = d.timeout >= 60 && d.timeout % 60 === 0;
+  return (
+    <div className="wfb-box">
+      <label className="tog"><input type="checkbox" checked={on} onChange={(e) => up((x) => { x.timeout = e.target.checked ? 60 : 0; })} /><span />If they don’t reply</label>
+      {on && <div className="row" style={{ gap: 6 }}>
+        <span className="hint" style={{ margin: 0 }}>within</span>
+        <input type="number" min={1} style={{ width: 80 }} value={hours ? d.timeout / 60 : d.timeout} onChange={(e) => { const v = Math.max(1, Number(e.target.value) || 1); up((x) => { x.timeout = Math.min(1380, hours ? v * 60 : v); }); }} />
+        <select value={hours ? 'h' : 'm'} onChange={(e) => up((x) => { x.timeout = e.target.value === 'h' ? Math.min(1380, Math.max(1, Math.round(x.timeout / 60)) * 60) : Math.max(1, x.timeout); })} style={{ width: 'auto' }}><option value="m">minutes</option><option value="h">hours</option></select>
+      </div>}
+      {on && <span className="hint" style={{ margin: 0 }}>Connect the “⏱ No reply” dot to a reminder or a different path. Up to 23 hours.</span>}
+    </div>
+  );
+}
+const FieldSelect = ({ value, onChange, crmFields, none = 'Don’t save' }) => (
+  <select value={value || ''} onChange={(e) => onChange(e.target.value)}>
+    {none && <option value="">{none}</option>}<option value="name">Name</option><option value="email">Email</option><option value="phone">Phone</option>
+    {crmFields.map((c) => <option key={c.id} value={`custom:${c.id}`}>{c.label}</option>)}
+  </select>
+);
 
-function Inspector({ n, f, set, setNode, onDelete, forms }) {
+function Inspector({ n, f, set, setNode, onDelete, onDuplicate, data, templates, reach, runs, forms }) {
   const d = n.data;
   const up = (fn) => setNode(n.id, (x) => fn(x.data));
   const opts = (key) => (list, removedId) => set((g) => { const x = g.nodes.find((y) => y.id === n.id); x.data[key] = list; if (removedId) g.edges = g.edges.filter((e) => !(e.from === n.id && e.port === removedId)); });
   const [label, ic, color, desc] = NT[n.type];
+  const tpl = templates?.find((t) => t.name === d.name);
   return (
     <>
-      <div className="row" style={{ gap: 10 }}><span className="k" style={{ width: 32, height: 32, borderRadius: 10, display: 'grid', placeItems: 'center', color: '#fff', background: color }}><Icon name={ic} size={16} /></span><div style={{ flex: 1 }}><b>{label}</b><div className="hint" style={{ margin: 0 }}>{desc}</div></div>{n.type !== 'start' && <button className="icon-btn danger" onClick={onDelete} aria-label="Delete step"><Icon name="trash" size={16} /></button>}</div>
+      <div className="wfb-ih">
+        <span className="k" style={{ background: color }}><Icon name={ic} size={16} /></span>
+        <div style={{ flex: 1, minWidth: 0 }}><b>{label}</b><div className="hint" style={{ margin: 0 }}>{desc}</div></div>
+        {n.type !== 'start' && <><button className="icon-btn" onClick={onDuplicate} aria-label="Duplicate step" title="Duplicate (Ctrl+D)"><Icon name="copy" size={15} /></button><button className="icon-btn danger" onClick={onDelete} aria-label="Delete step" title="Delete"><Icon name="trash" size={16} /></button></>}
+      </div>
+      {reach > 0 && <div className="wfb-stat"><b>{reach}</b> chat{reach === 1 ? '' : 's'} reached this step{runs ? <> · <b>{Math.round((reach / runs) * 100)}%</b> of everyone who started</> : ''}</div>}
       {n.type === 'start' && <FlowSettings f={f} set={set} probs={problemsOf(f)} compact />}
-      {['message', 'buttons', 'list', 'ask', 'handoff', 'end', 'form'].includes(n.type) && <TextField label={n.type === 'handoff' ? 'Message to the customer (optional)' : n.type === 'end' ? 'Last message (optional)' : n.type === 'form' ? 'Message with the form' : 'Message'} value={d.text || ''} onChange={(v) => up((x) => { x.text = v; })} f={f} />}
-      {n.type === 'message' && <label>Photo link (optional)<input value={d.image || ''} onChange={(e) => up((x) => { x.image = e.target.value; })} placeholder="https://…/menu.jpg" /></label>}
-      {n.type === 'buttons' && <label>Buttons <span className="muted">(up to 3, 20 characters)</span><Options items={d.buttons} max={3} titleMax={20} onChange={opts('buttons')} /></label>}
+      {['message', 'buttons', 'list', 'ask', 'handoff', 'end', 'form', 'link'].includes(n.type) && <TextField label={n.type === 'handoff' ? 'Message to the customer (optional)' : n.type === 'end' ? 'Last message (optional)' : n.type === 'form' ? 'Message with the form' : n.type === 'message' && d.media ? 'Caption (optional)' : 'Message'} value={d.text || ''} onChange={(v) => up((x) => { x.text = v; })} f={f} />}
+      {n.type === 'message' && <>
+        <label>Attach<select value={d.media?.type || (d.image ? 'image' : '')} onChange={(e) => up((x) => { const t = e.target.value; x.media = t ? { type: t, url: x.media?.url || x.image || '', filename: x.media?.filename || '' } : null; x.image = ''; })}><option value="">Nothing — just text</option>{MEDIA.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+        {d.media && <label>{MEDIA.find((m) => m[0] === d.media.type)?.[1].slice(2)} web address<input value={d.media.url} onChange={(e) => up((x) => { x.media.url = e.target.value; })} placeholder={d.media.type === 'document' ? 'https://…/price-list.pdf' : d.media.type === 'video' ? 'https://…/demo.mp4' : d.media.type === 'audio' ? 'https://…/welcome.mp3' : 'https://…/menu.jpg'} /><span className="hint">A public link — e.g. from your file library, Google Drive (“anyone with the link”) or your website.</span></label>}
+        {d.media?.type === 'document' && <label>File name customers see<input value={d.media.filename} maxLength={120} onChange={(e) => up((x) => { x.media.filename = e.target.value; })} placeholder="Price list 2026.pdf" /></label>}
+      </>}
+      {n.type === 'buttons' && <>
+        <label>Buttons <span className="muted">(up to 3, 20 characters)</span><Options items={d.buttons} max={3} titleMax={20} onChange={opts('buttons')} /></label>
+        <details className="wfb-more"><summary>Photo on top & footer</summary>
+          <label>Photo on top (optional)<input value={d.image || ''} onChange={(e) => up((x) => { x.image = e.target.value; })} placeholder="https://…/offer.jpg" /></label>
+          <label>Footer (optional)<input value={d.footer || ''} maxLength={60} onChange={(e) => up((x) => { x.footer = e.target.value; })} placeholder="Reply STOP to opt out" /></label>
+        </details>
+        <Timeout d={d} up={up} />
+      </>}
       {n.type === 'list' && <>
         <label>Menu button text<input value={d.button} maxLength={20} onChange={(e) => up((x) => { x.button = e.target.value; })} /></label>
         <label>Options <span className="muted">(up to 10)</span><Options items={d.rows} max={10} titleMax={24} fields={[['title', 'Title'], ['desc', 'Description (optional)']]} onChange={opts('rows')} /></label>
+        <details className="wfb-more"><summary>Heading & footer</summary>
+          <label>Heading (optional)<input value={d.header || ''} maxLength={60} onChange={(e) => up((x) => { x.header = e.target.value; })} placeholder="Our menu" /></label>
+          <label>Footer (optional)<input value={d.footer || ''} maxLength={60} onChange={(e) => up((x) => { x.footer = e.target.value; })} /></label>
+        </details>
+        <Timeout d={d} up={up} />
+      </>}
+      {n.type === 'link' && <LinkEditor d={d} up={up} data={data} />}
+      {n.type === 'template' && <>
+        <label>Approved template
+          {templates?.length ? <select value={d.name} onChange={(e) => { const t = templates.find((x) => x.name === e.target.value); up((x) => { x.name = t?.name || ''; x.language = t?.language || 'en'; x.preview = t?.text || t?.body || ''; x.params = Array.from({ length: t?.vars || 0 }, (_, i) => x.params[i] || (i === 0 ? '{{first_name}}' : '')); }); }}><option value="">Choose…</option>{templates.map((t) => <option key={`${t.name}:${t.language}`} value={t.name}>{t.name}{t.category ? ` · ${t.category.toLowerCase()}` : ''}</option>)}</select>
+            : <input value={d.name} onChange={(e) => up((x) => { x.name = e.target.value.replace(/[^\w]/g, ''); })} placeholder="template_name" />}
+        </label>
+        {(tpl?.body || d.preview) && <p className="wfb-tpl">{tpl?.body || d.preview}</p>}
+        {(tpl ? tpl.vars > 0 : d.params.length > 0) && d.params.map((p, i) => <TextField key={i} input label={`Variable {{${i + 1}}}`} value={p} onChange={(v) => up((x) => { x.params[i] = v; })} f={f} placeholder="{{first_name}}" max={500} />)}
+        {!tpl && <button className="btn ghost sm" onClick={() => up((x) => { x.params.push(''); })}><Icon name="plus" size={13} />Add a variable</button>}
+        <p className="hint">Templates are the only messages WhatsApp allows more than 24 hours after the customer’s last message — use one after a long wait to bring them back. <Link to="/settings">Manage templates</Link></p>
       </>}
       {n.type === 'ask' && <>
-        <label>Check the answer is<select value={d.validate} onChange={(e) => up((x) => { x.validate = e.target.value; })}><option value="text">Any text</option><option value="email">An email</option><option value="phone">A phone number</option><option value="number">A number</option><option value="date">A date</option></select></label>
-        <label>Remember it as<input value={d.var} onChange={(e) => up((x) => { x.var = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 31); })} /></label>
-        <label>Also save on the contact<select value={d.save} onChange={(e) => up((x) => { x.save = e.target.value; })}><option value="">Don’t save</option><option value="name">Name</option><option value="email">Email</option><option value="phone">Phone</option></select></label>
-        <label>If the answer doesn’t fit (optional)<input value={d.retry || ''} onChange={(e) => up((x) => { x.retry = e.target.value; })} placeholder="Please send a valid email 🙏" /></label>
+        <label>The answer should be<select value={d.validate} onChange={(e) => up((x) => { x.validate = e.target.value; })}><option value="text">Any text</option><option value="number">A number</option><option value="email">An email</option><option value="phone">A phone number</option><option value="date">A date</option><option value="location">📍 Their location</option><option value="file">📎 A photo or file</option></select></label>
+        <label>Remember it as<input value={d.var} onChange={(e) => up((x) => { x.var = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 31); })} /><span className="hint">Use it later as {`{{${d.var}}}`}</span></label>
+        <label>Also save on the contact<FieldSelect value={d.save} onChange={(v) => up((x) => { x.save = v; })} crmFields={data.crmFields} /></label>
+        <label>If the answer doesn’t fit (optional)<input value={d.retry || ''} onChange={(e) => up((x) => { x.retry = e.target.value; })} placeholder="Please send a valid email 🙏" /><span className="hint">Asked up to twice, then the chatbot moves on.</span></label>
+        <Timeout d={d} up={up} />
       </>}
       {n.type === 'condition' && <>
-        <label>Match<select value={d.match} onChange={(e) => up((x) => { x.match = e.target.value; })}><option value="all">All rules</option><option value="any">Any rule</option></select></label>
-        {d.rules.map((r, i) => (
-          <div key={i} className="ib-ai" style={{ background: 'var(--c-surface-2)', border: '1px solid var(--c-line)' }}>
-            <select value={r.field.startsWith('var:') ? 'var' : r.field} onChange={(e) => up((x) => { x.rules[i].field = e.target.value === 'var' ? 'var:answer' : e.target.value; x.rules[i].op = e.target.value === 'tag' ? 'has' : 'eq'; })}><option value="tag">Contact tag</option><option value="var">An answer</option><option value="email">Email</option><option value="name">Name</option><option value="last_message">Last message</option></select>
-            {r.field.startsWith('var:') && <input value={r.field.slice(4)} onChange={(e) => up((x) => { x.rules[i].field = `var:${e.target.value}`; })} placeholder="answer name" />}
-            <select value={r.op} onChange={(e) => up((x) => { x.rules[i].op = e.target.value; })}>{(r.field === 'tag' ? [['has', 'has'], ['not_has', 'doesn’t have']] : [['eq', 'is'], ['neq', 'is not'], ['contains', 'contains'], ['exists', 'is filled'], ['missing', 'is empty']]).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-            {!['exists', 'missing'].includes(r.op) && <input value={r.value} onChange={(e) => up((x) => { x.rules[i].value = e.target.value; })} placeholder="value" />}
-            <button className="btn ghost sm" onClick={() => up((x) => { x.rules.splice(i, 1); })}>Remove rule</button>
-          </div>
-        ))}
+        <label>Match<select value={d.match} onChange={(e) => up((x) => { x.match = e.target.value; })}><option value="all">All rules (and)</option><option value="any">Any rule (or)</option></select></label>
+        {d.rules.map((r, i) => {
+          const kind = r.field.startsWith('var:') ? 'var' : r.field;
+          return (
+            <div key={i} className="wfb-box">
+              <select value={kind} onChange={(e) => up((x) => { x.rules[i].field = e.target.value === 'var' ? `var:${varsOf(f)[0] || 'answer'}` : e.target.value; x.rules[i].op = e.target.value === 'tag' ? 'has' : 'eq'; })}>
+                <option value="tag">Contact tag</option><option value="var">An answer / variable</option><option value="name">Name</option><option value="email">Email</option><option value="phone">Phone</option><option value="last_message">Last message</option>
+                {data.crmFields.map((c) => <option key={c.id} value={`custom:${c.id}`}>CRM · {c.label}</option>)}
+              </select>
+              {kind === 'var' && <input list={`vars-${n.id}`} value={r.field.slice(4)} onChange={(e) => up((x) => { x.rules[i].field = `var:${e.target.value}`; })} placeholder="answer name" />}
+              <datalist id={`vars-${n.id}`}>{varsOf(f).map((v) => <option key={v} value={v} />)}</datalist>
+              <select value={r.op} onChange={(e) => up((x) => { x.rules[i].op = e.target.value; })}>{(r.field === 'tag' ? [['has', 'has'], ['not_has', 'doesn’t have']] : [['eq', 'is'], ['neq', 'is not'], ['contains', 'contains'], ['starts', 'starts with'], ['gt', 'is more than'], ['lt', 'is less than'], ['exists', 'is filled'], ['missing', 'is empty']]).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+              {!['exists', 'missing'].includes(r.op) && <input value={r.value} onChange={(e) => up((x) => { x.rules[i].value = e.target.value; })} placeholder={['gt', 'lt'].includes(r.op) ? '50000' : 'value'} />}
+              {d.rules.length > 1 && <button className="btn ghost sm" onClick={() => up((x) => { x.rules.splice(i, 1); })}>Remove rule</button>}
+            </div>
+          );
+        })}
         <button className="btn ghost sm" onClick={() => up((x) => { x.rules.push({ field: 'tag', op: 'has', value: '' }); })}><Icon name="plus" size={13} />Add rule</button>
       </>}
+      {n.type === 'split' && <>
+        <b className="sm">Paths <span className="muted">(2–4, by share of chats)</span></b>
+        {d.branches.map((b, i) => (
+          <div key={b.id} className="opt" style={{ gridTemplateColumns: '1fr 76px auto' }}>
+            <input value={b.label} maxLength={24} onChange={(e) => up((x) => { x.branches[i].label = e.target.value; })} placeholder="Path name" />
+            <label className="wfb-pct"><input type="number" min={1} max={100} value={b.weight} onChange={(e) => up((x) => { x.branches[i].weight = Math.min(100, Math.max(1, Number(e.target.value) || 1)); })} />%</label>
+            <button className="icon-btn danger" disabled={d.branches.length <= 2} onClick={() => set((g) => { const x = g.nodes.find((y) => y.id === n.id); x.data.branches.splice(i, 1); g.edges = g.edges.filter((e) => !(e.from === n.id && e.port === b.id)); })} aria-label="Remove path"><Icon name="trash" size={14} /></button>
+          </div>
+        ))}
+        {d.branches.length < 4 && <button className="btn ghost sm" onClick={() => up((x) => { x.branches.push({ id: rid('s'), label: `Path ${String.fromCharCode(65 + x.branches.length)}`, weight: 50 }); })}><Icon name="plus" size={13} />Add a path</button>}
+        <p className="hint">Each chat goes down one path at random — test two welcome messages or offers and compare the “reached” counts.</p>
+      </>}
+      {n.type === 'hours' && <p className="hint">Uses the working hours in <Link to="/chatbots?tab=rules">Inbox automations</Link>. Send “Open now” to a person and “Closed” to a message saying when you’ll reply — or to the AI agent.</p>}
+      {n.type === 'wait' && <WaitEditor d={d} up={up} />}
       {n.type === 'tag' && <label>Tags <span className="muted">(comma between them)</span><input defaultValue={d.add.join(', ')} onBlur={(e) => up((x) => { x.add = e.target.value.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 10); })} placeholder="hot-lead, diwali-offer" /><span className="hint">An automation can start when a tag is added (Automations → “A tag is added”).</span></label>}
+      {n.type === 'set' && <SetEditor d={d} up={up} data={data} f={f} />}
+      {n.type === 'api' && <ApiEditor d={d} up={up} f={f} />}
+      {n.type === 'goto' && <>
+        <label>Carry on in<select value={d.flowId} onChange={(e) => up((x) => { x.flowId = e.target.value; })}><option value="">Choose a chatbot…</option>{data.flows.map((x) => <option key={x.id} value={x.id}>{x.name}{x.active ? '' : x.trigger.type === 'manual' ? ' (manual)' : ' (off)'}</option>)}</select></label>
+        <p className="hint">That chatbot starts from its beginning with every answer collected so far — handy for a shared “book a call” or “main menu” chatbot. It runs even if it’s switched off.</p>
+      </>}
       {n.type === 'ai_route' && <label>Topics <span className="muted">(the AI picks one; describe each so it can tell them apart)</span><Options items={d.intents} max={8} titleMax={40} fields={[['label', 'Topic'], ['desc', 'What it means']]} onChange={opts('intents')} /></label>}
       {n.type === 'ai_agent' && <><label>Extra instruction for the AI (optional)<textarea rows={3} value={d.note} onChange={(e) => up((x) => { x.note = e.target.value; })} placeholder="They want to buy — share the right link and ask for their city." /></label><p className="hint">The AI agent answers from what you set up in <Link to="/chatbots?tab=agent">AI agent</Link>, and hands over to your team when it should.</p></>}
-      {n.type === 'handoff' && <label>Note for your team (optional)<input value={d.note} onChange={(e) => up((x) => { x.note = e.target.value; })} placeholder="Hot lead — call them today" /></label>}
-      {n.type === 'wait' && <label>Wait for (minutes)<input type="number" min={1} max={1380} value={d.minutes} onChange={(e) => up((x) => { x.minutes = Number(e.target.value) || 1; })} /><span className="hint">Up to 23 hours — WhatsApp only allows free replies for 24 hours after the customer’s last message.</span></label>}
-      {n.type === 'webhook' && <label>Send the answers to<input value={d.url} onChange={(e) => up((x) => { x.url = e.target.value; })} placeholder="https://hooks.zapier.com/…" /><span className="hint">We POST the contact’s name, phone and every answer as JSON — for Zapier, Pabbly, Make or your own app.</span></label>}
-      {n.type === 'form' && <FormEditor d={d} up={up} forms={forms} />}
+      {n.type === 'handoff' && <>
+        <label>Give the chat to<select value={d.assignee || ''} onChange={(e) => up((x) => { x.assignee = e.target.value; })}><option value="">Whoever’s free (your assignment rules)</option>{data.team.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <label>Note for your team (optional)<input value={d.note} onChange={(e) => up((x) => { x.note = e.target.value; })} placeholder="Hot lead — call them today" /></label>
+      </>}
+      {n.type === 'webhook' && <label>Send the answers to<input value={d.url} onChange={(e) => up((x) => { x.url = e.target.value; })} placeholder="https://hooks.zapier.com/…" /><span className="hint">We POST the contact’s name, phone and every answer as JSON — for Zapier, Pabbly, Make or your own app. To use an answer back, use an API request step.</span></label>}
+      {n.type === 'form' && <><FormEditor d={d} up={up} forms={forms} /><Timeout d={d} up={up} /></>}
       {n.type === 'end' && <label className="tog"><input type="checkbox" checked={!!d.resolve} onChange={(e) => up((x) => { x.resolve = e.target.checked; })} /><span />Mark the chat resolved</label>}
+    </>
+  );
+}
+
+// a button to a page: pick one of your live funnels or booking pages, or paste any link
+function LinkEditor({ d, up, data }) {
+  const pages = [
+    ...data.funnels.map((x) => [`${pagesOrigin()}/f/${x.slug}`, `🧭 ${x.name}`]),
+    ...(data.handle ? data.calendars.filter((c) => c.slug).map((c) => [`${location.origin}/meet/${data.handle}/${c.slug}`, `📅 Book: ${c.name}`]) : []),
+  ];
+  return (
+    <>
+      <label>Button text <span className="muted">(20 characters)</span><input value={d.label} maxLength={20} onChange={(e) => up((x) => { x.label = e.target.value; })} placeholder="Pay now" /></label>
+      <label>Opens
+        {pages.length > 0 && <select value={pages.some(([u]) => u === d.url) ? d.url : ''} onChange={(e) => e.target.value && up((x) => { x.url = e.target.value; if (!x.label || x.label === 'Open') x.label = e.target.selectedOptions[0].text.startsWith('📅') ? 'Book a slot' : 'Open'; })}><option value="">Pick a page you’ve made…</option>{pages.map(([u, l]) => <option key={u} value={u}>{l}</option>)}</select>}
+        <input value={d.url} onChange={(e) => up((x) => { x.url = e.target.value; })} placeholder="https://… (a payment link, catalogue, Maps location…)" />
+      </label>
+      <details className="wfb-more"><summary>Photo on top & footer</summary>
+        <label>Photo on top (optional)<input value={d.image || ''} onChange={(e) => up((x) => { x.image = e.target.value; })} placeholder="https://…/product.jpg" /></label>
+        <label>Footer (optional)<input value={d.footer || ''} maxLength={60} onChange={(e) => up((x) => { x.footer = e.target.value; })} /></label>
+      </details>
+      <p className="hint">The link can use answers, e.g. https://…/track?phone={'{{phone}}'}. If a number can’t show link buttons yet, the link goes in the message instead.</p>
+    </>
+  );
+}
+function WaitEditor({ d, up }) {
+  const unit = d.minutes % 1440 === 0 ? 'd' : d.minutes % 60 === 0 ? 'h' : 'm', per = { m: 1, h: 60, d: 1440 }[unit];
+  return (
+    <>
+      <label>Wait for
+        <div className="row" style={{ gap: 6 }}>
+          <input type="number" min={1} style={{ width: 90 }} value={d.minutes / per} onChange={(e) => up((x) => { x.minutes = Math.min(43200, Math.max(1, Math.round((Number(e.target.value) || 1) * per))); })} />
+          <select style={{ width: 'auto' }} value={unit} onChange={(e) => up((x) => { const p = { m: 1, h: 60, d: 1440 }[e.target.value]; x.minutes = Math.min(43200, Math.max(1, Math.round(x.minutes / per)) * p); })}><option value="m">minutes</option><option value="h">hours</option><option value="d">days</option></select>
+        </div>
+      </label>
+      <span className="hint">{d.minutes > 1380 ? '⚠ Longer than 23 hours: WhatsApp only lets a template message go now, so connect this wait to a Template message step.' : 'Up to 23 hours for normal messages. Longer waits (up to 30 days) must be followed by a template message.'}</span>
+    </>
+  );
+}
+function SetEditor({ d, up, data, f }) {
+  return (
+    <>
+      {d.actions.map((a, i) => {
+        const pipe = data.pipelines.find((p) => p.id === a.key);
+        return (
+          <div key={i} className="wfb-box">
+            <div className="row" style={{ gap: 6 }}>
+              <select style={{ flex: 1 }} value={a.do} onChange={(e) => up((x) => { x.actions[i] = { do: e.target.value, key: e.target.value === 'field' ? 'email' : '', value: '' }; })}>{SET_DO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+              <button className="icon-btn danger" onClick={() => up((x) => { x.actions.splice(i, 1); })} aria-label="Remove action"><Icon name="trash" size={14} /></button>
+            </div>
+            {a.do === 'var' && <><input value={a.key} onChange={(e) => up((x) => { x.actions[i].key = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 31); })} placeholder="variable name, e.g. offer" /><TextField input label="to" value={a.value} onChange={(v) => up((x) => { x.actions[i].value = v; })} f={f} placeholder="Diwali 20% off" max={500} /></>}
+            {a.do === 'field' && <><FieldSelect value={a.key} onChange={(v) => up((x) => { x.actions[i].key = v; })} crmFields={data.crmFields} none="" /><TextField input label="to" value={a.value} onChange={(v) => up((x) => { x.actions[i].value = v; })} f={f} placeholder="{{city}}" max={500} /></>}
+            {a.do === 'untag' && <input value={a.key} onChange={(e) => up((x) => { x.actions[i].key = e.target.value; })} placeholder="tag to remove, e.g. cold-lead" />}
+            {a.do === 'stage' && <>
+              <select value={a.key} onChange={(e) => up((x) => { x.actions[i].key = e.target.value; x.actions[i].value = ''; })}><option value="">Choose a pipeline…</option>{data.pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              {pipe && <select value={a.value} onChange={(e) => up((x) => { x.actions[i].value = e.target.value; })}><option value="">Choose the stage…</option>{pipe.stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+            </>}
+            {a.do === 'optout' && <span className="hint" style={{ margin: 0 }}>They get no more WhatsApp messages from you (broadcasts, automations) until they subscribe again.</span>}
+          </div>
+        );
+      })}
+      {d.actions.length < 10 && <button className="btn ghost sm" onClick={() => up((x) => { x.actions.push({ do: 'var', key: '', value: '' }); })}><Icon name="plus" size={13} />Add an action</button>}
+      <p className="hint">Moving someone to a stage can start an automation (Automations → “Moves to a stage”).</p>
+    </>
+  );
+}
+function ApiEditor({ d, up, f }) {
+  return (
+    <>
+      <div className="row" style={{ gap: 6 }}>
+        <select style={{ width: 92 }} value={d.method} onChange={(e) => up((x) => { x.method = e.target.value; })} aria-label="Method">{['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((m) => <option key={m}>{m}</option>)}</select>
+        <input style={{ flex: 1 }} value={d.url} onChange={(e) => up((x) => { x.url = e.target.value; })} placeholder="https://api.yourshop.in/orders?phone={{phone}}" aria-label="Web address" />
+      </div>
+      <details className="wfb-more" open={d.headers.length > 0}><summary>Headers {d.headers.length > 0 && `(${d.headers.length})`}</summary>
+        {d.headers.map((h, i) => (
+          <div key={i} className="opt" style={{ gridTemplateColumns: '1fr 1.4fr auto' }}>
+            <input value={h.key} onChange={(e) => up((x) => { x.headers[i].key = e.target.value.replace(/[^\w-]/g, ''); })} placeholder="Authorization" />
+            <input value={h.value} onChange={(e) => up((x) => { x.headers[i].value = e.target.value; })} placeholder="Bearer …" />
+            <button className="icon-btn danger" onClick={() => up((x) => { x.headers.splice(i, 1); })} aria-label="Remove header"><Icon name="trash" size={14} /></button>
+          </div>
+        ))}
+        {d.headers.length < 10 && <button className="btn ghost sm" onClick={() => up((x) => { x.headers.push({ key: '', value: '' }); })}><Icon name="plus" size={13} />Add a header</button>}
+      </details>
+      {d.method !== 'GET' && <TextField label="Body (JSON)" rows={5} max={4000} value={d.body} onChange={(v) => up((x) => { x.body = v; })} f={f} placeholder={'{\n  "phone": "{{phone}}",\n  "name": "{{name}}"\n}'} />}
+      <b className="sm">Save from the answer</b>
+      {d.map.map((m, i) => (
+        <div key={i} className="opt" style={{ gridTemplateColumns: '1fr 1.3fr auto' }}>
+          <input value={m.var} onChange={(e) => up((x) => { x.map[i].var = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 31); })} placeholder="variable" />
+          <input value={m.path} onChange={(e) => up((x) => { x.map[i].path = e.target.value; })} placeholder="order.status" />
+          <button className="icon-btn danger" onClick={() => up((x) => { x.map.splice(i, 1); })} aria-label="Remove"><Icon name="trash" size={14} /></button>
+        </div>
+      ))}
+      {d.map.length < 10 && <button className="btn ghost sm" onClick={() => up((x) => { x.map.push({ var: '', path: '' }); })}><Icon name="plus" size={13} />Save a value</button>}
+      <p className="hint">The path picks a value from the JSON answer: <code>order.status</code>, <code>items.0.name</code>. The HTTP status is in {'{{api_status}}'}. “Worked” runs for 2xx answers, “Didn’t work” for errors or no answer within 8 seconds. The Test phone really calls your API.</p>
     </>
   );
 }
@@ -529,21 +869,36 @@ function FormEditor({ d, up, forms }) {
   );
 }
 
-function FlowSettings({ f, set, probs, onPick, compact }) {
+// a wa.me link (and its QR code) that opens WhatsApp with the keyword typed in — for ads, posters, bios, packaging
+function ShareLink({ number, keyword }) {
+  const url = `https://wa.me/${number}?text=${encodeURIComponent(keyword)}`;
+  const [qr, setQr] = useState('');
+  useEffect(() => { let on = true; import('qrcode').then((m) => m.toDataURL(url, { margin: 1, width: 360, errorCorrectionLevel: 'M' })).then((d) => on && setQr(d)).catch(() => {}); return () => { on = false; }; }, [url]);
+  return (
+    <div className="wfb-share">
+      <b className="sm">Share this chatbot</b>
+      <div className="row" style={{ gap: 6 }}><input readOnly value={url} onFocus={(e) => e.target.select()} /><button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(url); toast('Link copied'); }}><Icon name="copy" size={13} />Copy</button></div>
+      {qr && <div className="row" style={{ gap: 10, alignItems: 'center' }}><img src={qr} alt="QR code that opens this chatbot on WhatsApp" width={96} height={96} /><span className="hint" style={{ margin: 0 }}>Opens WhatsApp with “{keyword}” typed in. Put the QR on posters, packaging or your shop counter. <a href={qr} download={`whatsapp-${keyword}.png`}>Download QR</a></span></div>}
+    </div>
+  );
+}
+
+function FlowSettings({ f, set, probs, onPick, compact, number }) {
   const t = f.trigger;
   return (
     <>
-      {!compact && <><b>Chatbot settings</b><p className="hint" style={{ margin: 0 }}>Click a step on the canvas to edit it. Drag from a ● to connect steps; click a line to remove it. Delete removes the selected step, Ctrl+S saves.</p></>}
+      {!compact && <><b>Chatbot settings</b><p className="hint" style={{ margin: 0 }}>Click a step to edit it. Drag from a ● to connect steps — or into empty space to add the next one. Click a line to remove it. Ctrl+Z undo · Ctrl+D duplicate · Ctrl+C / V copy · Delete removes · Ctrl+S saves.</p></>}
       <label>Starts when
         <select value={t.type} onChange={(e) => set((g) => { g.trigger.type = e.target.value; })}>{Object.entries(TRIG).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
       </label>
       {t.type === 'keyword' && <>
         <label>Keywords <span className="muted">(comma between them)</span><input defaultValue={t.keywords.join(', ')} onBlur={(e) => set((g) => { g.trigger.keywords = e.target.value.split(',').map((k) => k.trim().toLowerCase()).filter(Boolean).slice(0, 20); })} placeholder="hi, price, menu" /></label>
         <label className="tog"><input type="checkbox" checked={t.match === 'exact'} onChange={(e) => set((g) => { g.trigger.match = e.target.checked ? 'exact' : 'contains'; })} /><span />Only when the whole message is the keyword</label>
+        {!compact && number && t.keywords[0] && <ShareLink number={number} keyword={t.keywords[0]} />}
       </>}
       {t.type === 'welcome' && <p className="hint">Runs once, for someone messaging you for the first time. Only one welcome chatbot can be live.</p>}
       {t.type === 'default' && <p className="hint">Answers any message that no keyword chatbot or person is handling. Only one can be live.</p>}
-      {t.type === 'manual' && <p className="hint">Start it on a chat from the inbox (Reply → ☰ → Run a chatbot here).</p>}
+      {t.type === 'manual' && <p className="hint">Start it on a chat from the inbox (Reply → ☰ → Run a chatbot here), or from another chatbot’s “Go to chatbot” step.</p>}
       {t.type === 'ad' && <>
         <label>Only for these ads <span className="muted">(optional — ad IDs, comma between them)</span><input defaultValue={(t.adIds || []).join(', ')} onBlur={(e) => set((g) => { g.trigger.adIds = e.target.value.split(',').map((k) => k.trim()).filter(Boolean).slice(0, 20); })} placeholder="Leave empty for any ad" /></label>
         <p className="hint">Runs when someone taps “Send WhatsApp message” on your ad. Find the ad ID in Ads Manager, or on a chat from that ad in the inbox. A chatbot for a specific ad wins over one for any ad.</p>
@@ -554,7 +909,7 @@ function FlowSettings({ f, set, probs, onPick, compact }) {
   );
 }
 
-// the builder's test phone: runs the flow on the server as a dry run (nothing is sent or saved)
+// the builder's test phone: runs the flow on the server as a dry run (nothing is sent or saved; API steps really call)
 function TestPhone({ f, onNode }) {
   const [msgs, setMsgs] = useState([]);
   const [st, setSt] = useState(null);
@@ -563,14 +918,20 @@ function TestPhone({ f, onNode }) {
   const [tags, setTags] = useState([]);
   const box = useRef();
   useEffect(() => { box.current && (box.current.scrollTop = box.current.scrollHeight); }, [msgs, busy]);
-  const FX = { form: (e) => `📋 Form filled: ${e.answers.map((a) => `${a.label}: ${a.value}`).join(' · ') || 'no answers'}`, tag: (e) => `🏷 Tagged: ${e.tags.join(', ')}`, save: (e) => `💾 Saved ${e.field}: ${e.value}`, handoff: (e) => `🙋 Handed to your team${e.note ? ` — ${e.note}` : ''}`, webhook: (e) => `🔗 Sent answers to ${e.url}`, route: (e) => `✦ AI picked: ${e.intent}`, agent: () => '✦ The AI agent takes over', end: (e) => (e.resolve ? '✅ Chat resolved' : '— end of chatbot —') };
+  const STAGE = 'Moved to a pipeline stage';
+  const FX = {
+    form: (e) => `📋 Form filled: ${e.answers.map((a) => `${a.label}: ${a.value}`).join(' · ') || 'no answers'}`, tag: (e) => `🏷 Tagged: ${e.tags.join(', ')}`, untag: (e) => `🏷 Tag removed: ${e.tags.join(', ')}`, save: (e) => `💾 Saved ${e.field.replace('custom:', 'CRM ')}: ${e.value}`,
+    handoff: (e) => `🙋 Handed to your team${e.note ? ` — ${e.note}` : ''}`, webhook: (e) => `🔗 Sent answers to ${e.url}`, route: (e) => `✦ AI picked: ${e.intent}`, agent: () => '✦ The AI agent takes over', end: (e) => (e.resolve ? '✅ Chat resolved' : '— end of chatbot —'),
+    api: (e) => (e.ok ? `🌐 API answered (${e.status})` : `🌐 API didn’t work (${e.status || e.error || 'no answer'})`), stage: () => `📊 ${STAGE}`, optout: () => '🔕 Unsubscribed from WhatsApp', optin: () => '🔔 Subscribed again',
+    split: (e) => `🔀 Random split: ${e.label}`, goto: () => '↪ Carries on in another chatbot', timeout: (e) => `⏱ No reply in ${dur(e.minutes || 0)}`,
+  };
   const send = async (input, shown) => {
     if (busy) return;
-    const next = [...msgs, { dir: 'in', text: shown ?? input.text }];
+    const next = shown === null ? msgs : [...msgs, { dir: 'in', text: shown ?? input.text }];
     setMsgs(next); setText(''); setBusy(true);
     try {
       const r = await api('/waflows/simulate', 'POST', { flow: f, state: st, input, tags, history: next.filter((m) => m.dir && m.text) });
-      const add = [...r.out.map((o) => ({ dir: 'out', ...o })), ...r.fx.flatMap((e) => [...(e.type === 'handoff' && e.text ? [{ dir: 'out', kind: 'text', text: e.text }] : []), { fx: FX[e.type]?.(e) }])];
+      const add = [...r.out.map((o) => ({ dir: 'out', ...o })), ...r.fx.flatMap((e) => [...(e.type === 'handoff' && e.text ? [{ dir: 'out', kind: 'text', text: e.text }] : []), { fx: FX[e.type]?.(e) }])].filter((m) => !('fx' in m) || m.fx);
       if (r.agent) add.push({ dir: 'out', ai: true, text: r.agent.reply, buttons: r.agent.buttons.map((b, i) => ({ id: `ai${i}`, title: b })), kind: r.agent.buttons.length ? 'buttons' : 'text' }, ...(r.agent.sendNames || []).map((n) => ({ fx: `📎 Would send: ${n}` })), ...(r.agent.handoff ? [{ fx: `🙋 AI handed over — ${r.agent.reason}` }] : []));
       else if (r.fx.some((e) => e.type === 'agent')) add.push({ fx: 'AI isn’t switched on — in a real chat your team would be notified' });
       if (r.fx.some((e) => e.type === 'tag')) setTags([...tags, ...r.fx.filter((e) => e.type === 'tag').flatMap((e) => e.tags)]);
@@ -582,6 +943,8 @@ function TestPhone({ f, onNode }) {
   const reset = () => { setMsgs([]); setSt(null); setTags([]); onNode(null); };
   const last = [...msgs].reverse().find((m) => m.dir === 'out');
   const opts = st?.wait === 'reply' && last && (last.kind === 'buttons' || last.kind === 'list') ? (last.buttons || last.rows) : null;
+  const waitNode = st?.wait === 'reply' && f.nodes.find((n) => n.id === st.node);
+  const wants = waitNode?.type === 'ask' ? waitNode.data.validate : '';
   return (
     <div className="phone">
       <div className="phone-h"><span className="cav sm" style={{ background: '#00a884' }}><Icon name="bot" size={15} /></span><div>Test chat<small>{st?.wait === 'time' ? 'waiting (a real chat would pause here)' : 'nothing is sent to anyone'}</small></div><button className="icon-btn" onClick={reset} title="Start again" aria-label="Start again"><Icon name="undo" size={16} /></button></div>
@@ -590,11 +953,19 @@ function TestPhone({ f, onNode }) {
         {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : (
           <div key={i} className={`bub ${m.dir === 'in' ? 'b-out' : 'b-in'}`} style={m.dir === 'in' ? undefined : m.ai ? { border: '1.5px solid #8b5cf6' } : undefined}>
             {m.ai && <div className="by"><span className="ai-txt">✦ AI agent</span></div>}
-            {m.image && <span className="pill">📷 photo</span>}{waFmt(m.text)}
+            {m.kind === 'template' && <div className="by">📨 Template · {m.template?.name}</div>}
+            {m.image && <span className="pill">📷 photo</span>}{m.kind === 'media_link' && <span className="pill">{MEDIA.find((x) => x[0] === m.media?.type)?.[1] || '📎 file'}</span>}
+            {m.header && <b style={{ display: 'block' }}>{m.header}</b>}
+            {waFmt(m.text)}
+            {m.footer && <small style={{ display: 'block', color: '#667781', marginTop: 4 }}>{m.footer}</small>}
             {m.kind === 'list' && <div className="bub-btns"><span>☰ {m.button}</span></div>}
+            {m.kind === 'cta' && <div className="bub-btns"><a href={m.cta.url} target="_blank" rel="noreferrer">🔗 {m.cta.label}</a></div>}
           </div>
         ))}
         {opts && <div className="opts">{opts.map((o) => <button key={o.id} onClick={() => send({ text: o.title, id: o.id }, o.title)}>{o.title}</button>)}</div>}
+        {wants === 'location' && <div className="opts"><button onClick={() => send({ text: '', location: true }, '📍 Location: Mumbai')}>📍 Share a location</button></div>}
+        {wants === 'file' && <div className="opts"><button onClick={() => send({ text: '', file: true }, '📷 photo.jpg')}>📎 Send a photo</button></div>}
+        {st?.until && <div className="opts"><button className="late" onClick={() => send({ text: '', timeout: true }, null)}>⏱ Pretend they didn’t reply</button></div>}
         {busy && <div className="ctyping"><i /><i /><i /></div>}
       </div>
       <form className="phone-f" onSubmit={(e) => { e.preventDefault(); if (text.trim()) send({ text: text.trim() }); }}>
