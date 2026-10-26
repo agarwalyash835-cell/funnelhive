@@ -570,42 +570,44 @@ export function useFunnelDraft() {
       nav(`/funnels/${r.id}`);
     } catch (x) { setErr(x.message); setBusy(false); }
   };
-  const start = async (prompt, lang = 'en', design = {}) => {
+  // the brief with the answers so far, as the builder gets it
+  const full = (a) => (a.answers.length ? `${a.prompt}\n\nMore details:\n${a.answers.map((x) => `- ${x.q} ${x.a}`).join('\n')}` : a.prompt);
+  // one question at a time: the next one is chosen from the brief and every answer so far
+  const ask = async (st) => {
     setChecking(true); setErr('');
     let c = { ready: true };
-    try { c = await api('/ai/clarify', 'POST', { prompt }); } catch { /* the check is a nicety: build anyway */ }
+    try { c = await api('/ai/clarify', 'POST', { prompt: st.prompt, answers: st.answers }); } catch { /* the check is a nicety: build anyway */ }
     setChecking(false);
-    if (c.ready || !c.questions?.length) return build(prompt, lang, design);
-    setAsking({ prompt, lang, design, understood: c.understood, questions: c.questions });
+    if (c.ready || !c.question) return build(full(st), st.lang, st.design);
+    setAsking({ ...st, understood: c.understood || st.understood || '', question: c.question, max: c.max || 4 });
   };
-  // answers are added to the brief; empty ones are left out
-  const answer = (answers) => {
-    const lines = asking.questions.filter((x) => answers[x.id]?.trim()).map((x) => `- ${x.q} ${answers[x.id].trim()}`);
-    build(lines.length ? `${asking.prompt}\n\nMore details:\n${lines.join('\n')}` : asking.prompt, asking.lang, asking.design);
-  };
-  const skip = () => build(asking.prompt, asking.lang, asking.design);
-  return { busy, checking, asking, err, secs, stage: t(stage), progress, start, answer, skip, cancel: () => setAsking(null) };
+  const start = (prompt, lang = 'en', design = {}) => ask({ prompt, lang, design, answers: [] });
+  const answer = (a) => { const v = String(a || '').trim(); if (!v || !asking) return; ask({ ...asking, answers: [...asking.answers, { q: asking.question.q, a: v }] }); };
+  const back = () => { if (!asking?.answers.length) return setAsking(null); const prev = asking.answers.at(-1); setAsking({ ...asking, answers: asking.answers.slice(0, -1), question: { id: 'prev', q: prev.q, options: [] }, retype: prev.a }); };
+  const skip = () => build(full(asking), asking.lang, asking.design);
+  return { busy, checking, asking, err, secs, stage: t(stage), progress, start, answer, skip, back, cancel: () => setAsking(null) };
 }
 
-// The few questions for a vague brief: tap an option or type your own
+// One question at a time for a vague brief: tap an option or type your own, then the next one
 export function BriefQuestions({ draft }) {
-  const [ans, setAns] = useState({});
-  const { understood, questions } = draft.asking;
-  const set = (id, v) => setAns((a) => ({ ...a, [id]: v }));
-  const filled = questions.filter((x) => ans[x.id]?.trim()).length;
+  const { understood, question: q, answers, max, retype } = draft.asking;
+  const [typed, setTyped] = useState(retype || '');
+  const ref = useRef();
+  useEffect(() => { setTyped(retype || ''); ref.current?.focus(); }, [q.q]); // eslint-disable-line react-hooks/exhaustive-deps
+  const go = (v) => draft.answer(v);
   return (
-    <div className="brief-q">
-      <div className="bq-head"><Icon name="sparkles" size={16} /><div><b>{t('A few quick questions')}</b><small>{understood || t('So the page is about your business — not a guess.')}</small></div></div>
-      {questions.map((x, i) => (
-        <div className="bq-item" key={x.id}>
-          <label htmlFor={`bq-${x.id}`}>{i + 1}. {x.q}</label>
-          {!!x.options?.length && <div className="bq-opts">{x.options.map((o) => <button type="button" key={o} className={ans[x.id] === o ? 'on' : ''} onClick={() => set(x.id, ans[x.id] === o ? '' : o)}>{o}</button>)}</div>}
-          <input id={`bq-${x.id}`} value={x.options?.includes(ans[x.id]) ? '' : ans[x.id] || ''} onChange={(e) => set(x.id, e.target.value)} placeholder={t('Or type your own answer')} />
-        </div>
-      ))}
+    <div className="brief-q" key={q.q}>
+      <div className="bq-head"><Icon name="sparkles" size={16} /><div><b>{answers.length ? t('One more thing') : t('A quick question first')}</b><small>{understood || t('So the page is about your business — not a guess.')}</small></div></div>
+      {answers.length > 0 && <div className="bq-done">{answers.map((x, i) => <span key={i} title={x.q}>✓ {x.a}</span>)}</div>}
+      <form className="bq-item" onSubmit={(e) => { e.preventDefault(); go(typed); }}>
+        <label htmlFor="bq-a">{q.q}</label>
+        {!!q.options?.length && <div className="bq-opts">{q.options.map((o) => <button type="button" key={o} disabled={draft.checking} onClick={() => go(o)}>{o}</button>)}</div>}
+        <div className="bq-type"><input ref={ref} id="bq-a" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={q.options?.length ? t('Or type your own answer') : t('Type your answer')} disabled={draft.checking} /><button className="btn primary" disabled={!typed.trim() || draft.checking}>{draft.checking ? <span className="spin" /> : t('Next')}</button></div>
+      </form>
       <div className="bq-foot">
-        <button type="button" className="btn primary" disabled={!filled} onClick={() => draft.answer(ans)}><Icon name="wand" /> {t('Build my funnel')}</button>
-        <button type="button" className="linkish" onClick={draft.skip}>{t('Skip — build with what I wrote')}</button>
+        <span className="bq-step">{t('Question {n} of up to {m}', { n: answers.length + 1, m: max })}</span>
+        {answers.length > 0 && <button type="button" className="linkish" onClick={draft.back}>{t('Back')}</button>}
+        <button type="button" className="linkish" onClick={draft.skip}>{t('Skip — build with what I’ve told you')}</button>
         <button type="button" className="linkish" onClick={draft.cancel}>{t('Edit my description')}</button>
       </div>
     </div>

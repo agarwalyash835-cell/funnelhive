@@ -296,42 +296,54 @@ The seller chose their design: ${design}.` : ''}`;
 
 // ---------- before building: is the brief enough? ----------
 // A one-liner ("free guide that grows my email list") leaves the page to guess the business — and the closest
-// template wins, however unrelated. So a vague or half-done brief gets 2–4 short questions with tap-to-answer
-// options first. → { ready: true } or { ready: false, understood, questions: [{ id, q, options }] }
+// template wins, however unrelated. So a vague or half-done brief gets questions first — ONE at a time, each chosen
+// for what is still unknown given the brief and the answers so far (at most four, fewer when it's clear sooner).
+// answers: [{ q, a }] → { ready: true } or { ready: false, understood, question: { id, q, options }, asked, max }
+const MAX_QUESTIONS = 4;
 const CLARIFY_DEFAULTS = [
   { id: 'what', q: 'What exactly do you sell?', options: ['Online course', '1:1 coaching / consulting', 'Physical product', 'Service / local business'] },
   { id: 'who', q: 'Who is it for?', options: ['Working professionals', 'Business owners', 'Students', 'Homemakers / parents'] },
   { id: 'price', q: 'What does it cost?', options: ['Free', 'Under ₹1,000', '₹1,000 – ₹10,000', 'Above ₹10,000'] },
   { id: 'goal', q: 'What should visitors do on this page?', options: ['Buy right away', 'Book a call', 'Register for a free webinar', 'Get a free guide (join my list)'] },
 ];
-const cleanQuestions = (qs) => (Array.isArray(qs) ? qs : []).filter((x) => x && typeof x.q === 'string' && x.q.trim()).slice(0, 4).map((x, i) => ({
-  id: String(x.id || `q${i + 1}`).replace(/[^\w-]/g, '').slice(0, 24) || `q${i + 1}`,
-  q: x.q.trim().slice(0, 140),
+const cleanQuestion = (x) => (x && typeof x.q === 'string' && x.q.trim() ? {
+  id: String(x.id || 'q').replace(/[^\w-]/g, '').slice(0, 24) || 'q',
+  q: x.q.trim().slice(0, 160),
   options: (Array.isArray(x.options) ? x.options : []).filter((o) => typeof o === 'string' && o.trim()).slice(0, 5).map((o) => o.trim().slice(0, 60)),
-}));
+} : null);
+const cleanAnswers = (list) => (Array.isArray(list) ? list : []).filter((x) => x && String(x.a || '').trim()).slice(0, MAX_QUESTIONS).map((x) => ({ q: String(x.q || '').slice(0, 160), a: String(x.a).trim().slice(0, 300) }));
+// the brief with the answers so far, as the funnel builder gets it
+export const withAnswers = (prompt, answers) => { const a = cleanAnswers(answers); return a.length ? `${prompt}\n\nMore details:\n${a.map((x) => `- ${x.q} ${x.a}`).join('\n')}` : prompt; };
 export function briefLooksReady(prompt) {
   const { price, audience } = parsePrompt(prompt);
   const words = prompt.trim().split(/\s+/).length;
   return words >= 14 && (price != null || /\bfree\b/i.test(prompt)) && (audience != null || words >= 22);
 }
-function offlineQuestions(prompt) {
-  const { price, audience } = parsePrompt(prompt);
-  return CLARIFY_DEFAULTS.filter((x) => !(x.id === 'price' && (price != null || /\bfree\b/i.test(prompt))) && !(x.id === 'who' && audience));
+// without AI: the next standard question the brief and the answers don't already cover
+function offlineQuestion(prompt, answers) {
+  const all = withAnswers(prompt, answers);
+  const { price, audience } = parsePrompt(all);
+  const asked = new Set(answers.map((x) => x.q));
+  return CLARIFY_DEFAULTS.find((x) => !asked.has(x.q) && !(x.id === 'price' && (price != null || /\bfree\b/i.test(all))) && !(x.id === 'who' && audience)) || null;
 }
-export async function clarifyBrief(prompt) {
-  if (briefLooksReady(prompt)) return { ready: true };
-  if (!aiEnabled()) return { ready: false, understood: '', questions: offlineQuestions(prompt) };
-  const system = `You help Indian small businesses build a sales page / funnel. Before building, decide if the seller's brief says enough to write a page that is specific to THEIR business. It needs: what they sell (the actual product or service and niche), who it is for, the price (or that it's free), and what the page should get visitors to do (buy, book a call, register for a webinar, download a free guide…).
-If the brief clearly says all of that, reply {"ready": true}.
-Otherwise reply {"ready": false, "understood": "one short sentence of what you understood so far, or \\"\\"", "questions": [{"id": "short_id", "q": "question", "options": ["…", "…", "…", "…"]}]} with 2–4 questions, only about what is missing or unclear — never ask what the brief already says. Each question is short and friendly in plain English, with 3–5 tap-to-answer options (each under 6 words) fitted to their brief and the Indian market (₹ prices). Ask what they sell first when that is unclear.
+export async function clarifyBrief(prompt, answersIn = []) {
+  const answers = cleanAnswers(answersIn);
+  const all = withAnswers(prompt, answers);
+  if (answers.length >= MAX_QUESTIONS || briefLooksReady(all)) return { ready: true };
+  const next = (question, understood = '') => (question ? { ready: false, understood, question, asked: answers.length, max: MAX_QUESTIONS } : { ready: true });
+  if (!aiEnabled()) return next(offlineQuestion(prompt, answers));
+  const system = `You help Indian small businesses build a sales page / funnel. Before building you check the seller's brief is specific enough to write a page about THEIR business. You need to know: what they sell (the actual product or service and niche), who it is for, the price (or that it's free), and what the page should get visitors to do (buy, book a call, register for a webinar, download a free guide…).
+You ask ONE question at a time, like a smart human consultant: the single most useful thing still missing, phrased for THIS business (use their words, niche and what they've already told you — never a generic form question). Never ask about something the brief or the answers already cover, and stop as soon as there's enough to build a specific page — don't ask for nice-to-haves.
+If there's enough, reply {"ready": true}.
+Otherwise reply {"ready": false, "understood": "one short, friendly sentence of what you understood so far", "question": {"id": "short_id", "q": "the one question", "options": ["3–5 tap-to-answer options, each under 6 words, fitted to their business and the Indian market (₹ prices)"]}}.
 Respond with ONLY the JSON.`;
   try {
-    const out = await ask(system, `Seller's brief: ${prompt}`);
+    const out = await ask(system, `Seller's brief: ${prompt}${answers.length ? `\n\nTheir answers so far:\n${answers.map((x) => `Q: ${x.q}\nA: ${x.a}`).join('\n')}` : ''}\n\nQuestions asked so far: ${answers.length} of at most ${MAX_QUESTIONS}.`);
     if (out.ready === true) return { ready: true };
-    const questions = cleanQuestions(out.questions);
-    if (questions.length) return { ready: false, understood: typeof out.understood === 'string' ? out.understood.slice(0, 200) : '', questions };
+    const q = cleanQuestion(out.question || (Array.isArray(out.questions) ? out.questions[0] : null));
+    if (q && !answers.some((x) => x.q === q.q)) return next(q, typeof out.understood === 'string' ? out.understood.slice(0, 200) : '');
   } catch (e) { console.warn('Brief check failed:', e.message); }
-  return { ready: false, understood: '', questions: offlineQuestions(prompt) };
+  return next(offlineQuestion(prompt, answers));
 }
 
 export async function editBlocks(step, theme, instruction) {

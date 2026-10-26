@@ -4,6 +4,8 @@
 // Every tool calls the platform's own REST API as the signed-in seller, so all validation, limits
 // and quality gates apply exactly as if the seller clicked it themselves.
 import crypto from 'node:crypto';
+import { LANGUAGES as VOICE_LANGS } from './sarvam.js';
+import { withAnswers } from './ai.js';
 import { T, uid } from './db.js';
 import { hashToken } from './security.js';
 import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
@@ -81,7 +83,8 @@ export const TOOLS = [
     name: 'create_funnel', description: 'Build a COMPLETE funnel from a business description — the right kind for it: a sales funnel (sales page, checkout with order bump, upsell, downsell, thank-you), a video sales letter + qualifying application (high-ticket, "apply for a call"), or a webinar funnel (free registration, confirmation, replay with the paid offer, checkout, upsell, thank-you) — with copy, prices, FOMO and theme. Quality-checked against the template library. Takes ~30–75 s. Use this first whenever the user wants a new funnel; then customise with the edit tools.',
     schema: S({
       brief: str('The business: what they sell, to whom, price in ₹, city, what the page should get people to do, anything specific the user said'),
-      answered: bool('true once the user has answered your questions (or told you to just go ahead) — skips the brief check'),
+      answers: arr('The questions you asked about this brief and the user’s answers so far, in order: [{"q": question, "a": their answer}]', { type: 'object', properties: { q: { type: 'string' }, a: { type: 'string' } }, required: ['q', 'a'] }),
+      answered: bool('true only when the user said to just build it now — skips the questions'),
       length: { type: 'string', enum: ['short', 'standard', 'detailed'], description: 'How many sections the main page gets: short (~7, quick read), standard (default), detailed (long-form, every section)' },
       style: str(`Optional page style the user asked for: ${PAGE_STYLES.join('|')}`),
       primary: str('Optional brand colour the user asked for, #rrggbb'),
@@ -89,10 +92,10 @@ export const TOOLS = [
     run: async (ctx, a) => {
       // a vague brief builds a page about the wrong business: ask first
       if (!a.answered) {
-        const c = await ctx.call('POST', '/ai/clarify', { prompt: a.brief });
-        if (!c.ready) return { needsInfo: true, understood: c.understood, questions: c.questions, next: 'Nothing was built. Ask the user these questions in one short message (offer the options), then call create_funnel again with their answers added to the brief and answered=true.' };
+        const c = await ctx.call('POST', '/ai/clarify', { prompt: a.brief, answers: a.answers });
+        if (!c.ready) return { needsInfo: true, understood: c.understood, question: c.question, asked: c.asked, next: 'Nothing was built yet. Ask the user just this ONE question (in their language, offering the options), wait for their answer, then call create_funnel again with the same brief and that question and answer added to "answers". It may ask one more, or build.' };
       }
-      const f = await ctx.call('POST', '/ai/generate', { prompt: a.brief, length: a.length, style: a.style, primary: a.primary });
+      const f = await ctx.call('POST', '/ai/generate', { prompt: withAnswers(a.brief, a.answers), length: a.length, style: a.style, primary: a.primary });
       return { ...outline(f, ctx.origin), usedAI: f.usedAI, qualityCheck: f.quality ? { passed: f.quality.finalIssues === 0 } : undefined };
     },
     summary: (r) => (r.needsInfo ? 'Needs a few details before building' : `Built “${r.name}” — ${r.steps.length} pages, ${r.steps.reduce((n, s) => n + s.sections.length, 0)} sections`), touchesResult: true,
@@ -784,7 +787,7 @@ const SYSTEM = `You are Hive AI, the builder inside FunnelHive — like Lovable,
 
 How to work:
 - New business / new funnel → call create_funnel with a rich brief (what they sell, audience, ₹ price, city, offer, what the page should get people to do). It already builds a complete, quality-checked funnel of the right kind (sales, VSL + application, or webinar). Then apply anything specific the user asked for.
-- Vague or half-done request ("make me a landing page", "email something") → don't guess the business. Ask 2–4 short, smart questions in ONE message, each with a few tap-friendly options (what they sell, who it's for, price or free, what visitors should do), and build once they answer. If create_funnel replies needsInfo, do exactly that. Pass answered=true when they've answered or said "just build it".
+- Vague or half-done request ("make me a landing page", "email something") → don't guess the business, and don't fire a list of questions. Call create_funnel; if it replies needsInfo, ask the user just that ONE question (in their language, with its options), then call create_funnel again with their answer in "answers". Repeat until it builds — usually one or two questions. Pass answered=true only if they say "just build it"
 - Design wishes ("shorter page", "dark and bold", "use our blue #1e40af") → pass length / style / primary to create_funnel; on an existing funnel use update_funnel (theme) or remove_section. Default length is standard; use short when they want a quick, simple page.
 - Editing → get_funnel (ids) → get_page (current props) → update_section / add_section / remove_section / move_section / replace_page. Never invent ids.
 - Automations → list_pipelines if you need stage ids, then create_automation with activate=true when the user wants it live. Triggers like a new lead / sign-up, purchase or booking fire from every funnel and form in the account, so no funnel is needed first — build it account-wide unless the user names a funnel. Use WhatsApp templates (not plain text) for automated WhatsApp.
@@ -1116,7 +1119,9 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     };
     try {
       const ctx = { ...jr.ctx, pending: [] };
-      const out = await hiveTurn({ ctx, history, message, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal });
+      // spoken from the dashboard's voice assistant: the answer is read aloud, in the language they spoke
+      const spoken = req.body.voice ? `${message}\n\n(Spoken by voice${VOICE_LANGS[req.body.voice] ? ` in ${VOICE_LANGS[req.body.voice]}` : ''}: reply in that same language and script, in 1–3 short, natural spoken sentences — no lists, tables, links or formatting. If you need something from them, ask just one question.)` : message;
+      const out = await hiveTurn({ ctx, history, message: spoken, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal });
       const undoId = saveUndo();
       t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now(), ...(undoId ? { undoId } : {}) });
       logUsage(req.user.id, out.usage);

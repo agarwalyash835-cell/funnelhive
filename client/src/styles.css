@@ -2828,3 +2828,54 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .mm-status-row { align-items: center; gap: 10px; flex-wrap: wrap; }
 .mm-status-on { color: var(--c-ok); }
 .kpi small.bc-mm-note { display: block; color: var(--c-ok); }
+/* one question at a time: what's answered so far, typing your own */
+.bq-done { display: flex; flex-wrap: wrap; gap: 6px; }
+.bq-done span { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--c-ok-soft, #dcfce7); color: var(--c-ok, #15803d); }
+.bq-type { display: flex; gap: 8px; }
+.bq-type input { flex: 1; }
+.bq-step { font-size: 12px; color: var(--c-muted); margin-right: auto; }
+.brief-q { animation: bqIn .2s ease-out; }
+@keyframes bqIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* the dashboard for the seller's industry: the switch, and tiles that open their page */
+.gl-kit { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 10px; border-radius: 99px; border: 1px solid var(--c-line); background: var(--c-surface); font-size: 13px; }
+.gl-kit select { border: 0; background-color: transparent; height: 30px; padding: 0 26px 0 2px; font-size: 13px; font-weight: 600; width: auto; max-width: 210px; box-shadow: none; }
+a.gl-tap { color: inherit; text-decoration: none; transition: transform .12s, box-shadow .15s; }
+a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
+
+/* Talk to Hive AI: the floating orb, and the voice panel */
+.tk-fab { position: fixed; right: 22px; bottom: 22px; z-index: 60; display: inline-flex; align-items: center; gap: 10px; height: 54px; padding: 0 20px 0 8px; border: 0; border-radius: 99px; color: #fff; background: #1e1b4b; box-shadow: 0 14px 34px -10px rgba(79, 70, 229, .65); cursor: pointer; isolation: isolate; }
+.tk-fab .tk-fab-orb { position: absolute; left: 7px; top: 7px; width: 40px; height: 40px; border-radius: 50%; background: conic-gradient(from 0deg, #7c3aed, #06b6d4, #f59e0b, #ec4899, #7c3aed); filter: blur(.3px); animation: tkSpin 6s linear infinite, tkBreathe 3s ease-in-out infinite; z-index: -1; }
+.tk-fab svg { position: relative; margin-left: 10px; margin-right: 6px; }
+.tk-fab-l { font-weight: 650; font-size: 14px; }
+.tk-fab:hover { transform: translateY(-1px); }
+.tk-panel { position: fixed; right: 22px; bottom: 22px; z-index: 61; width: min(380px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 40px)); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 16px 16px; border-radius: 26px; color: #e0e7ff; background: radial-gradient(120% 90% at 50% 0%, #312e81 0%, #1e1b4b 45%, #0b1020 100%); box-shadow: 0 30px 70px -20px rgba(15, 23, 42, .7); animation: bqIn .2s ease-out; }
+.tk-head { display: flex; align-items: center; gap: 8px; width: 100%; }
+.tk-head b { flex: 1; font-size: 15px; color: #fff; }
+.tk-head select { width: auto; height: 30px; font-size: 12.5px; border-radius: 99px; border: 1px solid rgba(255, 255, 255, .2); background-color: rgba(255, 255, 255, .08); color: #fff; padding: 0 26px 0 10px; }
+.tk-head select option { color: #111; }
+.tk-head .icon-btn { color: #c7d2fe; }
+.tk-chat { width: 100%; flex: 1; min-height: 70px; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.tk-hint { margin: 4px 0; font-size: 12.5px; color: #a5b4fc; text-align: center; line-height: 1.5; }
+.tk-turn { margin: 0; max-width: 88%; align-self: flex-start; font-size: 13px; line-height: 1.45; padding: 7px 11px; border-radius: 14px 14px 14px 4px; background: rgba(255, 255, 255, .1); color: #eef2ff; white-space: pre-wrap; }
+.tk-turn.me { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: rgba(103, 232, 249, .18); }
+.tk-turn.work { background: transparent; color: #a5b4fc; font-style: italic; }
+/* the orb: --lvl (0–1) is the live sound level */
+.tk-orb { --lvl: 0; position: relative; width: 132px; height: 132px; margin: 6px 0 2px; border: 0; border-radius: 50%; background: transparent; cursor: pointer; display: grid; place-items: center; }
+.tk-orb i { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, #7c3aed, #06b6d4, #22d3ee, #f59e0b, #ec4899, #7c3aed); filter: blur(10px); opacity: .55; scale: calc(.82 + var(--lvl) * .4); transition: scale .08s linear; animation: tkSpin 8s linear infinite; }
+.tk-orb i:nth-child(2) { inset: 12px; filter: blur(4px); opacity: .85; animation-duration: 5s; animation-direction: reverse; scale: calc(.9 + var(--lvl) * .3); }
+.tk-orb i:nth-child(3) { inset: 24px; filter: none; opacity: 1; background: radial-gradient(circle at 35% 30%, #fff 0, #c4b5fd 18%, #6366f1 55%, #312e81 100%); animation: none; scale: calc(1 + var(--lvl) * .18); }
+.tk-core { position: relative; color: #fff; display: grid; place-items: center; }
+.tk-orb.idle i:not(:nth-child(3)) { animation: tkSpin 8s linear infinite, tkBreathe 3.2s ease-in-out infinite; }
+.tk-orb.listening i:first-child { opacity: .9; }
+.tk-orb.thinking i { animation-duration: 1.4s; }
+.tk-orb.thinking .tk-core { animation: tkBreathe 1s ease-in-out infinite; }
+.tk-orb:disabled { cursor: default; }
+.tk-orb:focus-visible { outline: 2px solid #67e8f9; outline-offset: 4px; }
+.tk-state { margin: 0; font-size: 13px; font-weight: 600; color: #e0e7ff; }
+.tk-foot { display: flex; gap: 12px; align-items: center; font-size: 12px; color: #a5b4fc; }
+.tk-foot a { color: #67e8f9; }
+@keyframes tkSpin { to { transform: rotate(360deg); } }
+@keyframes tkBreathe { 0%, 100% { scale: 1; } 50% { scale: 1.06; } }
+@media (prefers-reduced-motion: reduce) { .tk-fab .tk-fab-orb, .tk-orb i, .tk-orb .tk-core { animation: none !important; } }
+@media (max-width: 640px) { .tk-fab { right: 14px; bottom: 14px; height: 50px; padding-right: 8px; } .tk-fab-l { display: none; } .tk-panel { right: 8px; left: 8px; bottom: 8px; width: auto; } }

@@ -73,6 +73,8 @@ import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, h
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 import { registerWaInbox } from './wainbox.js';
 import { registerShopify } from './shopify.js';
+import { registerDashKit } from './dashkit.js';
+import { registerTalk } from './talk.js';
 import { registerMetaSignup } from './meta-signup.js';
 import { registerWaKnowledge } from './waknow.js';
 
@@ -957,6 +959,8 @@ registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
 registerShopify(app, { auth, wrap, rateLimit, isTest });
+registerDashKit(app, { auth });
+registerTalk(app, { auth, rateLimit, isTest });
 registerMetaSignup(app, { auth, wrap, rateLimit, isTest });
 registerWaKnowledge(app, { auth, rateLimit, isTest });
 registerRazorpaySettings(app, { auth, wrap });
@@ -1039,7 +1043,7 @@ app.post('/api/templates/:tid/use', auth, funnelCap, (req, res) => {
 app.post('/api/ai/clarify', auth, aiLimiter, wrap(async (req, res) => {
   const prompt = String(req.body.prompt || '').trim().slice(0, 2000);
   if (prompt.length < 3) return res.status(400).json({ error: 'Describe your business or offer in a sentence' });
-  res.json(await clarifyBrief(prompt));
+  res.json(await clarifyBrief(prompt, req.body.answers));
 }));
 
 // the seller's design picks for a new funnel: page length, page style, brand colour

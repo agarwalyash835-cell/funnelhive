@@ -4,6 +4,7 @@ import { api } from '../api';
 import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, DRAFT_EXAMPLES, BriefQuestions, DesignPicker, DEFAULT_DESIGN, confirmDialog } from '../ui';
 import { PagePreview } from '../blocks';
 import { AreaChart, Sparkline, HBars } from '../charts';
+import { TalkToHive } from '../talk';
 
 const METRICS = [
   ['revenue', 'Revenue', inr],
@@ -42,11 +43,12 @@ export function Kpis({ data }) {
   );
 }
 
-export function TrendPanel({ data }) {
-  const [metric, setMetric] = useState('revenue');
-  const m = METRICS.find((x) => x[0] === metric);
+export function TrendPanel({ data, sales = true }) {
+  const list = sales ? METRICS : METRICS.filter(([k]) => k === 'leads' || k === 'views');
+  const [metric, setMetric] = useState(list[0][0]);
+  const m = list.find((x) => x[0] === metric) || list[0];
   return (
-    <Panel title="Performance" actions={<div className="seg sm">{METRICS.map(([k, l]) => <button key={k} className={metric === k ? 'on' : ''} onClick={() => setMetric(k)}>{l}</button>)}</div>}>
+    <Panel title="Performance" actions={<div className="seg sm">{list.map(([k, l]) => <button key={k} className={metric === k ? 'on' : ''} onClick={() => setMetric(k)}>{l}</button>)}</div>}>
       <AreaChart data={data.series} yKey={metric} format={m[2]} label={`${m[1]} per day`} />
     </Panel>
   );
@@ -134,42 +136,59 @@ function Ring({ pct }) {
     </svg>
   );
 }
-function Bento({ data, funnels, days, setDays }) {
+// the numbers the overview already has, for the industry tiles that use them
+const BASE = {
+  revenue: ['Revenue', (t) => inr(t.revenue), 'revenue', 'revenue'], orders: ['Orders', (t) => num(t.orders), 'orders', 'orders'], leads: ['Leads', (t) => num(t.leads), 'leads', 'leads'],
+  visitors: ['Visitors', (t) => num(t.visitors), 'visitors', 'views'], conversion: ['Conversion', (t) => `${t.conversion}%`, 'conversion', null], aov: ['Avg. order value', (t) => inr(t.aov), 'aov', null],
+};
+// "Your business at a glance" — the tiles that matter in the seller's industry (dashkit.js), with an industry switch
+function Bento({ data, funnels, days, setDays, kit, onKit }) {
   const t = data.totals, p = data.prev;
   const live = (funnels || []).filter((f) => f.published).length;
   const best = [...(data.funnels || [])].sort((a, b) => b.revenue - a.revenue)[0];
-  const tile = (cls, label, value, now, prev, key) => (
-    <div className={`gl ${cls}`}>
-      <span className="gl-l">{label}</span>
-      <b className="gl-v">{value}</b>
-      <div className="gl-f"><Delta now={now} prev={prev} />{key && <Sparkline data={data.series} yKey={key} />}</div>
-    </div>
-  );
+  const tiles = (kit?.tiles || [{ base: 'revenue' }, { base: 'orders' }, { base: 'leads' }, { base: 'visitors' }, { base: 'conversion' }, { base: 'aov' }]).map((x) => {
+    if (!x.base) return x;
+    const [label, fmt, key, spark] = BASE[x.base];
+    return { id: x.base, label: x.label || label, shown: fmt(t), value: t[key], prev: p[key], spark, ring: x.base === 'conversion', link: x.base === 'orders' || x.base === 'revenue' ? '/orders' : x.base === 'leads' ? '/crm' : null };
+  });
+  const [hero, ...rest] = tiles;
+  const Tile = ({ x }) => {
+    const body = (
+      <>
+        <span className="gl-l">{x.label}</span>
+        {x.ring ? <div className="gl-row"><Ring pct={x.value} /><b className="gl-v">{x.shown}</b></div> : <b className="gl-v">{x.shown ?? num(x.value)}</b>}
+        <div className="gl-f">{x.prev != null ? <Delta now={x.value} prev={x.prev} /> : null}{x.spark ? <Sparkline data={data.series} yKey={x.spark} /> : x.sub && <span className="gl-sub">{x.sub}</span>}</div>
+      </>
+    );
+    return x.link ? <Link className={`gl gl-tap ${x.ring ? 'gl-conv' : ''}`} to={x.link}>{body}</Link> : <div className={`gl ${x.ring ? 'gl-conv' : ''}`}>{body}</div>;
+  };
   return (
     <section className="lv-section">
-      <div className="lv-head"><h2>Your business at a glance</h2><RangePicker value={days} onChange={setDays} /></div>
+      <div className="lv-head">
+        <h2>Your business at a glance</h2>
+        <span className="row" style={{ gap: 8 }}>
+          {kit && <label className="gl-kit" title="Shows the numbers that matter in this industry">
+            <span aria-hidden="true">{kit.industry.icon}</span>
+            <select value={kit.industry.id} onChange={(e) => onKit(e.target.value)} aria-label="Dashboard industry">{kit.industries.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}</select>
+          </label>}
+          <RangePicker value={days} onChange={setDays} />
+        </span>
+      </div>
       <div className="glance">
         <div className="gl gl-hero">
-          <span className="gl-l">Revenue · last {days} days</span>
-          <b className="gl-big">{inr(t.revenue)}</b>
-          <div className="gl-f"><Delta now={t.revenue} prev={p.revenue} /><span className="gl-sub">{num(t.orders)} orders · {inr(t.aov)} average</span></div>
-          <div className="gl-chart"><Sparkline data={data.series} yKey="revenue" width={520} height={70} /></div>
+          <span className="gl-l">{hero.label} · last {days} days</span>
+          <b className="gl-big">{hero.shown ?? num(hero.value)}</b>
+          <div className="gl-f">{hero.prev != null && <Delta now={hero.value} prev={hero.prev} />}<span className="gl-sub">{hero.spark ? (kit?.sales === false ? `${num(t.visitors)} visitors · ${num(t.leads)} leads` : `${num(t.orders)} orders · ${inr(t.aov)} average`) : hero.sub}</span></div>
+          {hero.spark && <div className="gl-chart"><Sparkline data={data.series} yKey={hero.spark} width={520} height={70} /></div>}
+          {hero.link && !hero.spark && <Link className="gl-link" to={hero.link}>See them →</Link>}
         </div>
-        {tile('', 'Orders', num(t.orders), t.orders, p.orders, 'orders')}
-        {tile('', 'Leads', num(t.leads), t.leads, p.leads, 'leads')}
-        {tile('', 'Visitors', num(t.visitors), t.visitors, p.visitors, 'views')}
-        <div className="gl gl-conv">
-          <span className="gl-l">Conversion</span>
-          <div className="gl-row"><Ring pct={t.conversion} /><b className="gl-v">{t.conversion}%</b></div>
-          <div className="gl-f"><Delta now={t.conversion} prev={p.conversion} /><span className="gl-sub">visitors who buy</span></div>
-        </div>
-        {tile('', 'Avg. order value', inr(t.aov), t.aov, p.aov, null)}
+        {rest.map((x) => <Tile key={x.id} x={x} />)}
         <div className="gl gl-honey">
           <span className="gl-l">Live funnels</span>
           <b className="gl-v">{live}<small> / {(funnels || []).length}</small></b>
           <Link className="gl-link" to="/funnels">Manage funnels →</Link>
         </div>
-        {best && best.revenue > 0 && (
+        {kit?.sales !== false && best && best.revenue > 0 && (
           <Link className="gl gl-best" to={`/funnels/${best.id}/analytics`}>
             <span className="gl-l">Best funnel</span>
             <b className="gl-name">{best.name}</b>
@@ -206,12 +225,15 @@ export default function Dashboard() {
   const [create, setCreate] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [funnels, setFunnels] = useState(null);
-  const load = () => { api(`/analytics/overview?days=${days}`).then(setData); api('/me').then(setMe); api('/funnels').then(setFunnels).catch(() => setFunnels([])); };
+  const [kit, setKit] = useState(null); // the industry's tiles (dashkit.js)
+  const load = () => { api(`/dashboard/industry?days=${days}`).then(setKit).catch(() => {}); api(`/analytics/overview?days=${days}`).then(setData); api('/me').then(setMe); api('/funnels').then(setFunnels).catch(() => setFunnels([])); };
   useEffect(() => { load(); }, [days]);
   const removeDemo = async () => {
     if (!await confirmDialog({ title: 'Remove all demo visits, leads and orders?', text: 'Your real data stays untouched.', confirm: 'Remove', danger: true })) return;
     await api('/demo', 'DELETE'); toast('Demo data removed'); load();
   };
+  const pickKit = async (id) => { try { await api('/dashboard/industry', 'PUT', { id }); setKit(await api(`/dashboard/industry?days=${days}`)); toast('Dashboard switched'); } catch (e) { toast(e.message); } };
+  const sales = kit?.sales !== false;
   const seed = async () => { setSeeding(true); await api('/demo/seed', 'POST'); setSeeding(false); toast('Demo data loaded — explore away!'); load(); };
 
   const ob = me?.onboarding;
@@ -227,9 +249,10 @@ export default function Dashboard() {
 
   return (
     <Layout>
+      <TalkToHive />
       {create && <CreateFunnel onClose={() => setCreate(false)} aiEnabled={me?.aiEnabled} />}
       <PromptHero name={me?.workspace ? me.workspace.name : me?.name?.split(' ')[0]} managedBy={me?.workspace ? me?.name?.split(' ')[0] : null} aiEnabled={me?.aiEnabled} onSample={seed} seeding={seeding} showSample={!!data && noData} />
-      {data && !noData && <Bento data={data} funnels={funnels} days={days} setDays={setDays} />}
+      {data && !noData && <Bento data={data} funnels={funnels} days={days} setDays={setDays} kit={kit} onKit={pickKit} />}
       <FunnelCards list={funnels} />
       {!data ? <div className="skeleton" /> : noData ? (
         <div className="lv-how">
@@ -258,17 +281,18 @@ export default function Dashboard() {
           )}
           <div className="lv-head lv-perf"><h2>Performance</h2></div>
           <div className="grid-2-1">
-            <TrendPanel data={data} />
-            <Panel title="Revenue by offer type"><OfferMix byKind={data.byKind} /><p className="hint">Bumps, upsells & cross-sells lift your average order value.</p></Panel>
+            <TrendPanel data={data} sales={sales} />
+            {sales ? <Panel title="Revenue by offer type"><OfferMix byKind={data.byKind} /><p className="hint">Bumps, upsells & cross-sells lift your average order value.</p></Panel>
+              : <Panel title="Where your visitors come from"><HBars format={num} items={(data.sources || []).slice(0, 6).map((x) => ({ label: x.source, value: x.views }))} /><p className="hint">Visitors by traffic source — put more into the ones that bring people in.</p></Panel>}
           </div>
           <div className="grid-2-1">
             <Panel title="Funnel results" actions={<Link className="btn ghost sm" to="/funnels">View all</Link>} pad={false}>
               <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>Funnel</th><th className="r">Visitors</th><th className="r">Orders</th><th className="r">Conv.</th><th className="r">Revenue</th><th /></tr></thead>
+                <thead><tr><th>Funnel</th><th className="r">Visitors</th>{sales ? <><th className="r">Orders</th><th className="r">Conv.</th><th className="r">Revenue</th></> : <><th className="r">Leads</th><th className="r">Lead rate</th></>}<th /></tr></thead>
                 <tbody>{data.funnels.slice(0, 6).map((f) => (
                   <tr key={f.id}>
                     <td><Link to={`/funnels/${f.id}`} className="strong">{f.name}</Link> <span className={`pill ${f.published ? 'ok' : ''}`}>{f.published ? 'Live' : 'Draft'}</span></td>
-                    <td className="r">{num(f.visitors)}</td><td className="r">{num(f.orders)}</td><td className="r">{f.conversion}%</td><td className="r strong">{inr(f.revenue)}</td>
+                    <td className="r">{num(f.visitors)}</td>{sales ? <><td className="r">{num(f.orders)}</td><td className="r">{f.conversion}%</td><td className="r strong">{inr(f.revenue)}</td></> : <><td className="r strong">{num(f.leads)}</td><td className="r">{f.visitors ? `${Math.round(((f.leads || 0) / f.visitors) * 1000) / 10}%` : '—'}</td></>}
                     <td className="r"><Link className="icon-btn" to={`/funnels/${f.id}/analytics`} title="Analytics" aria-label="Analytics"><Icon name="chart" size={16} /></Link></td>
                   </tr>
                 ))}</tbody>
@@ -277,6 +301,7 @@ export default function Dashboard() {
             <Panel title="Traffic sources" pad={false}><div className="tbl-wrap"><Sources rows={data.sources} /></div></Panel>
           </div>
           <Panel title="Ad campaigns" pad={false}><Campaigns rows={data.campaigns} /></Panel>
+          {sales && (
           <Panel title="Recent orders" actions={<Link className="btn ghost sm" to="/orders">All orders</Link>} pad={false}>
             {data.recentOrders.length ? (
               <div className="tbl-wrap"><table className="tbl">
@@ -287,6 +312,7 @@ export default function Dashboard() {
               </table></div>
             ) : <Empty icon="cart" title="No orders yet" text="Publish a funnel and share the link — orders will show up here in real time." />}
           </Panel>
+          )}
         </>
       )}
     </Layout>
