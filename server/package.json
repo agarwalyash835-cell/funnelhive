@@ -13,9 +13,9 @@
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
-    "mailparser": "3.9.38",
-    "nodemailer": "^7.0.13",
-    "smtp-server": "3.19.21"
+    "mailparser": "^3.12.4",
+    "nodemailer": "^10.2.1",
+    "smtp-server": "^3.21.1"
   },
   "engines": {
     "node": ">=22.13"
