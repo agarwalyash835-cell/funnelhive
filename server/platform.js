@@ -21,7 +21,8 @@ export const DEFAULTS = {
   storage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // S3-compatible (Wasabi…): backups, uploads, product files
   videoStorage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // course video pieces (Cloudflare R2: no download fees)
   mail: { from: '', keyEnc: '' }, // the platform's email sender (Resend): sign-in codes, resets, students' alerts
-  embeddings: { keyEnc: '', model: '', vision: '' }, // OpenRouter key for the WhatsApp AI agent's document search (server env OPENROUTER_API_KEY wins)
+  embeddings: { keyEnc: '', model: '', vision: '' },
+  sarvam: { keyEnc: '' }, // Sarvam AI for the WhatsApp inbox: voice notes, Indian-script pages, translating questions (env SARVAM_API_KEY wins) // OpenRouter key for the WhatsApp AI agent's document search (server env OPENROUTER_API_KEY wins)
   signupsOpen: true,
   announcement: '',
   captcha: { siteKey: '', secretEnc: '' }, // Cloudflare Turnstile on sign-up (server env TURNSTILE_* wins)
@@ -45,6 +46,7 @@ export function platform() {
     videoStorage: { ...DEFAULTS.videoStorage, ...s.videoStorage },
     mail: { ...DEFAULTS.mail, ...s.mail },
     embeddings: { ...DEFAULTS.embeddings, ...s.embeddings },
+    sarvam: { ...DEFAULTS.sarvam, ...s.sarvam },
     captcha: { ...DEFAULTS.captcha, ...s.captcha },
   };
   cacheAt = Date.now();

@@ -18,6 +18,7 @@ const dayOf = (t) => { const d = new Date(t), now = new Date(); if (d.toDateStri
 const left = (t) => { const m = Math.max(0, Math.round((t - Date.now()) / 60000)); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
 const WHO = { contact: '', team: 'You', app: 'You · WhatsApp app', bot: 'Chatbot', ai: 'AI' };
 const display = (c) => c.name || `+${c.num}`;
+const LANG_NAMES = { 'en-IN': 'English', 'hi-IN': 'Hindi', 'mr-IN': 'Marathi', 'gu-IN': 'Gujarati', 'bn-IN': 'Bengali', 'ta-IN': 'Tamil', 'te-IN': 'Telugu', 'kn-IN': 'Kannada', 'ml-IN': 'Malayalam', 'pa-IN': 'Punjabi', 'od-IN': 'Odia', 'ur-IN': 'Urdu' };
 // WhatsApp's own formatting: *bold*, _italic_, ~strike~, and links
 export const waFmt = (s) => String(s || '').split(/(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|https?:\/\/[^\s<]+)/g).map((p, i) => (
   /^\*[^*]+\*$/.test(p) ? <b key={i}>{p.slice(1, -1)}</b> : /^_[^_]+_$/.test(p) ? <i key={i}>{p.slice(1, -1)}</i> : /^~[^~]+~$/.test(p) ? <s key={i}>{p.slice(1, -1)}</s>
@@ -183,6 +184,7 @@ function Msg({ m, convId, agent }) {
     <div className={`bub ${cls}`}>
       {by && <div className="by">{by}{m.type === 'template' && <span className="pill" style={{ fontSize: 10 }}>template</span>}</div>}
       {m.media && <Media m={m} convId={convId} />}
+      {m.transcribed && <div className="by" style={{ marginTop: 2 }}>🎤 Voice note, transcribed{m.lang ? ` · ${LANG_NAMES[m.lang] || m.lang}` : ''}</div>}
       {m.location ? <a className="bub-loc" href={`https://www.google.com/maps?q=${m.location.lat},${m.location.lng}`} target="_blank" rel="noreferrer noopener"><span className="pin">📍</span><span><b>{m.location.name || 'Location'}</b>{m.location.address && <small>{m.location.address}</small>}<em>Open in Google Maps →</em></span></a>
         : m.text && !(m.media?.type === 'document' && m.text === m.media.caption) ? waFmt(m.text) : m.media ? '' : <span className="muted">(empty message)</span>}
       {(m.buttons?.length > 0 || m.list) && <div className="bub-btns">{(m.buttons || m.list.rows).map((b, i) => <span key={i}>{b}</span>)}</div>}

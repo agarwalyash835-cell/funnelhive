@@ -453,6 +453,26 @@ function EmbedPanel({ m, save }) {
   );
 }
 
+// Sarvam AI for Indian languages in the WhatsApp inbox (sellers never see the service)
+function SarvamPanel({ m, save }) {
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async () => { setBusy(true); if (await save({ sarvam: { key } })) { setKey(''); toast('Sarvam is on'); } setBusy(false); };
+  return (
+    <Panel title="Indian languages (Sarvam AI)">
+      <p className="muted sm">Transcribes customers’ WhatsApp voice notes (22 Indian languages and English, mixed Hindi-English too), reads catalogues and photos written in Indian scripts, and translates questions in Indian scripts so they find English catalogues. Costs sellers 1 AI credit a voice-note minute and 1 a page read; Sarvam bills about ₹0.49 a minute and ₹0.50 a page.</p>
+      <div className={`ai-card ${m.ready ? 'on' : ''}`}><Icon name="mic" size={20} /><div><b>{m.ready ? `On${m.fromEnv ? ' · key from the server’s settings file' : ''}` : 'Off — voice notes stay audio-only'}</b><p className="muted sm">{(m.voiceNotes || 0).toLocaleString('en-IN')} voice notes transcribed so far</p></div></div>
+      {m.fromEnv ? <p className="hint">Set by SARVAM_API_KEY on the server, which takes priority over this form.</p> : (
+        <>
+          <label className="sm strong">Sarvam API subscription key {m.hasKey && <small className="muted">· saved — enter a new one to replace it</small>}<input type="password" value={key} onChange={(e) => setKey(e.target.value.trim())} placeholder="sk_…" autoComplete="new-password" /></label>
+          <p className="hint">From dashboard.sarvam.ai → API keys. Saving makes one small test request.</p>
+          <div className="row"><button className="btn primary" disabled={busy || !key} onClick={go}>{busy ? 'Checking…' : 'Save & test'}</button>{m.hasKey && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Turn off Sarvam?', text: 'Voice notes stop being transcribed; Indian-script pages are read by the general image reader.', confirm: 'Turn off', danger: true })) && save({ sarvam: { clear: true } })}>Turn off</button>}</div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 function PlatformSettings() {
   const [s, setS] = useState(null);
   const [rz, setRz] = useState({ keyId: '', keySecret: '', webhookSecret: '' });
@@ -495,6 +515,7 @@ function PlatformSettings() {
 
       {s.mail && <MailPanel m={s.mail} save={save} />}
       {s.embeddings && <EmbedPanel m={s.embeddings} save={save} />}
+      {s.sarvam && <SarvamPanel m={s.sarvam} save={save} />}
       {s.captcha && <CaptchaPanel c={s.captcha} save={save} />}
       {s.composio && <ComposioPanel c={s.composio} save={save} />}
       <StoragePanel s={s.storage} save={save} />

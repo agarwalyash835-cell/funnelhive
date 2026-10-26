@@ -14,6 +14,7 @@ import { onWaInbox, waSession, waLive, waApproved, waMedia, waUpload, waNumber, 
 import { INDUSTRY, industryOf } from './waindustry.js';
 import { hasKnowledge, searchKnowledge, knowledgeBlock, customerProfile, rememberFacts, refreshMemory, learnFromChat, pdfPages, pageLabel } from './waknow.js';
 import { vaultBytes } from './vault.js';
+import { sarvamReady, transcribe, oggSeconds } from './sarvam.js';
 import { KITS } from './crmkits.js';
 import { ensureMeta, logActivity } from './crm.js';
 import { notify } from './notify.js';
@@ -598,11 +599,38 @@ function keywordFlow(userId, text, exact = false) {
 }
 const latest = (userId, type) => flowsOf(userId).filter((f) => f.trigger.type === type).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] || null;
 
+// a voice note → its words (on the message, the chat list and the contact's timeline); 1 AI credit a started minute,
+// notes up to 10 minutes. Without Sarvam (or credits) it stays a voice note for the team to play.
+const VOICE_MAX = 600;
+async function transcribeNote(u, conv, msg) {
+  if (!sarvamReady() || creditsShort(u, 1)) return msg;
+  try {
+    const f = await waMedia(u, msg.media.id);
+    const mime = String(f.type || msg.media.mime || 'audio/ogg').split(';')[0];
+    const sec = /ogg|opus/.test(mime) ? oggSeconds(f.buf) : null;
+    if (sec && sec > VOICE_MAX) { addMsg(conv, { dir: 'note', by: 'system', text: 'A voice note over 10 minutes — not transcribed' }); return msg; }
+    if (creditsShort(u, Math.max(1, Math.ceil((sec || 60) / 60)))) return msg;
+    const t = await transcribe(f.buf, mime, `voice.${(mime.split('/')[1] || 'ogg').replace('mpeg', 'mp3')}`);
+    if (!t.text) return msg;
+    spendCredits(u, Math.max(1, Math.ceil((t.seconds || sec || 30) / 60)));
+    const next = T.wachat.update(msg.id, (m) => { m.text = clip(t.text, 4000); m.transcribed = true; m.lang = t.language || ''; });
+    T.waconvs.update(conv.id, (c) => { if (c.lastAt === msg.at) c.lastText = clip(`🎤 ${t.text}`, 140); });
+    if (conv.ckey) logActivity(u.id, conv.ckey, { type: 'whatsapp', title: `WhatsApp voice note: ${clip(t.text, 120)}`, text: t.text, status: 'received', by: 'contact' });
+    return next;
+  } catch (e) {
+    addMsg(conv, { dir: 'note', by: 'system', text: `Couldn’t transcribe this voice note: ${clip(e.message, 150)}` });
+    return msg;
+  }
+}
+
 // who answers this message (see the top of the file)
 async function automate(userId, convId, msg, isNew) {
   const u = T.users.get(userId);
   let conv = convOf(convId);
   if (!u || !conv || !waLive(u)) return;
+  // a voice note: its words first (Sarvam), so chatbots, the AI agent, keyword rules and the team all read it
+  if (['audio', 'voice'].includes(msg.media?.type) && msg.media.id && !msg.text) msg = await transcribeNote(u, conv, msg);
+  if (conv.ckey) fire(u.id, 'wa_message', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}`, text: msg.text || '' });
   const input = { text: msg.text || '', id: msg.iid || '' };
   if (conv.human) return needsPerson(u, conv, msg.text);
   if (HUMAN.test(input.text) && (conv.bot || conv.ai || flowsOf(userId).length || agentOn(u))) return handoff(u, conv, 'The customer asked for a person', { say: 'Sure — connecting you with our team. Someone will reply here shortly 🙏', flowId: conv.bot?.flowId });
@@ -629,7 +657,7 @@ onWaInbox({
     let conv = convFor(u.id, num, key, d.contact_name);
     const isNew = !conv.lastInAt;
     const loc = locationOf(d);
-    const msg = addMsg(conv, { dir: 'in', by: 'contact', type: clip(d.type, 20) || 'text', text: clip(text === '[location]' ? '' : text, 4000) || (loc ? `📍 ${loc.name || loc.address || 'Location'}` : ''), ...(d.interactive_id ? { iid: clip(d.interactive_id, 100) } : {}), ...(mediaOf(d) ? { media: mediaOf(d) } : {}), ...(loc ? { location: loc } : {}) });
+    const msg = addMsg(conv, { dir: 'in', by: 'contact', type: clip(d.type, 20) || 'text', text: clip(text === '[location]' || text === `[${d.type}]` ? '' : text, 4000) || (loc ? `📍 ${loc.name || loc.address || 'Location'}` : ''), ...(d.interactive_id ? { iid: clip(d.interactive_id, 100) } : {}), ...(mediaOf(d) ? { media: mediaOf(d) } : {}), ...(loc ? { location: loc } : {}) });
     // the seller's keyword → label rules
     const low = String(text || '').toLowerCase();
     const labels = rulesOf(u).labels.filter((r) => low.includes(r.word)).map((r) => r.label);
@@ -640,7 +668,6 @@ onWaInbox({
       if (labels.length) c.labels = [...new Set([...(c.labels || []), ...labels])].slice(0, 10);
     });
     if (stop) { addMsg(conv, { dir: 'note', by: 'system', text: 'Unsubscribed from WhatsApp messages (replied STOP)' }); return; }
-    if (key) fire(u.id, 'wa_message', { key, name: conv.name || '', phone: `+${num}`, text });
     serial(conv.id, () => automate(u.id, conv.id, msg, isNew));
   },
   status(rec) {
@@ -838,7 +865,7 @@ const convView = (c, flows) => ({
   lastAt: c.lastAt, lastText: c.lastText || '', lastDir: c.lastDir || '', lastBy: c.lastBy || '', ai: !!c.ai, human: !!c.human, bot: c.bot ? { flowId: c.bot.flowId, name: flows?.get(c.bot.flowId)?.name || c.bot.name || 'Chatbot', wait: c.bot.wait } : null,
   window: winOpen(c) ? { open: true, closesAt: c.lastInAt + WINDOW } : { open: false }, intent: c.intent || '', summary: c.summary || null, handoff: c.handoff || null, memory: c.memory?.text || '',
 });
-const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, status: m.status || '', error: m.error || '', at: m.at });
+const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, ...(m.transcribed ? { transcribed: true, lang: m.lang || '' } : {}), status: m.status || '', error: m.error || '', at: m.at });
 const flowView = (f) => ({ ...f, problems: flowProblems(f) });
 const FILTERS = {
   all: "status <> 'resolved'",

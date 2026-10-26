@@ -14,6 +14,7 @@ import { aiEnabled, aiJson } from './ai.js';
 import { creditsShort, spendCredits } from './billing.js';
 import { vaultBytes, aiFolder } from './vault.js';
 import { pipelinesFor } from './crm.js';
+import { sarvamReady, digitise, scriptLang, toEnglish, LANGUAGES } from './sarvam.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const arr = (v) => (Array.isArray(v) ? v : []);
@@ -196,7 +197,14 @@ function tablePages(rows, title = '') {
   return pages;
 }
 // → { pages: [{ n, text }], note } — note says why nothing could be read
-export async function extractText(f, buf) {
+// ctx: { lang: the document's language ('auto', 'en-IN', 'hi-IN'…), canSpend(n): AI credits for n Sarvam pages,
+//        sarvamPages: counts the pages Sarvam read (charged by the caller) }
+export async function extractText(f, buf, ctx = {}) {
+  const lang = ctx.lang || 'auto';
+  // Sarvam reads Indian-script pages: when the seller says the document is in an Indian language, or (auto) when
+  // the general reader finds Indian script on a page, or when it's the only reader there is
+  const sarvamFor = (n) => sarvamReady() && (!ctx.canSpend || ctx.canSpend(n));
+  const indic = (l) => l && l !== 'auto' && l !== 'en-IN';
   const ext = String(f.ext || f.name?.split('.').pop() || '').toLowerCase();
   if (ext === 'pdf') {
     const { getDocumentProxy, extractText: pdfText, extractImages } = await import('unpdf');
@@ -205,29 +213,63 @@ export async function extractText(f, buf) {
     const pages = arr(text).map((t, i) => ({ n: i + 1, text: String(t).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim() }));
     // pages that are pictures (a scanned catalogue, a designed brochure): the biggest image on the page is read by
     // the vision model
-    const pictures = pages.filter((p) => p.text.length < 40);
-    let read = 0, failed = 0;
-    if (pictures.length && visionReady()) {
-      for (const p of pictures.slice(0, OCR_PAGES)) {
+    const pictures = pages.filter((p) => p.text.length < 40).slice(0, OCR_PAGES);
+    let read = 0, failed = 0, bySarvam = 0;
+    // which picture pages go to Sarvam, by language: { 'hi-IN': [page numbers] }
+    const toSarvam = {};
+    if (pictures.length && indic(lang) && sarvamFor(pictures.length)) toSarvam[lang] = pictures.map((p) => p.n);
+    else if (pictures.length && visionReady()) {
+      for (const p of pictures) {
         const imgs = await extractImages(pdf, p.n).catch(() => []);
         const big = imgs.filter((x) => x.width * x.height > 40000).sort((a, b) => b.width * b.height - a.width * a.height)[0];
         if (!big) continue;
-        try { p.text = [p.text, await readImage(`data:image/png;base64,${pixelsToPng(big).toString('base64')}`)].filter(Boolean).join('\n'); read++; } catch { failed++; }
+        try {
+          const t = await readImage(`data:image/png;base64,${pixelsToPng(big).toString('base64')}`);
+          p.text = [p.text, t].filter(Boolean).join('\n'); read++;
+          const l = lang === 'auto' && scriptLang(t);
+          if (l) (toSarvam[l] ||= []).push(p.n); // Indian script: Sarvam reads it again, better
+        } catch { failed++; }
+      }
+    } else if (pictures.length && sarvamFor(pictures.length)) toSarvam[indic(lang) ? lang : ''] = pictures.map((p) => p.n);
+    for (const [l, nums] of Object.entries(toSarvam)) {
+      if (!sarvamFor(nums.length)) continue;
+      for (let i = 0; i < nums.length; i += 30) {
+        const chunk = nums.slice(i, i + 30);
+        try {
+          const part = chunk.length === pages.length ? buf : (await pdfPages(buf, chunk))?.buf || buf;
+          const got = await digitise(part, `${f.name || 'document'}.pdf`.replace(/\.pdf\.pdf$/i, '.pdf'), 'application/pdf', l || undefined);
+          for (const g of got) {
+            const p = pages.find((x) => x.n === chunk[g.n - 1]);
+            if (p && g.text.trim()) { if (!p.text || p.text.length < 40 || l) p.text = g.text.trim(); bySarvam++; }
+          }
+          if (ctx.sarvamPages) ctx.sarvamPages.n += chunk.length;
+        } catch (e) { console.error('Sarvam document reading failed', e.message); failed += read ? 0 : chunk.length; }
       }
     }
     const usable = pages.filter((p) => p.text.length >= 3);
     const notes = [];
-    if (read) notes.push(`${read} page${read > 1 ? 's' : ''} read from images.`);
+    if (bySarvam) notes.push(`${bySarvam} page${bySarvam > 1 ? 's' : ''} in Indian scripts read.`);
+    else if (read) notes.push(`${read} page${read > 1 ? 's' : ''} read from images.`);
     if (failed) notes.push(`${failed} page${failed > 1 ? 's' : ''} couldn’t be read right now — press “Read again” later.`);
-    if (pictures.length > OCR_PAGES && visionReady()) notes.push(`Only the first ${OCR_PAGES} picture pages were read.`);
-    if (pictures.length && !visionReady()) notes.push(pictures.length === pages.length ? 'This PDF is scanned images — reading them needs image reading switched on (Admin).' : `${pictures.length} page${pictures.length > 1 ? 's are' : ' is'} images and weren’t read.`);
+    if (pages.filter((p) => p.text.length < 40).length > OCR_PAGES && (visionReady() || sarvamReady())) notes.push(`Only the first ${OCR_PAGES} picture pages were read.`);
+    if (pictures.length && !visionReady() && !sarvamReady()) notes.push(pictures.length === pages.length ? 'This PDF is scanned images — reading them needs image reading switched on (Admin).' : `${pictures.length} page${pictures.length > 1 ? 's are' : ' is'} images and weren’t read.`);
     if (!usable.length) return { pages: [], total: pages.length, note: notes.join(' ') || 'No text found in this PDF' };
     return { pages: usable, total: pages.length, note: notes.join(' ') };
   }
-  if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) && visionReady()) {
+  if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) && (visionReady() || sarvamReady())) {
     if (buf.length > 8 * 1024 * 1024) return { pages: [], note: 'This image is too large to read — save it under 8 MB.' };
     const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' }[ext];
+    const bySarvam = async (l) => {
+      const got = await digitise(buf, f.name || `image.${ext}`, mime, l || undefined);
+      if (ctx.sarvamPages) ctx.sarvamPages.n += 1;
+      const t = got.map((g) => g.text).join('\n').trim();
+      return t ? { pages: [{ n: 1, text: t }], note: 'Read from the image (Indian script).' } : null;
+    };
+    const sarvamOk = ['jpg', 'jpeg', 'png'].includes(ext) && sarvamFor(1);
+    if (sarvamOk && (indic(lang) || !visionReady())) return (await bySarvam(indic(lang) ? lang : '')) || { pages: [], note: 'No text found in this image' };
     const t = await readImage(`data:${mime};base64,${buf.toString('base64')}`);
+    const l = lang === 'auto' && sarvamOk && scriptLang(t);
+    if (l) { const s = await bySarvam(l).catch(() => null); if (s) return s; }
     return t ? { pages: [{ n: 1, text: t }], note: 'Read from the image.' } : { pages: [], note: 'No text found in this image' };
   }
   if (ext === 'docx') { const { s } = await unzip(buf); return { pages: paginate(textOfXml(s('word/document.xml'), 'w:p')) }; }
@@ -283,7 +325,7 @@ function chunk(pages) {
 
 // ---------- the processing queue (documents are read one at a time in the background) ----------
 const KINDS = ['catalogue', 'document'];
-export const docView = (d) => ({ id: d.id, fileId: d.fileId, name: d.name, kind: d.kind, send: d.send !== false, status: d.status, note: d.note || '', error: d.error || '', pages: d.pages || 0, chunks: d.chunks || 0, products: d.products || 0, vectors: d.vectors || 0, summary: d.summary || '', category: d.category || '', size: d.size || 0, at: d.at, doneAt: d.doneAt || null });
+export const docView = (d) => ({ id: d.id, fileId: d.fileId, name: d.name, kind: d.kind, lang: d.lang || 'auto', send: d.send !== false, status: d.status, note: d.note || '', error: d.error || '', pages: d.pages || 0, chunks: d.chunks || 0, products: d.products || 0, vectors: d.vectors || 0, summary: d.summary || '', category: d.category || '', size: d.size || 0, at: d.at, doneAt: d.doneAt || null });
 function dropIndex(docId) {
   tx(() => {
     T.kchunks.delWhere({ docId }); T.kprods.delWhere({ docId });
@@ -332,7 +374,10 @@ export async function processDoc(id) {
   if (!d || !u) return;
   if (!f || f.userId !== d.userId) { T.kdocs.update(id, (x) => { x.status = 'failed'; x.error = 'The file was deleted from your Vault'; }); return; }
   try {
-    const { pages, note, total } = await extractText(f, await vaultBytes(f));
+    // pages Sarvam reads (Indian scripts) cost 1 AI credit each
+    const sarvamPages = { n: 0 };
+    const { pages, note, total } = await extractText(f, await vaultBytes(f), { lang: d.lang || 'auto', canSpend: (n) => !creditsShort(u, n), sarvamPages });
+    if (sarvamPages.n) spendCredits(u, sarvamPages.n);
     dropIndex(id);
     const chunks = chunk(pages);
     d = T.kdocs.update(id, (x) => { x.pages = total || pages.length; x.note = note || ''; x.name = f.name; x.size = f.size; delete x.error; });
@@ -350,13 +395,14 @@ export async function processDoc(id) {
     // ready for keyword search now; the meaning-search vectors follow in the background (knowTick) — a slow or busy
     // embedding service never keeps a document from being used
     T.kdocs.update(id, (x) => {
-      x.status = pages.length ? 'ready' : 'failed'; x.chunks = rows.length; x.products = prods.length; x.vectors = 0; x.model = ''; x.doneAt = Date.now();
+      // changed while it was being read (another type or language): it stays queued and is read again
+      x.status = x.status === 'queued' ? 'queued' : pages.length ? 'ready' : 'failed'; x.chunks = rows.length; x.products = prods.length; x.vectors = 0; x.model = ''; x.doneAt = Date.now();
       if (meta) { x.summary = meta.summary; x.category = meta.category; }
       if (!pages.length) x.error = note || 'No text found in this file';
     });
   } catch (e) {
     console.error('document processing failed', e.message);
-    T.kdocs.update(id, (x) => { x.status = 'failed'; x.error = `Couldn’t read this file: ${clip(e.message, 160)}`; });
+    T.kdocs.update(id, (x) => { if (x.status !== 'queued') x.status = 'failed'; x.error = `Couldn’t read this file: ${clip(e.message, 160)}`; });
   }
 }
 let busy = false;
@@ -440,6 +486,8 @@ export async function searchKnowledge(u, text, { k = 6 } = {}) {
   if (!docs.size || !String(text).trim()) return { passages: [], products: [], docs: [] };
   const ranks = new Map();
   const add = (id, rank) => ranks.set(id, (ranks.get(id) || 0) + 1 / (60 + rank));
+  // a question in an Indian script also searches in English (most catalogues are in English): Sarvam translates it
+  if (sarvamReady() && scriptLang(text)) { const en = await toEnglish(text).catch(() => ''); if (en) text = `${text}\n${en}`; }
   const fq = ftsQuery(text);
   if (fq) q('SELECT chunkId FROM kfts WHERE kfts MATCH ? AND userId = ? ORDER BY bm25(kfts) LIMIT 30').all(fq, userId).forEach((r, i) => add(r.chunkId, i));
   if (embedReady()) {
@@ -550,7 +598,7 @@ export function registerWaKnowledge(app, { auth, rateLimit, isTest }) {
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 30, key: (req) => req.user.id, message: 'Please wait a minute and try again.' });
   const own = (req, res) => { const d = T.kdocs.get(req.params.id); if (!d || d.userId !== req.user.id) { res.status(404).json({ error: 'Document not found' }); return null; } return d; };
   const list = (userId) => T.kdocs.all({ userId }, { order: 'at', desc: true }).map(docView);
-  app.get('/api/wa-agent/docs', auth, (req, res) => res.json({ docs: list(req.user.id), search: embedReady() ? 'smart' : 'keywords', ai: aiEnabled() }));
+  app.get('/api/wa-agent/docs', auth, (req, res) => res.json({ docs: list(req.user.id), search: embedReady() ? 'smart' : 'keywords', ai: aiEnabled(), languages: LANGUAGES, indic: sarvamReady() }));
   // { fileIds: [Vault file ids], kind: 'catalogue' | 'document' } — read in the background, one at a time
   app.post('/api/wa-agent/docs', auth, limiter, (req, res) => {
     const ids = arr(req.body?.fileIds).map(String).slice(0, 50);
@@ -566,6 +614,8 @@ export function registerWaKnowledge(app, { auth, rateLimit, isTest }) {
     const b = req.body || {};
     T.kdocs.update(d.id, (x) => {
       if (typeof b.send === 'boolean') x.send = b.send;
+      // the language it's written in (Indian languages are read by Sarvam): a change reads it again
+      if ((b.lang === 'auto' || LANGUAGES[b.lang]) && b.lang !== (x.lang || 'auto')) { x.lang = b.lang; x.status = 'queued'; x.at = Date.now(); }
       if (KINDS.includes(b.kind) && b.kind !== x.kind) { x.kind = b.kind; x.status = 'queued'; x.at = Date.now(); }
     });
     res.json({ docs: list(req.user.id) });
