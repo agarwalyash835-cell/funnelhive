@@ -2824,3 +2824,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .dp-color input[type="color"] { width: 34px; height: 26px; padding: 0; border: 1px solid var(--c-line); border-radius: 6px; background: none; cursor: pointer; }
 .lv-chip-link.on { color: var(--c-ink); border-color: var(--c-accent); }
 @media (max-width: 520px) { .design-pick { flex-direction: column; align-items: flex-start; } .lv-bar { flex-wrap: wrap; } }
+/* Marketing Messages API (WhatsApp settings + broadcast results) */
+.mm-status-row { align-items: center; gap: 10px; flex-wrap: wrap; }
+.mm-status-on { color: var(--c-ok); }
+.kpi small.bc-mm-note { display: block; color: var(--c-ok); }

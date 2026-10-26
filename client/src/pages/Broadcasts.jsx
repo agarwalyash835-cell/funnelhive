@@ -127,7 +127,7 @@ function Editor({ b, meta, funnels, onBack, onChange, onOpen }) {
       {s.total != null && (
         <div className="kpis k4">
           <div className="kpi"><span className="kpi-l">Recipients</span><b className="kpi-v">{num(s.total)}</b>{s.skipped > 0 && <small>{num(s.skipped)} skipped</small>}</div>
-          <div className="kpi"><span className="kpi-l">Delivered</span><b className="kpi-v">{num(s.sent)}</b>{s.failed > 0 && <small>{num(s.failed)} failed</small>}</div>
+          <div className="kpi"><span className="kpi-l">Delivered</span><b className="kpi-v">{num(s.sent)}</b>{s.failed > 0 && <small>{num(s.failed)} failed</small>}{s.mm > 0 && <small className="bc-mm-note">{s.mm === s.sent ? 'All' : num(s.mm)} sent via Marketing Messages API</small>}</div>
           <div className="kpi"><span className="kpi-l">Opened</span><b className="kpi-v">{b.channel === 'email' ? pct(s.opened || 0, s.sent) : '—'}</b>{b.channel === 'email' && <small>{num(s.opened || 0)} people</small>}</div>
           <div className="kpi"><span className="kpi-l">Clicked</span><b className="kpi-v">{b.channel === 'email' ? pct(s.clicked || 0, s.sent) : '—'}</b>{b.channel === 'email' && <small>{num(s.clicked || 0)} people</small>}</div>
           {detail?.sales && <div className="kpi"><span className="kpi-l">Sales it brought</span><b className="kpi-v">{inr(detail.sales.revenue)}</b><small>{num(detail.sales.orders)} order{detail.sales.orders === 1 ? '' : 's'} by {num(detail.sales.buyers)} recipient{detail.sales.buyers === 1 ? '' : 's'} · within 7 days</small></div>}

@@ -126,7 +126,9 @@ function optOut(userId, key, num, why) {
 // One record per logical message (ikey): a retry reuses it and Hive's Idempotency-Key stops a double send.
 // → { status: 'sent', id } (duplicate: true when it already went); throws on a provider error
 // cloud: payload is Meta Cloud API JSON (for what Hive's own shape lacks, e.g. a location), sent through Hive's pass-through
-async function send(u, to, payload, { ikey, event = '', ckey = '', cloud = false } = {}) {
+// mm: a broadcast's marketing template — sent to HIVE_WA_MARKETING_PATH (Meta's Marketing Messages API on the Hive
+// backend) when the owner has set it; off by default. If that call fails it goes once more through /messages.
+async function send(u, to, payload, { ikey, event = '', ckey = '', cloud = false, mm = false } = {}) {
   const h = live(u);
   if (!h) return { status: 'not-configured' };
   const num = waNumber(to);
@@ -141,11 +143,18 @@ async function send(u, to, payload, { ikey, event = '', ckey = '', cloud = false
     }
   } else rec = T.wamsgs.update(rec.id, (x) => { x.status = 'sending'; delete x.error; });
   try {
-    const r = cloud
-      ? await call(keyOf(h), 'POST', `/cloud/${encodeURIComponent(h.from)}/messages`, { messaging_product: 'whatsapp', recipient_type: 'individual', ...payload, to: num }, { 'Idempotency-Key': ikey })
-      : await call(keyOf(h), 'POST', '/messages', { ...payload, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': ikey });
-    T.wamsgs.update(rec.id, (x) => { x.status = 'sent'; x.hiveId = r.id || null; x.wamid = r.wamid || null; x.sentAt = Date.now(); });
-    return { status: 'sent', id: r.id || rec.id };
+    const mmPath = mm && !cloud && payload.type === 'template' && process.env.HIVE_WA_MARKETING_PATH;
+    let r = null, via = 'cloud';
+    if (mmPath) {
+      try { r = await call(keyOf(h), 'POST', mmPath, { ...payload, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': `${ikey}:mm` }); via = 'mm'; } catch (e) { if (isAuth(e)) throw e; }
+    }
+    if (!r) {
+      r = cloud
+        ? await call(keyOf(h), 'POST', `/cloud/${encodeURIComponent(h.from)}/messages`, { messaging_product: 'whatsapp', recipient_type: 'individual', ...payload, to: num }, { 'Idempotency-Key': ikey })
+        : await call(keyOf(h), 'POST', '/messages', { ...payload, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': ikey });
+    }
+    T.wamsgs.update(rec.id, (x) => { x.status = 'sent'; x.hiveId = r.id || null; x.wamid = r.wamid || null; x.sentAt = Date.now(); x.via = via; });
+    return { status: 'sent', id: r.id || rec.id, via };
   } catch (e) {
     T.wamsgs.update(rec.id, (x) => { x.status = 'failed'; x.error = String(e.message).slice(0, 300); });
     throw e;
@@ -159,7 +168,7 @@ async function providerSend(u, to, msg = {}) {
   const h = live(u);
   if (!h) return { status: 'not-configured' };
   if (waOptedOut(u.id, to)) throw new Error('This contact opted out of WhatsApp messages');
-  const opts = { ikey: msg.key, ckey: msg.ckey, event: msg.event || '' };
+  const opts = { ikey: msg.key, ckey: msg.ckey, event: msg.event || '', mm: !!msg.marketing };
   if (msg.template) return send(u, to, { type: 'template', template: { name: msg.template, language: msg.language || 'en', body: (msg.params || []).map(param) } }, opts);
   if (await windowOpen(h, waNumber(to))) return send(u, to, { type: 'text', text: { body: String(msg.text || '').slice(0, 4096) } }, opts);
   // outside the 24-hour window: the event's template if there is one, else nothing can go
@@ -368,6 +377,9 @@ function handle(userId, ev, d = {}, env = {}) {
     const next = T.wamsgs.update(rec.id, (x) => {
       if (st === 'failed') { x.status = 'failed'; x.error = clip(d.error?.message || d.error?.title || d.error || d.reason || 'Not delivered', 300); } else if ((RANK[st] ?? -1) > (RANK[x.status] ?? -1)) x.status = st;
       if (RANK[st] || st === 'failed') x[`${st}At`] = Date.now();
+      // marketing_lite: Meta delivered it through the Marketing Messages API
+      const cat = d.pricing?.category || d.conversation?.type;
+      if (cat) x.pricing = clip(cat, 40);
     });
     inbox?.status(next);
     if (st === 'failed' && rec.status !== 'failed' && next.ckey) logActivity(userId, next.ckey, { type: 'whatsapp', title: `WhatsApp not delivered${next.template ? `: ${next.template}` : ''}`, text: next.error, status: 'failed', by: 'auto' });

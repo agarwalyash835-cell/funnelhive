@@ -5,7 +5,7 @@ import nodemailer from 'nodemailer';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { checkPublicHost, allowPrivate, isPrivateIp } from './webhooks.js';
-import { T } from './db.js';
+import { T, q } from './db.js';
 
 let KEY = null;
 export function initMessaging(secret) { KEY = crypto.createHash('sha256').update(`channels:${process.env.ENCRYPTION_KEY || secret}`).digest(); }
@@ -105,7 +105,15 @@ export async function sendWhatsApp(u, to, msg) {
   const body = msg.template
     ? { messaging_product: 'whatsapp', to: num, type: 'template', template: { name: msg.template, language: { code: msg.language || 'en' }, ...(msg.params?.length ? { components: [{ type: 'body', parameters: msg.params.map((t) => ({ type: 'text', text: String(t || '-').slice(0, 1000) })) }] } : {}) } }
     : { messaging_product: 'whatsapp', to: num, type: 'text', text: { body: String(msg.text).slice(0, 4096), preview_url: true } };
-  const r = await fetch(`${GRAPH}/${encodeURIComponent(w.phoneNumberId)}/messages`, {
+  // a marketing template from a broadcast (msg.marketing) goes through Meta's Marketing Messages API when the
+  // account is onboarded; if that call fails it's sent once more the usual way
+  if (msg.template && msg.marketing && await mmRoute(u, msg)) {
+    try { return { ...(await graphSend(w, 'marketing_messages', { ...body, recipient_type: 'individual' })), via: 'mm' }; } catch (e) { console.warn('Marketing Messages API send failed, sending through Cloud API', e.message); }
+  }
+  return { ...(await graphSend(w, 'messages', body)), via: 'cloud' };
+}
+async function graphSend(w, path, body) {
+  const r = await fetch(`${GRAPH}/${encodeURIComponent(w.phoneNumberId)}/${path}`, {
     method: 'POST', headers: { Authorization: `Bearer ${decrypt(w.tokenEnc)}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
   });
@@ -118,13 +126,73 @@ export async function sendWhatsApp(u, to, msg) {
   return { status: 'sent', id: data?.messages?.[0]?.id };
 }
 
+// ---------- Marketing Messages API (Meta direct only) ----------
+// The WhatsApp Business Account's marketing_messages_onboarding_status: ONBOARDED → on; ELIGIBLE → the seller still
+// has to accept the terms in WhatsApp Manager; anything else → not eligible. Kept on the channel for 6 hours.
+const MM_TTL = 6 * 3600000;
+const graphGet = async (w, path) => {
+  const r = await fetch(`${GRAPH}/${path}`, { headers: { Authorization: `Bearer ${decrypt(w.tokenEnc)}` }, signal: AbortSignal.timeout(10000) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.error?.message || `HTTP ${r.status}`);
+  return data;
+};
+export const mmView = (u) => {
+  const w = u?.channels?.whatsapp || {};
+  if (waProvider(u) || !w.phoneNumberId) return null;
+  if (!w.businessId) return { status: 'unknown' };
+  return w.mm ? { status: w.mm.status, checkedAt: w.mm.checkedAt } : { status: 'unknown' };
+};
+export async function checkMarketingMessages(u) {
+  const w = u?.channels?.whatsapp;
+  if (!w?.tokenEnc || !w?.businessId || waProvider(u)) return null;
+  let status = 'no';
+  try {
+    const s = String((await graphGet(w, `${encodeURIComponent(w.businessId)}?fields=marketing_messages_onboarding_status`)).marketing_messages_onboarding_status || '').toUpperCase();
+    status = s === 'ONBOARDED' ? 'on' : s === 'ELIGIBLE' ? 'terms' : 'no';
+  } catch { status = w.mm?.status || 'no'; } // a failed check keeps the last answer
+  const mm = { status, checkedAt: Date.now() };
+  T.users.update(u.id, (x) => { if (x.channels?.whatsapp) x.channels = { ...x.channels, whatsapp: { ...x.channels.whatsapp, mm } }; });
+  if (u.channels?.whatsapp) u.channels.whatsapp.mm = mm;
+  return mm;
+}
+// a template's category (MARKETING / UTILITY / AUTHENTICATION), looked up once per 6 hours
+const categories = new Map();
+async function templateCategory(w, name, language) {
+  const k = `${w.businessId}:${name}:${language}`, hit = categories.get(k);
+  if (hit && Date.now() - hit.at < MM_TTL) return hit.category;
+  const list = (await graphGet(w, `${encodeURIComponent(w.businessId)}/message_templates?name=${encodeURIComponent(name)}&fields=name,category,language&limit=50`)).data || [];
+  const t = list.find((x) => x.name === name && (!language || x.language === language)) || list.find((x) => x.name === name);
+  const category = String(t?.category || '').toUpperCase();
+  categories.set(k, { category, at: Date.now() });
+  return category;
+}
+async function mmRoute(u, msg) {
+  const w = u.channels.whatsapp;
+  if (!w.businessId) return false;
+  try {
+    const mm = w.mm && Date.now() - w.mm.checkedAt < MM_TTL ? w.mm : await checkMarketingMessages(u);
+    return mm?.status === 'on' && (await templateCategory(w, msg.template, msg.language || 'en')) === 'MARKETING';
+  } catch { return false; }
+}
+// Meta's account_update webhook (event MM_LITE_TERMS_SIGNED): the seller with that WhatsApp Business Account is on
+export function mmTermsSigned(wabaId) {
+  const id = String(wabaId || '');
+  if (!id) return 0;
+  let n = 0;
+  for (const r of q("SELECT id FROM users WHERE json_extract(data, '$.channels.whatsapp.businessId') = ?").all(id)) {
+    T.users.update(r.id, (x) => { x.channels = { ...x.channels, whatsapp: { ...x.channels.whatsapp, mm: { status: 'on', checkedAt: Date.now() } } }; });
+    n++;
+  }
+  return n;
+}
+
 // ---------- settings API (secrets never leave the server) ----------
 const str = (v, n) => String(v ?? '').trim().slice(0, n);
 export const publicChannels = (u) => {
   const e = u.channels?.email || {}, w = u.channels?.whatsapp || {};
   return {
     email: { host: e.host || '', port: e.port || 465, secure: e.secure ?? true, user: e.user || '', hasPassword: !!e.passEnc, fromName: e.fromName || '', fromEmail: e.fromEmail || '', replyTo: e.replyTo || '', ...emailStatus(u) },
-    whatsapp: { phoneNumberId: w.phoneNumberId || '', businessId: w.businessId || '', hasToken: !!w.tokenEnc, provider: w.provider || 'meta', ...whatsappStatus(u) },
+    whatsapp: { phoneNumberId: w.phoneNumberId || '', businessId: w.businessId || '', hasToken: !!w.tokenEnc, provider: w.provider || 'meta', ...whatsappStatus(u), mm: mmView(u) },
     razorpay: (({ keyId = '', secretEnc, webhookSecretEnc } = {}) => ({ keyId, hasSecret: !!secretEnc, hasWebhookSecret: !!webhookSecretEnc, mode: keyId.startsWith('rzp_live_') ? 'live' : keyId ? 'test' : null, configured: !!(keyId && secretEnc), webhookUrl: `/api/razorpay/webhook/${u.id}` }))(u.channels?.razorpay),
   };
 };
@@ -165,6 +233,13 @@ export function registerChannels(app, { auth, wrap, rateLimit, isTest }) {
     if (!token && !prev.tokenEnc) return res.status(400).json({ error: 'Paste your permanent access token' });
     res.json(publicChannels(setChannel(req.user.id, 'whatsapp', { ...keep, phoneNumberId, businessId: str(b.businessId, 40), tokenEnc: token ? encrypt(token) : prev.tokenEnc })));
   });
+  // Marketing Messages API: check the WhatsApp Business Account again (after accepting the terms)
+  app.post('/api/channels/whatsapp/mm/check', auth, testLimiter, wrap(async (req, res) => {
+    if (!mmView(req.user)) return res.status(400).json({ error: 'Connect WhatsApp through Meta directly first' });
+    if (!req.user.channels.whatsapp.businessId) return res.status(400).json({ error: 'Add your WhatsApp Business Account ID first' });
+    await checkMarketingMessages(req.user);
+    res.json(publicChannels(T.users.get(req.user.id)));
+  }));
   app.post('/api/channels/email/test', auth, testLimiter, wrap(async (req, res) => {
     const to = str(req.body.to || req.user.email, 200);
     if (!EMAIL_RE.test(to)) return res.status(400).json({ error: 'Enter a valid email address' });

@@ -127,9 +127,10 @@ async function deliver(u, b, to) {
     logActivity(u.id, to.key, { type: 'email', title: `Broadcast sent: ${msg.subject}`, text: text.slice(0, 2000), by: 'broadcast', broadcast: b.name, status: 'sent' });
   } else {
     const params = b.wa.params ? b.wa.params.split(',').map((p) => fill(p.trim(), ctx)) : [];
-    const r = await sendWhatsApp(u, to.phone, { template: b.wa.template, language: b.wa.language, params, key: `bc:${b.id}:${to.key}`, ckey: to.key });
+    const r = await sendWhatsApp(u, to.phone, { template: b.wa.template, language: b.wa.language, params, key: `bc:${b.id}:${to.key}`, ckey: to.key, marketing: true });
     if (r.status !== 'sent') throw new Error('WhatsApp isn’t connected');
     logActivity(u.id, to.key, { type: 'whatsapp', title: `Broadcast sent on WhatsApp: ${b.wa.template}`, text: params.join(' · '), by: 'broadcast', broadcast: b.name, status: 'sent' });
+    return { via: r.via || 'cloud', id: r.id || null }; // mm: Meta's Marketing Messages API, cloud: the usual Cloud API
   }
 }
 
@@ -190,9 +191,10 @@ export async function broadcastTick(now = Date.now()) {
         const m = metaFor(u.id, s.key);
         if (m?.unsubscribed || (b.channel === 'whatsapp' && (m?.waOptOut || waOptedOut(u.id, s.phone)))) { T.bsends.update(s.id, (x) => { x.status = 'skipped'; x.error = 'Unsubscribed'; }); return bump(b.id, 'skipped'); }
         try {
-          await deliver(u, b, s);
-          T.bsends.update(s.id, (x) => { x.status = 'sent'; x.sentAt = Date.now(); });
+          const r = await deliver(u, b, s);
+          T.bsends.update(s.id, (x) => { x.status = 'sent'; x.sentAt = Date.now(); if (r) { x.via = r.via; x.wamid = r.id; } });
           bump(b.id, 'sent');
+          if (r?.via === 'mm') bump(b.id, 'mm');
         } catch (e) {
           T.bsends.update(s.id, (x) => { x.status = 'failed'; x.error = String(e.message).slice(0, 300); });
           bump(b.id, 'failed');

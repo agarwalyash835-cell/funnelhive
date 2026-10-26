@@ -72,6 +72,19 @@ export function WhatsAppPanel() {
   );
 }
 
+// Meta's Marketing Messages API: broadcasts of marketing templates go through it once the account is onboarded
+const MM_TEXT = { on: 'On', terms: 'Accept terms in WhatsApp Manager → Overview → Alerts', no: 'Not eligible', unknown: 'Not checked yet' };
+function MarketingMessages({ mm, hasWaba, setCh }) {
+  const [busy, setBusy] = useState(false);
+  const check = async () => { setBusy(true); try { const c = await api('/channels/whatsapp/mm/check', 'POST'); setCh(c); toast(`Marketing Messages API: ${MM_TEXT[c.whatsapp.mm?.status] || 'Not checked yet'}`); } catch (e) { toast(e.message); } setBusy(false); };
+  return (
+    <div className="row mm-status-row">
+      <span className="sm">Marketing Messages API: <b className={mm.status === 'on' ? 'mm-status-on' : 'muted'}>{hasWaba ? MM_TEXT[mm.status] || MM_TEXT.unknown : 'Add your WhatsApp Business account ID to check'}</b></span>
+      {hasWaba && <button className="btn ghost sm" disabled={busy} onClick={check}><RefreshCw size={14} /> {busy ? 'Checking…' : 'Check again'}</button>}
+    </div>
+  );
+}
+
 function MetaWhatsApp({ ch, setCh }) {
   const [v, setV] = useState({ phoneNumberId: ch.whatsapp.phoneNumberId, businessId: ch.whatsapp.businessId, token: '' });
   const [to, setTo] = useState('');
@@ -93,6 +106,7 @@ function MetaWhatsApp({ ch, setCh }) {
       </div>
       <div className="row"><button className="btn primary" disabled={busy || !v.phoneNumberId} onClick={save}>Save WhatsApp</button>{metaOn && <button className="btn ghost danger" onClick={clear}>Disconnect</button>}
         <a className="btn ghost" href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer"><ExternalLink size={14} /> Setup guide</a></div>
+      {ch.whatsapp.mm && metaOn && <MarketingMessages mm={ch.whatsapp.mm} hasWaba={!!ch.whatsapp.businessId} setCh={setCh} />}
       <div className="row test-row"><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Your WhatsApp number" /><input value={tpl} onChange={(e) => setTpl(e.target.value)} placeholder="template name" style={{ maxWidth: 160 }} /><button className="btn ghost" disabled={busy || !ch.whatsapp.configured || !to} onClick={test}>{busy === 'test' ? 'Sending…' : 'Send test'}</button></div>
       <p className="hint">Find these in Meta Business → WhatsApp Manager → API setup. Business-initiated messages must use a template approved by Meta (“hello_world” works for testing). The token is encrypted and never shown again.</p>
     </>
