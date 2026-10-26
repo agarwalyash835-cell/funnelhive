@@ -21,7 +21,7 @@ import { encrypt, decrypt } from './messaging.js';
 import { logActivity, metaFor } from './crm.js';
 import { limitsFor } from './limits.js';
 import { randomToken, hashToken } from './security.js';
-import { s3Enabled, putFile, deleteObject, presign } from './storage.js';
+import { s3Enabled, putFile, deleteObject, presign, getObject } from './storage.js';
 
 const MB = 1024 * 1024;
 export const VAULT_FILE_MAX = 15 * MB;
@@ -195,6 +195,17 @@ export function eraseContactFiles(userId, key) {
   const sys = q("SELECT id FROM vaultFolders WHERE userId = ? AND json_extract(data, '$.system') = 'crm'").all(userId).map((r) => r.id);
   const gone = T.vaultFiles.all({ userId, id: [...new Set(links.map((l) => l.fileId))] }).filter((f) => sys.includes(f.folderId) && !T.vaultLinks.exists({ userId, fileId: f.id }));
   return deleteFiles(gone);
+}
+// a file's bytes, wherever it's kept (this server or the storage bucket) — for the AI agent's documents (waknow.js)
+export async function vaultBytes(f) {
+  if (f.s3) return getObject(s3Key(f.userId, f.id));
+  return fs.promises.readFile(filePath(f.userId, f.id));
+}
+// the folder the AI agent's uploads go to ("AI agent knowledge"), made on first use
+export function aiFolder(userId) {
+  const f = q("SELECT data FROM vaultFolders WHERE userId = ? AND json_extract(data, '$.system') = 'ai' LIMIT 1").get(userId);
+  if (f) return JSON.parse(f.data);
+  return T.vaultFolders.insert({ id: uid(), userId, parentId: null, name: 'AI agent knowledge', system: 'ai', at: Date.now() });
 }
 // the whole account is being deleted (account.js removes the rows)
 export const removeVaultFiles = (userId) => fs.rmSync(path.join(FILE_DIR, userId), { recursive: true, force: true });

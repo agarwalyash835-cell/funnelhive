@@ -22,6 +22,7 @@ import { randomToken, hashToken, revokeOthers } from './security.js';
 import { decryptBuffer, isEncrypted } from './backup-crypt.js';
 import { notify } from './notify.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
+import { embed, embedReady, embedModel } from './waknow.js';
 
 const startedAt = Date.now();
 const audit = (req, userId, action, detail = '') => T.audit.insert({ id: uid(), actorId: req.impersonator || req.user.id, actor: req.user.email, userId, action, detail: String(detail).slice(0, 500), at: Date.now() });
@@ -206,7 +207,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     const p = platform(), r = platformRzp();
     const { razorpay, ...rest } = p;
     const st = p.storage, vs = p.videoStorage;
-    return { ...rest, composio: composioView(), captcha: { siteKey: p.captcha.siteKey, hasSecret: !!p.captcha.secretEnc, fromEnv: !!(process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY), ready: !!turnstileSiteKey() }, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, composio: composioView(), captcha: { siteKey: p.captcha.siteKey, hasSecret: !!p.captcha.secretEnc, fromEnv: !!(process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY), ready: !!turnstileSiteKey() }, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, embeddings: { hasKey: !!p.embeddings.keyEnc, model: embedModel(), fromEnv: !!process.env.OPENROUTER_API_KEY, ready: embedReady(), docs: T.kdocs.count({ status: 'ready' }), vectors: q('SELECT COUNT(*) AS n FROM kvec').get().n }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -297,6 +298,20 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         patch.mail = { from, keyEnc: m.key ? encrypt(key) : cur.keyEnc };
       }
       changes.push('email sending');
+    }
+    // the WhatsApp AI agent's document search (OpenRouter embeddings): checked with a real request before it's saved
+    if (b.embeddings) {
+      const m = b.embeddings, cur = platform().embeddings;
+      if (m.clear) patch.embeddings = { ...DEFAULTS.embeddings };
+      else {
+        const key = m.key ? String(m.key).trim() : decrypt(cur.keyEnc);
+        const model = String(m.model ?? cur.model ?? '').trim().slice(0, 120) || 'nvidia/nemotron-3.5-embed-8b:free';
+        if (!/^sk-or-[\w-]{10,}$/.test(key || '')) return res.status(400).json({ error: 'Paste your OpenRouter API key (it starts with sk-or-)' });
+        if (!/^[\w.-]+\/[\w.:-]+$/.test(model)) return res.status(400).json({ error: 'The model looks like: nvidia/nemotron-3.5-embed-8b:free' });
+        try { await embed(['test'], { key, model }); } catch (e) { return res.status(400).json({ error: `OpenRouter didn’t accept this: ${e.message}` }); }
+        patch.embeddings = { keyEnc: m.key ? encrypt(key) : cur.keyEnc, model };
+      }
+      changes.push('document search');
     }
     if (b.limits) { try { patch.limits = saveLimits(b.limits); changes.push('limits'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     if (b.stripe || b.intl) { try { await saveIntlSettings(b); changes.push('international billing'); } catch (e) { return res.status(400).json({ error: e.message }); } }

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, toast, confirmDialog } from '../ui';
+import { Layout, Panel, Icon, Modal, toast, confirmDialog } from '../ui';
 import { waFmt } from './Inbox';
 import '../chat.css';
 
@@ -488,7 +488,7 @@ function TestPhone({ f, onNode }) {
     try {
       const r = await api('/waflows/simulate', 'POST', { flow: f, state: st, input, tags, history: next.filter((m) => m.dir && m.text) });
       const add = [...r.out.map((o) => ({ dir: 'out', ...o })), ...r.fx.flatMap((e) => [...(e.type === 'handoff' && e.text ? [{ dir: 'out', kind: 'text', text: e.text }] : []), { fx: FX[e.type]?.(e) }])];
-      if (r.agent) add.push({ dir: 'out', ai: true, text: r.agent.reply, buttons: r.agent.buttons.map((b, i) => ({ id: `ai${i}`, title: b })), kind: r.agent.buttons.length ? 'buttons' : 'text' }, ...(r.agent.handoff ? [{ fx: `🙋 AI handed over — ${r.agent.reason}` }] : []));
+      if (r.agent) add.push({ dir: 'out', ai: true, text: r.agent.reply, buttons: r.agent.buttons.map((b, i) => ({ id: `ai${i}`, title: b })), kind: r.agent.buttons.length ? 'buttons' : 'text' }, ...(r.agent.sendNames || []).map((n) => ({ fx: `📎 Would send: ${n}` })), ...(r.agent.handoff ? [{ fx: `🙋 AI handed over — ${r.agent.reason}` }] : []));
       else if (r.fx.some((e) => e.type === 'agent')) add.push({ fx: 'AI isn’t switched on — in a real chat your team would be notified' });
       if (r.fx.some((e) => e.type === 'tag')) setTags([...tags, ...r.fx.filter((e) => e.type === 'tag').flatMap((e) => e.tags)]);
       if (!r.out.length && !r.fx.length && !r.agent && !st) add.push({ fx: 'Nothing happens — connect the start to a step' });
@@ -606,6 +606,7 @@ function Agent() {
             <pre className="ag-learned">{a.learned || 'Nothing yet — publish a funnel or add a product and it’s picked up automatically.'}</pre>
           </div>
         </Panel>
+        <AgentDocs />
         <Panel title="When to hand over to your team">
           <textarea rows={3} value={a.handoff} maxLength={1000} onChange={(e) => setA({ ...a, handoff: e.target.value })} placeholder="Bulk or corporate orders, anyone asking for a discount above 10%, and any medical question." />
           <p className="hint">It always hands over for complaints, refunds, payment problems, or when someone asks for a person — your team gets a notification and the chat waits in the inbox.</p>
@@ -628,7 +629,12 @@ function AgentPhone({ a, name, ai }) {
     setMsgs(next); setText(''); setBusy(true);
     try {
       const r = await api('/wa-agent/test', 'POST', { agent: a, messages: next.filter((m) => m.dir) });
-      setMsgs([...next, { dir: 'out', text: r.reply, buttons: r.buttons }, ...(r.handoff ? [{ fx: `🙋 Would hand over to your team — ${r.reason || 'needs a person'}` }] : []), ...(r.lead?.email ? [{ fx: `💾 Would save email: ${r.lead.email}` }] : [])]);
+      setMsgs([...next,
+        ...(r.found?.passages?.length || r.found?.products ? [{ fx: `🔎 Found: ${[...r.found.passages.slice(0, 2), r.found.products ? `${r.found.products} products` : ''].filter(Boolean).join(', ')}` }] : []),
+        { dir: 'out', text: r.reply, buttons: r.buttons },
+        ...(r.sendNames || []).map((n) => ({ fx: `📎 Would send: ${n}` })),
+        ...(r.facts || []).map((f) => ({ fx: `🧠 Would remember: ${f}` })),
+        ...(r.handoff ? [{ fx: `🙋 Would hand over to your team — ${r.reason || 'needs a person'}` }] : []), ...(r.lead?.email ? [{ fx: `💾 Would save email: ${r.lead.email}` }] : [])]);
     } catch (e) { toast(e.message); }
     setBusy(false);
   };
@@ -647,6 +653,120 @@ function AgentPhone({ a, name, ai }) {
         <button aria-label="Send" disabled={!ai}><Icon name="send" size={16} /></button>
       </form>
     </div>
+  );
+}
+
+// ---------- the agent's documents and catalogues (Vault files it reads, searches and can send) ----------
+const DOC_STATUS = { queued: ['Waiting', ''], processing: ['Reading…', 'warn'], ready: ['Ready', 'ok'], failed: ['Couldn’t read', 'bad'] };
+const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+function AgentDocs() {
+  const [d, setD] = useState(null);
+  const [pick, setPick] = useState(null); // Vault files to choose from
+  const [chosen, setChosen] = useState([]);
+  const [kind, setKind] = useState('catalogue');
+  const [busy, setBusy] = useState('');
+  const [prods, setProds] = useState(null);
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState(null);
+  const fileIn = useRef();
+  const load = () => api('/wa-agent/docs').then(setD).catch(() => {});
+  useEffect(() => { load(); }, []);
+  // while files are being read, refresh every few seconds
+  useEffect(() => {
+    if (!d?.docs.some((x) => ['queued', 'processing'].includes(x.status) || (x.status === 'ready' && d.search === 'smart' && !x.vectors && x.chunks))) return undefined;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [d]);
+  const act = async (fn, msg) => { try { const r = await fn(); if (r?.docs) setD((x) => ({ ...x, docs: r.docs })); if (msg) toast(msg); } catch (e) { toast(e.message); } };
+  const openPicker = async () => { try { const r = await api('/vault/files'); setPick((Array.isArray(r) ? r : r.files || []).filter((f) => !d.docs.some((x) => x.fileId === f.id))); setChosen([]); } catch (e) { toast(e.message); } };
+  const add = () => act(() => api('/wa-agent/docs', 'POST', { fileIds: chosen, kind }), `${chosen.length} file${chosen.length > 1 ? 's' : ''} added — reading now`).then(() => setPick(null));
+  // new files go to the Vault folder "AI agent knowledge" first, then to the agent
+  const upload = async (files) => {
+    if (!files.length) return;
+    setBusy('up');
+    try {
+      const { folderId } = await api('/wa-agent/folder');
+      const ids = [];
+      for (const f of files) {
+        if (f.size > 15 * 1024 * 1024) { toast(`${f.name} is over 15 MB`); continue; }
+        const r = await fetch(`/api/vault/files?folder=${folderId}`, { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('ff_token')}`, 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(f.name) }, body: f });
+        const x = await r.json();
+        if (!r.ok) { toast(x.error || `Couldn’t upload ${f.name}`); continue; }
+        ids.push(x.id);
+      }
+      if (ids.length) await act(() => api('/wa-agent/docs', 'POST', { fileIds: ids, kind }), `${ids.length} file${ids.length > 1 ? 's' : ''} uploaded — reading now`);
+    } catch (e) { toast(e.message); }
+    setBusy('');
+  };
+  const search = async (e) => { e.preventDefault(); if (!q.trim()) return; setBusy('q'); try { setFound(await api('/wa-agent/search', 'POST', { q })); } catch (er) { toast(er.message); } setBusy(''); };
+  if (!d) return null;
+  return (
+    <Panel title="Catalogues & documents" actions={<span className="pill" title={d.search === 'smart' ? 'Finds answers by meaning, in any language' : 'Finds answers by matching words'}>{d.search === 'smart' ? '✦ Smart search' : 'Keyword search'}</span>}>
+      <p className="hint top">Price lists, catalogues, brochures, policies — PDF, Word, Excel, PowerPoint or CSV, up to 15 MB each. The agent reads them, answers from the right page, and can send the file itself on WhatsApp. Catalogues also get their products listed (name, code, price).</p>
+      <div className="row" style={{ marginBottom: 12 }}>
+        <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ width: 'auto' }} aria-label="Type"><option value="catalogue">Catalogue / price list</option><option value="document">Document (FAQs, policies…)</option></select>
+        <button className="btn primary sm" onClick={() => fileIn.current?.click()} disabled={busy === 'up'}>{busy === 'up' ? <span className="spin" /> : <Icon name="plus" size={14} />}Upload files</button>
+        <button className="btn ghost sm" onClick={openPicker}><Icon name="vault" size={14} />Choose from Vault</button>
+        <input ref={fileIn} type="file" multiple hidden accept=".pdf,.docx,.xlsx,.pptx,.csv,.txt,.jpg,.jpeg,.png" onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
+      </div>
+      {!d.docs.length ? <p className="muted sm">No documents yet.</p> : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {d.docs.map((x) => {
+            const [label, tone] = DOC_STATUS[x.status] || ['', ''];
+            return (
+              <div key={x.id} className="kdoc">
+                <span className="kdoc-ic">{x.kind === 'catalogue' ? '📒' : '📄'}</span>
+                <div className="kdoc-b">
+                  <b>{x.name}</b>
+                  <small>{x.status === 'ready' ? [x.pages && `${x.pages} page${x.pages > 1 ? 's' : ''}`, `${x.chunks} passage${x.chunks === 1 ? '' : 's'}`, x.products ? `${x.products} products` : '', d.search === 'smart' ? (x.vectors ? 'smart search ✓' : 'smart search pending…') : ''].filter(Boolean).join(' · ') : x.error || (x.status === 'processing' ? 'Reading the file…' : 'In the queue')}{x.size ? ` · ${kb(x.size)}` : ''}</small>
+                  {x.summary && <small className="muted">{x.summary}</small>}
+                  {x.note && <small style={{ color: 'var(--c-warn)' }}>{x.note}</small>}
+                </div>
+                <span className={`pill ${tone}`}>{x.status === 'processing' && <span className="spin dark" style={{ width: 10, height: 10 }} />}{label}</span>
+                <label className="tog mini" title="The agent may send this file to customers"><input type="checkbox" checked={x.send} onChange={(e) => act(() => api(`/wa-agent/docs/${x.id}`, 'PATCH', { send: e.target.checked }))} /><span />Send</label>
+                <select value={x.kind} onChange={(e) => act(() => api(`/wa-agent/docs/${x.id}`, 'PATCH', { kind: e.target.value }), 'Reading it again')} style={{ width: 'auto', height: 30, fontSize: 12 }} aria-label="Type"><option value="catalogue">Catalogue</option><option value="document">Document</option></select>
+                {x.products > 0 && <button className="btn ghost sm" onClick={async () => setProds({ name: x.name, list: (await api(`/wa-agent/docs/${x.id}/products`)).products })}>Products</button>}
+                <button className="icon-btn" title="Read again" onClick={() => act(() => api(`/wa-agent/docs/${x.id}/reprocess`, 'POST'), 'Reading it again')}><Icon name="redo" size={15} /></button>
+                <button className="icon-btn danger" title="Remove from the agent (the file stays in your Vault)" onClick={() => act(() => api(`/wa-agent/docs/${x.id}`, 'DELETE'))}><Icon name="trash" size={15} /></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {d.docs.some((x) => x.status === 'ready') && (
+        <form onSubmit={search} style={{ marginTop: 14, display: 'grid', gap: 8 }}>
+          <div className="sm strong">Check what the agent finds</div>
+          <div className="row" style={{ flexWrap: 'nowrap' }}><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask like a customer: “L shape kitchen ka rate?”" /><button className="btn ghost" disabled={busy === 'q'}>{busy === 'q' ? <span className="spin dark" /> : <Icon name="search" size={14} />}Search</button></div>
+          {found && (
+            <div className="ib-ai" style={{ background: 'var(--c-surface-2)', border: '1px solid var(--c-line)' }}>
+              {found.products.length > 0 && <div><b className="sm">Products</b>{found.products.slice(0, 5).map((p) => <div key={p.id} className="sm">• {p.name}{p.sku ? ` [${p.sku}]` : ''}{p.price != null ? ` — ₹${p.price.toLocaleString('en-IN')}` : ''} <span className="muted">({p.doc}, p.{p.page})</span></div>)}</div>}
+              {found.passages.slice(0, 3).map((p, i) => <div key={i} className="sm"><b>{p.doc} · page {p.page}</b><div className="muted" style={{ whiteSpace: 'pre-wrap' }}>{p.text.slice(0, 300)}{p.text.length > 300 ? '…' : ''}</div></div>)}
+              {found.docs.length > 0 && <div className="sm"><b>Could send:</b> {found.docs.map((x) => x.name).join(', ')}</div>}
+              {!found.passages.length && !found.products.length && <p className="muted sm" style={{ margin: 0 }}>Nothing found — the agent would answer from what you wrote above, or hand over.</p>}
+            </div>
+          )}
+        </form>
+      )}
+      {pick && (
+        <Modal title="Choose from your Vault" onClose={() => setPick(null)} width={560}>
+          {!pick.length ? <p className="muted">Every file in your Vault is already here — upload new ones instead.</p> : (
+            <div style={{ display: 'grid', gap: 4, maxHeight: 400, overflowY: 'auto' }}>
+              {pick.map((f) => <label key={f.id} className="tog" style={{ margin: 0 }}><input type="checkbox" checked={chosen.includes(f.id)} onChange={(e) => setChosen(e.target.checked ? [...chosen, f.id] : chosen.filter((x) => x !== f.id))} /><span />{f.name} <small className="muted">· {kb(f.size)}</small></label>)}
+            </div>
+          )}
+          <div className="row end" style={{ marginTop: 12 }}><button className="btn ghost" onClick={() => setPick(null)}>Cancel</button><button className="btn primary" disabled={!chosen.length} onClick={add}>Add {chosen.length || ''} as {kind === 'catalogue' ? 'catalogues' : 'documents'}</button></div>
+        </Modal>
+      )}
+      {prods && (
+        <Modal title={`Products in ${prods.name}`} onClose={() => setProds(null)} width={760}>
+          <p className="hint top">Read from the catalogue by AI — the agent quotes these prices. If one is wrong, fix it in the file and press “Read again”.</p>
+          <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+            <table className="tbl"><thead><tr><th>Product</th><th>Code</th><th className="r">Price</th><th>Details</th><th>Page</th></tr></thead>
+              <tbody>{prods.list.map((p) => <tr key={p.id}><td>{p.name}</td><td className="mono">{p.sku || '—'}</td><td className="r">{p.price != null ? `₹${p.price.toLocaleString('en-IN')}` : '—'}{p.unit ? <small className="muted"> {p.unit}</small> : ''}</td><td className="sm">{p.specs}</td><td>{p.page}</td></tr>)}</tbody></table>
+          </div>
+        </Modal>
+      )}
+    </Panel>
   );
 }
 

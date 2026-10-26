@@ -70,6 +70,7 @@ import { notify, money, registerNotifications, unreadCount } from './notify.js';
 import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, hit as countHit } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 import { registerWaInbox } from './wainbox.js';
+import { registerWaKnowledge } from './waknow.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
@@ -950,6 +951,7 @@ registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
+registerWaKnowledge(app, { auth, rateLimit, isTest });
 registerRazorpaySettings(app, { auth, wrap });
 registerDomains(app, { auth });
 registerAutomations(app, { auth, secret: SECRET, appUrl, rateLimit, isTest, credits });

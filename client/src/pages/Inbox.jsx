@@ -544,6 +544,14 @@ function Details({ c, contact, meta, patch, onClose, onSummary }) {
           </div>
         ) : <p className="hint" style={{ margin: 0 }}>{meta?.ai ? 'Get a quick read of this chat: what they want, how hot the lead is, and what to do next.' : 'AI isn’t switched on for this account.'}</p>}
       </div>
+      {(contact.facts?.length > 0 || c.memory) && (
+        <div className="ib-card">
+          <h4><Icon name="sparkles" size={12} />What the AI remembers</h4>
+          {contact.facts?.map((f) => <div key={f.id} className="mem-fact"><span>•</span><span>{f.text}</span><button onClick={() => patch({ forget: f.id })} title="Forget this" aria-label="Forget this">×</button></div>)}
+          {c.memory && <div className="mem-fact"><span>🧾</span><span className="muted">Earlier in this chat: {c.memory}</span><button onClick={() => patch({ forgetMemory: true })} title="Forget this summary" aria-label="Forget this summary">×</button></div>}
+          <p className="hint" style={{ margin: 0 }}>Learned from chats and used by the AI agent next time — remove anything wrong.</p>
+        </div>
+      )}
       <div className="ib-card">
         <h4>Details</h4>
         <div className="ib-kv"><span>Email</span><b>{contact.email || '—'}</b><span>Status</span><b style={{ textTransform: 'capitalize' }}>{c.status}</b>{contact.tags.length > 0 && <><span>Tags</span><b>{contact.tags.join(', ')}</b></>}</div>

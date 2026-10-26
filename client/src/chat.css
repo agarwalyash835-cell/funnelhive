@@ -121,6 +121,15 @@
 .handoff-to button small { color: var(--c-muted); font-size: 12px; }
 .handoff-to button.on { border-color: var(--c-ink); box-shadow: 0 0 0 3px rgba(245, 165, 36, .2); }
 .handoff-to > button > .ic-svg { width: 32px; height: 32px; padding: 7px; border-radius: 50%; background: var(--c-line-2); }
+.kdoc { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--c-line); border-radius: 12px; background: var(--c-surface); flex-wrap: wrap; }
+.kdoc-ic { font-size: 22px; flex: none; }
+.kdoc-b { flex: 1; min-width: 200px; display: grid; gap: 2px; }
+.kdoc-b b { font-size: 13.5px; overflow-wrap: anywhere; }
+.kdoc-b small { font-size: 12px; color: var(--c-ink-2); }
+.kdoc .tog { margin: 0; }
+.mem-fact { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; line-height: 1.45; }
+.mem-fact button { border: 0; background: none; color: var(--c-muted); padding: 0 2px; margin-left: auto; line-height: 1; }
+.mem-fact button:hover { color: var(--c-bad); }
 .rules { display: grid; gap: 14px; }
 .rule { border: 1px solid var(--c-line); border-radius: 16px; background: var(--c-surface); padding: 16px; display: grid; gap: 12px; }
 .rule.on { border-color: color-mix(in srgb, #16a34a 40%, var(--c-line)); box-shadow: inset 3px 0 0 #16a34a; }

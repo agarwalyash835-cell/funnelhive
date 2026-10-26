@@ -141,6 +141,10 @@ const SCHEMA = {
   waconvs: { cols: { userId: 0, num: 0, status: 0, lastAt: 0, wakeAt: 0 }, unique: [['userId', 'num']], index: [['userId', 'lastAt'], ['userId', 'status', 'lastAt'], ['wakeAt']] },
   wachat: { cols: { userId: 0, convId: 0, waRec: 0, at: 0 }, index: [['convId', 'at'], ['waRec'], ['userId', 'at']] },
   waflows: { cols: { userId: 0, active: (f) => bool(f.active), at: 0 }, index: [['userId', 'at'], ['userId', 'active']] },
+  // the AI agent's documents and catalogues (waknow.js): a Vault file read into passages, and the products found in it
+  kdocs: { cols: { userId: 0, fileId: 0, status: 0, at: 0 }, index: [['userId', 'at'], ['status', 'at'], ['fileId']] },
+  kchunks: { cols: { userId: 0, docId: 0, at: 0 }, index: [['docId'], ['userId']] },
+  kprods: { cols: { userId: 0, docId: 0 }, index: [['userId'], ['docId']] },
   registrations: { cols: { userId: 0, webinarId: 0, ckey: (r) => contactKey(r.email, r.phone), session: 0, at: 0 }, index: [['webinarId', 'session'], ['session'], ['userId', 'at'], ['webinarId', 'ckey']] },
   // GST invoices and credit notes a seller issues to their buyers
   sinvoices: { cols: { userId: 0, orderId: 0, number: 0, at: 0 }, unique: [['userId', 'number']], index: [['userId', 'at'], ['orderId']] },
