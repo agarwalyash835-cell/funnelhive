@@ -199,6 +199,7 @@ function Msg({ m, convId, agent }) {
     <div className={`bub ${cls}`}>
       {by && <div className="by">{by}{m.type === 'template' && <span className="pill" style={{ fontSize: 10 }}>template</span>}</div>}
       {m.media && <Media m={m} convId={convId} />}
+      {m.imported && <div className="by" style={{ marginTop: 2 }}>Imported from the WhatsApp app</div>}
       {m.transcribed && <div className="by" style={{ marginTop: 2 }}>🎤 Voice note, transcribed{m.lang ? ` · ${LANG_NAMES[m.lang] || m.lang}` : ''}</div>}
       {m.form?.answers ? <div className="bub-form"><b>📋 {m.form.title}</b>{m.form.answers.map((a, i) => <div key={i}><small>{a.label}</small>{a.value}</div>)}</div>
         : m.location ? <a className="bub-loc" href={`https://www.google.com/maps?q=${m.location.lat},${m.location.lng}`} target="_blank" rel="noreferrer noopener"><span className="pin">📍</span><span><b>{m.location.name || 'Location'}</b>{m.location.address && <small>{m.location.address}</small>}<em>Open in Google Maps →</em></span></a>

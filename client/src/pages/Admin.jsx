@@ -473,6 +473,31 @@ function SarvamPanel({ m, save }) {
   );
 }
 
+// Sellers connect WhatsApp themselves (Meta Embedded Signup, incl. WhatsApp Business app numbers): the owner's Meta app
+function MetaSignupPanel({ m, save }) {
+  const [v, setV] = useState({ appId: m.appId || '', configId: m.configId || '', secret: '', graphVersion: m.graphVersion || 'v26.0', esVersion: m.esVersion || 'v5' });
+  const [busy, setBusy] = useState(false);
+  const go = async () => { setBusy(true); if (await save({ metaSignup: v })) setV((x) => ({ ...x, secret: '' })); setBusy(false); };
+  const hook = `${location.origin}${m.webhookPath}`;
+  const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
+  return (
+    <Panel title="WhatsApp sign-up for sellers (Meta)">
+      <p className="muted sm">Lets sellers connect their own WhatsApp number with a “Connect with Facebook” button — including the number they already use in the WhatsApp Business app. Needs your Meta app to be a Tech Provider. Sellers don’t see the button until this is saved.</p>
+      <div className={`ai-card ${m.ready ? 'on' : ''}`}><Icon name="chat" size={20} /><div><b>{m.ready ? `On · ${m.connected} seller${m.connected === 1 ? '' : 's'} connected` : 'Off — sellers don’t see “Connect with Facebook”'}</b><p className="muted sm">Meta for Developers → your app</p></div></div>
+      <div className="form2">
+        <label>App ID<input value={v.appId} onChange={(e) => setV({ ...v, appId: e.target.value.trim() })} placeholder="e.g. 1234567890123456" /></label>
+        <label>Embedded Signup configuration ID<input value={v.configId} onChange={(e) => setV({ ...v, configId: e.target.value.trim() })} placeholder="Facebook Login for Business → Configurations" /></label>
+        <label>App Secret {m.hasSecret && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.secret} onChange={(e) => setV({ ...v, secret: e.target.value.trim() })} autoComplete="new-password" /></label>
+        <label>Graph API version<input value={v.graphVersion} onChange={(e) => setV({ ...v, graphVersion: e.target.value.trim() })} placeholder="v26.0" /></label>
+        <label>Embedded Signup version<select value={v.esVersion} onChange={(e) => setV({ ...v, esVersion: e.target.value })}><option value="v5">v5 (recommended)</option><option value="v4">v4</option><option value="v3">v3 (old)</option></select></label>
+      </div>
+      {m.verifyToken && <p className="hint">In your app → WhatsApp → Configuration, set the callback URL <code>{hook}</code> <button className="link-btn" onClick={() => copy(hook)}>copy</button> and the verify token <code>{m.verifyToken}</code> <button className="link-btn" onClick={() => copy(m.verifyToken)}>copy</button>, then subscribe to {m.fields.map((f, i) => <span key={f}>{i ? ', ' : ''}<code>{f}</code></span>)}.</p>}
+      <p className="hint">Saving checks the App ID and secret with Meta. The secret is encrypted and never shown again.</p>
+      <div className="row"><button className="btn primary" disabled={busy || !v.appId || !v.configId || (!v.secret && !m.hasSecret)} onClick={go}>{busy ? 'Checking…' : 'Save & check'}</button>{m.hasSecret && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Turn off WhatsApp sign-up?', text: 'Sellers stop seeing “Connect with Facebook”, and numbers connected this way stop receiving messages here.', confirm: 'Turn off', danger: true })) && save({ metaSignup: { clear: true } })}>Turn off</button>}</div>
+    </Panel>
+  );
+}
+
 function PlatformSettings() {
   const [s, setS] = useState(null);
   const [rz, setRz] = useState({ keyId: '', keySecret: '', webhookSecret: '' });
@@ -516,6 +541,7 @@ function PlatformSettings() {
       {s.mail && <MailPanel m={s.mail} save={save} />}
       {s.embeddings && <EmbedPanel m={s.embeddings} save={save} />}
       {s.sarvam && <SarvamPanel m={s.sarvam} save={save} />}
+      {s.metaSignup && <MetaSignupPanel m={s.metaSignup} save={save} />}
       {s.captcha && <CaptchaPanel c={s.captcha} save={save} />}
       {s.composio && <ComposioPanel c={s.composio} save={save} />}
       <StoragePanel s={s.storage} save={save} />

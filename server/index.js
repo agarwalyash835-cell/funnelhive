@@ -72,6 +72,7 @@ import { notify, money, registerNotifications, unreadCount } from './notify.js';
 import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, hit as countHit } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 import { registerWaInbox } from './wainbox.js';
+import { registerMetaSignup } from './meta-signup.js';
 import { registerWaKnowledge } from './waknow.js';
 
 const SECRET = loadSecret(DATA_DIR);
@@ -98,6 +99,7 @@ app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/stripe/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/billing/stripe-webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/hive/webhook', express.raw({ type: '*/*', limit: '1mb' })); // Hive WhatsApp events (signed raw body)
+app.use('/api/meta/webhook', express.raw({ type: '*/*', limit: '5mb' })); // Meta WhatsApp events for Embedded Signup numbers (signed raw body; history chunks are big)
 app.use(/^\/api\/inbox\/[\w-]+\/upload$/, express.raw({ type: '*/*', limit: '17mb' })); // files sent from the WhatsApp inbox (bytes, not JSON)
 app.use(express.json({ limit: '4mb' }));
 // Requests on a seller's own domain (offer.theirbrand.in) show their funnel
@@ -953,6 +955,7 @@ registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
+registerMetaSignup(app, { auth, wrap, rateLimit, isTest });
 registerWaKnowledge(app, { auth, rateLimit, isTest });
 registerRazorpaySettings(app, { auth, wrap });
 registerDomains(app, { auth });

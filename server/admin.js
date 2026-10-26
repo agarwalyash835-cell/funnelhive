@@ -24,6 +24,7 @@ import { notify } from './notify.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { embed, embedReady, embedModel, visionModel } from './waknow.js';
 import { checkSarvamKey, sarvamReady } from './sarvam.js';
+import { metaSignupView, saveMetaSignup } from './meta-signup.js';
 
 const startedAt = Date.now();
 const audit = (req, userId, action, detail = '') => T.audit.insert({ id: uid(), actorId: req.impersonator || req.user.id, actor: req.user.email, userId, action, detail: String(detail).slice(0, 500), at: Date.now() });
@@ -206,9 +207,9 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   // ---------- platform settings ----------
   const settingsView = () => {
     const p = platform(), r = platformRzp();
-    const { razorpay, ...rest } = p;
+    const { razorpay, metaSignup, ...rest } = p; // metaSignup: its own view below (the secret never leaves)
     const st = p.storage, vs = p.videoStorage;
-    return { ...rest, composio: composioView(), captcha: { siteKey: p.captcha.siteKey, hasSecret: !!p.captcha.secretEnc, fromEnv: !!(process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY), ready: !!turnstileSiteKey() }, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, sarvam: { hasKey: !!p.sarvam.keyEnc, fromEnv: !!process.env.SARVAM_API_KEY, ready: sarvamReady(), voiceNotes: q("SELECT COUNT(*) AS n FROM wachat WHERE json_extract(data, '$.transcribed') = 1").get().n }, embeddings: { hasKey: !!p.embeddings.keyEnc, model: embedModel(), vision: visionModel(), fromEnv: !!process.env.OPENROUTER_API_KEY, ready: embedReady(), docs: T.kdocs.count({ status: 'ready' }), vectors: q('SELECT COUNT(*) AS n FROM kvec').get().n }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, metaSignup: metaSignupView(), composio: composioView(), captcha: { siteKey: p.captcha.siteKey, hasSecret: !!p.captcha.secretEnc, fromEnv: !!(process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY), ready: !!turnstileSiteKey() }, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, sarvam: { hasKey: !!p.sarvam.keyEnc, fromEnv: !!process.env.SARVAM_API_KEY, ready: sarvamReady(), voiceNotes: q("SELECT COUNT(*) AS n FROM wachat WHERE json_extract(data, '$.transcribed') = 1").get().n }, embeddings: { hasKey: !!p.embeddings.keyEnc, model: embedModel(), vision: visionModel(), fromEnv: !!process.env.OPENROUTER_API_KEY, ready: embedReady(), docs: T.kdocs.count({ status: 'ready' }), vectors: q('SELECT COUNT(*) AS n FROM kvec').get().n }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
@@ -327,6 +328,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       }
       changes.push('Sarvam AI');
     }
+    // WhatsApp sign-up for sellers (Meta Embedded Signup): the app secret is checked with Meta before it's saved
+    if (b.metaSignup) { try { await saveMetaSignup(b.metaSignup); changes.push('WhatsApp sign-up'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     if (b.limits) { try { patch.limits = saveLimits(b.limits); changes.push('limits'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     if (b.stripe || b.intl) { try { await saveIntlSettings(b); changes.push('international billing'); } catch (e) { return res.status(400).json({ error: e.message }); } }
     savePlatform((s) => Object.assign(s, patch));
