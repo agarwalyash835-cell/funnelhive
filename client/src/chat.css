@@ -382,3 +382,20 @@ button.cb-card:hover, .cb-card.click:hover { transform: translateY(-1px); box-sh
 .phone-b .bub-btns a { color: #0e7490; font-weight: 600; text-decoration: none; }
 @media (max-width: 1100px) { .wfb-body { grid-template-columns: 196px minmax(0, 1fr) 320px; } .wfb-pt small { display: none; } }
 @media (max-width: 800px) { .wfb-body { grid-template-columns: 1fr; } .wfb-mini, .wfb-hist, .wfb-runs { display: none; } .wfb-search { display: none; } .wfb-pt small { display: none; } }
+
+/* Shopify for the AI agent: connecting, a try-it search, product cards in the test chats */
+.shp-logo { width: 22px; height: 22px; border-radius: 6px; display: inline-grid; place-items: center; background: #95bf47; color: #fff; font-weight: 800; font-size: 13px; }
+.shp-connect { display: grid; gap: 10px; }
+.shp-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.shp-head select { width: auto; margin-left: auto; height: 32px; font-size: 12.5px; }
+.shp-res { display: grid; gap: 6px; }
+.shp-p { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 10px; border: 1px solid var(--c-line); background: var(--c-surface); color: inherit; text-decoration: none; }
+.shp-p:hover { border-color: #95bf47; }
+.shp-p.out { opacity: .55; }
+.shp-p img, .shp-noimg { width: 46px; height: 46px; border-radius: 8px; object-fit: cover; background: var(--c-surface-2); flex: none; }
+.shp-p b { display: block; font-size: 13px; }
+.shp-p small { color: var(--c-muted); font-size: 12px; }
+.shp-p s { color: var(--c-muted); }
+.shp-pol { margin: 0; font-size: 12.5px; padding: 8px 10px; border-radius: 9px; background: var(--c-surface-2); }
+.phone-b .shp-card { padding: 4px 4px 6px; }
+.phone-b .shp-card img { display: block; width: 100%; max-height: 180px; object-fit: cover; border-radius: 8px; margin-bottom: 4px; }

@@ -932,7 +932,7 @@ function TestPhone({ f, onNode }) {
     try {
       const r = await api('/waflows/simulate', 'POST', { flow: f, state: st, input, tags, history: next.filter((m) => m.dir && m.text) });
       const add = [...r.out.map((o) => ({ dir: 'out', ...o })), ...r.fx.flatMap((e) => [...(e.type === 'handoff' && e.text ? [{ dir: 'out', kind: 'text', text: e.text }] : []), { fx: FX[e.type]?.(e) }])].filter((m) => !('fx' in m) || m.fx);
-      if (r.agent) add.push({ dir: 'out', ai: true, text: r.agent.reply, buttons: r.agent.buttons.map((b, i) => ({ id: `ai${i}`, title: b })), kind: r.agent.buttons.length ? 'buttons' : 'text' }, ...(r.agent.sendNames || []).map((n) => ({ fx: `📎 Would send: ${n}` })), ...(r.agent.handoff ? [{ fx: `🙋 AI handed over — ${r.agent.reason}` }] : []));
+      if (r.agent) add.push({ dir: 'out', ai: true, text: r.agent.reply, buttons: r.agent.buttons.map((b, i) => ({ id: `ai${i}`, title: b })), kind: r.agent.buttons.length ? 'buttons' : 'text' }, ...(r.agent.cards || []).map((c) => ({ dir: 'out', card: c })), ...(r.agent.sendNames || []).map((n) => ({ fx: `📎 Would send: ${n}` })), ...(r.agent.handoff ? [{ fx: `🙋 AI handed over — ${r.agent.reason}` }] : []));
       else if (r.fx.some((e) => e.type === 'agent')) add.push({ fx: 'AI isn’t switched on — in a real chat your team would be notified' });
       if (r.fx.some((e) => e.type === 'tag')) setTags([...tags, ...r.fx.filter((e) => e.type === 'tag').flatMap((e) => e.tags)]);
       if (!r.out.length && !r.fx.length && !r.agent && !st) add.push({ fx: 'Nothing happens — connect the start to a step' });
@@ -950,7 +950,7 @@ function TestPhone({ f, onNode }) {
       <div className="phone-h"><span className="cav sm" style={{ background: '#00a884' }}><Icon name="bot" size={15} /></span><div>Test chat<small>{st?.wait === 'time' ? 'waiting (a real chat would pause here)' : 'nothing is sent to anyone'}</small></div><button className="icon-btn" onClick={reset} title="Start again" aria-label="Start again"><Icon name="undo" size={16} /></button></div>
       <div className="phone-b" ref={box}>
         {!msgs.length && <div className="fxn">Type as your customer would — {f.trigger.type === 'keyword' ? `e.g. “${f.trigger.keywords[0] || 'hi'}”` : '“Hi”'} — to start</div>}
-        {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : (
+        {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : m.card ? <ProductBubble key={i} c={m.card} /> : (
           <div key={i} className={`bub ${m.dir === 'in' ? 'b-out' : 'b-in'}`} style={m.dir === 'in' ? undefined : m.ai ? { border: '1.5px solid #8b5cf6' } : undefined}>
             {m.ai && <div className="by"><span className="ai-txt">✦ AI agent</span></div>}
             {m.kind === 'template' && <div className="by">📨 Template · {m.template?.name}</div>}
@@ -1061,6 +1061,7 @@ function Agent() {
           </div>
         </Panel>
         <AgentDocs />
+        <ShopifyStore />
         <Panel title="When to hand over to your team">
           <textarea rows={3} value={a.handoff} maxLength={1000} onChange={(e) => setA({ ...a, handoff: e.target.value })} placeholder="Bulk or corporate orders, anyone asking for a discount above 10%, and any medical question." />
           <p className="hint">It always hands over for complaints, refunds, payment problems, or when someone asks for a person — your team gets a notification and the chat waits in the inbox.</p>
@@ -1086,6 +1087,7 @@ function AgentPhone({ a, name, ai }) {
       setMsgs([...next,
         ...(r.found?.passages?.length || r.found?.products ? [{ fx: `🔎 Found: ${[...r.found.passages.slice(0, 2), r.found.products ? `${r.found.products} products` : ''].filter(Boolean).join(', ')}` }] : []),
         { dir: 'out', text: r.reply, buttons: r.buttons },
+        ...(r.cards || []).map((c) => ({ dir: 'out', card: c })),
         ...(r.sendNames || []).map((n) => ({ fx: `📎 Would send: ${n}` })),
         ...(r.facts || []).map((f) => ({ fx: `🧠 Would remember: ${f}` })),
         ...(r.handoff ? [{ fx: `🙋 Would hand over to your team — ${r.reason || 'needs a person'}` }] : []), ...(r.lead?.email ? [{ fx: `💾 Would save email: ${r.lead.email}` }] : [])]);
@@ -1098,7 +1100,7 @@ function AgentPhone({ a, name, ai }) {
       <div className="phone-h"><span className="cav sm" style={{ background: AI_BG }}><Icon name="sparkles" size={15} /></span><div>{name}<small>Test chat · uses your unsaved changes</small></div><button className="icon-btn" onClick={() => setMsgs([])} aria-label="Start again" title="Start again"><Icon name="undo" size={16} /></button></div>
       <div className="phone-b" ref={box}>
         {!msgs.length && <div className="fxn">{ai ? 'Ask what your customers ask — “What’s the price?”, “Kal ka slot milega?”' : 'AI isn’t switched on for this account'}</div>}
-        {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : <div key={i} className={`bub ${m.dir === 'in' ? 'b-out' : 'b-in'}`}>{waFmt(m.text)}</div>)}
+        {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : m.card ? <ProductBubble key={i} c={m.card} /> : <div key={i} className={`bub ${m.dir === 'in' ? 'b-out' : 'b-in'}`}>{waFmt(m.text)}</div>)}
         {lastBtns?.length > 0 && <div className="opts">{lastBtns.map((b) => <button key={b} onClick={() => send(b)}>{b}</button>)}</div>}
         {busy && <div className="ctyping"><i /><i /><i /></div>}
       </div>
@@ -1107,6 +1109,69 @@ function AgentPhone({ a, name, ai }) {
         <button aria-label="Send" disabled={!ai}><Icon name="send" size={16} /></button>
       </form>
     </div>
+  );
+}
+
+// a Shopify product card as the customer sees it on WhatsApp: photo, name, price, and the Buy now button
+const ProductBubble = ({ c }) => (
+  <div className="bub b-in shp-card">
+    {c.image && <img src={c.image} alt="" loading="lazy" />}
+    {waFmt(c.text)}
+    {c.cta && <div className="bub-btns"><a href={c.cta.url} target="_blank" rel="noreferrer">🛒 {c.cta.label}</a></div>}
+  </div>
+);
+
+// ---------- Shopify: the agent searches the store's live catalogue and policies, and sends products ----------
+function ShopifyStore() {
+  const [s, setS] = useState(undefined);
+  const [host, setHost] = useState('');
+  const [tok, setTok] = useState({ adminHost: '', adminToken: '' });
+  const [q, setQ] = useState('');
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState('');
+  useEffect(() => { api('/shopify').then((r) => setS(r.store)).catch(() => setS(null)); }, []);
+  const put = async (body, what) => {
+    setBusy(what);
+    try { const r = await api('/shopify', 'PUT', body); setS(r.store); setTok({ adminHost: '', adminToken: '' }); toast(what === 'connect' ? '🛍 Store connected — try a search below' : what === 'token' ? (body.adminToken ? 'Order status switched on' : 'Order status switched off') : 'Saved'); } catch (e) { toast(e.message); }
+    setBusy('');
+  };
+  const disconnect = async () => { if (!await confirmDialog({ title: 'Disconnect your Shopify store?', text: 'The agent stops recommending products and checking orders.', confirm: 'Disconnect', danger: true })) return; await api('/shopify', 'DELETE'); setS(null); setRes(null); };
+  const tryIt = async (e) => { e.preventDefault(); setBusy('try'); try { setRes(await api('/shopify/try', 'POST', { query: q })); } catch (er) { toast(er.message); } setBusy(''); };
+  if (s === undefined) return null;
+  return (
+    <Panel title={<span className="row" style={{ gap: 8 }}><span className="shp-logo">S</span>Shopify store</span>} actions={s && <button className="btn ghost sm" onClick={disconnect}>Disconnect</button>}>
+      {!s ? (
+        <form className="shp-connect" onSubmit={(e) => { e.preventDefault(); put({ host }, 'connect'); }}>
+          <p className="hint" style={{ margin: 0 }}>Sell on Shopify? Connect it and the agent answers from your live store — products, prices, sizes in stock and your policies — and sends products as cards with a <b>Buy now</b> button straight to checkout. Nothing to install.</p>
+          <div className="row" style={{ flexWrap: 'nowrap' }}><input value={host} onChange={(e) => setHost(e.target.value)} placeholder="mystore.myshopify.com or www.mystore.in" aria-label="Store address" /><button className="btn primary" disabled={!host.trim() || busy === 'connect'}>{busy === 'connect' ? <span className="spin" /> : null}Connect</button></div>
+        </form>
+      ) : (
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div className="shp-head"><span className="cb-live">Connected</span><b>{s.name || s.host}</b>{s.name && s.name !== s.host && <small className="muted">{s.host}</small>}
+            <select value={s.country} onChange={(e) => put({ country: e.target.value }, 'country')} aria-label="Customers’ country" title="Prices and stock for customers in">{[['IN', '🇮🇳 India'], ['AE', '🇦🇪 UAE'], ['US', '🇺🇸 USA'], ['GB', '🇬🇧 UK'], ['SG', '🇸🇬 Singapore'], ['AU', '🇦🇺 Australia'], ['CA', '🇨🇦 Canada']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+          </div>
+          <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={tryIt}><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Try what a customer asks — “red saree under 3000”, “return policy”" /><button className="btn ghost" disabled={!q.trim() || busy === 'try'}>{busy === 'try' ? <span className="spin dark" /> : <Icon name="search" size={14} />}Search</button></form>
+          {res && <div className="shp-res">
+            {!res.products.length && <p className="hint" style={{ margin: 0 }}>No products matched — the agent would say so and ask what they’re looking for.</p>}
+            {res.products.map((p) => (
+              <a key={p.id} className={`shp-p ${p.available ? '' : 'out'}`} href={p.checkout || p.url} target="_blank" rel="noreferrer">
+                {p.image ? <img src={p.image} alt="" loading="lazy" /> : <span className="shp-noimg" />}
+                <span><b>{p.title}</b><small>{p.price}{p.mrp && <s> {p.mrp}</s>} · {p.available ? (p.options.length ? p.options.slice(0, 6).join(', ') : 'in stock') : 'out of stock — never offered'}</small></span>
+              </a>
+            ))}
+            {res.policies.slice(0, 2).map((x, i) => <p key={i} className="shp-pol"><b>{x.q}</b><br />{x.a}</p>)}
+          </div>}
+          <details className="wfb-more" open={!s.admin && !!tok.adminToken}>
+            <summary>{s.admin ? '✅ Order status is on — the agent answers “where’s my order?” with tracking' : 'Let it answer “where’s my order?” (optional)'}</summary>
+            {s.admin ? <button className="btn ghost sm" style={{ justifySelf: 'start' }} onClick={() => put({ adminToken: '' }, 'token')}>Switch off order status</button> : <>
+              <p className="hint" style={{ margin: 0 }}>In Shopify admin → Settings → Apps and sales channels → Develop apps: create an app, give it the <b>read_orders</b> permission, install it and copy the Admin API access token (starts with shpat_). The agent looks up orders by the customer’s WhatsApp number.</p>
+              {!s.host.endsWith('.myshopify.com') && <input value={tok.adminHost} onChange={(e) => setTok({ ...tok, adminHost: e.target.value })} placeholder="yourstore.myshopify.com (Shopify admin → Settings → Domains)" />}
+              <div className="row" style={{ flexWrap: 'nowrap' }}><input type="password" autoComplete="off" value={tok.adminToken} onChange={(e) => setTok({ ...tok, adminToken: e.target.value })} placeholder="shpat_…" aria-label="Admin API access token" /><button className="btn ghost" disabled={!tok.adminToken || busy === 'token'} onClick={() => put({ adminToken: tok.adminToken, adminHost: tok.adminHost }, 'token')}>Save</button></div>
+            </>}
+          </details>
+        </div>
+      )}
+    </Panel>
   );
 }
 

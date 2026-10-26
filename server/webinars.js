@@ -1,10 +1,14 @@
 // Webinars: the schedule behind a registration page (one-off dates, weekly, or daily "evergreen" sessions), who
 // registered for which session, each registrant's personal joining link (which records attendance), and the
 // emails around it: confirmation, a day before, an hour before, "we're live", and the replay afterwards.
+// Where it's held: any link (Google Meet, YouTube Live, webinar.gg…) or the seller's Zoom (zoom.js) — each session
+// its own Zoom webinar or meeting, a personal Zoom link per registrant, and watch time from Zoom's report.
+// Attendance from other platforms comes in as a CSV upload or a webhook. Analytics: show-up, watch time, sales.
 //
 // Times are UTC milliseconds; schedules are written in the webinar's local time (India by default, UTC+5:30).
 import crypto from 'node:crypto';
-import { T, tx, uid, contactKey, JOBS } from './db.js';
+import { T, tx, uid, contactKey, JOBS, paidOrder } from './db.js';
+import { zoomOf, zoomView, connectZoom, disconnectZoom, zoomRegistrant, zoomStartUrl, zoomReport, kindFor } from './zoom.js';
 import { sendEmail } from './messaging.js';
 import { waEvent } from './hive-wa.js';
 import { enqueue as fireWebhook } from './webhooks.js';
@@ -31,6 +35,10 @@ function cleanWebinar(b = {}, cur = {}) {
   if ('timezone' in b && (!b.timezone || validTz(b.timezone))) out.timezone = b.timezone || undefined;
   if ('joinUrl' in b) { const l = clip(b.joinUrl, 500); out.joinUrl = /^https:\/\/[^\s"'<>]+$/i.test(l) ? l : ''; }
   if ('replayUrl' in b) { const l = clip(b.replayUrl, 500); out.replayUrl = /^https:\/\/[^\s"'<>]+$/i.test(l) ? l : ''; }
+  // where it's held: a link (any platform) or the seller's Zoom; Zoom sessions are webinars (add-on) or meetings
+  if ('provider' in b || !cur.id) out.provider = ['link', 'zoom', 'webinargg'].includes(b.provider) ? b.provider : cur.provider || 'link';
+  if ('zoomKind' in b) out.zoomKind = b.zoomKind === 'meeting' ? 'meeting' : 'webinar';
+  if ('zoomRecord' in b) out.zoomRecord = !!b.zoomRecord;
   if ('replayHours' in b || !cur.id) out.replayHours = intIn(b.replayHours, 0, 720, cur.replayHours ?? 48);
   if ('emails' in b || !cur.id) out.emails = { day: b.emails?.day ?? cur.emails?.day ?? true, hour: b.emails?.hour ?? cur.emails?.hour ?? true, live: b.emails?.live ?? cur.emails?.live ?? true, replay: b.emails?.replay ?? cur.emails?.replay ?? true };
   if ('schedule' in b || !cur.id) {
@@ -104,6 +112,7 @@ export function register(f, w, { email, name = '', phone = '', session, leadId =
   fireWebhook(f.userId, 'webinar.registered', { webinar: w.name, session: new Date(start).toISOString(), email: r.email, name: r.name, phone: r.phone, join: link });
   fireAutomation(f.userId, 'webinar_registered', { email: r.email, phone: r.phone, name: r.name, funnelId: f.id, webinarTime: when(start, webTz(w)), joinLink: link });
   notify(r, w, 'confirm');
+  if (w.provider === 'zoom') zoomLink(r.id).catch((e) => console.error('Zoom registrant failed', e.message));
   return { registration: r };
 }
 
@@ -132,7 +141,7 @@ export function webinarJob(now = Date.now()) {
     const w = T.webinars.get(r.webinarId);
     if (!w) continue;
     const left = r.session - now, end = r.session + w.duration * MIN;
-    const due = left > 2 * HOUR && left <= 24 * HOUR + 2 * MIN ? 'day' : left > 5 * MIN && left <= HOUR + 2 * MIN ? 'hour' : left <= 2 * MIN && left > -10 * MIN ? 'live' : now >= end + 15 * MIN && now < end + 3 * HOUR ? 'replay' : null;
+    const due = left > 2 * HOUR && left <= 24 * HOUR + 2 * MIN ? 'day' : left > 5 * MIN && left <= HOUR + 2 * MIN ? 'hour' : left <= 2 * MIN && left > -10 * MIN ? 'live' : now >= end + (w.provider === 'zoom' && zoomOf(T.users.get(w.userId)) ? 45 : 15) * MIN && now < end + 3 * HOUR ? 'replay' : null;
     if (!due || r.sent?.[due]) continue;
     const claimed = tx(() => { const x = T.registrations.get(r.id); if (x.sent?.[due]) return null; x.sent = { ...x.sent, [due]: now }; if (due === 'replay') x.status = x.attended ? 'attended' : 'missed'; return T.registrations.put(x); });
     if (!claimed) continue;
@@ -143,9 +152,95 @@ export function webinarJob(now = Date.now()) {
     if (w.emails?.[due] !== false) notify(claimed, w, due);
   }
 }
-if (JOBS && process.env.NODE_ENV !== 'test') setInterval(() => { try { webinarJob(); } catch (e) { console.error('webinar job failed', e.message); } }, 60000).unref();
+if (JOBS && process.env.NODE_ENV !== 'test') setInterval(() => { try { webinarJob(); } catch (e) { console.error('webinar job failed', e.message); } zoomJob().catch((e) => console.error('Zoom report job failed', e.message)); }, 60000).unref();
 
-const outReg = (r) => ({ id: r.id, email: r.email, name: r.name, phone: r.phone, session: r.session, status: r.status, attended: !!r.attended, joinedAt: r.joinedAt || null, at: r.at });
+// ---------- Zoom: personal links, attendance and watch time ----------
+// a registrant's own Zoom link, made once (Zoom webinars give each registrant one; meetings share one)
+async function zoomLink(rid) {
+  const r = T.registrations.get(rid), w = r && T.webinars.get(r.webinarId), u = w && T.users.get(w.userId);
+  if (!r || !w || w.provider !== 'zoom' || !zoomOf(u)) return null;
+  if (r.zoomJoin) return r.zoomJoin;
+  const url = await zoomRegistrant(u, w, r);
+  if (url) T.registrations.update(r.id, (x) => { x.zoomJoin = url; });
+  return url;
+}
+// rows: [{ email, seconds, joinedAt }] for one session → registrants marked attended, with watch time; the rest are walk-ins
+export function applyAttendance(w, session, rows, source) {
+  const regs = T.registrations.all({ webinarId: w.id }).filter((r) => r.session === session && r.status !== 'cancelled');
+  const byEmail = new Map(regs.map((r) => [r.email, r]));
+  let matched = 0;
+  for (const x of rows) {
+    const r = x.email && byEmail.get(x.email);
+    if (!r) continue;
+    matched++;
+    T.registrations.update(r.id, (y) => {
+      y.attended = true;
+      if (y.status === 'missed') y.status = 'attended';
+      if (x.seconds > (y.watchSeconds || 0)) y.watchSeconds = Math.round(x.seconds);
+      if (x.joinedAt && (!y.joinedAt || x.joinedAt < y.joinedAt)) y.joinedAt = x.joinedAt;
+      y.attendSource = source;
+    });
+  }
+  return { matched, walkIns: rows.length - matched, people: rows.length };
+}
+// after each Zoom session: its participant report (Zoom needs a few minutes; tried every 15 minutes for 3 days)
+let zoomBusy = false;
+export async function zoomJob(now = Date.now()) {
+  if (zoomBusy) return;
+  zoomBusy = true;
+  try {
+    for (const w of T.webinars.all({})) {
+      if (w.provider !== 'zoom' || !w.zoom?.sessions) continue;
+      const u = T.users.get(w.userId);
+      if (!zoomOf(u)) continue;
+      for (const [start, s] of Object.entries(w.zoom.sessions)) {
+        const end = Number(start) + w.duration * MIN;
+        if (s.report || now < end + 20 * MIN || now > end + 3 * DAY || (s.tryAt && now - s.tryAt < 15 * MIN)) continue;
+        T.webinars.update(w.id, (x) => { x.zoom.sessions[start] = { ...x.zoom.sessions[start], tryAt: now }; });
+        let rows;
+        try { rows = await zoomReport(u, s); } catch (e) { if (e.status !== 404 && e.status !== 400) console.error('Zoom report failed', e.message); continue; }
+        const got = applyAttendance(w, Number(start), rows, 'zoom');
+        const secs = rows.map((x) => x.seconds).filter((x) => x > 0);
+        T.webinars.update(w.id, (x) => { x.zoom.sessions[start] = { ...x.zoom.sessions[start], report: { at: now, ...got, avgMinutes: secs.length ? Math.round(secs.reduce((a, b) => a + b, 0) / secs.length / 60) : 0 } }; });
+      }
+    }
+  } finally { zoomBusy = false; }
+}
+
+// ---------- analytics: registered → attended → stayed → bought, per session ----------
+export function webinarAnalytics(w) {
+  const now = Date.now(), regs = T.registrations.all({ webinarId: w.id }).filter((r) => r.status !== 'cancelled');
+  const len = w.duration * MIN;
+  // a sale within 14 days of their session
+  const bought = (r) => T.orders.all({ userId: w.userId, ckey: contactKey(r.email, r.phone) }).filter((o) => paidOrder(o) && !o.demo && o.at >= r.session && o.at <= r.session + 14 * DAY);
+  const stat = (list) => {
+    const past = list.filter((r) => r.session + len < now), came = past.filter((r) => r.attended), timed = came.filter((r) => r.watchSeconds > 0);
+    const orders = list.flatMap(bought), buyers = new Set(orders.map((o) => o.email || o.id)).size;
+    return {
+      registered: list.length, past: past.length, attended: came.length, showUp: past.length ? Math.round((came.length / past.length) * 100) : null,
+      avgMinutes: timed.length ? Math.round(timed.reduce((a, r) => a + r.watchSeconds, 0) / timed.length / 60) : null,
+      stayed: timed.filter((r) => r.watchSeconds * 1000 >= len / 2).length, timed: timed.length,
+      replays: past.filter((r) => !r.attended && r.replayAt).length,
+      buyers, revenue: Math.round(orders.reduce((a, o) => a + (Number(o.total) || 0) * (Number(o.fx) || 1), 0)),
+    };
+  };
+  const bySession = new Map();
+  for (const r of regs) bySession.set(r.session, [...(bySession.get(r.session) || []), r]);
+  // sign-ups per day, the last 30 days
+  const days = Array.from({ length: 30 }, (_, i) => new Date(now - (29 - i) * DAY).toISOString().slice(0, 10));
+  const perDay = Object.fromEntries(days.map((d) => [d, 0]));
+  for (const r of regs) { const d = new Date(r.at).toISOString().slice(0, 10); if (d in perDay) perDay[d]++; }
+  return {
+    totals: stat(regs),
+    sessions: [...bySession.entries()].sort((a, b) => b[0] - a[0]).slice(0, 50).map(([t, list]) => ({ session: t, ...stat(list), zoom: w.zoom?.sessions?.[t]?.report || null })),
+    signups: days.map((d) => ({ day: d, n: perDay[d] })),
+  };
+}
+
+const outReg = (r) => ({ id: r.id, email: r.email, name: r.name, phone: r.phone, session: r.session, status: r.status, attended: !!r.attended, joinedAt: r.joinedAt || null, watchMinutes: r.watchSeconds ? Math.round(r.watchSeconds / 60) : null, replay: !!r.replayAt, at: r.at });
+const hookToken = (w) => sig(`wh.${w.id}`);
+// a list of attendees (CSV upload or webhook): emails, and minutes watched when the platform gives them
+const rowsFrom = (list) => (Array.isArray(list) ? list : []).slice(0, 20000).map((x) => ({ email: clip(x?.email, 200).toLowerCase(), seconds: Number(x?.seconds) > 0 ? Number(x.seconds) : Number(x?.minutes) > 0 ? Number(x.minutes) * 60 : 0, joinedAt: Date.parse(x?.joinedAt || x?.join_time || '') || null })).filter((x) => /@/.test(x.email));
 
 // ---------- routes ----------
 export function registerWebinars(app, { auth, secret, appUrl, pub }) {
@@ -168,10 +263,48 @@ export function registerWebinars(app, { auth, secret, appUrl, pub }) {
     if (!upcoming(w).length) return res.status(400).json({ error: 'This schedule has no upcoming sessions — add a future date or a weekly time' });
     res.json(T.webinars.put(w));
   });
+  // the seller's Zoom: connect with a Server-to-Server OAuth app's keys
+  app.get('/api/zoom', auth, (req, res) => res.json({ zoom: zoomView(req.user) }));
+  app.put('/api/zoom', auth, async (req, res) => { try { res.json({ zoom: await connectZoom(req.user.id, req.body) }); } catch (e) { res.status(e.status || 502).json({ error: e.message }); } });
+  app.delete('/api/zoom', auth, (req, res) => { disconnectZoom(req.user.id); res.json({ zoom: null }); });
+  const own = (req, res) => { const w = T.webinars.get(req.params.wid); if (!w || w.userId !== req.user.id) { res.status(404).json({ error: 'Webinar not found' }); return null; } return w; };
+  app.get('/api/webinars/:wid/analytics', auth, (req, res) => { const w = own(req, res); if (w) res.json({ ...webinarAnalytics(w), hook: `${appUrl(req)}/api/webinar-hook/${w.id}?t=${hookToken(w)}` }); });
+  // the host's "Start the session" link for Zoom (made fresh: Zoom's start links expire)
+  app.post('/api/webinars/:wid/host', auth, async (req, res) => {
+    const w = own(req, res); if (!w) return;
+    if (w.provider !== 'zoom' || !zoomOf(req.user)) return res.status(400).json({ error: 'This webinar isn’t on Zoom' });
+    const start = Number(req.body?.session) || upcoming(w)[0];
+    if (!start) return res.status(400).json({ error: 'There’s no upcoming session' });
+    try { res.json({ url: await zoomStartUrl(req.user, w, start), kind: kindFor(req.user, w) }); } catch (e) { res.status(502).json({ error: `Zoom: ${e.message}` }); }
+  });
+  // attendance from another platform (webinar.gg, Meet, YouTube…): an uploaded list for one session
+  app.post('/api/webinars/:wid/attendance', auth, (req, res) => {
+    const w = own(req, res); if (!w) return;
+    const session = Number(req.body?.session);
+    if (!T.registrations.all({ webinarId: w.id }).some((r) => r.session === session)) return res.status(400).json({ error: 'Choose a session that has registrations' });
+    const rows = rowsFrom(req.body?.rows);
+    if (!rows.length) return res.status(400).json({ error: 'No email addresses found in that file' });
+    res.json(applyAttendance(w, session, rows, 'import'));
+  });
   app.get('/api/webinars/:wid/registrations', auth, (req, res) => {
     const w = T.webinars.get(req.params.wid);
     if (!w || w.userId !== req.user.id) return res.status(404).json({ error: 'Webinar not found' });
     res.json(T.registrations.all({ webinarId: w.id }, { order: 'session', desc: true, limit: 5000 }).map(outReg));
+  });
+
+  // --- public: attendance from a webinar platform's webhook or Zapier (one person, or a list), signed by the link ---
+  app.post('/api/webinar-hook/:wid', (req, res) => {
+    const w = T.webinars.get(req.params.wid);
+    if (!w || !same(String(req.query.t || ''), hookToken(w))) return res.status(404).json({ error: 'Unknown webinar link' });
+    const b = req.body || {};
+    const rows = rowsFrom(Array.isArray(b.attendees) ? b.attendees : [b]);
+    if (!rows.length) return res.status(400).json({ error: 'Send an email (and minutes or seconds watched)' });
+    // the session: the one given, else the latest that has started
+    const sessions = [...new Set(T.registrations.all({ webinarId: w.id }).map((r) => r.session))].sort((a, b2) => b2 - a);
+    const given = Date.parse(b.session || '') || Number(b.session);
+    const session = sessions.find((t) => t === given) || sessions.find((t) => t <= Date.now() + 15 * MIN);
+    if (!session) return res.status(400).json({ error: 'No session to record this for' });
+    res.json(applyAttendance(w, session, rows, 'webhook'));
   });
 
   // --- public: the sessions a registration page offers ---
@@ -194,21 +327,25 @@ export function registerWebinars(app, { auth, secret, appUrl, pub }) {
     const r = byToken(req, res); if (!r) return;
     const w = T.webinars.get(r.webinarId), owner = T.users.get(r.userId);
     const now = Date.now(), end = r.session + (w?.duration || 90) * MIN;
+    if (now > end && !r.attended && !r.replayAt) T.registrations.update(r.id, (x) => { x.replayAt = now; }); // a replay view (analytics)
     res.set('Cache-Control', 'no-store').json({
       name: w?.name, duration: w?.duration, tzOffset: w ? offsetAt(webTz(w)) : 330, timezone: w ? webTz(w) : 'Asia/Kolkata', session: r.session, end, seller: owner?.settings?.businessName || owner?.name || '', email: r.email,
       state: now < r.session - 15 * MIN ? 'soon' : now <= end ? 'live' : 'over',
       replay: now > end && (w?.replayUrl || r.replayStep) && (!w.replayHours || now < end + w.replayHours * HOUR) ? (w.replayUrl || `${r.base}${r.replayStep}`) : null,
     });
   });
-  app.post('/api/webinar-reg/:rid/join', (req, res) => {
+  app.post('/api/webinar-reg/:rid/join', async (req, res) => {
     const r = byToken(req, res); if (!r) return;
     const w = T.webinars.get(r.webinarId);
     const now = Date.now(), end = r.session + (w?.duration || 90) * MIN;
     if (now < r.session - 15 * MIN) return res.status(400).json({ error: 'The room opens 15 minutes before the start' });
     if (now > end) return res.status(400).json({ error: 'This session has ended' });
-    if (!w?.joinUrl) return res.status(409).json({ error: 'The host hasn’t added the joining link yet — please refresh in a minute' });
+    let url = w?.joinUrl;
+    // Zoom: their own registrant link, else the session's link (made now if it isn't yet)
+    if (w?.provider === 'zoom' && zoomOf(T.users.get(w.userId))) url = await zoomLink(r.id).catch(() => null) || T.webinars.get(w.id)?.zoom?.sessions?.[r.session]?.joinUrl || url;
+    if (!url) return res.status(409).json({ error: 'The host hasn’t added the joining link yet — please refresh in a minute' });
     if (!r.attended) T.registrations.update(r.id, (x) => { x.attended = true; x.joinedAt = now; });
-    res.json({ url: w.joinUrl });
+    res.json({ url });
   });
   app.get('/api/webinar-reg/:rid/ics', (req, res) => {
     const r = byToken(req, res); if (!r) return;

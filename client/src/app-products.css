@@ -443,3 +443,26 @@ fieldset.plain:disabled { opacity: .75; }
 .sc-link { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .sc-link .btn { flex: none; }
 .sc-link code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--c-bg, #fafafb); padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+
+/* webinars: where it's held (any link / Zoom / webinar.gg), Zoom, analytics, attendance import */
+.wb-prov { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.wb-prov button { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--c-line); background: var(--c-surface); }
+.wb-prov button b { font-size: 13.5px; }
+.wb-prov button small { font-size: 11.5px; color: var(--c-muted); }
+.wb-prov button.on { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-soft); }
+.wb-zoom { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border-radius: 12px; background: var(--c-surface-2); border: 1px solid var(--c-line); }
+.wb-steps { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12.5px; color: var(--c-ink-2); }
+.wb-steps code { font-size: 11px; word-break: break-word; }
+.wb-an { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; margin-bottom: 14px; }
+.wb-funnel { display: grid; gap: 8px; }
+.wb-fstep { display: grid; grid-template-columns: 130px minmax(0, 1fr) 54px 40px; gap: 8px; align-items: center; font-size: 12.5px; }
+.wb-fl { color: var(--c-ink-2); }
+.wb-fbar { height: 12px; border-radius: 99px; background: var(--c-line-2); overflow: hidden; }
+.wb-fbar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--c-accent), #8b5cf6); }
+.wb-fstep b { text-align: right; }
+.wb-fstep small { color: var(--c-muted); }
+.wb-spark { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin-top: 8px; }
+.wb-spark i { flex: 1; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--c-accent); opacity: .75; }
+.wb-att { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--c-line-2); }
+.wb-att input[readonly] { font-family: ui-monospace, monospace; font-size: 12px; }
+@media (max-width: 700px) { .wb-prov { grid-template-columns: 1fr; } .wb-an { grid-template-columns: 1fr; } .wb-fstep { grid-template-columns: 96px minmax(0, 1fr) 44px 34px; } }

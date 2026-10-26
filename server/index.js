@@ -72,6 +72,7 @@ import { notify, money, registerNotifications, unreadCount } from './notify.js';
 import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, hit as countHit } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 import { registerWaInbox } from './wainbox.js';
+import { registerShopify } from './shopify.js';
 import { registerMetaSignup } from './meta-signup.js';
 import { registerWaKnowledge } from './waknow.js';
 
@@ -955,6 +956,7 @@ registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
+registerShopify(app, { auth, wrap, rateLimit, isTest });
 registerMetaSignup(app, { auth, wrap, rateLimit, isTest });
 registerWaKnowledge(app, { auth, rateLimit, isTest });
 registerRazorpaySettings(app, { auth, wrap });
