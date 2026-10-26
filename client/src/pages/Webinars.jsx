@@ -6,15 +6,16 @@ import { Layout, Panel, Icon, Empty, toast, num, inr, downloadCSV, loadFailed, c
 
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 const fmt = (t, zone) => (t ? fmtWhenShort(t, zone ?? 330) : '—');
-const PROVIDERS = [['link', 'Any link', 'Google Meet, YouTube Live, StreamYard…'], ['zoom', 'Zoom', 'Personal links, watch time'], ['webinargg', 'webinar.gg', 'Browser webinars at scale']];
+const PROVIDERS = [['link', 'Any link', 'Google Meet, YouTube Live, StreamYard…'], ['zoom', 'Zoom', 'Personal links, watch time'], ['webinargg', 'webinar.gg', 'Straight into the room, no app']];
 const ZOOM_SCOPES = ['user:read:user:admin', 'webinar:write:webinar:admin', 'webinar:read:webinar:admin', 'webinar:write:registrant:admin', 'meeting:write:meeting:admin', 'meeting:read:meeting:admin', 'report:read:list_webinar_participants:admin', 'report:read:list_meeting_participants:admin'];
 
 export default function Webinars() {
   const [list, setList] = useState(null);
   const [sel, setSel] = useState(null);
   const [zoom, setZoom] = useState(undefined);
+  const [gg, setGg] = useState(undefined); // { webinargg, hook }
   const load = () => api('/webinars').then((l) => { setList(l); setSel((s) => l.find((w) => w.id === s?.id) || l[0] || null); });
-  useEffect(() => { load(); api('/zoom').then((r) => setZoom(r.zoom)).catch(() => setZoom(null)); }, []);
+  useEffect(() => { load(); api('/zoom').then((r) => setZoom(r.zoom)).catch(() => setZoom(null)); api('/webinargg').then(setGg).catch(() => setGg({ webinargg: null })); }, []);
   return (
     <Layout title="Webinars" subtitle="Live sessions behind your registration pages — schedule, Zoom or any platform, reminders, attendance, watch time and sales.">
       {!list ? <div className="skeleton" /> : !list.length ? (
@@ -23,7 +24,7 @@ export default function Webinars() {
         </Empty></Panel>
       ) : (
         <div className="pr-cols">
-          <div className="pr-main">{sel && <WebinarEditor key={sel.id} w={sel} onSaved={load} zoom={zoom} setZoom={setZoom} />}</div>
+          <div className="pr-main">{sel && <WebinarEditor key={sel.id} w={sel} onSaved={load} zoom={zoom} setZoom={setZoom} gg={gg} setGg={setGg} />}</div>
           <aside className="pr-side">
             <Panel title="Your webinars">
               <div className="cal-list">{list.map((w) => <button key={w.id} className={w.id === sel?.id ? 'on' : ''} onClick={() => setSel(w)}><b>{w.name}</b><small>{w.next ? `Next: ${fmt(w.next, w.timezone || w.tzOffset)} · ${num(w.upcomingSeats)} registered` : 'No upcoming session'}</small><small>{w.funnel || 'Funnel deleted'}{w.provider === 'zoom' ? ' · Zoom' : w.provider === 'webinargg' ? ' · webinar.gg' : ''}</small></button>)}</div>
@@ -32,6 +33,27 @@ export default function Webinars() {
         </div>
       )}
     </Layout>
+  );
+}
+
+// the seller's webinar.gg: an API token (premium plan) from Settings → Integrations
+function WggConnect({ onDone }) {
+  const [v, setV] = useState({ token: '', email: '' });
+  const [busy, setBusy] = useState(false);
+  const go = async (e) => { e.preventDefault(); setBusy(true); try { const r = await api('/webinargg', 'PUT', v); onDone(r); toast('webinar.gg connected'); } catch (er) { toast(er.message); } setBusy(false); };
+  return (
+    <form className="wb-zoom" onSubmit={go}>
+      <b>Connect your webinar.gg account</b>
+      <ol className="wb-steps">
+        <li>Sign in at <a href="https://webinar.gg" target="_blank" rel="noreferrer">webinar.gg</a> and open <b>Settings → Integrations</b> (the API needs a premium plan).</li>
+        <li>Create an API token and copy it — it’s shown only once.</li>
+      </ol>
+      <div className="form2">
+        <label className="fld"><span>API token</span><input type="password" value={v.token} onChange={(e) => setV({ ...v, token: e.target.value.trim() })} placeholder="wg_live_…" autoComplete="off" /></label>
+        <label className="fld"><span>Your webinar.gg login email <small className="muted">· for the host studio link</small></span><input type="email" value={v.email} onChange={(e) => setV({ ...v, email: e.target.value.trim() })} placeholder="you@business.in" /></label>
+      </div>
+      <button className="btn primary" disabled={busy || !v.token}>{busy ? <span className="spin" /> : null}Connect webinar.gg</button>
+    </form>
   );
 }
 
@@ -58,7 +80,7 @@ function ZoomConnect({ onDone }) {
   );
 }
 
-function WebinarEditor({ w, onSaved, zoom, setZoom }) {
+function WebinarEditor({ w, onSaved, zoom, setZoom, gg, setGg }) {
   const [v, setV] = useState({ provider: 'link', ...w });
   const [regs, setRegs] = useState(null);
   const [stats, setStats] = useState(null);
@@ -71,6 +93,7 @@ function WebinarEditor({ w, onSaved, zoom, setZoom }) {
   const setS = (patch) => set({ schedule: { ...s, ...patch } });
   const save = async () => { setBusy(true); try { await api(`/webinars/${w.id}`, 'PUT', v); toast('Webinar saved'); onSaved(); } catch (e) { toast(e.message); } setBusy(false); };
   const host = async () => { setBusy(true); try { const r = await api(`/webinars/${w.id}/host`, 'POST', {}); window.open(r.url, '_blank', 'noopener'); } catch (e) { toast(e.message); } setBusy(false); };
+  const dropGg = async () => { if (!await confirmDialog({ title: 'Disconnect webinar.gg?', text: 'Rooms already made stay on webinar.gg, but new sessions won’t get one until you connect again.', confirm: 'Disconnect', danger: true })) return; await api('/webinargg', 'DELETE'); setGg({ ...gg, webinargg: null }); };
   const dropZoom = async () => { if (!await confirmDialog({ title: 'Disconnect Zoom?', text: 'Webinars on Zoom keep the sessions already made, but new ones can’t be created until you connect again.', confirm: 'Disconnect', danger: true })) return; await api('/zoom', 'DELETE'); setZoom(null); };
   const bySession = {};
   for (const r of regs || []) (bySession[r.session] ||= []).push(r);
@@ -95,11 +118,24 @@ function WebinarEditor({ w, onSaved, zoom, setZoom }) {
             <label className="fld full"><span>Joining link <small className="muted">· Google Meet, YouTube Live, StreamYard… Registrants never see it until the room opens</small></span><input value={v.joinUrl || ''} onChange={(e) => set({ joinUrl: e.target.value })} placeholder="https://meet.google.com/…" /></label>
             {!v.joinUrl && <p className="hint full warn-t">⚠ Add the joining link before your first session — the “Join” button waits for it.</p>}
           </>}
-          {v.provider === 'webinargg' && <>
-            <label className="fld full"><span>Your webinar.gg attendee link <small className="muted">· create the webinar in webinar.gg and paste the link attendees use</small></span><input value={v.joinUrl || ''} onChange={(e) => set({ joinUrl: e.target.value })} placeholder="https://webinar.gg/…" /></label>
-            <p className="hint full">Registrants join through their personal link, so you see who came. For watch time, upload webinar.gg’s attendee list after the session, or send it to this webinar’s attendance webhook (both in Analytics below).</p>
+          {v.provider === 'webinargg' && !gg?.webinargg && <>
+            <label className="fld full"><span>Or paste a webinar.gg attendee link <small className="muted">· if you’d rather not connect your account</small></span><input value={v.joinUrl || ''} onChange={(e) => set({ joinUrl: e.target.value })} placeholder="https://webinar.gg/…" /></label>
           </>}
         </div>
+        {v.provider === 'webinargg' && (gg === undefined ? <span className="spin dark" /> : !gg.webinargg ? <WggConnect onDone={setGg} /> : (
+          <div className="wb-zoom">
+            <div className="row" style={{ justifyContent: 'space-between' }}><span><span className="cb-live">webinar.gg connected</span> <b>{gg.webinargg.email}</b></span><button className="link-btn" onClick={dropGg}>Disconnect</button></div>
+            <p className="hint" style={{ margin: 0 }}>Each session gets its own webinar.gg room, made when the first person registers. Registrants go straight into the room from their joining link — no form or OTP — and afterwards the room’s attendee list marks who came.</p>
+            <label className="tog"><input type="checkbox" checked={!!v.wggRecord} onChange={(e) => set({ wggRecord: e.target.checked })} /><span />Record the sessions (the recording becomes that session’s replay)</label>
+            {w.next && <button className="btn ghost" style={{ justifySelf: 'start' }} onClick={host} disabled={busy || w.provider !== 'webinargg'}><Icon name="play" size={14} />Open the next session’s host studio</button>}
+            <div className="wb-att" style={{ marginTop: 0, paddingTop: 10 }}>
+              <b className="sm">Once: paste this in webinar.gg → Settings → Integrations → Webhook callback URL</b>
+              <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><input readOnly value={gg.hook} onFocus={(e) => e.target.select()} aria-label="webinar.gg webhook" /><button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(gg.hook); toast('Copied'); }}><Icon name="copy" size={13} />Copy</button></div>
+              <span className="hint" style={{ margin: 0 }}>So attendance comes in the moment a session ends, and recordings become replays.</span>
+            </div>
+            {w.provider !== 'webinargg' && <p className="hint warn-t" style={{ margin: 0 }}>Save to move this webinar to webinar.gg.</p>}
+          </div>
+        ))}
         {v.provider === 'zoom' && (zoom === undefined ? <span className="spin dark" /> : !zoom ? <ZoomConnect onDone={setZoom} /> : (
           <div className="wb-zoom">
             <div className="row" style={{ justifyContent: 'space-between' }}><span><span className="cb-live">Zoom connected</span> <b>{zoom.email}</b>{zoom.name ? ` · ${zoom.name}` : ''}</span><button className="link-btn" onClick={dropZoom}>Disconnect</button></div>
@@ -195,12 +231,12 @@ function Analytics({ w, stats, sessions, onImported }) {
       {stats.sessions.length > 0 && (
         <div className="tbl-wrap"><table className="tbl compact">
           <thead><tr><th>Session</th><th className="r">Registered</th><th className="r">Came</th><th className="r">Show-up</th><th className="r">Avg watch</th><th className="r">Buyers</th><th className="r">Sales</th></tr></thead>
-          <tbody>{stats.sessions.slice(0, 12).map((x) => <tr key={x.session}><td>{fmt(x.session, w.timezone || w.tzOffset)}{x.zoom && <small className="sub-t">Zoom report · {x.zoom.people} joined{x.zoom.walkIns ? ` (${x.zoom.walkIns} not registered)` : ''}</small>}</td><td className="r">{num(x.registered)}</td><td className="r">{x.past ? num(x.attended) : '—'}</td><td className="r">{x.showUp != null ? `${x.showUp}%` : '—'}</td><td className="r">{x.avgMinutes != null ? `${x.avgMinutes} min` : '—'}</td><td className="r">{num(x.buyers)}</td><td className="r">{inr(x.revenue)}</td></tr>)}</tbody>
+          <tbody>{stats.sessions.slice(0, 12).map((x) => <tr key={x.session}><td>{fmt(x.session, w.timezone || w.tzOffset)}{x.zoom && <small className="sub-t">Zoom report · {x.zoom.people} joined{x.zoom.walkIns ? ` (${x.zoom.walkIns} not registered)` : ''}</small>}{x.wgg?.metrics && <small className="sub-t">webinar.gg · {x.wgg.metrics.totalUsers ?? '—'} in the room, peak {x.wgg.metrics.peak ?? '—'}</small>}</td><td className="r">{num(x.registered)}</td><td className="r">{x.past ? num(x.attended) : '—'}</td><td className="r">{x.showUp != null ? `${x.showUp}%` : '—'}</td><td className="r">{x.avgMinutes != null ? `${x.avgMinutes} min` : '—'}</td><td className="r">{num(x.buyers)}</td><td className="r">{inr(x.revenue)}</td></tr>)}</tbody>
         </table></div>
       )}
       <div className="wb-att">
         <b className="sm">Add attendance from another platform</b>
-        <p className="hint" style={{ margin: 0 }}>{w.provider === 'zoom' ? 'Zoom attendance comes in by itself about 20 minutes after each session. ' : ''}From webinar.gg, YouTube, Meet or anything else: upload the attendee list (CSV with an email column, and minutes watched if it has them), or have the platform / Zapier send each attendee to the webhook below.</p>
+        <p className="hint" style={{ margin: 0 }}>{w.provider === 'zoom' ? 'Zoom attendance comes in by itself about 20 minutes after each session. ' : w.provider === 'webinargg' && gg?.webinargg ? 'webinar.gg attendance comes in by itself after each session. ' : ''}From webinar.gg, YouTube, Meet or anything else: upload the attendee list (CSV with an email column, and minutes watched if it has them), or have the platform / Zapier send each attendee to the webhook below.</p>
         {past.length > 0 ? <div className="row" style={{ gap: 8 }}>
           <select value={session} onChange={(e) => setSession(e.target.value)} style={{ width: 'auto' }}>{past.map((x) => <option key={x} value={x}>{fmt(x, w.timezone || w.tzOffset)}</option>)}</select>
           <input ref={file} type="file" accept=".csv,text/csv,text/plain" hidden onChange={upload} />

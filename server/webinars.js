@@ -1,14 +1,16 @@
 // Webinars: the schedule behind a registration page (one-off dates, weekly, or daily "evergreen" sessions), who
 // registered for which session, each registrant's personal joining link (which records attendance), and the
 // emails around it: confirmation, a day before, an hour before, "we're live", and the replay afterwards.
-// Where it's held: any link (Google Meet, YouTube Live, webinar.gg…) or the seller's Zoom (zoom.js) — each session
-// its own Zoom webinar or meeting, a personal Zoom link per registrant, and watch time from Zoom's report.
+// Where it's held: any link (Google Meet, YouTube Live…), the seller's Zoom (zoom.js) — each session its own Zoom
+// webinar or meeting, a personal Zoom link per registrant, watch time from Zoom's report — or the seller's webinar.gg
+// (wgg.js) — each session its own room, registrants dropped straight in with a join token, attendance from the room.
 // Attendance from other platforms comes in as a CSV upload or a webhook. Analytics: show-up, watch time, sales.
 //
 // Times are UTC milliseconds; schedules are written in the webinar's local time (India by default, UTC+5:30).
 import crypto from 'node:crypto';
 import { T, tx, uid, contactKey, JOBS, paidOrder } from './db.js';
 import { zoomOf, zoomView, connectZoom, disconnectZoom, zoomRegistrant, zoomStartUrl, zoomReport, kindFor } from './zoom.js';
+import { wggOf, wggView, connectWgg, disconnectWgg, wggSession, wggJoinUrl, wggHostUrl, wggReport, wggCall } from './wgg.js';
 import { sendEmail } from './messaging.js';
 import { waEvent } from './hive-wa.js';
 import { enqueue as fireWebhook } from './webhooks.js';
@@ -39,6 +41,7 @@ function cleanWebinar(b = {}, cur = {}) {
   if ('provider' in b || !cur.id) out.provider = ['link', 'zoom', 'webinargg'].includes(b.provider) ? b.provider : cur.provider || 'link';
   if ('zoomKind' in b) out.zoomKind = b.zoomKind === 'meeting' ? 'meeting' : 'webinar';
   if ('zoomRecord' in b) out.zoomRecord = !!b.zoomRecord;
+  if ('wggRecord' in b) out.wggRecord = !!b.wggRecord;
   if ('replayHours' in b || !cur.id) out.replayHours = intIn(b.replayHours, 0, 720, cur.replayHours ?? 48);
   if ('emails' in b || !cur.id) out.emails = { day: b.emails?.day ?? cur.emails?.day ?? true, hour: b.emails?.hour ?? cur.emails?.hour ?? true, live: b.emails?.live ?? cur.emails?.live ?? true, replay: b.emails?.replay ?? cur.emails?.replay ?? true };
   if ('schedule' in b || !cur.id) {
@@ -113,6 +116,9 @@ export function register(f, w, { email, name = '', phone = '', session, leadId =
   fireAutomation(f.userId, 'webinar_registered', { email: r.email, phone: r.phone, name: r.name, funnelId: f.id, webinarTime: when(start, webTz(w)), joinLink: link });
   notify(r, w, 'confirm');
   if (w.provider === 'zoom') zoomLink(r.id).catch((e) => console.error('Zoom registrant failed', e.message));
+  // webinar.gg: the session's room is made now, so joining later is instant
+  const owner = T.users.get(f.userId);
+  if (w.provider === 'webinargg' && wggOf(owner)) wggSession(owner, w, start, webTz(w)).catch((e) => console.error('webinar.gg room failed', e.message));
   return { registration: r };
 }
 
@@ -121,7 +127,7 @@ function notify(r, w, kind) {
   if (!owner) return;
   const biz = owner.settings?.businessName || owner.name;
   const link = joinUrl(r.base, r), first = String(r.name || '').split(/\s+/)[0] || 'there';
-  const replay = w.replayUrl || (r.replayStep ? `${r.base}${r.replayStep}` : '');
+  const replay = w.replayUrl || T.webinars.get(w.id)?.wgg?.sessions?.[r.session]?.recording || (r.replayStep ? `${r.base}${r.replayStep}` : '');
   const msg = {
     confirm: [`You’re in: ${w.name} — ${when(r.session, webTz(w))}`, `Hi ${first},\n\nYour seat for ${w.name} is confirmed.\n\n📅 ${when(r.session, webTz(w))} (${w.duration} minutes)\n\nYour personal joining link (don’t share it):\n${link}\n\nAdd it to your calendar from the same link. See you there!\n\n— ${biz}`],
     day: [`Tomorrow: ${w.name}`, `Hi ${first},\n\nA reminder that ${w.name} is on ${when(r.session, webTz(w))}.\n\nYour joining link: ${link}\n\n— ${biz}`],
@@ -141,7 +147,7 @@ export function webinarJob(now = Date.now()) {
     const w = T.webinars.get(r.webinarId);
     if (!w) continue;
     const left = r.session - now, end = r.session + w.duration * MIN;
-    const due = left > 2 * HOUR && left <= 24 * HOUR + 2 * MIN ? 'day' : left > 5 * MIN && left <= HOUR + 2 * MIN ? 'hour' : left <= 2 * MIN && left > -10 * MIN ? 'live' : now >= end + (w.provider === 'zoom' && zoomOf(T.users.get(w.userId)) ? 45 : 15) * MIN && now < end + 3 * HOUR ? 'replay' : null;
+    const due = left > 2 * HOUR && left <= 24 * HOUR + 2 * MIN ? 'day' : left > 5 * MIN && left <= HOUR + 2 * MIN ? 'hour' : left <= 2 * MIN && left > -10 * MIN ? 'live' : now >= end + (liveOf(T.users.get(w.userId), w) ? 45 : 15) * MIN && now < end + 3 * HOUR ? 'replay' : null;
     if (!due || r.sent?.[due]) continue;
     const claimed = tx(() => { const x = T.registrations.get(r.id); if (x.sent?.[due]) return null; x.sent = { ...x.sent, [due]: now }; if (due === 'replay') x.status = x.attended ? 'attended' : 'missed'; return T.registrations.put(x); });
     if (!claimed) continue;
@@ -154,7 +160,9 @@ export function webinarJob(now = Date.now()) {
 }
 if (JOBS && process.env.NODE_ENV !== 'test') setInterval(() => { try { webinarJob(); } catch (e) { console.error('webinar job failed', e.message); } zoomJob().catch((e) => console.error('Zoom report job failed', e.message)); }, 60000).unref();
 
-// ---------- Zoom: personal links, attendance and watch time ----------
+// ---------- Zoom and webinar.gg: personal links, attendance and watch time ----------
+// the platform this webinar runs on, when the seller has connected it ('zoom' | 'webinargg' | null)
+const liveOf = (u, w) => (w.provider === 'zoom' && zoomOf(u) ? 'zoom' : w.provider === 'webinargg' && wggOf(u) ? 'webinargg' : null);
 // a registrant's own Zoom link, made once (Zoom webinars give each registrant one; meetings share one)
 async function zoomLink(rid) {
   const r = T.registrations.get(rid), w = r && T.webinars.get(r.webinarId), u = w && T.users.get(w.userId);
@@ -183,28 +191,32 @@ export function applyAttendance(w, session, rows, source) {
   }
   return { matched, walkIns: rows.length - matched, people: rows.length };
 }
-// after each Zoom session: its participant report (Zoom needs a few minutes; tried every 15 minutes for 3 days)
-let zoomBusy = false;
+// after each session: the platform's report (Zoom: participants with minutes; webinar.gg: who attended, room totals).
+// Reports take a few minutes: tried 20 minutes after the end, then every 15 minutes for 3 days — or right away when
+// webinar.gg's webhook says the session ended.
+let liveBusy = false;
 export async function zoomJob(now = Date.now()) {
-  if (zoomBusy) return;
-  zoomBusy = true;
+  if (liveBusy) return;
+  liveBusy = true;
   try {
     for (const w of T.webinars.all({})) {
-      if (w.provider !== 'zoom' || !w.zoom?.sessions) continue;
-      const u = T.users.get(w.userId);
-      if (!zoomOf(u)) continue;
-      for (const [start, s] of Object.entries(w.zoom.sessions)) {
+      const u = T.users.get(w.userId), kind = liveOf(u, w), box = kind === 'zoom' ? 'zoom' : 'wgg';
+      if (!kind || !w[box]?.sessions) continue;
+      for (const [start, s] of Object.entries(w[box].sessions)) {
         const end = Number(start) + w.duration * MIN;
-        if (s.report || now < end + 20 * MIN || now > end + 3 * DAY || (s.tryAt && now - s.tryAt < 15 * MIN)) continue;
-        T.webinars.update(w.id, (x) => { x.zoom.sessions[start] = { ...x.zoom.sessions[start], tryAt: now }; });
-        let rows;
-        try { rows = await zoomReport(u, s); } catch (e) { if (e.status !== 404 && e.status !== 400) console.error('Zoom report failed', e.message); continue; }
-        const got = applyAttendance(w, Number(start), rows, 'zoom');
+        if (s.report || now > end + 3 * DAY || (!s.ended && now < end + 20 * MIN) || (s.tryAt && now - s.tryAt < 15 * MIN)) continue;
+        T.webinars.update(w.id, (x) => { x[box].sessions[start] = { ...x[box].sessions[start], tryAt: now }; });
+        let rows, extra = {};
+        try {
+          if (kind === 'zoom') rows = await zoomReport(u, s);
+          else { const r = await wggReport(u, s); rows = r.rows; extra = r.metrics ? { metrics: r.metrics } : {}; }
+        } catch (e) { if (![400, 404, 409].includes(e.status)) console.error(`${kind} report failed`, e.message); continue; }
+        const got = applyAttendance(w, Number(start), rows, kind);
         const secs = rows.map((x) => x.seconds).filter((x) => x > 0);
-        T.webinars.update(w.id, (x) => { x.zoom.sessions[start] = { ...x.zoom.sessions[start], report: { at: now, ...got, avgMinutes: secs.length ? Math.round(secs.reduce((a, b) => a + b, 0) / secs.length / 60) : 0 } }; });
+        T.webinars.update(w.id, (x) => { x[box].sessions[start] = { ...x[box].sessions[start], report: { at: now, ...got, ...extra, avgMinutes: secs.length ? Math.round(secs.reduce((a, b) => a + b, 0) / secs.length / 60) : 0 } }; });
       }
     }
-  } finally { zoomBusy = false; }
+  } finally { liveBusy = false; }
 }
 
 // ---------- analytics: registered → attended → stayed → bought, per session ----------
@@ -232,7 +244,7 @@ export function webinarAnalytics(w) {
   for (const r of regs) { const d = new Date(r.at).toISOString().slice(0, 10); if (d in perDay) perDay[d]++; }
   return {
     totals: stat(regs),
-    sessions: [...bySession.entries()].sort((a, b) => b[0] - a[0]).slice(0, 50).map(([t, list]) => ({ session: t, ...stat(list), zoom: w.zoom?.sessions?.[t]?.report || null })),
+    sessions: [...bySession.entries()].sort((a, b) => b[0] - a[0]).slice(0, 50).map(([t, list]) => ({ session: t, ...stat(list), zoom: w.zoom?.sessions?.[t]?.report || null, wgg: w.wgg?.sessions?.[t]?.report || null })),
     signups: days.map((d) => ({ day: d, n: perDay[d] })),
   };
 }
@@ -267,15 +279,21 @@ export function registerWebinars(app, { auth, secret, appUrl, pub }) {
   app.get('/api/zoom', auth, (req, res) => res.json({ zoom: zoomView(req.user) }));
   app.put('/api/zoom', auth, async (req, res) => { try { res.json({ zoom: await connectZoom(req.user.id, req.body) }); } catch (e) { res.status(e.status || 502).json({ error: e.message }); } });
   app.delete('/api/zoom', auth, (req, res) => { disconnectZoom(req.user.id); res.json({ zoom: null }); });
+  // the seller's webinar.gg: an API token (Settings → Integrations), and the webhook link to paste back there
+  const wggHook = (req) => `${appUrl(req)}/api/webinargg/hook/${req.user.id}?t=${sig(`wgg.${req.user.id}`)}`;
+  app.get('/api/webinargg', auth, (req, res) => res.json({ webinargg: wggView(req.user), hook: wggHook(req) }));
+  app.put('/api/webinargg', auth, async (req, res) => { try { res.json({ webinargg: await connectWgg(req.user.id, req.body), hook: wggHook(req) }); } catch (e) { res.status(e.status || 502).json({ error: e.message }); } });
+  app.delete('/api/webinargg', auth, (req, res) => { disconnectWgg(req.user.id); res.json({ webinargg: null }); });
   const own = (req, res) => { const w = T.webinars.get(req.params.wid); if (!w || w.userId !== req.user.id) { res.status(404).json({ error: 'Webinar not found' }); return null; } return w; };
   app.get('/api/webinars/:wid/analytics', auth, (req, res) => { const w = own(req, res); if (w) res.json({ ...webinarAnalytics(w), hook: `${appUrl(req)}/api/webinar-hook/${w.id}?t=${hookToken(w)}` }); });
   // the host's "Start the session" link for Zoom (made fresh: Zoom's start links expire)
   app.post('/api/webinars/:wid/host', auth, async (req, res) => {
     const w = own(req, res); if (!w) return;
-    if (w.provider !== 'zoom' || !zoomOf(req.user)) return res.status(400).json({ error: 'This webinar isn’t on Zoom' });
+    const kind = liveOf(req.user, w);
+    if (!kind) return res.status(400).json({ error: 'This webinar isn’t on a connected Zoom or webinar.gg' });
     const start = Number(req.body?.session) || upcoming(w)[0];
     if (!start) return res.status(400).json({ error: 'There’s no upcoming session' });
-    try { res.json({ url: await zoomStartUrl(req.user, w, start), kind: kindFor(req.user, w) }); } catch (e) { res.status(502).json({ error: `Zoom: ${e.message}` }); }
+    try { res.json(kind === 'zoom' ? { url: await zoomStartUrl(req.user, w, start), kind: kindFor(req.user, w) } : { url: await wggHostUrl(req.user, w, start, webTz(w)), kind: 'webinargg' }); } catch (e) { res.status(502).json({ error: `${kind === 'zoom' ? 'Zoom' : 'webinar.gg'}: ${e.message}` }); }
   });
   // attendance from another platform (webinar.gg, Meet, YouTube…): an uploaded list for one session
   app.post('/api/webinars/:wid/attendance', auth, (req, res) => {
@@ -305,6 +323,25 @@ export function registerWebinars(app, { auth, secret, appUrl, pub }) {
     const session = sessions.find((t) => t === given) || sessions.find((t) => t <= Date.now() + 15 * MIN);
     if (!session) return res.status(400).json({ error: 'No session to record this for' });
     res.json(applyAttendance(w, session, rows, 'webhook'));
+  });
+
+  // --- public: webinar.gg's webhook (the seller pastes this link in webinar.gg → Settings → Integrations).
+  // The payload isn't trusted: it only says which room to look at, and that room must be one of ours.
+  app.post('/api/webinargg/hook/:uid', (req, res) => {
+    const u = T.users.get(req.params.uid);
+    if (!u || !same(String(req.query.t || ''), sig(`wgg.${u.id}`))) return res.status(404).json({ error: 'Unknown link' });
+    res.json({ ok: true });
+    const ev = String(req.body?.event || ''), d = req.body?.data || {}, room = String(d.webinarId || '');
+    if (!room || !wggOf(u)) return;
+    for (const w of T.webinars.all({ userId: u.id })) {
+      const start = Object.entries(w.wgg?.sessions || {}).find(([, s]) => s.id === room)?.[0];
+      if (!start) continue;
+      // the session ended: its attendance is fetched on the next run, not 20 minutes later
+      if (ev === 'webinar.ended' || ev === 'webinar.slot.ended') T.webinars.update(w.id, (x) => { x.wgg.sessions[start] = { ...x.wgg.sessions[start], ended: Date.now(), tryAt: 0 }; });
+      // a recording: the replay for that session's registrants (checked with webinar.gg that the room is ours)
+      const link = [d.mp4Url, d.mainUrl, d.m3u8Url].find((x) => /^https:\/\/\S+$/.test(x || ''));
+      if (ev === 'webinar.recording.created' && link) wggCall(u, 'GET', `/v1/webinar/${encodeURIComponent(room)}`).then(() => T.webinars.update(w.id, (x) => { x.wgg.sessions[start] = { ...x.wgg.sessions[start], recording: link.slice(0, 500) }; })).catch(() => {});
+    }
   });
 
   // --- public: the sessions a registration page offers ---
@@ -342,7 +379,10 @@ export function registerWebinars(app, { auth, secret, appUrl, pub }) {
     if (now > end) return res.status(400).json({ error: 'This session has ended' });
     let url = w?.joinUrl;
     // Zoom: their own registrant link, else the session's link (made now if it isn't yet)
-    if (w?.provider === 'zoom' && zoomOf(T.users.get(w.userId))) url = await zoomLink(r.id).catch(() => null) || T.webinars.get(w.id)?.zoom?.sessions?.[r.session]?.joinUrl || url;
+    const owner = w && T.users.get(w.userId), kind = w && liveOf(owner, w);
+    if (kind === 'zoom') url = await zoomLink(r.id).catch(() => null) || T.webinars.get(w.id)?.zoom?.sessions?.[r.session]?.joinUrl || url;
+    // webinar.gg: the room with a fresh join token — straight in, no form or OTP
+    if (kind === 'webinargg') url = await wggJoinUrl(owner, w, r, webTz(w)).catch(() => null) || url;
     if (!url) return res.status(409).json({ error: 'The host hasn’t added the joining link yet — please refresh in a minute' });
     if (!r.attended) T.registrations.update(r.id, (x) => { x.attended = true; x.joinedAt = now; });
     res.json({ url });
