@@ -90,7 +90,48 @@ export default function Ads() {
           ) : <Empty icon="chart" title="No ad traffic yet" text="Once people arrive from your ads (with the URL parameters above), every lead, call and sale shows here per ad." />}
         </Panel>
         <p className="hint">“Scale” = lifetime ROAS 2× or more · “Kill” = ₹2,000+ spent with no calls or sales. Lifetime value counts every later purchase (upsells, renewals, repeat orders) by people the ad first brought in during this period.</p>
+        <WhatsAppAds days={days} />
       </>}
     </Layout>
+  );
+}
+
+// chats started from click-to-WhatsApp ads, per ad: chats, leads, orders and revenue (and spend, once Meta is synced)
+function WhatsAppAds({ days }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api(`/ads/whatsapp?days=${days}`).then((r) => live && setD(r)).catch(() => live && setD({ rows: [], totals: {} }));
+    return () => { live = false; };
+  }, [days]);
+  if (!d) return null;
+  const t = d.totals;
+  return (
+    <Panel pad={false} title="WhatsApp chats from ads" actions={d.rows.length > 0 && <>
+      <Link className="btn ghost sm" to="/inbox?filter=ads"><Icon name="chat" size={14} /> Open these chats</Link>
+      <button className="btn ghost sm" onClick={() => downloadCSV('whatsapp-ads.csv', d.rows)}><Icon name="download" size={14} /> CSV</button>
+    </>}>
+      {d.rows.length ? (
+        <div className="tbl-wrap">
+          <table className="tbl ads-tbl">
+            <thead><tr><th>Ad</th><th className="r">Spend</th><th className="r">Chats</th><th className="r">Cost / chat</th><th className="r" title="Shared an email, filled a form or bought">Leads</th><th className="r">Orders</th><th className="r">Revenue</th><th className="r">ROAS</th></tr></thead>
+            <tbody>{d.rows.map((r) => (
+              <tr key={r.adId || r.headline}>
+                <td className="ads-name">{r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer"><b>{r.name || r.headline || `Ad ${r.adId}`}</b></a> : <b>{r.name || r.headline || `Ad ${r.adId}`}</b>}
+                  <small className="sub-t">{[r.campaign, r.name && r.headline, r.adId && `ID ${r.adId}`].filter(Boolean).join(' · ')}</small></td>
+                <td className="r">{r.spend ? inr(r.spend) : '—'}</td>
+                <td className="r">{num(r.chats)}</td>
+                <td className="r">{r.costPerChat != null ? inr(r.costPerChat) : '—'}</td>
+                <td className="r">{num(r.leads)}</td>
+                <td className="r">{num(r.orders)}</td>
+                <td className="r">{inr(r.revenue)}</td>
+                <td className="r"><b>{x(r.roas)}</b></td>
+              </tr>))}
+              <tr className="ctwa-total"><td><b>Total</b></td><td className="r">{t.spend ? inr(t.spend) : '—'}</td><td className="r">{num(t.chats)}</td><td /><td className="r">{num(t.leads)}</td><td className="r">{num(t.orders)}</td><td className="r">{inr(t.revenue)}</td><td className="r"><b>{x(t.roas)}</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+      ) : <Empty icon="chat" title="No chats from ads yet" text="Run a Meta ad with the “Send WhatsApp message” button. Every chat it starts shows here, with the orders and revenue it brought." />}
+    </Panel>
   );
 }

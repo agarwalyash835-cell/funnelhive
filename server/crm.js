@@ -17,7 +17,7 @@ export const metaFor = (userId, key) => T.crm.find({ userId, key });
 // Someone who reached the seller another way — booked a call, got a quote, was given a course, joined the
 // members area — is listed in the CRM like a lead (an entry on their timeline says how they came in)
 export const CONTACT_SOURCES = { booking: 'Booked a call', quote: 'Sent a quote', course: 'Given course access', 'members area': 'Joined the members area',
-  'lead:indiamart': 'Enquiry from IndiaMART', 'lead:justdial': 'Enquiry from JustDial', 'lead:google_ads': 'Google Ads lead form', 'lead:99acres': 'Enquiry from 99acres', 'lead:magicbricks': 'Enquiry from MagicBricks', 'lead:housing': 'Enquiry from Housing.com', 'lead:nobroker': 'Enquiry from NoBroker', 'lead:sulekha': 'Enquiry from Sulekha', 'lead:tradeindia': 'Enquiry from TradeIndia', 'lead:shiksha': 'Enquiry from Shiksha', 'lead:collegedunia': 'Enquiry from CollegeDunia', 'lead:email': 'Enquiry by email' };
+  'lead:indiamart': 'Enquiry from IndiaMART', 'lead:justdial': 'Enquiry from JustDial', 'lead:google_ads': 'Google Ads lead form', 'lead:99acres': 'Enquiry from 99acres', 'lead:magicbricks': 'Enquiry from MagicBricks', 'lead:housing': 'Enquiry from Housing.com', 'lead:nobroker': 'Enquiry from NoBroker', 'lead:sulekha': 'Enquiry from Sulekha', 'lead:tradeindia': 'Enquiry from TradeIndia', 'lead:shiksha': 'Enquiry from Shiksha', 'lead:collegedunia': 'Enquiry from CollegeDunia', 'lead:email': 'Enquiry by email', 'whatsapp ad': 'Messaged from a WhatsApp ad' };
 export function ensureContact(userId, { email, phone, name } = {}, source = 'booking') {
   const e = String(email || '').trim().toLowerCase(), p = String(phone || '').trim();
   const key = contactKey(e, p);

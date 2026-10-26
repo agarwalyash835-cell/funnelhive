@@ -2,12 +2,12 @@
 //   Inbox     — one conversation per customer number: messages both ways, status (open / pending / resolved),
 //               assignee, labels, internal notes, the 24-hour window, AI reply suggestions, rewrite and summary.
 //   Chatbots  — flows drawn on a canvas (nodes + edges) that start on a keyword, a new contact's first message or
-//               any message; buttons, lists, questions saved to the contact, conditions, tags, AI intent routing,
-//               hand-over to the AI agent or a person, waits and webhooks. The same engine runs the in-app simulator.
+//               any message, or a chat started from a click-to-WhatsApp ad; buttons, lists, questions saved to the
+//               contact, conditions, tags, AI intent routing, hand-over to the AI agent or a person, waits and webhooks. The same engine runs the in-app simulator.
 //   AI agent  — answers customers from the business's own knowledge (its live funnels and products, plus what the
 //               seller writes in), in the customer's language; hands over to a person when it should.
 // Who answers a message, in order: a person already handling the chat → nobody automatic; "talk to a person" →
-// hand-over; the flow waiting for this answer; a keyword flow; the AI agent on this chat; a new contact's welcome
+// hand-over; a fresh ad tap → that ad's chatbot; the flow waiting for this answer; a keyword flow; the AI agent on this chat; a new contact's welcome
 // flow; the AI agent for new chats; the default flow; else the seller is notified.
 import { T, q, uid, hit, JOBS } from './db.js';
 import { onWaInbox, waSession, waLive, waApproved, waMedia, waUpload, waNumber, waOptedOut, waTemplateParam } from './hive-wa.js';
@@ -23,6 +23,7 @@ import { creditsShort, spendCredits, AI_COST } from './billing.js';
 import { fire } from './automations.js';
 import { checkPublicHost } from './webhooks.js';
 import { funnelUrl } from './domains.js';
+import { referralOf, recordAdTouch, adView } from './ctwa.js';
 
 const DAY = 86400000, WINDOW = DAY;
 const TICK = Number(process.env.WA_INBOX_TICK_MS || 30000);
@@ -334,7 +335,7 @@ export const NODE_TYPES = ['start', 'message', 'buttons', 'list', 'ask', 'condit
 const SAVES = ['', 'name', 'email', 'phone'];
 const CHECKS = ['text', 'email', 'phone', 'number', 'date'];
 const OPS = ['eq', 'neq', 'contains', 'exists', 'missing', 'has', 'not_has'];
-const TRIGGERS = ['keyword', 'welcome', 'default', 'manual'];
+const TRIGGERS = ['keyword', 'welcome', 'default', 'manual', 'ad'];
 export const portsOf = (n) => {
   switch (n?.type) {
     case 'buttons': return [...arr(n.data?.buttons).map((b) => b.id), 'other'];
@@ -370,6 +371,8 @@ export function cleanFlow(b = {}, cur = {}) {
   if ('trigger' in b || !f.trigger) {
     const t = b.trigger || {};
     f.trigger = { type: TRIGGERS.includes(t.type) ? t.type : 'keyword', keywords: arr(t.keywords).map((k) => clip(k, 40).toLowerCase()).filter(Boolean).slice(0, 20), match: t.match === 'exact' ? 'exact' : 'contains' };
+    // a chat started from a click-to-WhatsApp ad: any ad, or only these ad ids
+    if (f.trigger.type === 'ad') f.trigger.adIds = arr(t.adIds ?? (t.adId ? [t.adId] : [])).map((x) => clip(x, 40).replace(/[^\w.-]/g, '')).filter(Boolean).slice(0, 20);
   }
   if ('nodes' in b || !f.nodes) {
     const seen = new Set();
@@ -597,6 +600,8 @@ function keywordFlow(userId, text, exact = false) {
     return kk && (exact || f.trigger.match === 'exact' ? t === kk : ` ${t} `.includes(` ${kk} `));
   })) || null;
 }
+// the chatbot for a chat started from an ad: one made for this ad first, else one for any ad
+const adFlow = (userId, adId) => { const list = flowsOf(userId).filter((f) => f.trigger.type === 'ad').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); return (adId && list.find((f) => f.trigger.adIds?.includes(adId))) || list.find((f) => !f.trigger.adIds?.length) || null; };
 const latest = (userId, type) => flowsOf(userId).filter((f) => f.trigger.type === type).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] || null;
 
 // a voice note → its words (on the message, the chat list and the contact's timeline); 1 AI credit a started minute,
@@ -634,6 +639,9 @@ async function automate(userId, convId, msg, isNew) {
   const input = { text: msg.text || '', id: msg.iid || '' };
   if (conv.human) return needsPerson(u, conv, msg.text);
   if (HUMAN.test(input.text) && (conv.bot || conv.ai || flowsOf(userId).length || agentOn(u))) return handoff(u, conv, 'The customer asked for a person', { say: 'Sure — connecting you with our team. Someone will reply here shortly 🙏', flowId: conv.bot?.flowId });
+  // a fresh tap on an ad starts that ad's chatbot (over keywords and a flow waiting from before)
+  const af = msg.ad && adFlow(userId, msg.ad.id);
+  if (af) return runBot(u, conv, af, null, input);
   const waiting = conv.bot?.wait === 'reply';
   const kw = keywordFlow(userId, input.text, waiting);
   if (waiting && !kw) {
@@ -657,7 +665,10 @@ onWaInbox({
     let conv = convFor(u.id, num, key, d.contact_name);
     const isNew = !conv.lastInAt;
     const loc = locationOf(d);
-    const msg = addMsg(conv, { dir: 'in', by: 'contact', type: clip(d.type, 20) || 'text', text: clip(text === '[location]' || text === `[${d.type}]` ? '' : text, 4000) || (loc ? `📍 ${loc.name || loc.address || 'Location'}` : ''), ...(d.interactive_id ? { iid: clip(d.interactive_id, 100) } : {}), ...(mediaOf(d) ? { media: mediaOf(d) } : {}), ...(loc ? { location: loc } : {}) });
+    // the customer tapped a click-to-WhatsApp ad: kept on the chat and the contact (ctwa.js)
+    const ad = recordAdTouch(u.id, conv, key, referralOf(d));
+    if (ad) conv = convOf(conv.id);
+    const msg = addMsg(conv, { dir: 'in', by: 'contact', type: clip(d.type, 20) || 'text', text: clip(text === '[location]' || text === `[${d.type}]` ? '' : text, 4000) || (loc ? `📍 ${loc.name || loc.address || 'Location'}` : ''), ...(d.interactive_id ? { iid: clip(d.interactive_id, 100) } : {}), ...(mediaOf(d) ? { media: mediaOf(d) } : {}), ...(loc ? { location: loc } : {}), ...(ad ? { ad: adView(ad) } : {}) });
     // the seller's keyword → label rules
     const low = String(text || '').toLowerCase();
     const labels = rulesOf(u).labels.filter((r) => low.includes(r.word)).map((r) => r.label);
@@ -864,8 +875,9 @@ const convView = (c, flows) => ({
   id: c.id, num: c.num, name: c.name || '', ckey: c.ckey || '', status: c.status, assignee: c.assignee || null, labels: c.labels || [], unread: c.unread || 0,
   lastAt: c.lastAt, lastText: c.lastText || '', lastDir: c.lastDir || '', lastBy: c.lastBy || '', ai: !!c.ai, human: !!c.human, bot: c.bot ? { flowId: c.bot.flowId, name: flows?.get(c.bot.flowId)?.name || c.bot.name || 'Chatbot', wait: c.bot.wait } : null,
   window: winOpen(c) ? { open: true, closesAt: c.lastInAt + WINDOW } : { open: false }, intent: c.intent || '', summary: c.summary || null, handoff: c.handoff || null, memory: c.memory?.text || '',
+  ad: adView(c.ad), firstAd: c.firstAd && c.firstAd.id !== c.ad?.id ? adView(c.firstAd) : null,
 });
-const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, ...(m.transcribed ? { transcribed: true, lang: m.lang || '' } : {}), status: m.status || '', error: m.error || '', at: m.at });
+const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, ...(m.transcribed ? { transcribed: true, lang: m.lang || '' } : {}), status: m.status || '', error: m.error || '', ...(m.ad ? { ad: m.ad } : {}), at: m.at });
 const flowView = (f) => ({ ...f, problems: flowProblems(f) });
 const FILTERS = {
   all: "status <> 'resolved'",
@@ -873,6 +885,7 @@ const FILTERS = {
   unassigned: "status <> 'resolved' AND json_extract(data, '$.assignee') IS NULL AND IFNULL(json_extract(data, '$.ai'), 0) = 0 AND json_extract(data, '$.bot') IS NULL",
   bots: "status <> 'resolved' AND (IFNULL(json_extract(data, '$.ai'), 0) = 1 OR json_extract(data, '$.bot') IS NOT NULL)",
   resolved: "status = 'resolved'",
+  ads: "json_extract(data, '$.firstAd') IS NOT NULL",
 };
 
 export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits }) {
@@ -893,7 +906,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
     const rows = q(`SELECT data FROM waconvs WHERE ${where.join(' AND ')} ORDER BY lastAt DESC LIMIT 50`).all(Object.fromEntries(Object.entries(args).filter(([k]) => where.join(' ').includes(k))));
     const flows = new Map(T.waflows.all({ userId: req.user.id }).map((f) => [f.id, f]));
     const count = (w, extra = {}) => q(`SELECT COUNT(*) AS n FROM waconvs WHERE userId = $u AND ${w}`).get({ $u: req.user.id, ...extra }).n;
-    const counts = { all: count(FILTERS.all), mine: count(FILTERS.mine, { $me: actor(req).id }), unassigned: count(FILTERS.unassigned), bots: count(FILTERS.bots), unread: count(`${FILTERS.all} AND IFNULL(json_extract(data, '$.unread'), 0) > 0`) };
+    const counts = { all: count(FILTERS.all), mine: count(FILTERS.mine, { $me: actor(req).id }), unassigned: count(FILTERS.unassigned), bots: count(FILTERS.bots), ads: count(FILTERS.ads), unread: count(`${FILTERS.all} AND IFNULL(json_extract(data, '$.unread'), 0) > 0`) };
     res.json({ connected: !!waLive(req.user), convs: rows.map((r) => convView(JSON.parse(r.data), flows)), counts });
   });
   // who can be assigned, quick replies, labels in use, whether the AI agent is on

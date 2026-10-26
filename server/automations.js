@@ -12,6 +12,7 @@ import { sellerTz, zoned, localYmd, addDays } from './tz.js';
 import { broadcastSeen } from './broadcasts.js';
 import { waOptedOut } from './hive-wa.js';
 import { sendCrmEvent, metaReady } from './tracking.js';
+import { adPurchase } from './ctwa.js';
 export const META_STEP_EVENTS = ['Lead', 'QualifiedLead', 'Schedule', 'Contact', 'SubmitApplication', 'CompleteRegistration', 'Purchase', 'custom'];
 
 export const TRIGGERS = {
@@ -238,6 +239,8 @@ export function fire(userId, event, data = {}) {
   try {
     // a purchase immediately ends sequences that were chasing it (no waiting for the next step)
     if ((event === 'purchase' || event === 'offer') && data.email) stopForBuyer(userId, data.email);
+    // a buyer who came from a click-to-WhatsApp ad: the sale goes back to Meta with the ad's click id
+    if (event === 'purchase') adPurchase(userId, data);
     const list = T.automations.all({ userId, triggerType: event, active: 1 });
     for (const a of list) {
       const t = a.trigger;

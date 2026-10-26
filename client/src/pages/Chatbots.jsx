@@ -31,7 +31,7 @@ const DEFAULTS = {
   ai_route: { intents: [{ id: 'i1', label: 'Sales', desc: 'wants to buy or asks the price' }, { id: 'i2', label: 'Support', desc: 'needs help with something' }] }, ai_agent: { note: '' },
   handoff: { text: 'Someone from our team will reply here shortly 🙏', note: '' }, wait: { minutes: 60 }, webhook: { url: '' }, end: { text: '', resolve: false },
 };
-const TRIG = { keyword: 'When a message has a keyword', welcome: 'A new contact’s first message', default: 'Any message nothing else answers', manual: 'Only when started from the inbox' };
+const TRIG = { keyword: 'When a message has a keyword', welcome: 'A new contact’s first message', default: 'Any message nothing else answers', manual: 'Only when started from the inbox', ad: 'A chat started from a Facebook / Instagram ad' };
 const IDEAS = ['Take cake orders with flavour, size and delivery date', 'Book a free demo class and ask the child’s age', 'Qualify home-loan leads by income and city', 'Collect a review after a salon visit', 'Answer gym membership questions, pass hot leads to sales'];
 const rid = (p = 'n') => `${p}${Math.random().toString(36).slice(2, 8)}`;
 export const portsOf = (n) => (n.type === 'buttons' ? [...n.data.buttons.map((b) => [b.id, b.title || 'Button']), ['other', 'Anything else']]
@@ -59,7 +59,7 @@ export function problemsOf(f) {
   }
   return out;
 }
-const triggerText = (t) => (t.type === 'keyword' ? (t.keywords.length ? `Keywords: ${t.keywords.join(', ')}` : 'No keywords yet') : TRIG[t.type]);
+const triggerText = (t) => (t.type === 'keyword' ? (t.keywords.length ? `Keywords: ${t.keywords.join(', ')}` : 'No keywords yet') : t.type === 'ad' && t.adIds?.length ? `From ad ${t.adIds.join(', ')}` : TRIG[t.type]);
 
 export default function Chatbots() {
   const { id } = useParams();
@@ -465,6 +465,10 @@ function FlowSettings({ f, set, probs, onPick, compact }) {
       {t.type === 'welcome' && <p className="hint">Runs once, for someone messaging you for the first time. Only one welcome chatbot can be live.</p>}
       {t.type === 'default' && <p className="hint">Answers any message that no keyword chatbot or person is handling. Only one can be live.</p>}
       {t.type === 'manual' && <p className="hint">Start it on a chat from the inbox (Reply → ☰ → Run a chatbot here).</p>}
+      {t.type === 'ad' && <>
+        <label>Only for these ads <span className="muted">(optional — ad IDs, comma between them)</span><input defaultValue={(t.adIds || []).join(', ')} onBlur={(e) => set((g) => { g.trigger.adIds = e.target.value.split(',').map((k) => k.trim()).filter(Boolean).slice(0, 20); })} placeholder="Leave empty for any ad" /></label>
+        <p className="hint">Runs when someone taps “Send WhatsApp message” on your ad. Find the ad ID in Ads Manager, or on a chat from that ad in the inbox. A chatbot for a specific ad wins over one for any ad.</p>
+      </>}
       <p className="hint">Anyone can type “talk to a person” to reach your team, and a person replying in the inbox always pauses the chatbot.</p>
       {!compact && probs.length > 0 && <div className="wfb-probs"><b className="sm">To fix before going live</b>{probs.map((p, i) => <button key={i} onClick={() => onPick(p.node)}>⚠ {p.msg}</button>)}</div>}
     </>

@@ -179,6 +179,21 @@ export function sendCrmEvent(userId, { name, value, buyer, id }) {
   prune(userId);
   return d;
 }
+// A sale (or lead) from a chat that a click-to-WhatsApp ad started (ctwa.js): sent as a business-messaging event with
+// Meta's click id, so Ads Manager credits the ad. Only with the seller's own Conversions API token (the Meta
+// connection's action can't carry the click id). click: { clid, phone, waba? }
+export function sendMessagingEvent(userId, { name, value, click, id }) {
+  const u = T.users.get(userId);
+  const c = creds(u, null);
+  if (!c.meta || c.meta.via || !click?.clid) return null;
+  const at = Date.now();
+  const user = { ctwa_clid: click.clid, ...(click.waba ? { whatsapp_business_account_id: String(click.waba) } : {}), ...(phoneDigits(click.phone) ? { ph: [sha(phoneDigits(click.phone))] } : {}) };
+  const custom = Number(value) > 0 || name === 'Purchase' ? { value: Math.max(0, Number(value) || 0), currency: 'INR' } : null;
+  const d = T.conversions.insert({ id: uid(), userId, provider: 'meta', event: name, body: { data: [{ event_name: name, event_time: Math.floor(at / 1000), event_id: id, action_source: 'business_messaging', messaging_channel: 'whatsapp', user_data: user, ...(custom ? { custom_data: custom } : {}) }], ...(c.meta.test ? { test_event_code: c.meta.test } : {}) }, eventId: id, status: 'pending', attempts: 0, nextAt: at, at });
+  attempt(d.id);
+  prune(userId);
+  return d;
+}
 export const metaReady = (u) => !!creds(u, null).meta;
 function prune(userId) { q(`DELETE FROM conversions WHERE id IN (SELECT id FROM conversions WHERE userId = ? AND status != 'pending' ORDER BY at DESC LIMIT -1 OFFSET ${KEEP})`).run(userId); return []; }
 

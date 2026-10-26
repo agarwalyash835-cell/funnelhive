@@ -7,6 +7,7 @@
 import { q, T } from './db.js';
 import { norm } from './adspend.js';
 import { metaLink } from './composio.js';
+import { adChatsReport } from './ctwa.js';
 
 const DAY = 86400000;
 // the URL parameters to paste into every Meta ad (Ads Manager → ad → Tracking → URL parameters)
@@ -105,5 +106,10 @@ export function registerAds(app, { auth }) {
     const days = req.query.days === 'all' ? 3650 : Math.min(3650, Math.max(1, Number(req.query.days) || 30));
     const funnelId = typeof req.query.funnelId === 'string' && T.funnels.get(req.query.funnelId)?.userId === req.user.id ? req.query.funnelId : '';
     res.json({ days, ...adReport(req.user.id, { from: Date.now() - days * DAY, model: req.query.model === 'first' ? 'first' : 'last', funnelId }) });
+  });
+  // WhatsApp chats started from click-to-WhatsApp ads, per ad (ctwa.js)
+  app.get('/api/ads/whatsapp', auth, (req, res) => {
+    const days = req.query.days === 'all' ? 3650 : Math.min(3650, Math.max(1, Number(req.query.days) || 30));
+    res.json({ days, ...adChatsReport(req.user.id, { from: Date.now() - days * DAY }) });
   });
 }

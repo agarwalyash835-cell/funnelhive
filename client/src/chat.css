@@ -301,3 +301,9 @@ button.cb-card:hover, .cb-card.click:hover { transform: translateY(-1px); box-sh
 
 @media (max-width: 1100px) { .wfb-body { grid-template-columns: 170px minmax(0, 1fr) 300px; } .ag { grid-template-columns: 1fr; } .ag .phone { position: static; height: 520px; } }
 @media (max-width: 800px) { .wfb-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; } .wfb-pal { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--c-line); } .wfb-pal h5 { display: none; } .wfb-pi { width: auto; flex: none; } .wfb-right { max-height: 45vh; } .ag-faq { grid-template-columns: 1fr; } }
+
+/* click-to-WhatsApp ads: the chip on a chat that started from an ad */
+.ctwa-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 650; padding: 2px 8px 2px 6px; border-radius: 99px; color: #9a3412; background: #ffedd5; white-space: nowrap; }
+.ctwa-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 14px; border-bottom: 1px solid var(--c-line); background: var(--c-surface); font-size: 12.5px; min-width: 0; }
+.ctwa-bar a, .ctwa-bar b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-flex; align-items: center; gap: 4px; }
+.ctwa-bar small { color: var(--c-muted); }
