@@ -431,11 +431,11 @@ function MailPanel({ m, save }) {
 
 // the WhatsApp AI agent's document search: an OpenRouter key for embeddings (sellers never see the service or model)
 function EmbedPanel({ m, save }) {
-  const [v, setV] = useState({ key: '', model: m.model || 'nvidia/nemotron-3.5-embed-8b:free' });
+  const [v, setV] = useState({ key: '', model: m.model || 'nvidia/nemotron-3.5-embed-8b:free', vision: m.vision || 'nvidia/nemotron-3.5-super-vl:free' });
   const [busy, setBusy] = useState(false);
   const go = async () => { setBusy(true); if (await save({ embeddings: v })) { setV({ ...v, key: '' }); toast('Document search is on — files are being indexed'); } setBusy(false); };
   return (
-    <Panel title="AI agent document search">
+    <Panel title="AI agent document search & reading">
       <p className="muted sm">Lets sellers’ WhatsApp AI agents search their catalogues and documents by meaning (“panel ki guarantee?” finds the warranty page). Without it, search works on keywords only. Uses <b>OpenRouter</b> embeddings; the key never leaves the server.</p>
       <div className={`ai-card ${m.ready ? 'on' : ''}`}><Icon name="search" size={20} /><div><b>{m.ready ? `On · ${m.model}${m.fromEnv ? ' · key from the server’s settings file' : ''}` : 'Keywords only — no key yet'}</b><p className="muted sm">{m.docs} documents ready · {m.vectors.toLocaleString('en-IN')} passages with meaning search</p></div></div>
       {m.fromEnv ? <p className="hint">Set by OPENROUTER_API_KEY on the server, which takes priority over this form.</p> : (
@@ -443,6 +443,7 @@ function EmbedPanel({ m, save }) {
           <div className="form2">
             <label>OpenRouter API key {m.hasKey && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.key} onChange={(e) => setV({ ...v, key: e.target.value.trim() })} placeholder="sk-or-v1-…" autoComplete="new-password" /></label>
             <label>Embedding model<input value={v.model} onChange={(e) => setV({ ...v, model: e.target.value.trim() })} placeholder="nvidia/nemotron-3.5-embed-8b:free" /></label>
+            <label>Image-reading model <small className="muted">· reads scanned PDFs and photos of price lists</small><input value={v.vision} onChange={(e) => setV({ ...v, vision: e.target.value.trim() })} placeholder="nvidia/nemotron-3.5-super-vl:free" /></label>
           </div>
           <p className="hint">Saving makes one test request. Free models (“:free”) are rate-limited and sometimes slow — search then falls back to keywords for a minute, and new files get their meaning-search vectors when the service answers. Changing the model re-indexes every document in the background.</p>
           <div className="row"><button className="btn primary" disabled={busy || (!v.key && !m.hasKey)} onClick={go}>{busy ? 'Checking…' : 'Save & test'}</button>{m.hasKey && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Turn off meaning search?', text: 'Agents keep answering from documents with keyword search.', confirm: 'Turn off', danger: true })) && save({ embeddings: { clear: true } })}>Turn off</button>}</div>

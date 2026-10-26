@@ -6,7 +6,9 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { zipSync, strToU8 } from 'fflate';
+import { PDFDocument } from 'pdf-lib';
 import { startServer, register } from './helpers.mjs';
 
 const KEY = 'hk_test_ok_supersecret_123';
@@ -59,13 +61,29 @@ before(async () => {
     if (route === 'GET /me') return json(res, 200, { workspace_id: 'ws_1' });
     if (route === 'GET /numbers') return json(res, 200, { numbers: [{ id: 'ch_1', display: '919800000001', phone_number_id: '1111' }] });
     if (route === 'PUT /webhooks') { fake.hook = j; return json(res, 200, { ok: true }); }
-    if (route === 'POST /media') { fake.uploads.push(j.toString('latin1')); return json(res, 200, { id: `media_${fake.uploads.length}` }); }
+    if (route === 'POST /media') {
+      const form = await new Response(j, { headers: { 'content-type': req.headers['content-type'] } }).formData();
+      const file = form.get('file');
+      fake.uploads.push(j.toString('latin1'));
+      fake.files = [...(fake.files || []), { name: file.name, type: file.type, buf: Buffer.from(await file.arrayBuffer()) }];
+      return json(res, 200, { id: `media_${fake.uploads.length}` });
+    }
     if (route === 'POST /messages') { fake.sent.push(j); return json(res, 202, { id: `msg_${++fake.n}`, status: 'queued' }); }
     json(res, 404, { error: 'not found' });
   });
   router = http.createServer(async (req, res) => {
     const j = await body(req);
     if (req.headers.authorization !== 'Bearer sk-or-test-key-123456') return json(res, 401, { error: { message: 'No auth' } });
+    // the image reader: answers by the picture's size (each test image is a different size)
+    if (req.url.endsWith('/chat/completions')) {
+      fake.ocr = (fake.ocr || 0) + 1;
+      const img = j.messages[0].content.find((c) => c.type === 'image_url').image_url.url;
+      fake.ocrModels = [...(fake.ocrModels || []), j.model];
+      if (j.reasoning?.enabled !== false) return json(res, 400, { error: { message: 'reasoning must be off' } });
+      const width = Buffer.from(img.split(',')[1], 'base64').readUInt32BE(16); // from the PNG header
+      const text = width >= 100 ? 'Model: SC-9 · Name: Scanned chair · Price: 4999' : 'Shop timings: 10 am to 8 pm, Monday to Saturday';
+      return json(res, 200, { choices: [{ message: { content: text } }] });
+    }
     fake.embeds++;
     json(res, 200, { model: j.model, data: j.input.map((t, index) => ({ index, embedding: vec(t) })) });
   });
@@ -79,7 +97,8 @@ before(async () => {
     else if (sys.includes('WhatsApp assistant')) {
       const last = user.split('\n').filter((l) => l.startsWith('Customer:')).at(-1) || '';
       const doc = /DOCUMENTS YOU CAN SEND[^\n]*\n- (\w+):/.exec(sys)?.[1];
-      out = { reply: /catalogue|price list/i.test(last) ? 'Sure! Sending our kitchen price list 📎' : 'Our L-shape kitchen KL-200 is *₹1,85,000*.', send: /catalogue|price list/i.test(last) && doc ? [doc, 'not-a-real-doc'] : [], facts: /budget/i.test(last) ? ['Budget is about ₹2 lakh for the kitchen'] : [], handoff: false, intent: 'pricing' };
+      const pdfDoc = /- (\w+): [^\n]*\.pdf \(3 pages; matched pages ([\d, ]+)\)/.exec(sys);
+      out = { reply: /catalogue|price list/i.test(last) ? 'Sure! Sending our kitchen price list 📎' : 'Our L-shape kitchen KL-200 is *₹1,85,000*.', send: /catalogue|price list/i.test(last) && doc ? [doc, 'not-a-real-doc'] : /sofa/i.test(last) && pdfDoc ? [{ id: pdfDoc[1], pages: pdfDoc[2].split(', ').map(Number) }] : [], facts: /budget/i.test(last) ? ['Budget is about ₹2 lakh for the kitchen'] : [], handoff: false, intent: 'pricing' };
     } else if (sys.includes('running summary')) out = { summary: 'Wants an L-shape kitchen for a 2 BHK in Wakad, budget ₹2 lakh.' };
     else if (sys.includes('lasting facts about the CUSTOMER')) out = { facts: ['Lives in Wakad, Pune'] };
     json(res, 200, { output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(out) }] }] });
@@ -96,7 +115,7 @@ before(async () => {
 });
 after(async () => { await srv.stop(); hive.close(); router.close(); model.close(); });
 
-const upload = async (name, buf, folder) => (await fetch(`${srv.base}/api/vault/files${folder ? `?folder=${folder}` : ''}`, { method: 'POST', headers: { authorization: `Bearer ${T}`, 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name) }, body: buf })).json();
+const upload = async (name, buf, folder, token = T) => (await fetch(`${srv.base}/api/vault/files${folder ? `?folder=${folder}` : ''}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name) }, body: buf })).json();
 async function hook(event, data) {
   const id = `whd_${crypto.randomUUID()}`, ts = Date.now();
   const raw = JSON.stringify({ id, event, created_at: new Date(ts).toISOString(), number: { id: 'ch_1', display: '919800000001', phone_number_id: '1111' }, data });
@@ -104,7 +123,7 @@ async function hook(event, data) {
   await fetch(srv.base + new URL(fake.hook.url).pathname, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hive-signature': sig, 'x-hive-event': event, 'x-hive-delivery-id': id, 'x-hive-timestamp': String(ts) }, body: raw });
 }
 const say = (from, text) => hook('message.inbound', { from, type: 'text', text, contact_name: 'Meera Shah' });
-const docs = async () => (await api('/wa-agent/docs', 'GET', null, T)).data.docs;
+const docs = async (token = T) => (await api('/wa-agent/docs', 'GET', null, token)).data.docs;
 let catalogue, brochure;
 
 test('Vault files become the agent’s documents: PDF pages, Excel rows, Word paragraphs; catalogues list their products', async () => {
@@ -210,4 +229,64 @@ test('a chat a person resolves teaches the agent lasting facts; documents can be
   assert.ok(!(await docs()).some((d) => d.id === brochure.id));
   assert.equal((await api('/wa-agent/search', 'POST', { q: 'wardrobe installation' }, T)).data.passages.filter((p) => p.doc === 'Wardrobe brochure.pdf').length, 0);
   assert.ok((await api('/vault/files', 'GET', null, T)).data.files?.some?.((f) => f.name === 'Wardrobe brochure.pdf') ?? true, 'the file stays in the Vault');
+});
+
+// a PNG of w × h grey pixels (stands in for a photographed price list)
+function png(w, h) {
+  const z = zlib;
+  const crc = (b) => { const c = Buffer.alloc(4); c.writeUInt32BE(z.crc32(b) >>> 0); return c; };
+  const part = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); return Buffer.concat([l, td, crc(td)]); };
+  const rows = Buffer.concat(Array.from({ length: h }, (_, y) => Buffer.concat([Buffer.from([0]), Buffer.alloc(w * 3, (y * 7) % 255)])));
+  const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), part('IHDR', ih), part('IDAT', z.deflateSync(rows)), part('IEND', Buffer.alloc(0))]);
+}
+
+let T2;
+test('scanned PDFs and photos are read by the image reader (reasoning off), then searched like any page', async () => {
+  T2 = (await register(api)).token; // a fresh account: the first one has used its trial AI credits
+  // a "scanned" PDF: its page is one big picture, no text
+  const scan = await PDFDocument.create();
+  const img = await scan.embedPng(png(400, 300));
+  scan.addPage([600, 450]).drawImage(img, { x: 0, y: 0, width: 600, height: 450 });
+  const f1 = await upload('Scanned price list.pdf', Buffer.from(await scan.save()), '', T2);
+  const f2 = await upload('Shop board.png', png(20, 20), '', T2);
+  await api('/wa-agent/docs', 'POST', { fileIds: [f1.id], kind: 'catalogue' }, T2);
+  await api('/wa-agent/docs', 'POST', { fileIds: [f2.id] }, T2);
+  const l = await waitFor(async () => { const x = await docs(T2); return ['Scanned price list.pdf', 'Shop board.png'].every((n) => x.find((d) => d.name === n)?.status === 'ready') && x; });
+  assert.ok(l, JSON.stringify(await docs(T2)));
+  const s = l.find((d) => d.name === 'Scanned price list.pdf');
+  assert.match(s.note, /1 page read from images/);
+  assert.equal(s.products, 1, 'products found in the scanned page');
+  assert.equal(fake.ocrModels[0], 'nvidia/nemotron-3.5-super-vl:free');
+  assert.equal((await api('/wa-agent/search', 'POST', { q: 'SC-9 chair' }, T2)).data.passages[0].doc, 'Scanned price list.pdf');
+  assert.equal((await api('/wa-agent/search', 'POST', { q: 'shop timings' }, T2)).data.passages[0].doc, 'Shop board.png');
+});
+
+test('a long PDF catalogue: only the pages that answer the customer are sent', async () => {
+  const f = await upload('Furniture catalogue.pdf', pdf([['Dining tables', 'Teak dining table DT-4 Rs 38000'], ['Sofas', 'Three seater sofa SF-3 in velvet Rs 52000'], ['Beds', 'King size bed KB-1 Rs 61000']]));
+  await api('/wa-agent/docs', 'POST', { fileIds: [f.id], kind: 'document' }, T);
+  await waitFor(async () => (await docs()).find((d) => d.name === 'Furniture catalogue.pdf')?.status === 'ready');
+  const num = '919700000104';
+  await api('/wa-agent', 'PUT', { on: true, auto: true }, T);
+  await say(num, 'Do you have a velvet sofa? Send me the sofa page');
+  const sent = await waitFor(() => fake.sent.filter((m) => m.to === num && m.type === 'document')[0]);
+  assert.equal(sent.document.filename, 'Furniture catalogue (page 2).pdf');
+  const file = fake.files.at(-1);
+  const one = await PDFDocument.load(file.buf);
+  assert.equal(one.getPageCount(), 1, 'a 1-page PDF, cut from the 3-page catalogue');
+  assert.equal(file.type, 'application/pdf');
+});
+
+test('Hinglish and Hindi questions find English documents by keyword, even without meaning search', async () => {
+  const T3 = (await register(api)).token;
+  const f = await upload('Solar FAQ.docx', docx(['Warranty: panels carry a 25 year warranty.', 'Payment: 20% advance, EMI available with partner banks.', 'Cleaning and maintenance: wash panels every 2 weeks.']), '', T3);
+  await api('/wa-agent/docs', 'POST', { fileIds: [f.id] }, T3);
+  await waitFor(async () => (await docs(T3)).find((d) => d.name === 'Solar FAQ.docx')?.status === 'ready');
+  for (const q of ['panel ki guarantee kitne saal ki hai?', 'kist mein paise de sakte hai?', 'saaf kitni baar karna padta hai', 'वारंटी कितने साल'])
+    assert.equal((await api('/wa-agent/search', 'POST', { q }, T3)).data.passages[0]?.doc, 'Solar FAQ.docx', q);
+  // Hindi text in a document is searchable too
+  const g = await upload('Hindi FAQ.docx', docx(['पैनल की वारंटी 25 साल की है।']), '', T3);
+  await api('/wa-agent/docs', 'POST', { fileIds: [g.id] }, T3);
+  await waitFor(async () => (await docs(T3)).find((d) => d.name === 'Hindi FAQ.docx')?.status === 'ready');
+  assert.ok((await api('/wa-agent/search', 'POST', { q: 'वारंटी' }, T3)).data.passages.some((p) => p.doc === 'Hindi FAQ.docx'));
 });

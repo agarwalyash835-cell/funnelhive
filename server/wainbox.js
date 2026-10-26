@@ -12,7 +12,7 @@
 import { T, q, uid, hit, JOBS } from './db.js';
 import { onWaInbox, waSession, waLive, waApproved, waMedia, waUpload, waNumber, waOptedOut, waTemplateParam } from './hive-wa.js';
 import { INDUSTRY, industryOf } from './waindustry.js';
-import { hasKnowledge, searchKnowledge, knowledgeBlock, customerProfile, rememberFacts, refreshMemory, learnFromChat } from './waknow.js';
+import { hasKnowledge, searchKnowledge, knowledgeBlock, customerProfile, rememberFacts, refreshMemory, learnFromChat, pdfPages, pageLabel } from './waknow.js';
 import { vaultBytes } from './vault.js';
 import { KITS } from './crmkits.js';
 import { ensureMeta, logActivity } from './crm.js';
@@ -182,7 +182,9 @@ Return ONLY JSON: {"reply":"your WhatsApp message","buttons":["up to 3 short qui
   return {
     reply: clip(r?.reply, 1500), buttons: arr(r?.buttons).map((x) => clip(x, 20)).filter(Boolean).slice(0, 3), handoff: !!r?.handoff, reason: clip(r?.reason, 200),
     intent: clip(r?.intent, 20).toLowerCase(), lead: { name: clip(r?.lead?.name, 80), email: clip(r?.lead?.email, 160).toLowerCase() },
-    send: [...new Set(arr(r?.send).map(String).filter((id) => offered.has(id)))].slice(0, 2), facts: arr(r?.facts).map((f) => clip(f, 200)).filter(Boolean).slice(0, 5),
+    // [{ id, pages? }] — only documents it was offered, at most two
+    send: arr(r?.send).map((x) => (typeof x === 'object' && x ? { id: String(x.id || ''), pages: arr(x.pages).map(Number).filter((p) => Number.isInteger(p) && p > 0).slice(0, 10) } : { id: String(x), pages: [] }))
+      .filter((x, i, all) => offered.has(x.id) && all.findIndex((y) => y.id === x.id) === i).slice(0, 2), facts: arr(r?.facts).map((f) => clip(f, 200)).filter(Boolean).slice(0, 5),
   };
 }
 // what the customer just asked (their last two messages, for follow-ups like "and in blue?")
@@ -192,18 +194,24 @@ async function contextFor(u, conv) {
   return { profile: customerProfile(u, conv), search };
 }
 // a document the agent chose: the file itself on WhatsApp (Vault files are at most 15 MB, under WhatsApp's 16)
-async function sendDocs(u, conv, ids) {
-  const recent = arr(conv.sentDocs).filter((x) => Date.now() - x.at < 86400000).map((x) => x.id);
-  for (const id of ids) {
-    if (recent.includes(id)) continue; // not the same file twice in a day
+// items: [{ id, pages }] — pages of a PDF go as a smaller PDF of just those pages
+async function sendDocs(u, conv, items) {
+  const recent = arr(conv.sentDocs).filter((x) => Date.now() - x.at < 86400000).map((x) => x.key || x.id);
+  for (const { id, pages } of items) {
     const d = T.kdocs.get(id), f = d && T.vaultFiles.get(d.fileId);
     if (!f || d.userId !== u.id) continue;
     const mime = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' }[f.ext] || f.type;
     const type = /^image\//.test(mime) ? 'image' : 'document';
     try {
-      const media = { type, id: await waUpload(u, await vaultBytes(f), mime, f.name), filename: f.name, mime };
+      let buf = await vaultBytes(f), name = f.name, key = id;
+      if (f.ext === 'pdf' && pages?.length) {
+        const part = await pdfPages(buf, pages).catch(() => null);
+        if (part) { buf = part.buf; key = `${id}:${part.pages.join(',')}`; name = `${f.name.replace(/\.pdf$/i, '')} (page${part.pages.length > 1 ? 's' : ''} ${pageLabel(part.pages)}).pdf`; }
+      }
+      if (recent.includes(key) || recent.includes(id)) continue; // not the same file (or the same pages) twice in a day
+      const media = { type, id: await waUpload(u, buf, mime, name), filename: name, mime };
       await sendOut(u, conv, { kind: 'media', media, text: '' }, 'ai');
-      T.waconvs.update(conv.id, (c) => { c.sentDocs = [...arr(c.sentDocs).filter((x) => Date.now() - x.at < 86400000), { id, at: Date.now() }].slice(-20); });
+      T.waconvs.update(conv.id, (c) => { c.sentDocs = [...arr(c.sentDocs).filter((x) => Date.now() - x.at < 86400000), { id, key, at: Date.now() }].slice(-20); });
     } catch (e) { addMsg(conv, { dir: 'note', by: 'system', text: `The AI agent tried to send “${f.name}” but it didn’t go: ${clip(e.message, 150)}` }); }
   }
 }
@@ -1086,7 +1094,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
           const hist = arr(b.history).slice(-16).map((m) => `${m.dir === 'in' ? 'Customer' : 'You (assistant)'}: ${clip(m.text, 500)}`).join('\n');
           const search = hasKnowledge(req.user.id) ? await searchKnowledge(req.user, env.lastText).catch(() => null) : null;
           agent = await agentAnswer(req.user, `${hist}\nCustomer: ${env.lastText}`, typeof r.agent === 'string' ? r.agent : '', { search }).catch(() => null);
-          if (agent) agent.sendNames = agent.send.map((id) => T.kdocs.get(id)?.name).filter(Boolean);
+          if (agent) agent.sendNames = agent.send.map((x) => { const n = T.kdocs.get(x.id)?.name; return n && (x.pages.length ? `${n} (page${x.pages.length > 1 ? 's' : ''} ${pageLabel(x.pages)})` : n); }).filter(Boolean);
           if (agent) spendCredits(req.user, AI_COST.agent);
         }
       }
@@ -1135,7 +1143,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
       const last = arr(req.body?.messages).filter((m) => m.dir === 'in').slice(-2).map((m) => clip(m.text, 800)).join('\n');
       const search = hasKnowledge(u.id) ? await searchKnowledge(u, last).catch(() => null) : null;
       const a = await agentAnswer(u, hist, '', { search });
-      res.json({ ...a, sendNames: a.send.map((id) => T.kdocs.get(id)?.name).filter(Boolean), found: search ? { passages: search.passages.map((p) => `${p.doc} · page ${p.page}`), products: search.products.length } : null });
+      res.json({ ...a, sendNames: a.send.map((x) => { const n = T.kdocs.get(x.id)?.name; return n && (x.pages.length ? `${n} (page${x.pages.length > 1 ? 's' : ''} ${pageLabel(x.pages)})` : n); }).filter(Boolean), found: search ? { passages: search.passages.map((p) => `${p.doc} · page ${p.page}`), products: search.products.length } : null });
     } catch (e) { aiFail(res, e); }
   }));
   // reads a page of the seller's website into the agent's knowledge

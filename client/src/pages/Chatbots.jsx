@@ -702,7 +702,7 @@ function AgentDocs() {
   if (!d) return null;
   return (
     <Panel title="Catalogues & documents" actions={<span className="pill" title={d.search === 'smart' ? 'Finds answers by meaning, in any language' : 'Finds answers by matching words'}>{d.search === 'smart' ? '✦ Smart search' : 'Keyword search'}</span>}>
-      <p className="hint top">Price lists, catalogues, brochures, policies — PDF, Word, Excel, PowerPoint or CSV, up to 15 MB each. The agent reads them, answers from the right page, and can send the file itself on WhatsApp. Catalogues also get their products listed (name, code, price).</p>
+      <p className="hint top">Price lists, catalogues, brochures, policies — PDF, Word, Excel, PowerPoint, CSV, or photos (JPG, PNG), up to 15 MB each. Scanned PDFs and photos of price lists are read too. The agent answers from the right page and can send the file on WhatsApp — for a long PDF, just the pages that answer the customer. Catalogues also get their products listed (name, code, price).</p>
       <div className="row" style={{ marginBottom: 12 }}>
         <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ width: 'auto' }} aria-label="Type"><option value="catalogue">Catalogue / price list</option><option value="document">Document (FAQs, policies…)</option></select>
         <button className="btn primary sm" onClick={() => fileIn.current?.click()} disabled={busy === 'up'}>{busy === 'up' ? <span className="spin" /> : <Icon name="plus" size={14} />}Upload files</button>

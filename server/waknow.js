@@ -6,6 +6,7 @@
 //   Memory    — the customer's profile from the CRM (name, tags, stage, orders, bookings), a rolling summary of a
 //               long chat, and lasting facts the agent learned about them (kept on the contact).
 // The seller never sees which AI or embedding service is used.
+import zlib from 'node:zlib';
 import { T, q, tx, uid, JOBS, ordersByPhone } from './db.js';
 import { decrypt } from './messaging.js';
 import { platform } from './platform.js';
@@ -22,8 +23,17 @@ const DIMS = 1024;
 const OR_BASE = () => String(process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
 
 // ---------- storage the JSON tables can't do: full-text search and vectors ----------
-q("CREATE VIRTUAL TABLE IF NOT EXISTS kfts USING fts5(text, chunkId UNINDEXED, userId UNINDEXED, docId UNINDEXED, tokenize='unicode61 remove_diacritics 2')").run();
-q("CREATE VIRTUAL TABLE IF NOT EXISTS kpfts USING fts5(text, prodId UNINDEXED, userId UNINDEXED, docId UNINDEXED, tokenize='unicode61 remove_diacritics 2')").run();
+// words include their marks (Hindi and other Indian scripts write vowels as marks: वारंटी is one word, not four)
+const TOKENIZE = "tokenize=\"unicode61 remove_diacritics 2 categories 'L* N* Co Mc Mn'\"";
+for (const [t, col] of [['kfts', 'chunkId'], ['kpfts', 'prodId']]) {
+  const have = q("SELECT sql FROM sqlite_master WHERE name = ?").get(t)?.sql || '';
+  if (have && !have.includes('categories')) q(`DROP TABLE ${t}`).run(); // made before Indian scripts were handled: rebuilt below
+  q(`CREATE VIRTUAL TABLE IF NOT EXISTS ${t} USING fts5(text, ${col} UNINDEXED, userId UNINDEXED, docId UNINDEXED, ${TOKENIZE})`).run();
+  if (have && !have.includes('categories')) {
+    if (t === 'kfts') for (const c of T.kchunks.iter()) q('INSERT INTO kfts (text, chunkId, userId, docId) VALUES (?, ?, ?, ?)').run(`${T.kdocs.get(c.docId)?.name || ''}\n${c.text}`, c.id, c.userId, c.docId);
+    else for (const p of T.kprods.iter()) q('INSERT INTO kpfts (text, prodId, userId, docId) VALUES (?, ?, ?, ?)').run([p.name, p.sku, p.category, p.specs].filter(Boolean).join(' · '), p.id, p.userId, p.docId);
+  }
+}
 q('CREATE TABLE IF NOT EXISTS kvec (chunkId TEXT PRIMARY KEY, userId TEXT NOT NULL, docId TEXT NOT NULL, model TEXT NOT NULL, vec BLOB NOT NULL)').run();
 q('CREATE INDEX IF NOT EXISTS ix_kvec_user ON kvec (userId, model)').run();
 q('CREATE INDEX IF NOT EXISTS ix_kvec_doc ON kvec (docId)').run();
@@ -33,6 +43,57 @@ const embedCfg = () => {
   const e = platform().embeddings || {};
   return { key: process.env.OPENROUTER_API_KEY || decrypt(e.keyEnc), model: process.env.EMBED_MODEL || e.model || 'nvidia/nemotron-3.5-embed-8b:free' };
 };
+// reading images and scanned pages: a vision model on the same OpenRouter key (a second one when the first is busy)
+const VISION_BACKUP = 'google/gemma-4-31b-it:free';
+const visionCfg = () => ({ key: embedCfg().key, model: process.env.VISION_MODEL || platform().embeddings?.vision || 'nvidia/nemotron-3.5-super-vl:free' });
+export const visionReady = () => !!visionCfg().key;
+export const visionModel = () => visionCfg().model;
+const OCR_PROMPT = 'This is a page of an Indian business\'s catalogue, price list, brochure or document. Write out ALL of its text exactly, in reading order. Write each table row or product on one line as "Column: value · Column: value". Keep names, model codes, prices (₹), sizes and units exactly as printed. Return only the text, nothing else. If the page has no text, return nothing.';
+// an image (data: URL) → its text
+export async function readImage(dataUrl) {
+  const cfg = visionCfg();
+  if (!cfg.key) throw new Error('Reading images isn’t set up');
+  const models = [...new Set([cfg.model, VISION_BACKUP])];
+  for (let i = 0; i < models.length * 2; i++) {
+    const model = models[i % models.length];
+    let r, d;
+    try {
+      r = await fetch(`${OR_BASE()}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json', 'X-Title': 'FunnelHive' }, signal: AbortSignal.timeout(120000),
+        body: JSON.stringify({ model, max_tokens: 4000, temperature: 0, reasoning: { enabled: false }, messages: [{ role: 'user', content: [{ type: 'text', text: OCR_PROMPT }, { type: 'image_url', image_url: { url: dataUrl } }] }] }) });
+      d = JSON.parse((await r.text()).trim() || '{}');
+    } catch { r = null; }
+    const text = d?.choices?.[0]?.message?.content;
+    if (r?.ok && typeof text === 'string') return text.trim();
+    if (r && r.status !== 429 && r.status < 500 && r.ok === false) throw new Error(d?.error?.message || `HTTP ${r.status}`);
+    await sleep(Math.min(20000, 2000 * 2 ** Math.floor(i / models.length)));
+  }
+  throw new Error('The image reader is busy — try “Read again” in a few minutes');
+}
+// raw pixels (from a PDF) → a PNG no wider or taller than 1,600 px (averaged down: enough to read print, small to send)
+function pixelsToPng({ data, width, height, channels }) {
+  const scale = Math.min(1, 1600 / Math.max(width, height));
+  const w = Math.max(1, Math.round(width * scale)), h = Math.max(1, Math.round(height * scale));
+  const ch = channels === 4 ? 4 : channels === 1 ? 1 : 3;
+  const out = Buffer.alloc(h * (w * ch + 1));
+  for (let y = 0; y < h; y++) {
+    out[y * (w * ch + 1)] = 0; // filter: none
+    const y0 = Math.floor(y / scale), y1 = Math.max(y0 + 1, Math.min(height, Math.floor((y + 1) / scale)));
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.floor(x / scale), x1 = Math.max(x0 + 1, Math.min(width, Math.floor((x + 1) / scale)));
+      for (let c = 0; c < ch; c++) {
+        let s = 0, n = 0;
+        for (let yy = y0; yy < y1; yy += Math.max(1, Math.floor((y1 - y0) / 3))) for (let xx = x0; xx < x1; xx += Math.max(1, Math.floor((x1 - x0) / 3))) { s += data[(yy * width + xx) * channels + c]; n++; }
+        out[y * (w * ch + 1) + 1 + x * ch + c] = n ? s / n : 0;
+      }
+    }
+  }
+  const crc = (b) => { const x = Buffer.alloc(4); x.writeUInt32BE(zlib.crc32(b) >>> 0); return x; };
+  const part = (type, body) => { const len = Buffer.alloc(4); len.writeUInt32BE(body.length); const tb = Buffer.concat([Buffer.from(type), body]); return Buffer.concat([len, tb, crc(tb)]); };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = { 1: 0, 3: 2, 4: 6 }[ch];
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), part('IHDR', ihdr), part('IDAT', zlib.deflateSync(out)), part('IEND', Buffer.alloc(0))]);
+}
+const OCR_PAGES = Number(process.env.OCR_MAX_PAGES || 80); // a long scanned catalogue: the first 80 pages are read
 export const embedReady = () => !!embedCfg().key;
 export const embedModel = () => embedCfg().model;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -138,13 +199,36 @@ function tablePages(rows, title = '') {
 export async function extractText(f, buf) {
   const ext = String(f.ext || f.name?.split('.').pop() || '').toLowerCase();
   if (ext === 'pdf') {
-    const { getDocumentProxy, extractText: pdfText } = await import('unpdf');
+    const { getDocumentProxy, extractText: pdfText, extractImages } = await import('unpdf');
     const pdf = await getDocumentProxy(new Uint8Array(buf));
     const { text } = await pdfText(pdf, { mergePages: false });
     const pages = arr(text).map((t, i) => ({ n: i + 1, text: String(t).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim() }));
-    const chars = pages.reduce((s, p) => s + p.text.length, 0);
-    if (chars < 40 * Math.max(1, pages.length) * 0.3) return { pages: [], total: pages.length, note: 'This PDF is scanned images — its text can’t be read yet. Export it as a text PDF, or upload the price list as Excel.' };
-    return { pages: pages.filter((p) => p.text), total: pages.length };
+    // pages that are pictures (a scanned catalogue, a designed brochure): the biggest image on the page is read by
+    // the vision model
+    const pictures = pages.filter((p) => p.text.length < 40);
+    let read = 0, failed = 0;
+    if (pictures.length && visionReady()) {
+      for (const p of pictures.slice(0, OCR_PAGES)) {
+        const imgs = await extractImages(pdf, p.n).catch(() => []);
+        const big = imgs.filter((x) => x.width * x.height > 40000).sort((a, b) => b.width * b.height - a.width * a.height)[0];
+        if (!big) continue;
+        try { p.text = [p.text, await readImage(`data:image/png;base64,${pixelsToPng(big).toString('base64')}`)].filter(Boolean).join('\n'); read++; } catch { failed++; }
+      }
+    }
+    const usable = pages.filter((p) => p.text.length >= 3);
+    const notes = [];
+    if (read) notes.push(`${read} page${read > 1 ? 's' : ''} read from images.`);
+    if (failed) notes.push(`${failed} page${failed > 1 ? 's' : ''} couldn’t be read right now — press “Read again” later.`);
+    if (pictures.length > OCR_PAGES && visionReady()) notes.push(`Only the first ${OCR_PAGES} picture pages were read.`);
+    if (pictures.length && !visionReady()) notes.push(pictures.length === pages.length ? 'This PDF is scanned images — reading them needs image reading switched on (Admin).' : `${pictures.length} page${pictures.length > 1 ? 's are' : ' is'} images and weren’t read.`);
+    if (!usable.length) return { pages: [], total: pages.length, note: notes.join(' ') || 'No text found in this PDF' };
+    return { pages: usable, total: pages.length, note: notes.join(' ') };
+  }
+  if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) && visionReady()) {
+    if (buf.length > 8 * 1024 * 1024) return { pages: [], note: 'This image is too large to read — save it under 8 MB.' };
+    const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' }[ext];
+    const t = await readImage(`data:${mime};base64,${buf.toString('base64')}`);
+    return t ? { pages: [{ n: 1, text: t }], note: 'Read from the image.' } : { pages: [], note: 'No text found in this image' };
   }
   if (ext === 'docx') { const { s } = await unzip(buf); return { pages: paginate(textOfXml(s('word/document.xml'), 'w:p')) }; }
   if (ext === 'pptx') {
@@ -176,7 +260,8 @@ export async function extractText(f, buf) {
   if (ext === 'csv') return { pages: tablePages(csvRows(buf.toString('utf8'))).map((t, i) => ({ n: i + 1, text: t })) };
   if (ext === 'txt') return { pages: paginate(buf.toString('utf8')) };
   if (['doc', 'xls', 'ppt'].includes(ext)) return { pages: [], note: `Old .${ext} files can’t be read — save it as .${ext}x or PDF and add it again.` };
-  if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'].includes(ext)) return { pages: [], note: 'Images can be sent to customers, but their text can’t be read yet — add a PDF or Excel version for the agent to learn from.' };
+  if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return { pages: [], note: 'Reading images needs image reading switched on (Admin) — add a PDF or Excel version meanwhile.' };
+  if (['heic', 'heif'].includes(ext)) return { pages: [], note: 'iPhone HEIC photos can’t be read — save it as JPG or PNG and add it again.' };
   return { pages: [], note: 'This kind of file can’t be read' };
 }
 // a page → passages of about 1,200 characters, cut at line breaks, a little overlap so a sentence isn't lost between two
@@ -310,8 +395,43 @@ if (JOBS) setInterval(() => knowTick(), TICK).unref();
 export const runKnowledgeQueue = knowTick;
 
 // ---------- search ----------
-// "2bhk ka rate?" → '"2bhk"* OR "ka"* OR "rate"*' (every word may match, ranked by how well)
-const ftsQuery = (text) => [...new Set(String(text).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [])].slice(0, 16).map((w) => `"${w.replace(/"/g, '')}"*`).join(' OR ');
+// How Indian customers write (Hinglish, Hindi) → the English words business documents use, so keyword search finds
+// "guarantee kitne saal" on the warranty page even when meaning search is off or busy. Filler words are dropped.
+const HINGLISH = {
+  kitna: 'price cost rate', kitne: 'price cost how many', kitni: 'price cost how many', kimat: 'price cost', keemat: 'price cost', daam: 'price cost', dam: 'price', bhav: 'price rate', rate: 'price rate', charges: 'price fee charges', fees: 'fee price',
+  paisa: 'payment price', paise: 'payment price', bhugtan: 'payment', kist: 'emi instalment installment', kisht: 'emi instalment installment', emi: 'emi instalment finance loan', advance: 'advance booking amount payment', udhaar: 'credit payment',
+  guarantee: 'warranty guarantee', garanti: 'warranty guarantee', gaurantee: 'warranty guarantee', warranty: 'warranty guarantee',
+  kab: 'when time timeline days date delivery', tak: 'until timeline', jaldi: 'fast quick soon', samay: 'time timeline', time: 'time timeline days', din: 'days', mahina: 'month', mahine: 'months', saal: 'years year', varsh: 'years year',
+  lagana: 'installation install', lagega: 'installation take time', lagate: 'install installation service', lagwana: 'installation', fitting: 'installation fitting',
+  saaf: 'clean cleaning maintenance', safai: 'clean cleaning maintenance', dekhbhal: 'maintenance service', service: 'service maintenance', repair: 'repair service', kharab: 'repair complaint service',
+  chhoot: 'discount offer', chhut: 'discount offer', discount: 'discount offer', offer: 'offer discount', sasta: 'cheap price budget', mehenga: 'expensive price', budget: 'budget price',
+  subsidy: 'subsidy', sarkari: 'government subsidy scheme', yojana: 'scheme subsidy',
+  ghar: 'home house', makaan: 'house home property', flat: 'flat apartment', jagah: 'location area place', kahan: 'location address where area', pata: 'address location', shahar: 'city', ilaka: 'area location',
+  milega: 'available availability', milegi: 'available availability', available: 'available stock', stock: 'stock available', maal: 'stock product goods',
+  bhejo: 'send delivery', bhejna: 'send delivery', delivery: 'delivery shipping', parcel: 'delivery shipping', courier: 'delivery shipping courier',
+  wapas: 'return refund', vapas: 'return refund', refund: 'refund return', badalna: 'exchange replace return',
+  size: 'size dimensions', naap: 'size measurement dimensions', rang: 'colour color', colour: 'colour color', color: 'colour color',
+  timing: 'timings hours open', khula: 'open timings hours', band: 'closed holiday', chutti: 'holiday closed',
+  batch: 'batch timings schedule', class: 'class session batch', course: 'course program', admission: 'admission enrolment',
+  doctor: 'doctor consultation', ilaj: 'treatment', dawai: 'medicine', jaanch: 'test checkup',
+  booking: 'booking appointment', appointment: 'appointment booking', visit: 'visit site visit', milna: 'meeting visit appointment',
+  catalogue: 'catalogue catalog brochure', catalog: 'catalogue catalog brochure', brochure: 'brochure catalogue', list: 'list price list',
+  // Devanagari
+  'कीमत': 'price cost', 'दाम': 'price cost', 'कितना': 'price cost', 'कितने': 'price how many', 'गारंटी': 'warranty guarantee', 'वारंटी': 'warranty', 'किस्त': 'emi instalment', 'भुगतान': 'payment',
+  'कब': 'when time delivery', 'साल': 'years', 'दिन': 'days', 'महीने': 'months', 'सब्सिडी': 'subsidy', 'छूट': 'discount offer', 'डिलीवरी': 'delivery', 'पता': 'address location', 'कहाँ': 'where location', 'सफाई': 'cleaning maintenance',
+};
+const FILLER = new Set(['ka', 'ki', 'ke', 'ko', 'se', 'me', 'mein', 'mai', 'main', 'hai', 'hain', 'ho', 'hoga', 'hogi', 'kya', 'aur', 'bhi', 'to', 'toh', 'na', 'ne', 'ye', 'yeh', 'woh', 'wo', 'koi', 'kuch', 'ji', 'sir', 'madam', 'please', 'pls', 'plz', 'bhai', 'the', 'is', 'are', 'a', 'an', 'of', 'for', 'and', 'or', 'can', 'do', 'you', 'me', 'my', 'i', 'it', 'in', 'on', 'what', 'how', 'karna', 'karo', 'kar', 'padta', 'padega', 'sakta', 'sakte', 'diya', 'dena', 'dene', 'lena', 'hum', 'aap', 'apka', 'aapka', 'tha', 'thi']);
+// "subsidy kitna milega?" → '"subsidy"* OR "kitna"* OR "price"* OR "cost"* …' (any word may match; bm25 ranks)
+export function ftsQuery(text) {
+  const words = String(text).toLowerCase().match(/[\p{L}\p{M}\p{N}]{2,}/gu) || [];
+  const all = [];
+  for (const w of words) {
+    if (!FILLER.has(w)) all.push(w);
+    const x = HINGLISH[w] || HINGLISH[w.replace(/(on|en|o|e|i|a)$/, '')];
+    if (x) all.push(...x.split(' '));
+  }
+  return [...new Set(all)].slice(0, 24).map((w) => `"${w.replace(/"/g, '')}"*`).join(' OR ');
+}
 export const hasKnowledge = (userId) => T.kdocs.exists({ userId, status: 'ready' });
 // → { passages: [{ docId, doc, page, text }], products: [...], docs: [docs worth sending] }
 export async function searchKnowledge(u, text, { k = 6 } = {}) {
@@ -333,22 +453,38 @@ export async function searchKnowledge(u, text, { k = 6 } = {}) {
   const passages = top.map((c) => ({ docId: c.docId, doc: docs.get(c.docId).name, page: c.page, text: c.text }));
   const products = fq ? q('SELECT prodId FROM kpfts WHERE kpfts MATCH ? AND userId = ? ORDER BY bm25(kpfts) LIMIT 12').all(fq, userId).map((r) => T.kprods.get(r.prodId)).filter((p) => p && docs.has(p.docId)).map((p) => ({ ...p, doc: docs.get(p.docId).name })) : [];
   // documents the customer could be sent: the ones the best passages and products came from, plus any whose name or summary fits
-  const words = String(text).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [];
+  const words = String(text).toLowerCase().match(/[\p{L}\p{M}\p{N}]{3,}/gu) || [];
   const score = new Map();
   passages.forEach((p, i) => score.set(p.docId, (score.get(p.docId) || 0) + (k - i)));
   products.forEach((p) => score.set(p.docId, (score.get(p.docId) || 0) + 1));
   for (const d of docs.values()) if (words.some((w) => `${d.name} ${d.summary || ''} ${d.category || ''}`.toLowerCase().includes(w))) score.set(d.id, (score.get(d.id) || 0) + 3);
   const sendable = [...score.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => docs.get(id)).filter((d) => d && d.send !== false).slice(0, 4);
-  return { passages, products, docs: sendable.map((d) => ({ id: d.id, name: d.name, summary: d.summary || '', category: d.category || '', fileId: d.fileId })) };
+  // the pages that matched, so a long PDF can be sent as just those pages
+  const pagesOf = (id) => [...new Set([...passages.filter((p) => p.docId === id).map((p) => p.page), ...products.filter((p) => p.docId === id).map((p) => p.page)])].filter(Boolean).sort((a, b) => a - b).slice(0, 8);
+  return { passages, products, docs: sendable.map((d) => ({ id: d.id, name: d.name, summary: d.summary || '', category: d.category || '', fileId: d.fileId, pages: d.pages || 0, pdf: /\.pdf$/i.test(d.name), matched: pagesOf(d.id) })) };
 }
 const money = (n) => (n == null ? '' : `₹${Number(n).toLocaleString('en-IN')}`);
 export function knowledgeBlock(found) {
   const parts = [];
   if (found.products.length) parts.push(`MATCHING PRODUCTS (from the catalogues)\n${found.products.map((p) => `- ${p.name}${p.sku ? ` [${p.sku}]` : ''}${p.price != null ? ` — ${money(p.price)}${p.unit ? ` ${p.unit}` : ''}` : ''}${p.mrp && p.mrp !== p.price ? ` (MRP ${money(p.mrp)})` : ''}${p.specs ? ` — ${p.specs}` : ''} (${p.doc}, p.${p.page})`).join('\n')}`);
   if (found.passages.length) parts.push(`RELEVANT PASSAGES (from the business's documents)\n${found.passages.map((p) => `[${p.doc}, page ${p.page}]\n${p.text}`).join('\n\n')}`);
-  if (found.docs.length) parts.push(`DOCUMENTS YOU CAN SEND (put the id in "send" to attach it)\n${found.docs.map((d) => `- ${d.id}: ${d.name}${d.summary ? ` — ${d.summary}` : ''}`).join('\n')}`);
+  if (found.docs.length) parts.push(`DOCUMENTS YOU CAN SEND (attach with "send": [{"id":"…"}] — for a long PDF, send only the pages that answer the customer: {"id":"…","pages":[3,4]})\n${found.docs.map((d) => `- ${d.id}: ${d.name}${d.pages > 1 ? ` (${d.pages} pages${d.pdf && d.matched.length ? `; matched pages ${d.matched.join(', ')}` : ''})` : ''}${d.summary ? ` — ${d.summary}` : ''}`).join('\n')}`);
   return parts.join('\n\n');
 }
+
+// a few pages of a PDF as a new, smaller PDF (to send just the part of a catalogue the customer asked about)
+export async function pdfPages(buf, pages) {
+  const { PDFDocument } = await import('pdf-lib');
+  const src = await PDFDocument.load(buf, { ignoreEncryption: true });
+  const n = src.getPageCount();
+  const want = [...new Set(pages.map(Number))].filter((p) => Number.isInteger(p) && p >= 1 && p <= n).sort((a, b) => a - b).slice(0, 10);
+  if (!want.length || want.length >= n) return null;
+  const out = await PDFDocument.create();
+  for (const p of await out.copyPages(src, want.map((x) => x - 1))) out.addPage(p);
+  return { buf: Buffer.from(await out.save()), pages: want };
+}
+// "3, 4, 5, 8" → "3–5, 8"
+export const pageLabel = (ps) => ps.reduce((acc, p) => { const last = acc.at(-1); if (last && p === last[1] + 1) last[1] = p; else acc.push([p, p]); return acc; }, []).map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`)).join(', ');
 
 // ---------- memory: who the customer is ----------
 export function customerProfile(u, conv) {
