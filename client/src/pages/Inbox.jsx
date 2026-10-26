@@ -185,8 +185,10 @@ function Msg({ m, convId, agent }) {
       {by && <div className="by">{by}{m.type === 'template' && <span className="pill" style={{ fontSize: 10 }}>template</span>}</div>}
       {m.media && <Media m={m} convId={convId} />}
       {m.transcribed && <div className="by" style={{ marginTop: 2 }}>🎤 Voice note, transcribed{m.lang ? ` · ${LANG_NAMES[m.lang] || m.lang}` : ''}</div>}
-      {m.location ? <a className="bub-loc" href={`https://www.google.com/maps?q=${m.location.lat},${m.location.lng}`} target="_blank" rel="noreferrer noopener"><span className="pin">📍</span><span><b>{m.location.name || 'Location'}</b>{m.location.address && <small>{m.location.address}</small>}<em>Open in Google Maps →</em></span></a>
+      {m.form?.answers ? <div className="bub-form"><b>📋 {m.form.title}</b>{m.form.answers.map((a, i) => <div key={i}><small>{a.label}</small>{a.value}</div>)}</div>
+        : m.location ? <a className="bub-loc" href={`https://www.google.com/maps?q=${m.location.lat},${m.location.lng}`} target="_blank" rel="noreferrer noopener"><span className="pin">📍</span><span><b>{m.location.name || 'Location'}</b>{m.location.address && <small>{m.location.address}</small>}<em>Open in Google Maps →</em></span></a>
         : m.text && !(m.media?.type === 'document' && m.text === m.media.caption) ? waFmt(m.text) : m.media ? '' : <span className="muted">(empty message)</span>}
+      {m.form?.cta && <div className="bub-btns"><span>📋 {m.form.cta}</span></div>}
       {(m.buttons?.length > 0 || m.list) && <div className="bub-btns">{(m.buttons || m.list.rows).map((b, i) => <span key={i}>{b}</span>)}</div>}
       {m.error && <div className="bub-err">Not delivered: {m.error}</div>}
       <div className="meta">{clock(m.at)}{m.dir === 'out' && <Tick s={m.status} />}</div>

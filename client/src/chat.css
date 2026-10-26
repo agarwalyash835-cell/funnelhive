@@ -301,3 +301,9 @@ button.cb-card:hover, .cb-card.click:hover { transform: translateY(-1px); box-sh
 
 @media (max-width: 1100px) { .wfb-body { grid-template-columns: 170px minmax(0, 1fr) 300px; } .ag { grid-template-columns: 1fr; } .ag .phone { position: static; height: 520px; } }
 @media (max-width: 800px) { .wfb-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; } .wfb-pal { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--c-line); } .wfb-pal h5 { display: none; } .wfb-pi { width: auto; flex: none; } .wfb-right { max-height: 45vh; } .ag-faq { grid-template-columns: 1fr; } }
+
+/* WhatsApp forms: a filled form in the inbox, the form node's questions in the chatbot builder */
+.bub-form { display: grid; gap: 6px; padding: 8px 10px; margin: -2px -4px 2px; border-radius: 10px; background: rgba(13, 148, 136, .07); border: 1px solid rgba(13, 148, 136, .18); }
+.bub-form small { display: block; font-size: 11px; color: var(--c-muted, #78716c); }
+.wff-q { display: grid; gap: 6px; padding: 8px; border-radius: 10px; background: var(--c-surface-2); border: 1px solid var(--c-line); }
+.wff-pub { display: grid; gap: 8px; padding: 10px; border-radius: 10px; background: rgba(13, 148, 136, .06); border: 1px dashed rgba(13, 148, 136, .35); }

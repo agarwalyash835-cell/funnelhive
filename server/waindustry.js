@@ -6,6 +6,8 @@
 //   qualify: [buttons question, 3 buttons (≤20)], [list question, up to 6 options (≤24)], [open question, variable], tag
 //   agent:   name, role, knowledge outline, FAQs [q, a], when to hand over
 //   keys:    words that start the lead qualifier
+//   form:    (optional) a fourth chatbot with a WhatsApp form (waforms.js) — asked one by one without Meta:
+//            name, keywords, title, intro, button, submit, fields, tag, the team's note and the closing message
 export const INDUSTRY = {
   general: {
     keys: ['course', 'program', 'details', 'join'],
@@ -16,6 +18,7 @@ export const INDUSTRY = {
   },
   realestate: {
     keys: ['flat', 'property', 'bhk', 'price', 'project'],
+    form: { name: 'Site visit form', keys: ['site visit', 'visit form'], title: 'Book a site visit', text: 'Hi {{first_name}} 👋 Book your site visit in a few taps — just fill this short form 👇', cta: 'Book site visit', submit: 'Book my visit', fields: [{ id: 'name', type: 'text', label: 'Your name', required: true, var: 'name', save: 'name' }, { id: 'visit_date', type: 'date', label: 'Visit date', required: true, var: 'visit_date' }, { id: 'visit_time', type: 'radio', label: 'Preferred time', required: true, var: 'visit_time', options: [{ id: 'm', title: 'Morning' }, { id: 'a', title: 'Afternoon' }, { id: 'e', title: 'Evening' }] }, { id: 'bhk', type: 'dropdown', label: 'Configuration', var: 'bhk', options: [{ id: 'b1', title: '1 BHK' }, { id: 'b2', title: '2 BHK' }, { id: 'b3', title: '3 BHK' }, { id: 'b4', title: '4 BHK or bigger' }] }, { id: 'budget', type: 'dropdown', label: 'Budget', var: 'budget', options: [{ id: 'u50', title: 'Under ₹50 lakh' }, { id: 'u100', title: '₹50 lakh – 1 crore' }, { id: 'u200', title: '₹1 – 2 crore' }, { id: 'o200', title: 'Above ₹2 crore' }] }], tag: 'site-visit-request', note: 'Confirm the site visit: {{visit_date}}, {{visit_time}} · {{bhk}} · {{budget}}', done: 'Thank you, {{first_name}}! ✅ We’ll confirm your site visit for {{visit_date}} ({{visit_time}}) here shortly.' },
     menu: [['Projects & locations', 'Our projects: [project 1 — location, BHK options], [project 2 — …]. All RERA registered: [RERA no.]'], ['Prices & floor plans', '[1 BHK from ₹… · 2 BHK from ₹… · 3 BHK from ₹…]. Floor plans & brochure: [link]'], ['Home loan help', 'We have tie-ups with [banks] — up to [x]% loan, and our team handles the paperwork.']],
     book: ['Site visit', 'a site visit', 'Which day would you like to visit the site?'],
     qualify: [['Are you looking to…', ['Buy to live', 'Invest', 'Rent']], ['What’s your budget?', ['Under ₹50 lakh', '₹50 lakh – 1 crore', '₹1 – 2 crore', 'Above ₹2 crore']], ['Which configuration and location do you prefer? (e.g. 2 BHK, Wakad)', 'need'], 'property-lead'],
@@ -23,6 +26,7 @@ export const INDUSTRY = {
   },
   clinic: {
     keys: ['appointment', 'doctor', 'consult', 'treatment'],
+    form: { name: 'Appointment form', keys: ['appointment form', 'book online'], title: 'Book an appointment', text: 'Hi {{first_name}} 👋 Book your appointment in a few taps — just fill this short form 👇', cta: 'Book appointment', submit: 'Request appointment', fields: [{ id: 'name', type: 'text', label: 'Patient name', required: true, var: 'name', save: 'name' }, { id: 'for_whom', type: 'radio', label: 'Who is it for?', required: true, var: 'for_whom', options: [{ id: 'me', title: 'Myself' }, { id: 'family', title: 'Family member' }, { id: 'child', title: 'Child' }] }, { id: 'appt_date', type: 'date', label: 'Preferred date', required: true, var: 'appt_date' }, { id: 'appt_time', type: 'radio', label: 'Preferred time', required: true, var: 'appt_time', options: [{ id: 'm', title: 'Morning' }, { id: 'a', title: 'Afternoon' }, { id: 'e', title: 'Evening' }] }, { id: 'concern', type: 'long', label: 'Concern (optional)', var: 'concern' }], tag: 'appointment-request', note: 'Confirm the appointment: {{appt_date}}, {{appt_time}} · for {{for_whom}} · {{concern}}', done: 'Thank you! ✅ We’ll confirm your appointment for {{appt_date}} ({{appt_time}}) here shortly.' },
     menu: [['Doctors & timings', '[Dr. name — speciality — OPD days and time]. Emergency: [number].'], ['Treatments & fees', 'Consultation fee: [₹]. Treatments we offer: [list]. Packages: [details].'], ['Clinic location', 'We’re at [address] — [Google Maps link]. Parking: [details].']],
     book: ['Appointment', 'appointment', 'Which day would you like the appointment?'],
     qualify: [['Who is the appointment for?', ['Myself', 'Family member', 'Child']], ['What do you need help with?', ['General check-up', 'A specific concern', 'Follow-up visit', 'Second opinion', 'A procedure']], ['Briefly, what are the symptoms or concern?', 'concern'], 'patient-enquiry'],
