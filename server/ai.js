@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { similarTemplates, allTemplates, matchTemplate } from './templates.js';
-import { audit, enforce, barText, blueprintOf, qualityBar } from './quality.js';
+import { similarTemplates, allTemplates, matchTemplate, parsePrompt } from './templates.js';
+import { audit, enforce, barText, blueprintOf, qualityBar, trimTemplate } from './quality.js';
 import { uid } from './db.js';
 import { PAGE_STYLES, STYLE_HINTS, variantsText } from './page-styles.js';
 
@@ -243,10 +243,12 @@ async function repair(system, f, issues) {
   return next;
 }
 
-export async function generateFunnel(prompt) {
+// opts: { length: short|standard|detailed (how many sections the main pages get), style, primary (the seller's design picks) }
+export async function generateFunnel(prompt, { length = 'standard', style, primary } = {}) {
   if (!aiEnabled()) return normalizeFunnel(templateFunnel(prompt));
-  const [closest] = similarTemplates(prompt, 1);
+  const closest = trimTemplate(similarTemplates(prompt, 1)[0], length);
   const blueprint = blueprintOf(closest);
+  const design = [style && `theme.style must be "${style}"`, primary && `theme.primary must be "${primary}" (pick a secondary that goes with it)`].filter(Boolean).join('; ');
   const system = `You are an expert direct-response funnel strategist and copywriter for Indian businesses. Design a complete, high-converting funnel from the user's business description. Respond with ONLY valid JSON:
 {"name": string, "theme": {"style": string, "primary": "#hex", "secondary": "#hex"}, "steps": [{"name": string, "type": string, "slug": string, "blocks": [{"type": string, "props": {...}}]}]}
 Write persuasive, specific copy for THIS business (never generic), realistic Indian prices, Indian names and cities.
@@ -255,20 +257,27 @@ ${BLOCK_SPEC}
 EXAMPLE — a complete funnel from our template library for a similar business ("${closest.name}"). Match its structure, section order, depth and quality exactly, but write completely new copy, names, prices and offers for the user's business:
 ${exampleFunnel(closest)}
 
-${barText(blueprint)}`;
+${barText(blueprint)}
+Every section has its own job — never repeat a point, benefit, list or claim another section already makes; a reader should never feel they've read it before.${design ? `
+The seller chose their design: ${design}.` : ''}`;
   const report = { model: aiProvider(), template: closest.id, firstDraftIssues: null, repairPasses: 0, filledFromTemplate: [], finalIssues: null };
   let best = null, bestIssues = null;
   const consider = (f) => {
     if (!f || !Array.isArray(f.steps)) return;
     const known = KNOWN_TYPES();
-    for (const st of f.steps) st.blocks = (st.blocks || []).filter((x) => x && known.has(x.type) && x.props && typeof x.props === 'object');
+    f.steps.forEach((st, si) => {
+      st.blocks = (st.blocks || []).filter((x) => x && known.has(x.type) && x.props && typeof x.props === 'object');
+      // a shorter page means only the blueprint's sections, once each (the model likes to add more)
+      const bp = blueprint[si];
+      if (length !== 'detailed' && bp?.type === st.type) { const seen = new Set(); st.blocks = st.blocks.filter((x) => bp.blocks.includes(x.type) && !seen.has(x.type) && seen.add(x.type)); }
+    });
     const iss = audit(f, blueprint);
     if (!best || iss.length < bestIssues.length) { best = f; bestIssues = iss; }
   };
   for (let attempt = 0; attempt < 2 && !best; attempt++) {
     try { consider(await ask(system, prompt)); } catch (e) { console.warn('AI funnel generation failed:', e.message); if (/not authorized|401|API key/i.test(e.message)) break; }
   }
-  if (!best) return Object.assign(normalizeFunnel(matchTemplate(prompt)), { fallback: true, quality: { ...report, fallback: true } });
+  if (!best) return Object.assign(normalizeFunnel(trimTemplate(matchTemplate(prompt), length)), { fallback: true, quality: { ...report, fallback: true } });
   report.firstDraftIssues = bestIssues.length;
   for (let pass = 0; pass < MAX_REPAIRS && bestIssues.length; pass++) {
     report.repairPasses++;
@@ -276,13 +285,53 @@ ${barText(blueprint)}`;
   }
   // guarantee: never below the template bar
   const f = structuredClone(best);
-  if (bestIssues.length) report.filledFromTemplate = enforce(f, matchTemplate(prompt), blueprint);
+  if (bestIssues.length) report.filledFromTemplate = enforce(f, trimTemplate(matchTemplate(prompt), length), blueprint);
   const final = audit(f, blueprint);
   report.finalIssues = final.length;
   report.remaining = final.map((i) => `${i.type}: ${i.msg}`);
   if (final.length) console.warn('AI funnel still below the bar after top-up:', summarise(final));
   console.log(`AI funnel "${f.name}": ${report.firstDraftIssues} issue(s) in first draft → ${bestIssues.length} after ${report.repairPasses} repair pass(es) → ${final.length} after template top-up (${report.filledFromTemplate.length} field(s) filled)`);
   return Object.assign(normalizeFunnel(f), { quality: report });
+}
+
+// ---------- before building: is the brief enough? ----------
+// A one-liner ("free guide that grows my email list") leaves the page to guess the business — and the closest
+// template wins, however unrelated. So a vague or half-done brief gets 2–4 short questions with tap-to-answer
+// options first. → { ready: true } or { ready: false, understood, questions: [{ id, q, options }] }
+const CLARIFY_DEFAULTS = [
+  { id: 'what', q: 'What exactly do you sell?', options: ['Online course', '1:1 coaching / consulting', 'Physical product', 'Service / local business'] },
+  { id: 'who', q: 'Who is it for?', options: ['Working professionals', 'Business owners', 'Students', 'Homemakers / parents'] },
+  { id: 'price', q: 'What does it cost?', options: ['Free', 'Under ₹1,000', '₹1,000 – ₹10,000', 'Above ₹10,000'] },
+  { id: 'goal', q: 'What should visitors do on this page?', options: ['Buy right away', 'Book a call', 'Register for a free webinar', 'Get a free guide (join my list)'] },
+];
+const cleanQuestions = (qs) => (Array.isArray(qs) ? qs : []).filter((x) => x && typeof x.q === 'string' && x.q.trim()).slice(0, 4).map((x, i) => ({
+  id: String(x.id || `q${i + 1}`).replace(/[^\w-]/g, '').slice(0, 24) || `q${i + 1}`,
+  q: x.q.trim().slice(0, 140),
+  options: (Array.isArray(x.options) ? x.options : []).filter((o) => typeof o === 'string' && o.trim()).slice(0, 5).map((o) => o.trim().slice(0, 60)),
+}));
+export function briefLooksReady(prompt) {
+  const { price, audience } = parsePrompt(prompt);
+  const words = prompt.trim().split(/\s+/).length;
+  return words >= 14 && (price != null || /\bfree\b/i.test(prompt)) && (audience != null || words >= 22);
+}
+function offlineQuestions(prompt) {
+  const { price, audience } = parsePrompt(prompt);
+  return CLARIFY_DEFAULTS.filter((x) => !(x.id === 'price' && (price != null || /\bfree\b/i.test(prompt))) && !(x.id === 'who' && audience));
+}
+export async function clarifyBrief(prompt) {
+  if (briefLooksReady(prompt)) return { ready: true };
+  if (!aiEnabled()) return { ready: false, understood: '', questions: offlineQuestions(prompt) };
+  const system = `You help Indian small businesses build a sales page / funnel. Before building, decide if the seller's brief says enough to write a page that is specific to THEIR business. It needs: what they sell (the actual product or service and niche), who it is for, the price (or that it's free), and what the page should get visitors to do (buy, book a call, register for a webinar, download a free guide…).
+If the brief clearly says all of that, reply {"ready": true}.
+Otherwise reply {"ready": false, "understood": "one short sentence of what you understood so far, or \\"\\"", "questions": [{"id": "short_id", "q": "question", "options": ["…", "…", "…", "…"]}]} with 2–4 questions, only about what is missing or unclear — never ask what the brief already says. Each question is short and friendly in plain English, with 3–5 tap-to-answer options (each under 6 words) fitted to their brief and the Indian market (₹ prices). Ask what they sell first when that is unclear.
+Respond with ONLY the JSON.`;
+  try {
+    const out = await ask(system, `Seller's brief: ${prompt}`);
+    if (out.ready === true) return { ready: true };
+    const questions = cleanQuestions(out.questions);
+    if (questions.length) return { ready: false, understood: typeof out.understood === 'string' ? out.understood.slice(0, 200) : '', questions };
+  } catch (e) { console.warn('Brief check failed:', e.message); }
+  return { ready: false, understood: '', questions: offlineQuestions(prompt) };
 }
 
 export async function editBlocks(step, theme, instruction) {

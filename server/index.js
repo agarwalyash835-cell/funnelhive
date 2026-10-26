@@ -8,7 +8,9 @@ import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { T, Events, q, tx, uid, contactKey, testOrder, dir as DATA_DIR, JOBS } from './db.js';
-import { generateFunnel, editBlocks, aiEnabled, aiProvider, chatAI, AGENTS, runAgent, generateImage, imagesReady, IMAGE_ASPECTS } from './ai.js';
+import { generateFunnel, clarifyBrief, editBlocks, aiEnabled, aiProvider, chatAI, AGENTS, runAgent, generateImage, imagesReady, IMAGE_ASPECTS } from './ai.js';
+import { trimTemplate, PAGE_LENGTHS } from './quality.js';
+import { PAGE_STYLES } from './page-styles.js';
 import { templateList, getTemplate, matchTemplate } from './templates.js';
 import { applyActions, offlineChat } from './actions.js';
 import { abResult } from './stats.js';
@@ -1028,15 +1030,34 @@ app.post('/api/templates/:tid/use', auth, funnelCap, (req, res) => {
 });
 
 // ---------- AI ----------
+// Before building: a vague or half-done brief gets a few quick questions (no credits — it's a short check)
+app.post('/api/ai/clarify', auth, aiLimiter, wrap(async (req, res) => {
+  const prompt = String(req.body.prompt || '').trim().slice(0, 2000);
+  if (prompt.length < 3) return res.status(400).json({ error: 'Describe your business or offer in a sentence' });
+  res.json(await clarifyBrief(prompt));
+}));
+
+// the seller's design picks for a new funnel: page length, page style, brand colour
+function designOpts(b = {}) {
+  return {
+    length: PAGE_LENGTHS.includes(b.length) ? b.length : 'standard',
+    style: PAGE_STYLES.includes(b.style) ? b.style : undefined,
+    primary: /^#[0-9a-f]{6}$/i.test(b.primary || '') ? b.primary.toLowerCase() : undefined,
+  };
+}
+
 app.post('/api/ai/generate', auth, funnelCap, aiLimiter, credits('generate'), wrap(async (req, res) => {
   const { prompt } = req.body;
   if (!prompt || prompt.length < 5) return res.status(400).json({ error: 'Describe your business or offer in a sentence' });
+  const opts = designOpts(req.body);
   // Hindi pages: the copy is written in Hindi, and the page's built-in words follow (theme.lang)
   const hindi = req.body.lang === 'hi';
   const ask = hindi ? `${prompt}
 
 Write every word of the page copy in Hindi (Devanagari script) — natural, conversational Hindi a buyer in India would use. Keep brand names, prices, numbers and units as they are.` : prompt;
-  const gen = aiEnabled() ? await generateFunnel(ask) : matchTemplate(prompt);
+  const gen = aiEnabled() ? await generateFunnel(ask, opts) : trimTemplate(matchTemplate(prompt), opts.length);
+  if (opts.style) gen.theme = { ...gen.theme, style: opts.style };
+  if (opts.primary) gen.theme = { ...gen.theme, primary: opts.primary };
   if (hindi) gen.theme = { ...gen.theme, lang: 'hi', headingFont: gen.theme?.headingFont || 'Mukta', bodyFont: gen.theme?.bodyFont || 'Hind' };
   const usedAI = aiEnabled() && !gen.fallback;
   const quality = gen.quality;

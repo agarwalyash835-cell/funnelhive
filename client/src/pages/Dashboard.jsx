@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, DRAFT_EXAMPLES, confirmDialog } from '../ui';
+import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, DRAFT_EXAMPLES, BriefQuestions, DesignPicker, DEFAULT_DESIGN, confirmDialog } from '../ui';
 import { PagePreview } from '../blocks';
 import { AreaChart, Sparkline, HBars } from '../charts';
 
@@ -86,10 +86,13 @@ function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample 
   const [prompt, setPrompt] = useState('');
   const [lang, setLang] = useState('en');
   const [hint, setHint] = useState(0);
-  const { busy, err, secs, stage, progress, start } = useFunnelDraft();
+  const [design, setDesign] = useState(DEFAULT_DESIGN);
+  const [showDesign, setShowDesign] = useState(false);
+  const draft = useFunnelDraft();
+  const { busy, checking, err, secs, stage, progress, start } = draft;
   // the placeholder cycles through real examples
   useEffect(() => { const t = setInterval(() => setHint((h) => (h + 1) % DRAFT_EXAMPLES.length), 3500); return () => clearInterval(t); }, []);
-  const go = (e) => { e?.preventDefault(); if (prompt.trim().length >= 5 && !busy) start(prompt.trim(), lang); };
+  const go = (e) => { e?.preventDefault(); if (prompt.trim().length >= 5 && !busy && !checking) start(prompt.trim(), lang, design); };
   const hour = new Date().getHours();
   return (
     <section className="lv-hero">
@@ -98,6 +101,7 @@ function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample 
       {managedBy && <p className="lv-managed">You’re managing this account as {managedBy}</p>}
       <h1>What are you selling today?</h1>
       <p className="lv-sub">Describe it in a sentence. Hive AI drafts the whole funnel — sales page, checkout, upsell and thank-you.</p>
+      {draft.asking && !busy ? <div className="lv-box lv-ask"><BriefQuestions draft={draft} /></div> : (
       <form className={`lv-box ${busy ? 'busy' : ''}`} onSubmit={go}>
         <textarea rows={2} value={prompt} disabled={busy} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) go(e); }} placeholder={`e.g. ${DRAFT_EXAMPLES[hint]}`} aria-label="Describe what you sell" />
         {busy ? (
@@ -105,13 +109,16 @@ function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample 
         ) : (
           <div className="lv-bar">
             <select value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Page language"><option value="en">English</option><option value="hi">हिन्दी</option></select>
+            <button type="button" className={`lv-chip-link ${showDesign ? 'on' : ''}`} onClick={() => setShowDesign((v) => !v)} aria-expanded={showDesign}><Icon name="palette" size={14} /> Design</button>
             <Link className="lv-chip-link" to="/templates"><Icon name="layout" size={14} /> Templates</Link>
-            <button className="lv-send" disabled={prompt.trim().length < 5} title="Draft my funnel (Enter)" aria-label="Draft my funnel"><Icon name="chevron" size={18} className="up" /></button>
+            <button className="lv-send" disabled={prompt.trim().length < 5 || checking} title="Draft my funnel (Enter)" aria-label="Draft my funnel">{checking ? <span className="spin" /> : <Icon name="chevron" size={18} className="up" />}</button>
           </div>
         )}
+        {showDesign && !busy && <DesignPicker value={design} onChange={setDesign} />}
       </form>
+      )}
       {err && <div className="err lv-err">{err}</div>}
-      {!busy && <div className="lv-chips">{CHIPS.map((x) => <button key={x} type="button" onClick={() => setPrompt(x)}>{x}</button>)}</div>}
+      {!busy && !draft.asking && <div className="lv-chips">{CHIPS.map((x) => <button key={x} type="button" onClick={() => setPrompt(x)}>{x}</button>)}</div>}
       {!aiEnabled && !busy && <p className="lv-note">AI is offline on this server — your description is matched to the closest of our templates.</p>}
       {showSample && !busy && <button className="linkish lv-sample" onClick={onSample} disabled={seeding}>{seeding ? 'Loading sample data…' : 'Or explore with sample data'}</button>}
     </section>

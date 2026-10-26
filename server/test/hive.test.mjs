@@ -18,7 +18,7 @@ function brain(body) {
   const out = lastOutput(input);
   if (/coupon/i.test(user)) return calls.includes('create_coupon') ? say('Created **HIVE20** — 20% off.') : call('create_coupon', { code: 'HIVE20', type: 'percent', value: 20 });
   if (/build/i.test(user)) {
-    if (!calls.length) return call('create_funnel', { brief: 'Yoga studio in Pune, ₹999' });
+    if (!calls.length) return call('create_funnel', { brief: 'Yoga studio in Pune, ₹999', answered: true });
     if (calls.at(-1) === 'create_funnel') return call('get_page', { funnelId: out.id, stepId: out.steps[0].id, _f: out.id });
     if (calls.at(-1) === 'get_page') {
       const hero = out.sections.find((s) => s.type === 'hero');

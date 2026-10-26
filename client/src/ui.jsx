@@ -550,23 +550,83 @@ export const RangePicker = ({ value, onChange }) => (
 const EXAMPLES = ['Online yoga classes for working women, ₹499', 'Homemade mango pickles delivered across India', 'UPSC coaching with personal mentorship', 'Rooftop solar installation in Pune', 'Bridal makeup artist in Jaipur', 'Stock market course for beginners'];
 // Drafting a funnel with AI (about a minute): stage, seconds and progress — used by the "New funnel" dialog and the dashboard prompt
 const DRAFT_STAGES = [[0, 'Understanding your offer'], [6, 'Planning the funnel steps'], [14, 'Writing the sales page'], [26, 'Writing checkout, bump & upsell'], [38, 'Writing the thank-you page'], [48, 'Quality-checking every section'], [62, 'Almost there — polishing the copy']];
+// Before drafting, a vague brief ("free guide that grows my email list") gets a few quick questions so the page
+// is about the seller's business, not the nearest template. `asking` holds them until answered or skipped.
 export function useFunnelDraft() {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [asking, setAsking] = useState(null);
   const [err, setErr] = useState('');
   const [secs, setSecs] = useState(0);
   useEffect(() => { if (!busy) return undefined; setSecs(0); const t = setInterval(() => setSecs((s) => s + 1), 1000); return () => clearInterval(t); }, [busy]);
   const stage = [...DRAFT_STAGES].reverse().find(([s]) => secs >= s)[1];
   const progress = Math.min(95, Math.round((secs / 70) * 100));
-  const start = async (prompt, lang = 'en') => {
-    setBusy(true); setErr('');
+  const build = async (prompt, lang, design) => {
+    setAsking(null); setBusy(true); setErr('');
     try {
-      const r = await api('/ai/generate', 'POST', { prompt, lang });
+      const r = await api('/ai/generate', 'POST', { prompt, lang, ...design });
       if (r.usedAI && r.quality) toast(r.quality.finalIssues === 0 ? t('Quality check passed — {n} pages ready', { n: r.steps.length }) : t('Funnel ready — review the highlighted sections'));
       nav(`/funnels/${r.id}`);
     } catch (x) { setErr(x.message); setBusy(false); }
   };
-  return { busy, err, secs, stage: t(stage), progress, start };
+  const start = async (prompt, lang = 'en', design = {}) => {
+    setChecking(true); setErr('');
+    let c = { ready: true };
+    try { c = await api('/ai/clarify', 'POST', { prompt }); } catch { /* the check is a nicety: build anyway */ }
+    setChecking(false);
+    if (c.ready || !c.questions?.length) return build(prompt, lang, design);
+    setAsking({ prompt, lang, design, understood: c.understood, questions: c.questions });
+  };
+  // answers are added to the brief; empty ones are left out
+  const answer = (answers) => {
+    const lines = asking.questions.filter((x) => answers[x.id]?.trim()).map((x) => `- ${x.q} ${answers[x.id].trim()}`);
+    build(lines.length ? `${asking.prompt}\n\nMore details:\n${lines.join('\n')}` : asking.prompt, asking.lang, asking.design);
+  };
+  const skip = () => build(asking.prompt, asking.lang, asking.design);
+  return { busy, checking, asking, err, secs, stage: t(stage), progress, start, answer, skip, cancel: () => setAsking(null) };
+}
+
+// The few questions for a vague brief: tap an option or type your own
+export function BriefQuestions({ draft }) {
+  const [ans, setAns] = useState({});
+  const { understood, questions } = draft.asking;
+  const set = (id, v) => setAns((a) => ({ ...a, [id]: v }));
+  const filled = questions.filter((x) => ans[x.id]?.trim()).length;
+  return (
+    <div className="brief-q">
+      <div className="bq-head"><Icon name="sparkles" size={16} /><div><b>{t('A few quick questions')}</b><small>{understood || t('So the page is about your business — not a guess.')}</small></div></div>
+      {questions.map((x, i) => (
+        <div className="bq-item" key={x.id}>
+          <label htmlFor={`bq-${x.id}`}>{i + 1}. {x.q}</label>
+          {!!x.options?.length && <div className="bq-opts">{x.options.map((o) => <button type="button" key={o} className={ans[x.id] === o ? 'on' : ''} onClick={() => set(x.id, ans[x.id] === o ? '' : o)}>{o}</button>)}</div>}
+          <input id={`bq-${x.id}`} value={x.options?.includes(ans[x.id]) ? '' : ans[x.id] || ''} onChange={(e) => set(x.id, e.target.value)} placeholder={t('Or type your own answer')} />
+        </div>
+      ))}
+      <div className="bq-foot">
+        <button type="button" className="btn primary" disabled={!filled} onClick={() => draft.answer(ans)}><Icon name="wand" /> {t('Build my funnel')}</button>
+        <button type="button" className="linkish" onClick={draft.skip}>{t('Skip — build with what I wrote')}</button>
+        <button type="button" className="linkish" onClick={draft.cancel}>{t('Edit my description')}</button>
+      </div>
+    </div>
+  );
+}
+
+// The seller's design picks: page length, look and brand colour ('' = Hive AI picks)
+export const PAGE_LOOKS = [['', 'Let AI pick'], ['aurora', 'Soft gradients'], ['clean', 'Clean & minimal'], ['midnight', 'Dark & glowing'], ['bold', 'Bold & loud'], ['luxe', 'Premium cream'], ['fresh', 'Fresh & friendly'], ['organic', 'Warm & earthy'], ['pastel', 'Pastel'], ['royal', 'Royal & gold'], ['editorial', 'Magazine'], ['noir', 'Black & white'], ['glass', 'Frosted glass'], ['tech', 'Tech / neon'], ['playful', 'Playful'], ['swiss', 'Swiss grid'], ['studio', 'Modern studio']];
+const LENGTHS = [['short', 'Short', 'About 7 sections — a quick read'], ['standard', 'Standard', 'About 11 sections'], ['detailed', 'Detailed', 'Long-form: every section']];
+export const DEFAULT_DESIGN = { length: 'standard', style: '', primary: '' };
+export function DesignPicker({ value, onChange }) {
+  const set = (k, v) => onChange({ ...value, [k]: v });
+  return (
+    <div className="design-pick">
+      <div className="dp-row"><span>{t('Page length')}</span><div className="seg">{LENGTHS.map(([k, l, h]) => <button type="button" key={k} title={t(h)} className={value.length === k ? 'on' : ''} onClick={() => set('length', k)}>{t(l)}</button>)}</div></div>
+      <div className="dp-row"><span>{t('Look')}</span><select value={value.style} onChange={(e) => set('style', e.target.value)} aria-label={t('Page look')}>{PAGE_LOOKS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</select></div>
+      <div className="dp-row"><span>{t('Brand colour')}</span>
+        <label className="dp-color"><input type="checkbox" checked={!!value.primary} onChange={(e) => set('primary', e.target.checked ? '#6366f1' : '')} />{value.primary ? <input type="color" value={value.primary} onChange={(e) => set('primary', e.target.value)} aria-label={t('Brand colour')} /> : <small>{t('Let AI pick')}</small>}</label>
+      </div>
+    </div>
+  );
 }
 export const DRAFT_EXAMPLES = EXAMPLES;
 
@@ -574,26 +634,31 @@ export function CreateFunnel({ onClose, aiEnabled }) {
   const nav = useNavigate();
   const [prompt, setPrompt] = useState('');
   const [lang, setLang] = useState('en');
+  const [design, setDesign] = useState(DEFAULT_DESIGN);
   const ref = useRef();
   useEffect(() => ref.current?.focus(), []);
-  const { busy, err, secs, stage, progress, start } = useFunnelDraft();
-  const gen = (e) => { e?.preventDefault(); start(prompt, lang); };
+  const draft = useFunnelDraft();
+  const { busy, checking, err, secs, stage, progress, start } = draft;
+  const gen = (e) => { e?.preventDefault(); start(prompt, lang, design); };
   const blank = async () => nav(`/funnels/${(await api('/funnels', 'POST', { name: 'Untitled funnel' })).id}`);
   return (
     <Modal title={t('Create a new funnel')} onClose={onClose} width={720}>
+      {draft.asking && !busy ? <div className="create-ai"><BriefQuestions draft={draft} /></div> : (
       <form className="create-ai" onSubmit={gen}>
         <div className="ca-badge"><Icon name="sparkles" size={14} /> {t('AI funnel builder')}</div>
         <h2>{t('Describe your business in one line')}</h2>
         <p className="muted">{t('We’ll build the landing page, checkout, upsell, downsell, cross-sells and thank-you page — with copy, FOMO and pricing.')}</p>
         <textarea ref={ref} rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t('e.g. Online yoga classes for working women, ₹499')} />
         <label className="lang-pick">{t('Page language')} <select value={lang} onChange={(e) => setLang(e.target.value)}><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></label>
+        <DesignPicker value={design} onChange={setDesign} />
         <div className="sugg">{EXAMPLES.map((x) => <button type="button" key={x} onClick={() => setPrompt(x)}>{x}</button>)}</div>
         {err && <div className="err">{err}</div>}
-        <button className="btn primary lg" disabled={busy || prompt.length < 5}>{busy ? <><span className="spin" /> {stage}… <small className="gen-secs">{secs}s</small></> : <><Icon name="wand" /> {t('Generate my funnel')}</>}</button>
+        <button className="btn primary lg" disabled={busy || checking || prompt.length < 5}>{busy ? <><span className="spin" /> {stage}… <small className="gen-secs">{secs}s</small></> : checking ? <><span className="spin" /> {t('Reading your description…')}</> : <><Icon name="wand" /> {t('Generate my funnel')}</>}</button>
         {busy && <div className="gen-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>}
         {busy && <p className="hint">{t('Hive AI writes every page, then checks each one against our template quality bar — about a minute. Keep this window open.')}</p>}
         {!aiEnabled && <p className="hint">{t('Running offline: we’ll match your description to the best of our 100+ expert templates. Fully custom AI copy turns on when full AI is enabled.')}</p>}
       </form>
+      )}
       <div className="create-alt">
         <button onClick={() => nav('/templates')}><Icon name="layout" /><div><b>{t('Pick a template')}</b><small>{t('100+ proven designs: sales, VSL & webinar funnels')}</small></div></button>
         <button onClick={blank}><Icon name="plus" /><div><b>{t('Start from scratch')}</b><small>{t('Blank page with drag & drop')}</small></div></button>

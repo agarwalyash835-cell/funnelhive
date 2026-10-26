@@ -478,7 +478,9 @@ code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-si
 /* editor: inline text, uploads, history, conflicts, phones */
 .ed-text { outline: none; cursor: text; border-radius: 4px; transition: box-shadow .12s; }
 .wrap .ed-text:hover { box-shadow: 0 0 0 2px rgba(217, 119, 6, .4); }
-.ed-text:focus { box-shadow: 0 0 0 2px var(--c-honey) !important; background: rgba(245, 165, 36, .08); }
+/* only the background colour: gradient-coloured text (stat numbers, highlights) is painted with a background
+   image clipped to the letters — replacing the whole background made it invisible while editing */
+.ed-text:focus { box-shadow: 0 0 0 2px var(--c-honey) !important; background-color: rgba(245, 165, 36, .08); caret-color: var(--c-honey); }
 .ed-text:empty::before { content: attr(data-placeholder); opacity: .4; }
 .upl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border: 1.5px dashed var(--c-line); border-radius: 10px; padding: 8px; margin-bottom: 6px; }
 .upl .hint { margin: 0; }
@@ -1045,6 +1047,13 @@ body:has(#root > .page:is(.s-aurora, .s-fresh, .s-clean)) { background: #fff; }
 .c-err { color: #dc2626; font-size: 13px; }
 
 @media (max-width: 900px) { .offer-grid { grid-template-columns: 1fr; gap: 32px; } }
+/* phones: the countdown's four tiles share the width (84px each + gaps didn't fit a 360px screen) */
+@media (max-width: 520px) {
+  .tiles { gap: 8px; }
+  .tile { min-width: 0; flex: 1 1 0; max-width: 96px; padding: 12px 4px 10px; }
+  .tile b { font-size: clamp(24px, 8vw, 34px); }
+  .tile small { font-size: 10px; letter-spacing: .06em; }
+}
 @container canvas (max-width: 900px) { .offer-grid { grid-template-columns: 1fr; gap: 32px; } }
 
 /* isolate funnel-page buttons & bars from app chrome styles */
@@ -2788,3 +2797,30 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .ct-var { color: var(--c-accent); font-weight: 600; }
 .ct-vars { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; display: grid; gap: 3px; }
 @media (max-width: 760px) { .ct-cols { grid-template-columns: 1fr; } .ct-list { max-height: 30vh; } }
+
+/* a vague brief: a few quick questions before drafting (new-funnel dialog and dashboard prompt) */
+.brief-q { display: grid; gap: 14px; text-align: left; }
+.bq-head { display: flex; gap: 10px; align-items: flex-start; color: var(--c-accent); }
+.bq-head div { display: grid; gap: 2px; color: var(--c-ink); }
+.bq-head b { font-size: 16px; }
+.bq-head small { color: var(--c-muted); font-size: 13px; }
+.bq-item { display: grid; gap: 7px; }
+.bq-item label { font-weight: 600; font-size: 14px; color: var(--c-ink); }
+.bq-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.bq-opts button { border: 1px solid var(--c-line); background: var(--c-surface); border-radius: 99px; padding: 6px 12px; font-size: 13px; color: var(--c-ink-2); }
+.bq-opts button:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.bq-opts button.on { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
+.bq-item input { height: 36px; font-size: 13.5px; }
+.bq-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding-top: 4px; }
+.lv-box.lv-ask { padding: 18px 20px; }
+
+/* the seller's design picks for a new funnel */
+.design-pick { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 0 2px; text-align: left; }
+.dp-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--c-muted); }
+.dp-row > span { font-weight: 600; }
+.dp-row select { width: auto; height: 32px; padding: 0 28px 0 10px; font-size: 13px; }
+.dp-color { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.dp-color input[type="checkbox"] { width: auto; height: auto; }
+.dp-color input[type="color"] { width: 34px; height: 26px; padding: 0; border: 1px solid var(--c-line); border-radius: 6px; background: none; cursor: pointer; }
+.lv-chip-link.on { color: var(--c-ink); border-color: var(--c-accent); }
+@media (max-width: 520px) { .design-pick { flex-direction: column; align-items: flex-start; } .lv-bar { flex-wrap: wrap; } }

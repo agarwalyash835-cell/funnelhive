@@ -52,6 +52,34 @@ export function qualityBar() {
 }
 export const blueprintOf = (t) => t.steps.map((s) => ({ type: s.type, blocks: s.blocks.map((b) => b.type) }));
 
+// Page length. Templates carry every section a page could use (up to 18), which reads long and repetitive for
+// most sellers: 'short' and 'standard' keep the sections that sell, in the template's order, on the main
+// pages (landing, sales, opt-in); checkout, upsell and thank-you pages stay as they are. 'detailed' is the full template.
+export const PAGE_LENGTHS = ['short', 'standard', 'detailed'];
+const MAIN_PAGES = new Set(['landing', 'sales', 'optin']);
+const DROP = {
+  short: new Set(['hellobar', 'stats', 'problem', 'mentor', 'steps', 'compare', 'bonuses', 'guarantee', 'proof', 'exitpopup', 'stickybar', 'countdown', 'livecount', 'stock']),
+  standard: new Set(['hellobar', 'stats', 'compare', 'proof', 'exitpopup', 'livecount', 'stock']),
+};
+export function trimTemplate(t, length = 'standard') {
+  const drop = DROP[length];
+  if (!drop) return t;
+  const out = structuredClone(t);
+  for (const st of out.steps) {
+    if (!MAIN_PAGES.has(st.type)) continue;
+    const types = st.blocks.map((b) => b.type);
+    const seen = new Set();
+    st.blocks = st.blocks.filter((b) => {
+      if (seen.has(b.type)) return false; // one of each section: no saying it twice
+      // a short page keeps "how it works" when it's the page's only list of what you get
+      if (drop.has(b.type) && !(b.type === 'steps' && !types.includes('features'))) return false;
+      seen.add(b.type);
+      return true;
+    });
+  }
+  return out;
+}
+
 // The bar written out for the model (first pass)
 export function barText(blueprint) {
   const { mins } = qualityBar();

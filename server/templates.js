@@ -441,11 +441,15 @@ export function similarTemplates(prompt, k = 2) {
   const leaning = /consultation/i.test(prompt);
   const quiz = /\bquiz (funnel|page)|\b(a|an) (\w+ )?quiz\b|\bquiz to\b|\bassessment funnel|which .{1,30} is right for (me|you)/i.test(prompt);
   const sells = /₹|\brs\.?\s*\d|\bupsell|\bsell\b|\bcourse\b|\bprogramme\b|\bprogram\b/i.test(prompt);
+  // a free guide / growing a list: a sign-up page and a thank-you page, not a paid sales funnel
+  const leads = !webinar && !vsl && !quiz && /free (guide|e-?book|checklist|pdf|report|cheat ?sheet|toolkit|download)|lead magnet|email list|join (my|our|the) (email )?list|grow (my|our|an?) (email )?list|newsletter/i.test(prompt);
+  const signUp = (t) => t.steps.length <= 2 && t.steps[0].type === 'optin';
   const fit = (t) => {
     if (t.type === 'quiz') return quiz ? 2 : 0.1;
     if (quiz) return 0.3; // asked for a quiz: a quiz funnel from another niche still beats a sales page
     if (t.type === 'webinar') return webinar ? (t.steps.some((s) => s.type === 'checkout') || !sells ? 1 : 0.4) : vsl ? 0 : 0.2; // selling after the webinar needs the replay + checkout
     if (t.type === 'vsl') return vsl ? 1 : webinar ? 0 : leaning ? 1.6 : 0.2;
+    if (leads) return signUp(t) ? 1 : 0.15;
     return webinar || vsl ? 0 : 1;
   };
   const ranked = (pool) => pool.map((d) => [score(d) * fit(d.t), d.t]).sort((x, y) => y[0] - x[0]);
@@ -453,6 +457,7 @@ export function similarTemplates(prompt, k = 2) {
   // no niche word matched: any funnel of the kind asked for beats a sales page from the wrong kind
   if ((webinar || vsl) && !(best[0]?.[0] > 0)) best = docs.filter((d) => fit(d.t) >= 1).map((d) => [0, d.t]);
   if (quiz && !(best[0]?.[0] > 0)) best = docs.filter((d) => d.t.type === 'quiz').map((d) => [0, d.t]);
+  if (leads && !signUp(best[0]?.[1] || { steps: [{}] })) best = [...ranked(docs.filter((d) => signUp(d.t) && d.t.type !== 'quiz' && d.t.type !== 'webinar')), ...best];
   return best.slice(0, k).map(([, t]) => t);
 }
 export const allTemplates = () => TEMPLATES;

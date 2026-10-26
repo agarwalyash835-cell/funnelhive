@@ -91,7 +91,7 @@ test('quality gate: a weak first draft is repaired, and whatever is still missin
   assert.ok(q.filledFromTemplate.length > 0, 'the rest was topped up from the template');
   assert.equal(q.finalIssues, 0, `what the seller gets meets the bar — left: ${JSON.stringify(q.remaining)}`);
   assert.deepEqual(r.steps.map((s) => s.type), ['sales', 'checkout', 'upsell', 'downsell', 'thankyou']);
-  assert.ok(r.steps[0].blocks.length >= 12, 'a full landing page, as in the matched template');
+  assert.ok(r.steps[0].blocks.length >= 9, 'a full standard-length landing page, as in the matched template');
   assert.equal(r.name, 'Fake Bakery', 'the AI’s own content is kept');
   const repairCalls = seen.filter((x) => /fails the quality bar/.test(JSON.stringify(x.body.input)));
   assert.ok(repairCalls.length >= 1, 'repair prompts list the exact problems');
