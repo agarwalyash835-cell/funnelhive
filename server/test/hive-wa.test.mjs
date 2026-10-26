@@ -264,7 +264,7 @@ test('inbound messages: a new contact, a timeline entry and a notification; deli
   assert.equal(d.timeline.filter((t) => t.title === 'WhatsApp message: Hi, is the course still open?').length, 1);
   const n = (await api('/notifications', 'GET', null, T)).data.items.find((x) => x.kind === 'whatsapp');
   assert.match(n.title, /Meera/);
-  assert.equal(n.link, `/contacts/${k('phone:9700000001')}`);
+  assert.match(n.link, /^\/inbox\/\w+$/, 'the bell opens the WhatsApp inbox conversation');
 
   // a reply to an existing buyer lands on that buyer
   await hook('message.inbound', { from: '919811122233', type: 'text', text: 'Thanks!' });

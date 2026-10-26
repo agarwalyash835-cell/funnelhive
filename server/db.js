@@ -137,6 +137,10 @@ const SCHEMA = {
   notifications: { cols: { userId: 0, read: (n) => bool(n.read), at: 0 }, index: [['userId', 'at']] }, // the seller's bell: new orders, leads, bookings…
   // WhatsApp messages sent through Hive: one per logical message (ikey), so a retry never sends twice; statuses from its webhook
   wamsgs: { cols: { userId: 0, ikey: 0, hiveId: 0, at: 0 }, unique: [['userId', 'ikey']], index: [['hiveId'], ['userId', 'at'], ['at']] },
+  // the WhatsApp inbox (wainbox.js): one conversation per customer number, its messages, chatbot flows
+  waconvs: { cols: { userId: 0, num: 0, status: 0, lastAt: 0, wakeAt: 0 }, unique: [['userId', 'num']], index: [['userId', 'lastAt'], ['userId', 'status', 'lastAt'], ['wakeAt']] },
+  wachat: { cols: { userId: 0, convId: 0, waRec: 0, at: 0 }, index: [['convId', 'at'], ['waRec'], ['userId', 'at']] },
+  waflows: { cols: { userId: 0, active: (f) => bool(f.active), at: 0 }, index: [['userId', 'at'], ['userId', 'active']] },
   registrations: { cols: { userId: 0, webinarId: 0, ckey: (r) => contactKey(r.email, r.phone), session: 0, at: 0 }, index: [['webinarId', 'session'], ['session'], ['userId', 'at'], ['webinarId', 'ckey']] },
   // GST invoices and credit notes a seller issues to their buyers
   sinvoices: { cols: { userId: 0, orderId: 0, number: 0, at: 0 }, unique: [['userId', 'number']], index: [['userId', 'at'], ['orderId']] },

@@ -137,6 +137,9 @@ export function eraseContact(userId, key) {
       n.webhooks = q('DELETE FROM webhooks WHERE userId = ? AND instr(lower(data), ?) > 0').run(userId, `"${email}"`).changes;
       n.stripecust = q("DELETE FROM stripecust WHERE userId = ? AND key LIKE '%:' || ?").run(userId, email).changes;
     }
+    // their WhatsApp inbox conversation and its messages
+    const tail = phone.replace(/\D/g, '').slice(-10);
+    for (const c of q("SELECT id FROM waconvs WHERE userId = ? AND (json_extract(data, '$.ckey') = ? OR (? <> '' AND substr(num, -10) = ?))").all(userId, k, tail, tail)) { n.wachat = (n.wachat || 0) + T.wachat.delWhere({ convId: c.id }); T.waconvs.del(c.id); }
     n.notifications = q("DELETE FROM notifications WHERE userId = ? AND (json_extract(data, '$.ckey') = ? OR (? <> '' AND instr(lower(data), ?) > 0))").run(userId, k, email, email).changes;
     n.conversions = q('DELETE FROM conversions WHERE userId = ? AND instr(data, ?) > 0').run(userId, crypto.createHash('sha256').update(k).digest('hex')).changes;
     n.student = eraseStudent(userId, k); // their members-area profile, sessions and points

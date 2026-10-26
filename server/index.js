@@ -69,6 +69,7 @@ import { registerWebinars, registrationFor, previewSession } from './webinars.js
 import { notify, money, registerNotifications, unreadCount } from './notify.js';
 import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, hit as countHit } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
+import { registerWaInbox } from './wainbox.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
@@ -448,7 +449,7 @@ app.get('/api/me', auth, (req, res) => {
     teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
     // the sidebar: which optional tools this account has started using (they join the menu), and what needs attention
     nav: {
-      used: { products: T.products.exists({ userId: req.user.id }), quotes: T.quotes.exists({ userId: req.user.id }), bookings: T.bookings.exists({ userId: req.user.id }), webinars: T.webinars.exists({ userId: req.user.id }), automations: T.automations.exists({ userId: req.user.id }), broadcasts: T.broadcasts.exists({ userId: req.user.id }) },
+      used: { products: T.products.exists({ userId: req.user.id }), quotes: T.quotes.exists({ userId: req.user.id }), bookings: T.bookings.exists({ userId: req.user.id }), webinars: T.webinars.exists({ userId: req.user.id }), automations: T.automations.exists({ userId: req.user.id }), broadcasts: T.broadcasts.exists({ userId: req.user.id }), inbox: req.user.channels?.whatsapp?.provider === 'hive' || T.waconvs.exists({ userId: req.user.id }) },
       ship: q("SELECT COUNT(*) AS n FROM orders WHERE userId = ? AND json_extract(data, '$.fulfilment.status') = 'pending' AND json_extract(data, '$.status') NOT IN ('cancelled', 'refunded')").get(req.user.id).n,
       calls: T.bookings.count({ userId: req.user.id, status: 'confirmed', start: { gte: Date.now(), lte: Date.now() + 86400000 } }),
       unread: unreadCount(req.user.id), // notifications (the bell)
@@ -947,6 +948,7 @@ app.get('/api/funnels/:id/analytics', auth, (req, res) => {
 registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
+registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
 registerRazorpaySettings(app, { auth, wrap });
 registerDomains(app, { auth });
 registerAutomations(app, { auth, secret: SECRET, appUrl, rateLimit, isTest, credits });

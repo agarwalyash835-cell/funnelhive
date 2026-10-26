@@ -41,6 +41,8 @@ const Vault = lazy(() => import('./pages/Vault'));
 const QuotePublic = lazy(() => import('./pages/QuotePublic'));
 const Webinars = lazy(() => import('./pages/Webinars'));
 const Broadcasts = lazy(() => import('./pages/Broadcasts'));
+const Inbox = lazy(() => import('./pages/Inbox'));
+const Chatbots = lazy(() => import('./pages/Chatbots'));
 const AcceptInvite = named(() => import('./pages/Team'), 'AcceptInvite');
 const Developers = lazy(() => import('./pages/Developers'));
 const Agency = lazy(() => import('./pages/Agency'));
@@ -146,6 +148,8 @@ const app = onDomain ? (
         <Route path="/webinars" element={P(Webinars)} />
         <Route path="/broadcasts" element={P(Broadcasts)} />
         <Route path="/campaigns" element={P(Broadcasts)} />
+        <Route path="/inbox/:id?" element={P(Inbox)} />
+        <Route path="/chatbots/:id?" element={P(Chatbots)} />
         <Route path="/developers" element={P(Developers)} />
         <Route path="/agency" element={P(Agency)} />
         <Route path="/webinar/:id" element={L(WebinarJoin)} />

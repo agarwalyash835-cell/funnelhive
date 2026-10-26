@@ -32,12 +32,12 @@ const ANY = /^\/api\/(me(\/menu)?$|team\/(workspaces|switch|leave|accept)$|hive\
 // secrets and account-wide settings: admins only (GET /api/channels itself only says what's connected)
 const SECRET = /^\/api\/(vault\/secrets|settings|lead-sources|voice\/connect|webhooks|keys|adspend\/meta|v1\/hooks|hive\/tokens|channels\/|domains|demo|conversions\/[^/]+\/retry)/;
 const WRITE = {
-  marketer: /^\/api\/(vault\/(files|folders|shares)|funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|campaign-templates|voice\/(campaigns|audience|test-call)|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
-  sales: /^\/api\/(vault\/(files|folders|shares)|contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$|school\/(questions|posts|comments|students))/,
+  marketer: /^\/api\/(inbox|waflows|wa-agent|vault\/(files|folders|shares)|funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|campaign-templates|voice\/(campaigns|audience|test-call)|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
+  sales: /^\/api\/(inbox|vault\/(files|folders|shares)|contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$|school\/(questions|posts|comments|students))/,
   viewer: null,
 };
 // reading anything AI-driven goes through the AI routes, which act as the owner: not for sales / viewers
-const NO_READ = { sales: /^\/api\/(hive\/threads|ai\/)/, viewer: /^\/api\/(hive\/threads|ai\/|contacts\/[^/]+(\/files)?$|vault)/ };
+const NO_READ = { sales: /^\/api\/(hive\/threads|ai\/)/, viewer: /^\/api\/(hive\/threads|ai\/|contacts\/[^/]+(\/files)?$|vault|inbox)/ };
 
 // perms: a custom role's permission per area (see AREAS below); built-in roles keep the rules above
 export function allows(role, method, path, perms) {
@@ -73,6 +73,7 @@ export const AREAS = [
   { key: 'webinars', label: 'Webinars', desc: 'Webinars, sign-ups and reminders', levels: ALL3, re: /^\/api\/webinars(\/|$)/ },
   { key: 'quotes', label: 'Quotes', desc: 'Custom quotes and quote templates', levels: ALL3, re: /^\/api\/(quotes|quote-templates)(\/|$)/ },
   { key: 'automations', label: 'Automations', desc: 'Follow-up emails and WhatsApp that run by themselves', levels: ALL3, re: /^\/api\/automations(\/|$)/ },
+  { key: 'inbox', label: 'WhatsApp inbox & chatbots', desc: 'Chat with customers on WhatsApp, build chatbots and set up the AI agent', levels: ALL3, re: /^\/api\/(inbox|waflows|wa-agent)(\/|$)/ },
   { key: 'broadcasts', label: 'Campaigns', desc: 'WhatsApp and email campaigns to a segment of your list, and AI calling campaigns', levels: ALL3, re: /^\/api\/(broadcasts|voice|campaign-templates)(\/|$)/, viewPost: /^\/api\/(broadcasts|voice)\/audience$/ },
   { key: 'files', label: 'Vault files', desc: 'Private files and folders, and sharing them', levels: ALL3, re: /^\/api\/vault(\/(files|folders|shares)(\/|$)|$)/ },
   { key: 'secrets', label: 'Vault passwords & notes', desc: 'Saved passwords and secure notes (view = can reveal them)', levels: ALL3, re: /^\/api\/vault\/secrets(\/|$)/, viewPost: /^\/api\/vault\/secrets\/[^/]+\/reveal$/ },
@@ -108,8 +109,8 @@ const P = (o) => Object.fromEntries(AREA_KEYS.map((k) => [k, o?.[k] || 'none']))
 const allLevel = (lvl) => P(Object.fromEntries(AREAS.map((a) => [a.key, a.levels.includes(lvl) ? lvl : a.levels.at(-1)])));
 export const PRESETS = {
   admin: { ...allLevel('edit'), team: 'view' },
-  marketer: P({ dashboard: 'view', funnels: 'edit', ai: 'edit', crm: 'edit', orders: 'view', products: 'edit', bookings: 'edit', webinars: 'edit', quotes: 'view', automations: 'edit', broadcasts: 'edit', files: 'edit', ads: 'view' }),
-  sales: P({ dashboard: 'view', funnels: 'view', crm: 'edit', orders: 'edit', products: 'view', bookings: 'edit', webinars: 'view', quotes: 'edit', automations: 'view', broadcasts: 'view', files: 'edit', ads: 'view' }),
+  marketer: P({ inbox: 'edit', dashboard: 'view', funnels: 'edit', ai: 'edit', crm: 'edit', orders: 'view', products: 'edit', bookings: 'edit', webinars: 'edit', quotes: 'view', automations: 'edit', broadcasts: 'edit', files: 'edit', ads: 'view' }),
+  sales: P({ inbox: 'edit', dashboard: 'view', funnels: 'view', crm: 'edit', orders: 'edit', products: 'view', bookings: 'edit', webinars: 'view', quotes: 'edit', automations: 'view', broadcasts: 'view', files: 'edit', ads: 'view' }),
   viewer: P({ dashboard: 'view', funnels: 'view', crm: 'view', orders: 'view', products: 'view', bookings: 'view', webinars: 'view', quotes: 'view', automations: 'view', broadcasts: 'view', ads: 'view' }),
   agency: allLevel('edit'),
 };

@@ -58,6 +58,10 @@ const P = {
   receipt: 'M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2zM9 7h6M9 11h6M9 15h4',
   vault: 'M4 4h16v16H4zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 9V7M12 17v-2M9 12H7M17 12h-2M4 8H2M4 16H2',
   bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
+  chat: 'M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.9-.9L3 20l1.1-4.6A8.4 8.4 0 1 1 21 11.5zM8 10h.01M12 10h.01M16 10h.01',
+  bot: 'M12 8V4H8M5 8h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM2 14h2M20 14h2M9 13v2M15 13v2',
+  image: 'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21',
+  list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
 };
 export const Icon = ({ name, size = 18, stroke = 2, className = '' }) => (
   <svg className={`ic-svg ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={name === 'grip' ? 3.2 : stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -110,6 +114,8 @@ const PAGES = {
   '/products': ['box', 'Products', 'Courses, downloads and memberships buyers get access to'],
   '/school': ['bookmark', 'School', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
+  '/inbox': ['chat', 'Inbox', 'Every WhatsApp chat in one place, with AI replies and your team'],
+  '/chatbots': ['bot', 'Chatbots & AI agent', 'WhatsApp chatbots on a canvas, and an AI agent that answers customers'],
   '/contacts': ['users', 'CRM', 'Your leads, customers and pipeline — styled for your business (real estate, clinic, consultant…)'],
   '/vault': ['vault', 'Vault', 'Private files by folder and contact, saved passwords and secure notes'],
   '/automations': ['flow', 'Automations', 'Follow-up emails and WhatsApp that run by themselves'],
@@ -122,7 +128,7 @@ const PAGES = {
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
-const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/school', '/quotes']], ['Audience', ['/contacts', '/vault', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
+const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Chat', ['/inbox', '/chatbots']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/school', '/quotes']], ['Audience', ['/contacts', '/vault', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
 const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/ads', '/school', '/contacts', '/vault'];
 const TOOLS = GROUPS.flatMap(([, l]) => l).filter((to) => to !== '/');
 // the everyday menu for each industry (its CRM kit); an agency can set its own for its clients; the rest wait under
@@ -162,9 +168,9 @@ const labelOf = (to, me) => {
   return PAGES[to][1];
 };
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
-const USED = { '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
+const USED = { '/inbox': 'inbox', '/chatbots': 'inbox', '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
 // which permission areas (custom team roles) open each page
-const PAGE_AREAS = { '/funnels': ['funnels'], '/templates': ['funnels'], '/hive': ['ai'], '/orders': ['orders'], '/reports': ['dashboard'], '/ads': ['ads'], '/products': ['products'], '/school': ['products'], '/quotes': ['quotes'], '/contacts': ['crm'], '/vault': ['files', 'secrets'], '/automations': ['automations'], '/broadcasts': ['broadcasts'], '/bookings': ['bookings'], '/webinars': ['webinars'], '/settings': ['settings', 'team'] };
+const PAGE_AREAS = { '/inbox': ['inbox'], '/chatbots': ['inbox'], '/funnels': ['funnels'], '/templates': ['funnels'], '/hive': ['ai'], '/orders': ['orders'], '/reports': ['dashboard'], '/ads': ['ads'], '/products': ['products'], '/school': ['products'], '/quotes': ['quotes'], '/contacts': ['crm'], '/vault': ['files', 'secrets'], '/automations': ['automations'], '/broadcasts': ['broadcasts'], '/bookings': ['bookings'], '/webinars': ['webinars'], '/settings': ['settings', 'team'] };
 const NAV_KEY = 'ff_nav';
 const navLocal = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
@@ -300,7 +306,7 @@ function Jump({ me }) {
 }
 
 // The bell: new orders, leads, bookings, quotes, failed payments. Checked every minute while the tab is open.
-const NOTE_ICON = { order: 'cart', lead: 'users', booking: 'clock', booking_cancelled: 'x', quote_paid: 'wallet', quote_accepted: 'check', quote_declined: 'x', payment_failed: 'card', refund: 'refund', whatsapp: 'send' };
+const NOTE_ICON = { order: 'cart', lead: 'users', booking: 'clock', booking_cancelled: 'x', quote_paid: 'wallet', quote_accepted: 'check', quote_declined: 'x', payment_failed: 'card', refund: 'refund', whatsapp: 'chat' };
 function Bell({ me }) {
   const nav = useNavigate();
   const [open, setOpen] = useState(false);

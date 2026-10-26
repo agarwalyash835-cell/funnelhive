@@ -165,6 +165,36 @@ async function providerSend(u, to, msg = {}) {
 }
 registerWhatsAppProvider('hive', { configured: isOn, send: providerSend });
 
+// ---------- for the inbox (wainbox.js): session sends, media, approved templates, and the webhook events ----------
+// The inbox registers here (it imports this file, never the other way round). Without it, an inbound message
+// only lands on the contact's timeline with a notification, as before.
+let inbox = null;
+export function onWaInbox(h) { inbox = h; }
+export const waLive = (u) => live(u);
+// a message inside the 24-hour window (text, interactive buttons / list, media) or a template; the contact must not
+// have opted out. → { status: 'sent', id, rec } (rec: our record, whose statuses come back on the webhook)
+export async function waSession(u, to, payload, opts = {}) {
+  if (waOptedOut(u.id, to)) throw new Error('This contact opted out of WhatsApp messages');
+  const ikey = clip(opts.ikey || `inbox:${uid()}`, 200);
+  const r = await send(u, to, payload, { ...opts, ikey });
+  return { ...r, rec: T.wamsgs.find({ userId: u.id, ikey })?.id || null };
+}
+export const waTemplateParam = param;
+export async function waApproved(u) {
+  const h = live(u);
+  if (!h) return [];
+  const list = (await call(keyOf(h), 'GET', `/templates?from=${encodeURIComponent(h.from)}&status=APPROVED`)).templates || [];
+  return list.filter((t) => String(t.status).toUpperCase() === 'APPROVED').map((t) => { const body = part(t, 'BODY'); return { name: t.name, category: t.category || '', language: t.language || 'en', vars: varsIn(body), body }; });
+}
+// a customer's photo / document / voice note, streamed from Hive (files over 20 MB are refused there)
+export async function waMedia(u, id) {
+  const h = live(u);
+  if (!h) throw Object.assign(new Error('WhatsApp isn’t connected'), { status: 400 });
+  const r = await fetch(`${API()}/media/${encodeURIComponent(id)}?from=${encodeURIComponent(h.from)}`, { headers: { Authorization: `Bearer ${keyOf(h)}` }, signal: AbortSignal.timeout(30000) });
+  if (!r.ok) throw Object.assign(new Error('This file isn’t available any more'), { status: 404 });
+  return { type: r.headers.get('content-type') || 'application/octet-stream', buf: Buffer.from(await r.arrayBuffer()) };
+}
+
 // A buyer message for something that happened (order, booking, access…): the event's approved template, when
 // Hive is in use, the event is switched on and the buyer has a number and hasn't opted out. Never throws —
 // a message must never break the sale or booking behind it.
@@ -302,8 +332,11 @@ function handle(userId, ev, d = {}, env = {}) {
     const text = clip(d.text || d.interactive_title || (d.type && d.type !== 'text' ? `[${d.type}]` : ''), 4000);
     const key = contactFor(userId, num, d.contact_name);
     logActivity(userId, key, { type: 'whatsapp', title: `WhatsApp message: ${clip(text, 120) || '(empty)'}`, text, status: 'received', by: 'contact' });
-    notify(userId, { kind: 'whatsapp', title: `WhatsApp from ${clip(d.contact_name, 60) || `+${num}`}`, body: text, link: `/contacts/${encodeURIComponent(key)}` });
-    if (STOP.test(text)) optOut(userId, key, num, `Replied “${clip(text, 40)}” on WhatsApp`);
+    const stop = STOP.test(text);
+    if (stop) optOut(userId, key, num, `Replied “${clip(text, 40)}” on WhatsApp`);
+    // the inbox keeps the conversation, runs the chatbot / AI agent and notifies when a person is needed
+    if (inbox) inbox.inbound(u, { num, key, text, stop, d });
+    else notify(userId, { kind: 'whatsapp', title: `WhatsApp from ${clip(d.contact_name, 60) || `+${num}`}`, body: text, link: `/contacts/${encodeURIComponent(key)}` });
   } else if (ev === 'message.opt_out') {
     for (const p of Array.isArray(d.preferences) ? d.preferences : []) {
       const num = waNumber(p.wa_id);
@@ -320,6 +353,7 @@ function handle(userId, ev, d = {}, env = {}) {
       if (st === 'failed') { x.status = 'failed'; x.error = clip(d.error?.message || d.error?.title || d.error || d.reason || 'Not delivered', 300); } else if ((RANK[st] ?? -1) > (RANK[x.status] ?? -1)) x.status = st;
       if (RANK[st] || st === 'failed') x[`${st}At`] = Date.now();
     });
+    inbox?.status(next);
     if (st === 'failed' && rec.status !== 'failed' && next.ckey) logActivity(userId, next.ckey, { type: 'whatsapp', title: `WhatsApp not delivered${next.template ? `: ${next.template}` : ''}`, text: next.error, status: 'failed', by: 'auto' });
   } else if (ev === 'message.echo') {
     // sent by the seller from the WhatsApp Business app (coexistence): the customer is the other side
@@ -327,7 +361,9 @@ function handle(userId, ev, d = {}, env = {}) {
     const num = [d.to, d.recipient, d.wa_id, d.customer, d.from].map(waNumber).find((x) => x && !ours.has(x));
     if (!num) return;
     const text = clip(d.text || (d.type && d.type !== 'text' ? `[${d.type}]` : ''), 4000);
-    logActivity(userId, contactFor(userId, num), { type: 'whatsapp', title: `You (from the WhatsApp app): ${clip(text, 120)}`, text, status: 'sent', by: 'you' });
+    const key = contactFor(userId, num);
+    logActivity(userId, key, { type: 'whatsapp', title: `You (from the WhatsApp app): ${clip(text, 120)}`, text, status: 'sent', by: 'you' });
+    inbox?.echo(u, { num, key, text });
   } else if (ev === 'template.status') {
     const ent = Object.entries(TEMPLATES).find(([e]) => tplName(e) === d.name);
     if (!ent || !d.status) return;
@@ -431,10 +467,7 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
   app.get(`${P}/templates/approved`, auth, wrap(async (req, res) => {
     const h = live(req.user);
     if (!h) return res.status(400).json({ error: 'Hive WhatsApp isn’t in use' });
-    try {
-      const list = (await call(keyOf(h), 'GET', `/templates?from=${encodeURIComponent(h.from)}&status=APPROVED`)).templates || [];
-      res.json({ templates: list.filter((t) => String(t.status).toUpperCase() === 'APPROVED').map((t) => { const body = part(t, 'BODY'); return { name: t.name, category: t.category || '', language: t.language || 'en', vars: varsIn(body), body }; }) });
-    } catch (e) { fail(res, e); }
+    try { res.json({ templates: await waApproved(req.user) }); } catch (e) { fail(res, e); }
   }));
   app.get(`${P}/templates/custom`, auth, wrap(async (req, res) => {
     const h = needNumber(req, res); if (!h) return;
