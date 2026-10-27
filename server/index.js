@@ -75,6 +75,7 @@ import { registerWaInbox } from './wainbox.js';
 import { registerShopify } from './shopify.js';
 import { registerDashKit } from './dashkit.js';
 import { registerTalk } from './talk.js';
+import { registerAiBuild } from './aibuild.js';
 import { registerMetaSignup } from './meta-signup.js';
 import { registerWaKnowledge } from './waknow.js';
 
@@ -961,6 +962,7 @@ registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
 registerShopify(app, { auth, wrap, rateLimit, isTest });
 registerDashKit(app, { auth });
 registerTalk(app, { auth, rateLimit, isTest });
+registerAiBuild(app, { auth, rateLimit, isTest, credits });
 registerMetaSignup(app, { auth, wrap, rateLimit, isTest });
 registerWaKnowledge(app, { auth, rateLimit, isTest });
 registerRazorpaySettings(app, { auth, wrap });

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { fmtWhenShort, zoneCity, allZones, zoneOption } from '../tzfmt';
-import { Layout, Panel, Icon, Empty, toast, num, inr, downloadCSV, loadFailed, confirmDialog } from '../ui';
+import { AiPrompt, Layout, Panel, Icon, Empty, toast, num, inr, downloadCSV, loadFailed, confirmDialog } from '../ui';
 
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 const fmt = (t, zone) => (t ? fmtWhenShort(t, zone ?? 330) : '—');
@@ -109,6 +109,7 @@ function WebinarEditor({ w, onSaved, zoom, setZoom, gg, setGg }) {
         <div className="kpi"><span className="kpi-l">Average watch time</span><b className="kpi-v">{t?.avgMinutes != null ? `${t.avgMinutes} min` : '—'}</b><small>{t?.timed ? `${num(t.stayed)} stayed half or more` : 'from Zoom or an attendance list'}</small></div>
         <div className="kpi"><span className="kpi-l">Sales from it</span><b className="kpi-v">{t ? inr(t.revenue) : '—'}</b><small>{t ? `${num(t.buyers)} buyer${t.buyers === 1 ? '' : 's'} within 14 days` : ''}</small></div>
       </div>
+      <AiPrompt title="Set it up with AI" hint="Schedule, length and replay from one sentence" placeholder="e.g. Free masterclass every Sunday 11 am and Wednesday 7 pm, 75 minutes, replay for 2 days" onDraft={async (prompt) => { const r = await api(`/webinars/${w.id}/ai`, 'POST', { prompt }); set(r.draft); toast(`Set up — next: ${fmt(r.next[0], w.timezone || w.tzOffset)}. Check it, then Save`); }} />
       <Panel title="Where it’s held" actions={<button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>}>
         <div className="wb-prov">{PROVIDERS.map(([k, l, d]) => <button key={k} className={v.provider === k ? 'on' : ''} onClick={() => set({ provider: k })}><b>{l}</b><small>{d}</small></button>)}</div>
         <div className="form2">

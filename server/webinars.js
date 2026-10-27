@@ -29,7 +29,7 @@ const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.lengt
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const intIn = (v, lo, hi, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
 
-function cleanWebinar(b = {}, cur = {}) {
+export function cleanWebinar(b = {}, cur = {}) {
   const out = { ...cur };
   if ('name' in b || !cur.id) out.name = clip(b.name, 120) || cur.name || 'Live masterclass';
   if ('duration' in b || !cur.id) out.duration = intIn(b.duration, 15, 480, cur.duration || 90);

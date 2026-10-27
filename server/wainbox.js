@@ -261,7 +261,7 @@ export function rulesOf(u) {
     csat: { on: !!r.csat?.on, flowId: r.csat?.flowId || '' },
   };
 }
-function cleanRules(b = {}, cur = {}, ownerId) {
+export function cleanRules(b = {}, cur = {}, ownerId) {
   const people = new Set([ownerId, ...T.members.all({ ownerId, status: 'active' }).map((m) => m.userId)]);
   const r = rulesOf({ waRules: { ...cur, ...b } });
   r.hours.days = DAYS.filter((d) => r.hours.days.includes(d));

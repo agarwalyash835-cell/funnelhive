@@ -306,6 +306,26 @@ function Bell({ me }) {
   );
 }
 
+// "Build with AI" in a module: one sentence → a draft the seller checks (onDraft(prompt) does the work and may throw)
+export function AiPrompt({ title = 'Build with AI', hint, placeholder, ideas = [], onDraft, action = 'Draft it', compact }) {
+  const [p, setP] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async (e) => {
+    e?.preventDefault();
+    if (p.trim().length < 8) return toast(t('Describe it in a sentence'));
+    setBusy(true);
+    try { await onDraft(p.trim()); setP(''); } catch (er) { toast(er.message); }
+    setBusy(false);
+  };
+  return (
+    <form className={`ai-bar ${compact ? 'compact' : ''}`} onSubmit={go}>
+      <div className="ai-bar-h"><span className="ai-bar-ic"><Icon name="sparkles" size={15} /></span><b>{t(title)}</b>{hint && <small>{t(hint)}</small>}</div>
+      <div className="ai-bar-in"><input value={p} onChange={(e) => setP(e.target.value)} placeholder={placeholder} disabled={busy} aria-label={t(title)} /><button className="btn ai" disabled={busy || p.trim().length < 8}>{busy ? <><span className="spin" />{t('Drafting…')}</> : <><Icon name="wand" size={15} />{t(action)}</>}</button></div>
+      {ideas.length > 0 && !busy && <div className="ai-bar-ideas">{ideas.map((x) => <button type="button" key={x} onClick={() => setP(x)}>{x}</button>)}</div>}
+    </form>
+  );
+}
+
 // the main menu folded to icons (every screen, remembered in this browser)
 export const sideMini = () => { try { return localStorage.getItem('ff_side_mini') === '1'; } catch { return false; } };
 

@@ -1,7 +1,7 @@
 // Quotes / proposals: write one, send the private link, the client pays (deposit and balance) — each payment is an order.
 import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
-import { Layout, Panel, Icon, Empty, Modal, toast, confirmDialog, promptDialog } from '../ui';
+import { AiPrompt, Layout, Panel, Icon, Empty, Modal, toast, confirmDialog, promptDialog } from '../ui';
 import { fmtMoney } from '../stripePay';
 
 const STATUS = { draft: ['Draft', ''], sent: ['Sent', 'info'], viewed: ['Viewed', 'info'], deposit_paid: ['Deposit paid', 'warn'], paid: ['Paid', 'ok'], accepted: ['Accepted', 'ok'], declined: ['Declined', 'bad'], expired: ['Expired', 'bad'] };
@@ -53,7 +53,7 @@ export default function Quotes() {
           </table></div>
         </Panel>
       )}
-      {picking && <TemplatePicker onClose={() => setPicking(false)} onPick={(t) => { setPicking(false); setEdit(t ? fromTemplate(t) : blank()); }} />}
+      {picking && <TemplatePicker onClose={() => setPicking(false)} onPick={(t) => { setPicking(false); setEdit(t ? fromTemplate(t) : blank()); }} onDraft={(d) => { setPicking(false); setEdit({ ...blank(), ...d, client: { ...blank().client, ...d.client }, validUntil: undefined }); toast('Drafted — check the prices, then save'); }} />}
       {edit && <QuoteEditor q={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}
     </Layout>
   );
@@ -146,7 +146,7 @@ function QuoteEditor({ q: q0, onClose, onSaved }) {
   );
 }
 
-function TemplatePicker({ onClose, onPick }) {
+function TemplatePicker({ onClose, onPick, onDraft }) {
   const [d, setD] = useState(null);
   const [ind, setInd] = useState('');
   const [qy, setQy] = useState('');
@@ -157,6 +157,7 @@ function TemplatePicker({ onClose, onPick }) {
   return (
     <Modal title="New quote" onClose={onClose} width={980}>
       <div className="m-body qt-body">
+        <AiPrompt title="Write it with AI" hint="Describe the job — get the full quote to check" placeholder="e.g. 3BHK interiors for Mr Shah in Baner — modular kitchen and 3 wardrobes, 40% advance" onDraft={async (prompt) => onDraft((await api('/quotes/ai', 'POST', { prompt })).draft)} />
         <div className="qt-top">
           <p className="muted sm">Start from a ready-made quote written the way businesses in your industry quote in India — line items, GST line, advance and terms filled in. Change anything before you send it.</p>
           <button className="btn ghost" onClick={() => onPick(null)}><Icon name="plus" size={15} /> Blank quote</button>

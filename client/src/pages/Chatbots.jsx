@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Modal, toast, confirmDialog, useWaTemplates, pagesOrigin } from '../ui';
+import { AiPrompt, Layout, Panel, Icon, Modal, toast, confirmDialog, useWaTemplates, pagesOrigin } from '../ui';
 import { waFmt } from './Inbox';
 import { KitIcon } from '../blockIcons';
 import '../chat.css';
@@ -1323,8 +1323,10 @@ function InboxRules() {
   const dirty = JSON.stringify(ru) !== saved;
   const save = async () => { setBusy(true); try { const x = await api('/inbox/rules', 'PUT', ru); setR({ ...r, ...x }); setSaved(JSON.stringify(x.rules)); toast('Inbox automations saved'); } catch (e) { toast(e.message); } setBusy(false); };
   const team = meta?.team || [];
+  const aiRules = async (prompt) => { const d = (await api('/inbox/rules/ai', 'POST', { prompt })).draft; setR({ ...r, rules: { ...ru, ...d } }); toast('Set up — check the rules below, then save'); };
   return (
     <div className="rules cb">
+      <AiPrompt title="Set up with AI" hint="Describe how your inbox should run" placeholder="e.g. Open 10 to 7, Monday to Saturday. Alert me if a chat waits 20 minutes. Tag price questions as Pricing" onDraft={aiRules} />
       <p className="hint top" style={{ margin: 0 }}>These run on every WhatsApp chat, next to your chatbots and AI agent. For anything bigger — emails, CRM stages, tags, webhooks — use <Link to="/automations">Automations</Link> with the WhatsApp triggers (“A contact messages you on WhatsApp”, “A chat is handed to your team”, “A chat is resolved”).</p>
       <Rule on={ru.hours.on} onToggle={(v) => set('hours', { on: v, ...(v && !ru.hours.days.length ? { days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'] } : {}) })} icon="clock" color="#0ea5e9" title="Business hours & away reply" text={`Outside your hours, a chat waiting for a person gets an automatic reply (once every 12 hours). Right now you’re ${r.open ? 'open' : 'closed'} (${r.timezone}).`}>
         <div className="days">{DAY_LABELS.map(([k, l]) => <button key={k} className={ru.hours.days.includes(k) ? 'on' : ''} onClick={() => set('hours', { days: ru.hours.days.includes(k) ? ru.hours.days.filter((x) => x !== k) : [...ru.hours.days, k] })}>{l}</button>)}</div>
