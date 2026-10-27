@@ -41,7 +41,7 @@ test('a coach (the default) sees revenue first; a property broker sees site visi
   const { key } = (await api('/contacts', 'POST', { name: 'Rohan', phone: '9876500011' }, T)).data;
   assert.equal((await api(`/contacts/${encodeURIComponent(key)}`, 'PATCH', { stage: { pipelineId: pipe.id, stageId: visit.id } }, T)).status, 200);
   d = (await api('/dashboard/industry', 'GET', null, T)).data;
-  assert.deepEqual([d.industry.id, d.sales, d.tiles[0].id, d.tiles[0].label, d.tiles[0].value, d.tiles[0].prev, d.tiles[0].sub, d.tiles[0].link], ['realestate', false, 'stage:Site visit scheduled', 'Site visits booked', 1, 0, '1 there now', '/crm']);
+  assert.deepEqual([d.industry.id, d.sales, d.tiles[0].id, d.tiles[0].label, d.tiles[0].value, d.tiles[0].prev, d.tiles[0].sub, d.tiles[0].link], ['realestate', false, 'stage:Site visit scheduled', 'Site visits booked', 1, 0, '1 there now', '/contacts']);
   assert.equal(tile(d, 'leads').label, 'Enquiries');
   assert.ok(!d.tiles.some((t) => t.base === 'revenue'), 'no revenue tiles for an industry that doesn’t sell online');
 });

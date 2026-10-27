@@ -216,12 +216,12 @@ const Btn = ({ children, big, block, onClick, type = 'button', disabled, ctx, k,
   const cls = `btn ${big ? 'big' : ''} ${block ? 'block' : ''}`;
   if ((children === '' || children == null) && type !== 'submit') return null;
   if (children === '' || children == null) children = 'Submit';
-  if (ctx?.editable && k) return <div className={cls} role="button"><E ctx={ctx} k={k} v={children} /><span className="arr">→</span></div>;
+  if (ctx?.editable && k) return <div className={cls} role="button"><E ctx={ctx} k={k} v={children} /><span className="arr" aria-hidden="true">→</span></div>;
   if (link?.href) {
     return (
       <a className={cls} href={link.href} {...(link.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
         onClick={(e) => { if (ctx && !ctx.live) e.preventDefault(); else ctx?.onLinkClick?.(link.href); }}>
-        <span>{children}</span><span className="arr">→</span>
+        <span>{children}</span><span className="arr" aria-hidden="true">→</span>
       </a>
     );
   }
@@ -229,27 +229,27 @@ const Btn = ({ children, big, block, onClick, type = 'button', disabled, ctx, k,
     return (
       <a className={cls} href={ctx?.pageHref ? ctx.pageHref(link.page) : '#'}
         onClick={(e) => { if (!ctx?.live) return e.preventDefault(); if (ctx.goPage) { e.preventDefault(); ctx.goPage(link.page); } }}>
-        <span>{children}</span><span className="arr">→</span>
+        <span>{children}</span><span className="arr" aria-hidden="true">→</span>
       </a>
     );
   }
   if (link?.popup) {
     return (
       <button type="button" className={cls} aria-haspopup="dialog" onClick={() => ctx?.live && openPopup(link.popup)}>
-        <span>{children}</span><span className="arr">→</span>
+        <span>{children}</span><span className="arr" aria-hidden="true">→</span>
       </button>
     );
   }
   if (link?.scroll) {
     return (
       <a className={cls} href={`#${link.scroll}`} onClick={(e) => { e.preventDefault(); smoothTo(link.scroll); }}>
-        <span>{children}</span><span className="arr">→</span>
+        <span>{children}</span><span className="arr" aria-hidden="true">→</span>
       </a>
     );
   }
   return (
     <button type={type} disabled={disabled} className={cls} onClick={onClick}>
-      <span>{children}</span><span className="arr">→</span>
+      <span>{children}</span><span className="arr" aria-hidden="true">→</span>
     </button>
   );
 };
@@ -1167,7 +1167,7 @@ function Booking({ p, ctx }) {
           <p className="bk-when"><b>{fmtDay(done.start, off)}</b> · {fmtTime(done.start, off)} {tzLabel(off)}</p>
           <E ctx={ctx} k="successText" v={p.successText} as="p" className="sub" multiline />
           <div className="bk-acts">
-            {done.meetingLink && <a className="btn" href={done.meetingLink} target="_blank" rel="noreferrer"><span>{tr(ctx.lang, 'Joining link')}</span><span className="arr">→</span></a>}
+            {done.meetingLink && <a className="btn" href={done.meetingLink} target="_blank" rel="noreferrer"><span>{tr(ctx.lang, 'Joining link')}</span><span className="arr" aria-hidden="true">→</span></a>}
             <a className="link-arrow" href={`https://calendar.google.com/calendar/render?${g}`} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Add to Google Calendar ↗')}</a>
             {done.manage && <a className="link-arrow" href={done.manage}>{tr(ctx.lang, 'Reschedule or cancel')}</a>}
           </div>
@@ -1615,11 +1615,11 @@ function ElementContent({ el, ctx }) {
       const cls = `btn ${p.variant === 'outline' ? 'outline' : ''} ${p.full ? 'block' : ''}`;
       const label = <E ctx={ctx} k="label" v={p.label} />;
       let inner;
-      if (ctx.editable) inner = <div className={cls} role="button"><span>{label}</span><span className="arr">→</span></div>;
-      else if (p.action === 'url' && safeHref(p.url)) inner = <a className={cls} href={safeHref(p.url)} {...(/^https?:/.test(p.url) ? { target: '_blank', rel: 'noopener' } : {})}><span>{p.label}</span><span className="arr">→</span></a>;
-      else if (p.action === 'popup' && p.url) inner = <button type="button" className={cls} aria-haspopup="dialog" onClick={() => ctx.live && openPopup(p.url)}><span>{p.label}</span><span className="arr">→</span></button>;
-      else if (p.action === 'scroll' && p.url) inner = <a className={cls} href={`#${cleanAnchor(String(p.url).replace(/^#/, ''))}`} onClick={(e) => { e.preventDefault(); smoothTo(cleanAnchor(String(p.url).replace(/^#/, ''))); }}><span>{p.label}</span><span className="arr">→</span></a>;
-      else inner = <button type="button" className={cls} onClick={() => ctx.live && ctx.onNext?.()}><span>{p.label}</span><span className="arr">→</span></button>;
+      if (ctx.editable) inner = <div className={cls} role="button"><span>{label}</span><span className="arr" aria-hidden="true">→</span></div>;
+      else if (p.action === 'url' && safeHref(p.url)) inner = <a className={cls} href={safeHref(p.url)} {...(/^https?:/.test(p.url) ? { target: '_blank', rel: 'noopener' } : {})}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></a>;
+      else if (p.action === 'popup' && p.url) inner = <button type="button" className={cls} aria-haspopup="dialog" onClick={() => ctx.live && openPopup(p.url)}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></button>;
+      else if (p.action === 'scroll' && p.url) inner = <a className={cls} href={`#${cleanAnchor(String(p.url).replace(/^#/, ''))}`} onClick={(e) => { e.preventDefault(); smoothTo(cleanAnchor(String(p.url).replace(/^#/, ''))); }}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></a>;
+      else inner = <button type="button" className={cls} onClick={() => ctx.live && ctx.onNext?.()}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></button>;
       return <div className={`el-btn al-${p.align || 'left'}`}>{inner}</div>;
     }
     case 'image': {
@@ -1775,13 +1775,13 @@ function renderBlock(block, ctx) {
                 <small>Your seat</small>
                 <b><SeatTime w={ctx.delivery.webinar} /></b>
                 <span className="muted">{ctx.delivery.webinar.name}</span>
-                {ctx.delivery.webinar.join && <div className="row center"><a className="btn" href={ctx.delivery.webinar.join}><span>Open my joining page</span><span className="arr">→</span></a><a className="link-arrow" href={`${ctx.delivery.webinar.join.replace('/webinar/', '/api/webinar-reg/').replace('?t=', '/ics?t=')}`}>Add to calendar</a></div>}
+                {ctx.delivery.webinar.join && <div className="row center"><a className="btn" href={ctx.delivery.webinar.join}><span>Open my joining page</span><span className="arr" aria-hidden="true">→</span></a><a className="link-arrow" href={`${ctx.delivery.webinar.join.replace('/webinar/', '/api/webinar-reg/').replace('?t=', '/ics?t=')}`}>Add to calendar</a></div>}
                 <small className="muted">Your personal joining link is also in your email.</small>
               </div>
             )}
             {(ctx.delivery?.access || ctx.delivery?.invoice) && (
               <div className="ty-access">
-                {ctx.delivery.access && <a className="btn big" href={ctx.delivery.access}><span>Open your purchase</span><span className="arr">→</span></a>}
+                {ctx.delivery.access && <a className="btn big" href={ctx.delivery.access}><span>Open your purchase</span><span className="arr" aria-hidden="true">→</span></a>}
                 {ctx.delivery.invoice && <a className="link-arrow" href={ctx.delivery.invoice} target="_blank" rel="noreferrer">Download your invoice ↗</a>}
                 {ctx.delivery.access && <small className="muted">We’ve also emailed you a link to your library.</small>}
               </div>

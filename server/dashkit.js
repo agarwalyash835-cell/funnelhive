@@ -5,10 +5,9 @@
 // Tiles: { base } — a number the overview already has (revenue, orders, leads…), shown with its own label; or a
 // number counted here: people who reached a pipeline stage, who are in one now, bookings, WhatsApp chats, webinar
 // sign-ups, quotes, students, COD orders, abandoned carts, repeat buyers.
-import { T } from './db.js';
+import { T, paidOrder } from './db.js';
 import { KITS } from './crmkits.js';
 import { pipelinesFor, stageFor } from './crm.js';
-import { paidOrder } from './db.js';
 
 const DAY = 86400000;
 const B = (base, label) => ({ base, label });
@@ -39,7 +38,7 @@ const LAYOUT = {
   ngo: [B('revenue', 'Donations'), B('orders', 'Gifts'), S('First gift', 'First-time donors'), S('Monthly donor', 'New monthly donors'), B('leads', 'New supporters'), K('wa', 'WhatsApp chats')],
 };
 // where each tile leads when tapped
-const LINKS = { stage: '/crm', now: '/crm', bookings: '/bookings', wa: '/inbox', webinar: '/webinars', quotes: '/quotes', cod: '/orders', abandoned: '/orders', repeat: '/crm', students: '/school' };
+const LINKS = { stage: '/contacts', now: '/contacts', bookings: '/bookings', wa: '/inbox', webinar: '/webinars', quotes: '/quotes', cod: '/orders', abandoned: '/orders', repeat: '/contacts', students: '/school' };
 
 export const kitOf = (u) => KITS.find((k) => k.id === (u.settings?.dashKit || u.settings?.crmKit?.id)) || KITS[0];
 const inRange = (t, from, to) => t >= from && t < to;

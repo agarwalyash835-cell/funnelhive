@@ -89,7 +89,7 @@ function WebinarEditor({ w, onSaved, zoom, setZoom, gg, setGg }) {
   const loadRegs = () => { api(`/webinars/${w.id}/registrations`).then(setRegs).catch(loadFailed); api(`/webinars/${w.id}/analytics`).then(setStats).catch(() => {}); };
   useEffect(loadRegs, [w.id]);
   const s = v.schedule;
-  const set = (patch) => setV({ ...v, ...patch });
+  const set = (patch) => setV((cur) => ({ ...cur, ...patch }));
   const setS = (patch) => set({ schedule: { ...s, ...patch } });
   const save = async () => { setBusy(true); try { await api(`/webinars/${w.id}`, 'PUT', v); toast('Webinar saved'); onSaved(); } catch (e) { toast(e.message); } setBusy(false); };
   const host = async () => { setBusy(true); try { const r = await api(`/webinars/${w.id}/host`, 'POST', {}); window.open(r.url, '_blank', 'noopener'); } catch (e) { toast(e.message); } setBusy(false); };

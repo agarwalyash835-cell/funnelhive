@@ -113,9 +113,14 @@ async function sendOut(u, conv, o, by, extra = {}) {
     const r = await waSession(u, conv.num, payloadOf(o), { ckey: conv.ckey, event: `inbox:${by}`, cloud: ['location', 'flow', 'cta'].includes(o.kind) });
     return T.wachat.update(msg.id, (m) => { m.status = 'sent'; m.waRec = r.rec; });
   } catch (e) {
+    // a link button the number can't send yet: the same message goes as text with the link in it
+    if (o.kind === 'cta') {
+      try {
+        const r = await waSession(u, conv.num, payloadOf({ kind: 'text', text }), { ckey: conv.ckey, event: `inbox:${by}` });
+        return T.wachat.update(msg.id, (m) => { m.status = 'sent'; m.waRec = r.rec; m.type = 'text'; delete m.error; });
+      } catch (e2) { e = e2; }
+    }
     T.wachat.update(msg.id, (m) => { m.status = 'failed'; m.error = clip(e.message, 300); });
-    // a link button the number can't send yet: the same words with the link in them
-    if (o.kind === 'cta') return sendOut(u, conv, { kind: 'text', text }, by, extra);
     throw e;
   }
 }

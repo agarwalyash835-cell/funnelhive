@@ -21,6 +21,7 @@ export default function BookingManage() {
   const [busy, setBusy] = useState(false);
   const load = () => fetch(`/api/booking/${id}?t=${encodeURIComponent(t)}`).then(async (r) => { const d = await r.json(); r.ok ? setB(d) : setErr(d.error || 'Booking not found'); });
   useEffect(() => { load(); }, [id]);
+  useEffect(() => { if (b?.calendar?.name) document.title = `Your ${b.calendar.name}`; }, [b?.calendar?.name]);
   const off = viewerTz();
   const days = useMemo(() => [...new Set((b?.slots || []).map((s) => key(s, off)))], [b]);
   useEffect(() => { if (days.length && !pickDay) setPickDay(days[0]); }, [days]);

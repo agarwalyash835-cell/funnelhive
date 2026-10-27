@@ -40,9 +40,23 @@ export function storeHost(input) {
 }
 const base = (host) => (process.env.SHOPIFY_STORE_BASE ? `${process.env.SHOPIFY_STORE_BASE.replace(/\/+$/, '')}/${host}` : `https://${host}`);
 
+// a store's address can redirect (mystore.in → www.mystore.in): followed by hand, a few hops, each one checked to
+// be a public address — never an automatic follow into the server's own network
+async function storeFetch(url, init, ms) {
+  const signal = AbortSignal.timeout(ms);
+  for (let hop = 0; hop < 4; hop++) {
+    await checkPublicHost(new URL(url).hostname);
+    const res = await fetch(url, { ...init, signal, redirect: 'manual' });
+    const to = res.status >= 300 && res.status < 400 && res.headers.get('location');
+    if (!to) return res;
+    url = new URL(to, url).toString();
+    if (!/^https?:/.test(url)) break;
+  }
+  throw new Error('The store kept redirecting');
+}
 // one JSON-RPC call to a store's AI endpoint → the tool's result (parsed JSON when it is JSON)
 async function rpc(host, path, name, args, ms = 6000) {
-  const res = await fetch(`${base(host)}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }), signal: AbortSignal.timeout(ms), redirect: 'follow' });
+  const res = await storeFetch(`${base(host)}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) }, ms);
   if (!res.ok) throw new Error(res.status === 404 ? 'This doesn’t look like a Shopify store' : `The store answered ${res.status}`);
   const j = await res.json();
   if (j.error) throw new Error(j.error.data?.content || j.error.message || 'The store couldn’t answer');

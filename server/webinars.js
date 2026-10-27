@@ -223,8 +223,10 @@ export async function zoomJob(now = Date.now()) {
 export function webinarAnalytics(w) {
   const now = Date.now(), regs = T.registrations.all({ webinarId: w.id }).filter((r) => r.status !== 'cancelled');
   const len = w.duration * MIN;
-  // a sale within 14 days of their session
-  const bought = (r) => T.orders.all({ userId: w.userId, ckey: contactKey(r.email, r.phone) }).filter((o) => paidOrder(o) && !o.demo && o.at >= r.session && o.at <= r.session + 14 * DAY);
+  // a sale within 14 days of their session (the seller's paid orders read once, grouped by contact)
+  const byContact = new Map();
+  for (const o of T.orders.all({ userId: w.userId })) { if (!paidOrder(o) || o.demo) continue; const k = contactKey(o.email); byContact.set(k, [...(byContact.get(k) || []), o]); }
+  const bought = (r) => (byContact.get(contactKey(r.email, r.phone)) || []).filter((o) => o.at >= r.session && o.at <= r.session + 14 * DAY);
   const stat = (list) => {
     const past = list.filter((r) => r.session + len < now), came = past.filter((r) => r.attended), timed = came.filter((r) => r.watchSeconds > 0);
     const orders = list.flatMap(bought), buyers = new Set(orders.map((o) => o.email || o.id)).size;

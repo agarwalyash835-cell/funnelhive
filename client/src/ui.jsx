@@ -562,8 +562,8 @@ export function useFunnelDraft() {
     setAsking({ ...st, understood: c.understood || st.understood || '', question: c.question, max: c.max || 4 });
   };
   const start = (prompt, lang = 'en', design = {}) => ask({ prompt, lang, design, answers: [] });
-  const answer = (a) => { const v = String(a || '').trim(); if (!v || !asking) return; ask({ ...asking, answers: [...asking.answers, { q: asking.question.q, a: v }] }); };
-  const back = () => { if (!asking?.answers.length) return setAsking(null); const prev = asking.answers.at(-1); setAsking({ ...asking, answers: asking.answers.slice(0, -1), question: { id: 'prev', q: prev.q, options: [] }, retype: prev.a }); };
+  const answer = (a) => { const v = String(a || '').trim(); if (!v || !asking) return; ask({ ...asking, answers: [...asking.answers, { q: asking.question.q, a: v, question: asking.question }] }); };
+  const back = () => { if (!asking?.answers.length) return setAsking(null); const prev = asking.answers.at(-1); setAsking({ ...asking, answers: asking.answers.slice(0, -1), question: prev.question || { id: 'prev', q: prev.q, options: [] }, retype: prev.question?.options?.includes(prev.a) ? '' : prev.a }); };
   const skip = () => build(full(asking), asking.lang, asking.design);
   return { busy, checking, asking, err, secs, stage: t(stage), progress, start, answer, skip, back, cancel: () => setAsking(null) };
 }

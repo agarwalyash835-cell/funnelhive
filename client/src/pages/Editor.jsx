@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronUp, ChevronDown, Copy as CopyIcon, Trash2, EyeOff } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { BLOCK_TYPES, BLOCK_GROUPS, BLOCK_ICONS, STYLES, ELEMENT_TYPES, STYLE_DEFAULTS, FORM_FIELD_TYPES, Page, newElement, freshIds, applyLayout, defaultSection, withCopy, POPUP_SIZES, POPUP_TRIGGERS, POPUP_FREQ, POPUP_BLOCKS, POPUP_MAX, POPUP_MAX_BLOCKS } from '../blocks';
+import { BLOCK_TYPES, BLOCK_GROUPS, STYLES, ELEMENT_TYPES, STYLE_DEFAULTS, FORM_FIELD_TYPES, Page, newElement, freshIds, applyLayout, defaultSection, withCopy, POPUP_SIZES, POPUP_TRIGGERS, POPUP_FREQ, POPUP_BLOCKS, POPUP_MAX, POPUP_MAX_BLOCKS } from '../blocks';
 import { BlockIcon, ElementIcon, StepIcon } from '../blockIcons';
 import { Icon, toast, Modal, ago, confirmDialog, promptDialog } from '../ui';
 import { LANGS } from '../i18n';

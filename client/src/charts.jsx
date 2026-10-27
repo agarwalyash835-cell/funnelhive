@@ -7,9 +7,10 @@ function useWidth() {
   useEffect(() => {
     if (!el) return undefined;
     if (el.clientWidth) setW(el.clientWidth);
-    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
+    let raf = 0;
+    const ro = new ResizeObserver(([e]) => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setW((cur) => (Math.abs(cur - e.contentRect.width) < 1 ? cur : e.contentRect.width))); });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [el]);
   return [setEl, w];
 }

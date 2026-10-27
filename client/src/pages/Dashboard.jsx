@@ -142,6 +142,17 @@ const BASE = {
   revenue: ['Revenue', (t) => inr(t.revenue), 'revenue', 'revenue'], orders: ['Orders', (t) => num(t.orders), 'orders', 'orders'], leads: ['Leads', (t) => num(t.leads), 'leads', 'leads'],
   visitors: ['Visitors', (t) => num(t.visitors), 'visitors', 'views'], conversion: ['Conversion', (t) => `${t.conversion}%`, 'conversion', null], aov: ['Avg. order value', (t) => inr(t.aov), 'aov', null],
 };
+// one tile of "Your business at a glance" (a number from the overview or from the industry's own counts)
+function GlanceTile({ x, series }) {
+  const body = (
+    <>
+      <span className="gl-l">{x.label}</span>
+      {x.ring ? <div className="gl-row"><Ring pct={x.value} /><b className="gl-v">{x.shown}</b></div> : <b className="gl-v">{x.shown ?? num(x.value)}</b>}
+      <div className="gl-f">{x.prev != null ? <Delta now={x.value} prev={x.prev} /> : null}{x.spark ? <Sparkline data={series} yKey={x.spark} /> : x.sub && <span className="gl-sub">{x.sub}</span>}</div>
+    </>
+  );
+  return x.link ? <Link className={`gl gl-tap ${x.ring ? 'gl-conv' : ''}`} to={x.link}>{body}</Link> : <div className={`gl ${x.ring ? 'gl-conv' : ''}`}>{body}</div>;
+}
 // "Your business at a glance" — the tiles that matter in the seller's industry (dashkit.js), with an industry switch
 function Bento({ data, funnels, days, setDays, kit, onKit }) {
   const t = data.totals, p = data.prev;
@@ -150,19 +161,9 @@ function Bento({ data, funnels, days, setDays, kit, onKit }) {
   const tiles = (kit?.tiles || [{ base: 'revenue' }, { base: 'orders' }, { base: 'leads' }, { base: 'visitors' }, { base: 'conversion' }, { base: 'aov' }]).map((x) => {
     if (!x.base) return x;
     const [label, fmt, key, spark] = BASE[x.base];
-    return { id: x.base, label: x.label || label, shown: fmt(t), value: t[key], prev: p[key], spark, ring: x.base === 'conversion', link: x.base === 'orders' || x.base === 'revenue' ? '/orders' : x.base === 'leads' ? '/crm' : null };
+    return { id: x.base, label: x.label || label, shown: fmt(t), value: t[key], prev: p[key], spark, ring: x.base === 'conversion', link: x.base === 'orders' || x.base === 'revenue' ? '/orders' : x.base === 'leads' ? '/contacts' : null };
   });
   const [hero, ...rest] = tiles;
-  const Tile = ({ x }) => {
-    const body = (
-      <>
-        <span className="gl-l">{x.label}</span>
-        {x.ring ? <div className="gl-row"><Ring pct={x.value} /><b className="gl-v">{x.shown}</b></div> : <b className="gl-v">{x.shown ?? num(x.value)}</b>}
-        <div className="gl-f">{x.prev != null ? <Delta now={x.value} prev={x.prev} /> : null}{x.spark ? <Sparkline data={data.series} yKey={x.spark} /> : x.sub && <span className="gl-sub">{x.sub}</span>}</div>
-      </>
-    );
-    return x.link ? <Link className={`gl gl-tap ${x.ring ? 'gl-conv' : ''}`} to={x.link}>{body}</Link> : <div className={`gl ${x.ring ? 'gl-conv' : ''}`}>{body}</div>;
-  };
   return (
     <section className="lv-section">
       <div className="lv-head">
@@ -183,7 +184,7 @@ function Bento({ data, funnels, days, setDays, kit, onKit }) {
           {hero.spark && <div className="gl-chart"><Sparkline data={data.series} yKey={hero.spark} width={520} height={70} /></div>}
           {hero.link && !hero.spark && <Link className="gl-link" to={hero.link}>See them →</Link>}
         </div>
-        {rest.map((x) => <Tile key={x.id} x={x} />)}
+        {rest.map((x) => <GlanceTile key={x.id} x={x} series={data.series} />)}
         <div className="gl gl-honey">
           <span className="gl-l">Live funnels</span>
           <b className="gl-v">{live}<small> / {(funnels || []).length}</small></b>

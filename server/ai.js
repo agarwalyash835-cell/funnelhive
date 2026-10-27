@@ -339,9 +339,9 @@ Otherwise reply {"ready": false, "understood": "one short, friendly sentence of 
 Respond with ONLY the JSON.`;
   try {
     const out = await ask(system, `Seller's brief: ${prompt}${answers.length ? `\n\nTheir answers so far:\n${answers.map((x) => `Q: ${x.q}\nA: ${x.a}`).join('\n')}` : ''}\n\nQuestions asked so far: ${answers.length} of at most ${MAX_QUESTIONS}.`);
-    if (out.ready === true) return { ready: true };
+    if (out.ready === true) return { ready: true, aiUsed: true };
     const q = cleanQuestion(out.question || (Array.isArray(out.questions) ? out.questions[0] : null));
-    if (q && !answers.some((x) => x.q === q.q)) return next(q, typeof out.understood === 'string' ? out.understood.slice(0, 200) : '');
+    if (q && !answers.some((x) => x.q === q.q)) return { ...next(q, typeof out.understood === 'string' ? out.understood.slice(0, 200) : ''), aiUsed: true };
   } catch (e) { console.warn('Brief check failed:', e.message); }
   return next(offlineQuestion(prompt, answers));
 }

@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { startServer, register } from './helpers.mjs';
 
 const KEY = 'hk_test_ok_supersecret_123';
-const fake = { sent: [], hook: null, n: 0, calls: [] };
+const fake = { sent: [], hook: null, n: 0, calls: [], failCloud: false };
 let hive, own, srv, api, T;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(fn, ms = 5000) { for (let t = 0; t < ms; t += 50) { const v = await fn(); if (v) return v; await wait(50); } return fn(); }
@@ -28,7 +28,7 @@ before(async () => {
     if (route === 'GET /templates') return send(200, { templates: [] });
     if (route === 'PUT /webhooks') { fake.hook = j; return send(200, { ok: true }); }
     if (route === 'POST /messages') { fake.sent.push(j); return send(202, { id: `msg_${++fake.n}`, status: 'queued' }); }
-    if (route === 'POST /cloud/1111/messages') { fake.sent.push({ ...j, cloud: true }); return send(202, { id: `msg_${++fake.n}`, status: 'queued' }); }
+    if (route === 'POST /cloud/1111/messages') { if (fake.failCloud) return send(400, { error: 'interactive type not supported' }); fake.sent.push({ ...j, cloud: true }); return send(202, { id: `msg_${++fake.n}`, status: 'queued' }); }
     send(404, { error: 'not found' });
   });
   // the seller's own system: order status by phone
@@ -153,4 +153,17 @@ test('a real chat: link button, update contact (field, tag removed, stage, opt-o
   assert.ok(await waitFor(async () => (await api(`/contacts/${encodeURIComponent(conv.ckey)}`, 'GET', null, T)).data.timeline.some((a) => /Unsubscribed/.test(a.title))), 'opted out by the second bot');
   const f = (await api(`/waflows/${flow.id}`, 'GET', null, T)).data;
   assert.deepEqual([f.stats.runs, f.stats.nodes.s, f.stats.nodes.l], [1, 1, 1]);
+});
+
+test('a link button the number can’t send goes as text with the link — one message, delivered, not a failed one', async () => {
+  const flow = (await api('/waflows', 'POST', { flow: { name: 'Pay link', trigger: { type: 'keyword', keywords: ['paylink'] }, nodes: [node('start', 'start', {}), node('l', 'link', { text: 'Pay for your seat', label: 'Pay ₹499', url: 'https://x.test/pay' })], edges: [{ from: 'start', port: 'next', to: 'l' }] } }, T)).data;
+  assert.equal((await api(`/waflows/${flow.id}`, 'PUT', { active: true }, T)).status, 200);
+  fake.failCloud = true;
+  await say('919700000088', 'paylink');
+  const m = await waitFor(() => sentTo('919700000088').find((x) => x.type === 'text'));
+  fake.failCloud = false;
+  assert.equal(m.text.body, 'Pay for your seat\n\n🔗 Pay ₹499: https://x.test/pay');
+  const conv = (await api('/inbox', 'GET', null, T)).data.convs.find((c) => c.num === '919700000088');
+  const msgs = (await api(`/inbox/${conv.id}`, 'GET', null, T)).data.messages.filter((x) => x.dir === 'out');
+  assert.deepEqual(msgs.map((x) => [x.status, x.type]), [['sent', 'text']], 'no failed bubble left behind');
 });

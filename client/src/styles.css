@@ -228,7 +228,7 @@ code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-si
 .chain { display: flex; align-items: center; gap: 2px; font-size: 15px; }
 .chain i { font-style: normal; color: var(--c-muted); margin: 0 2px; font-size: 12px; }
 .chain small { margin-left: 8px; color: var(--c-muted); font-size: 12px; }
-.fstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 10px 0; border-top: 1px solid var(--c-line-2); border-bottom: 1px solid var(--c-line-2); }
+.fstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 10px 0; border-top: 1px solid var(--c-line-2); border-bottom: 1px solid var(--c-line-2); }
 .fstats b { display: block; font-size: 14px; }
 .fstats small { color: var(--c-muted); font-size: 11px; }
 .factions { display: flex; gap: 4px; align-items: center; }
@@ -2924,3 +2924,11 @@ a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
 .ai-bar-ideas { display: flex; flex-wrap: wrap; gap: 6px; }
 .ai-bar-ideas button { border: 1px solid var(--c-line); background: var(--c-surface); border-radius: 99px; padding: 3px 10px; font-size: 12px; color: var(--c-ink-2); }
 @media (max-width: 600px) { .ai-bar-in { flex-direction: column; } }
+/* phones: a table that isn't in a scroll wrapper scrolls in its own box, never stretching the page sideways */
+@media (max-width: 700px) {
+  table.tbl:not(.tbl-wrap table) { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .panel, .panel-b, .pr-main, .grid-2-1 > *, .grid-2 > * { min-width: 0; }
+}
+.fstats > * { min-width: 0; }
+.fstats b { overflow-wrap: anywhere; }
+@media (max-width: 420px) { .fstats b { font-size: 13px; } .fstats small { font-size: 10px; letter-spacing: 0; } }

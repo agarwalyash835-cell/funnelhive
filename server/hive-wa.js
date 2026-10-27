@@ -514,9 +514,10 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
     try { res.json(view(await refreshTemplates(req.user))); } catch (e) { fail(res, e); }
   }));
   // every APPROVED template on the number (standard ones too), for automations and broadcasts — marketers may read it (team.js)
+  // the approved templates of whichever number is connected (Hive or Meta Embedded Signup); none connected → null,
+  // which the pickers read as "type the template's name"
   app.get(`${P}/templates/approved`, auth, wrap(async (req, res) => {
-    const h = live(req.user);
-    if (!h) return res.status(400).json({ error: 'Hive WhatsApp isn’t in use' });
+    if (!waLive(req.user)) return res.json({ templates: null });
     try { res.json({ templates: await waApproved(req.user) }); } catch (e) { fail(res, e); }
   }));
   app.get(`${P}/templates/custom`, auth, wrap(async (req, res) => {

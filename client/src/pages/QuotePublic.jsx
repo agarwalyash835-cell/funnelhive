@@ -19,6 +19,8 @@ export default function QuotePublic() {
   const [done, setDone] = useState(null);
   const load = () => fetch(`/api/q/${id}?t=${encodeURIComponent(t)}${preview}`).then(async (r) => { const d = await r.json(); r.ok ? setQ(d) : setErr(d.error || 'Quote not found'); });
   useEffect(() => { load(); }, [id]);
+  // the client's browser tab names the quote and who sent it
+  useEffect(() => { if (q?.title) document.title = `${q.title}${q.seller?.name ? ` · ${q.seller.name}` : ''}`; }, [q?.title, q?.seller?.name]);
   const post = (path, body = {}) => buyerPost(`/api/q/${id}/${path}`, { t, ...body });
   // optional add-ons: the client ticks them on, the server re-works the total (and the deposit)
   const [picking, setPicking] = useState(false);

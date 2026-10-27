@@ -449,7 +449,8 @@ test('per-event switches; Meta direct can be chosen again; disconnecting keeps M
   await api('/channels/whatsapp/hive', 'PUT', { provider: 'meta' }, T);
   ch = (await api('/channels', 'GET', null, T)).data;
   assert.equal(ch.whatsapp.provider, 'meta');
-  assert.equal((await api('/channels/whatsapp/hive/templates/approved', 'GET', null, T)).status, 400, 'not in use: the editors keep a free-text name');
+  const off = await api('/channels/whatsapp/hive/templates/approved', 'GET', null, T);
+  assert.deepEqual([off.status, off.data.templates], [200, null], 'not in use: the editors keep a free-text name');
   assert.equal((await api(`/public/${f.slug}`)).data.waRequired, undefined, 'phone optional again');
   await api('/channels/whatsapp/hive', 'PUT', { clear: true }, T);
   ch = (await api('/channels', 'GET', null, T)).data;

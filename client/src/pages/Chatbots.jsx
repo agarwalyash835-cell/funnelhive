@@ -419,7 +419,7 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
     for (const [k, el] of Object.entries(dots.current)) { if (!el) continue; const r = el.getBoundingClientRect(); next[k] = [(r.left + r.width / 2 - w.left) / view.z, (r.top + r.height / 2 - w.top) / view.z]; }
     if (JSON.stringify(next) !== JSON.stringify(pts)) setPts(next);
   });
-  useEffect(() => { const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height })); ro.observe(wrap.current); return () => ro.disconnect(); }, []);
+  useEffect(() => { let raf = 0; const ro = new ResizeObserver(([e]) => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setSize({ w: e.contentRect.width, h: e.contentRect.height })); }); ro.observe(wrap.current); return () => { cancelAnimationFrame(raf); ro.disconnect(); }; }, []);
   const capture = (e) => { try { wrap.current.setPointerCapture(e.pointerId); } catch { /* a pointer the browser no longer tracks */ } };
   const toWorld = (e) => { const r = wrap.current.getBoundingClientRect(); return [(e.clientX - r.left - view.x) / view.z, (e.clientY - r.top - view.y) / view.z]; };
   const down = (e) => {
@@ -1323,7 +1323,7 @@ function InboxRules() {
   const dirty = JSON.stringify(ru) !== saved;
   const save = async () => { setBusy(true); try { const x = await api('/inbox/rules', 'PUT', ru); setR({ ...r, ...x }); setSaved(JSON.stringify(x.rules)); toast('Inbox automations saved'); } catch (e) { toast(e.message); } setBusy(false); };
   const team = meta?.team || [];
-  const aiRules = async (prompt) => { const d = (await api('/inbox/rules/ai', 'POST', { prompt })).draft; setR({ ...r, rules: { ...ru, ...d } }); toast('Set up — check the rules below, then save'); };
+  const aiRules = async (prompt) => { const d = (await api('/inbox/rules/ai', 'POST', { prompt })).draft; setR((cur) => ({ ...cur, rules: { ...cur.rules, ...d } })); toast('Set up — check the rules below, then save'); };
   return (
     <div className="rules cb">
       <AiPrompt title="Set up with AI" hint="Describe how your inbox should run" placeholder="e.g. Open 10 to 7, Monday to Saturday. Alert me if a chat waits 20 minutes. Tag price questions as Pricing" onDraft={aiRules} />

@@ -21,9 +21,11 @@ export function TemplateGallery() {
   useEffect(() => {
     const el = grid.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => { const w = el.querySelector('.thumb')?.clientWidth; if (w) el.style.setProperty('--ts', String(w / 1280)); });
+    // measured on the next frame and only when it changed: setting the scale inside the callback re-triggered it
+    let raf = 0, last = '';
+    const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { const w = el.querySelector('.thumb')?.clientWidth; const v = w ? String(w / 1280) : ''; if (v && v !== last) { last = v; el.style.setProperty('--ts', v); } }); });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [list.length]);
   const cats = ['All', ...[...new Set(list.map((t) => t.category))].sort()];
   const styles = ['All', ...new Set(list.map((t) => t.style))];

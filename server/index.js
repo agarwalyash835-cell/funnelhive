@@ -1042,10 +1042,12 @@ app.post('/api/templates/:tid/use', auth, funnelCap, (req, res) => {
 
 // ---------- AI ----------
 // Before building: a vague or half-done brief gets a few quick questions (no credits — it's a short check)
-app.post('/api/ai/clarify', auth, aiLimiter, wrap(async (req, res) => {
+app.post('/api/ai/clarify', auth, aiLimiter, credits('chat'), wrap(async (req, res) => {
   const prompt = String(req.body.prompt || '').trim().slice(0, 2000);
   if (prompt.length < 3) return res.status(400).json({ error: 'Describe your business or offer in a sentence' });
-  res.json(await clarifyBrief(prompt, req.body.answers));
+  const { aiUsed, ...r } = await clarifyBrief(prompt, req.body.answers);
+  if (!aiUsed) res.locals.aiFailed = true; // no AI call (a clear brief, or the standard questions): nothing to charge
+  res.json(r);
 }));
 
 // the seller's design picks for a new funnel: page length, page style, brand colour
