@@ -83,7 +83,7 @@ function NewCallType({ cals, onCreated }) {
       {d.ai ? <div className="nct-ideas">{AI_IDEAS.map((x) => <button key={x} type="button" onClick={() => setPrompt(x)}>{x}</button>)}</div> : <p className="hint">{t('AI isn’t switched on for this account — start from a ready-made call type below.')}</p>}
       <div className="nct-gal">
         <div className="nct-h"><b>{t('Ready-made for your industry')}</b>
-          <select value={tpl.id} onChange={(e) => setInd(e.target.value)} aria-label={t('Industry')}>{d.templates.map((x) => <option key={x.id} value={x.id}>{x.icon} {x.industry}{x.mine ? ` (${t('yours')})` : ''}</option>)}</select>
+          <select value={tpl.id} onChange={(e) => setInd(e.target.value)} aria-label={t('Industry')}>{d.templates.map((x) => <option key={x.id} value={x.id}>{x.industry}{x.mine ? ` (${t('yours')})` : ''}</option>)}</select>
         </div>
         <div className="nct-card">
           <div className="nct-top">

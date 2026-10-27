@@ -576,6 +576,10 @@ export default function Editor() {
   const [device, setDevice] = useState('desktop');
   const [view, setView] = useState('canvas');
   const [left, setLeft] = useState('add');
+  // the left panel folded to its three icons: the canvas gets the room (remembered in this browser)
+  const [leftMini, setLeftMini] = useState(() => { try { return localStorage.getItem('ff_ed_left_mini') === '1'; } catch { return false; } });
+  const foldLeft = (v) => { setLeftMini(v); try { localStorage.setItem('ff_ed_left_mini', v ? '1' : ''); } catch { /* private mode */ } };
+  const openLeft = (tab) => { setLeft(tab); if (leftMini) foldLeft(false); };
   const [right, setRight] = useState('ai');
   const [status, setStatus] = useState('Saved');
   const [stepMenu, setStepMenu] = useState(false);
@@ -1001,13 +1005,14 @@ export default function Editor() {
         <button className={`btn ${f.published ? 'live' : 'primary'}`} onClick={publish} disabled={publishing}>{f.published ? <><span className="live-dot" /> Live</> : <><Icon name="send" size={15} /> Publish</>}</button>
       </header>
 
-      <div className="ed-cols">
+      <div className={`ed-cols ${leftMini ? 'left-mini' : ''}`}>
         {/* ---------------- left ---------------- */}
         <aside className="ed-left">
           <div className="tabs">
-            <button className={left === 'steps' ? 'on' : ''} onClick={() => setLeft('steps')}><Icon name="funnel" size={15} /> Steps</button>
-            <button className={left === 'add' ? 'on' : ''} onClick={() => setLeft('add')}><Icon name="plus" size={15} /> Add</button>
-            <button className={left === 'theme' ? 'on' : ''} onClick={() => setLeft('theme')}><Icon name="palette" size={15} /> Design</button>
+            <button className={left === 'steps' && !leftMini ? 'on' : ''} onClick={() => openLeft('steps')} title="Steps"><Icon name="funnel" size={15} /><span className="ed-tl"> Steps</span></button>
+            <button className={left === 'add' && !leftMini ? 'on' : ''} onClick={() => openLeft('add')} title="Add sections & elements"><Icon name="plus" size={15} /><span className="ed-tl"> Add</span></button>
+            <button className={left === 'theme' && !leftMini ? 'on' : ''} onClick={() => openLeft('theme')} title="Design"><Icon name="palette" size={15} /><span className="ed-tl"> Design</span></button>
+            <button className="ed-fold" onClick={() => foldLeft(!leftMini)} title={leftMini ? 'Show the panel' : 'Fold the panel — more room for the page'} aria-label={leftMini ? 'Show the panel' : 'Fold the panel'}><Icon name="panel" size={15} /></button>
           </div>
           <div className="ed-scroll">
             {left === 'steps' && (

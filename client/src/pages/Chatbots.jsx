@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api';
 import { Layout, Panel, Icon, Modal, toast, confirmDialog, useWaTemplates, pagesOrigin } from '../ui';
 import { waFmt } from './Inbox';
+import { KitIcon } from '../blockIcons';
 import '../chat.css';
 
 // /chatbots — WhatsApp chatbots drawn on a canvas, drafted by AI from a sentence, tested on a phone before going
@@ -166,7 +167,7 @@ export default function Chatbots() {
           {(() => {
             const cur = d.industries?.find((x) => x.id === (ind || d.industry)) || d.industries?.[0];
             return cur && (
-              <Panel title={<>Ready-made for {cur.icon} {cur.name}</>} actions={<div className="ind-pick"><select value={cur.id} onChange={(e) => setInd(e.target.value)} aria-label="Industry">{d.industries.map((x) => <option key={x.id} value={x.id}>{x.icon} {x.name}{x.id === d.industry ? ' (your industry)' : ''}</option>)}</select></div>}>
+              <Panel title={<>Ready-made for <KitIcon type={cur.id} size={16} className="kit-ic" /> {cur.name}</>} actions={<div className="ind-pick"><select value={cur.id} onChange={(e) => setInd(e.target.value)} aria-label="Industry">{d.industries.map((x) => <option key={x.id} value={x.id}>{x.name}{x.id === d.industry ? ' (your industry)' : ''}</option>)}</select></div>}>
                 <p className="hint top">Written for your industry — your answers, questions and booking words. Fill in the details in [brackets], test it on the phone, then go live.</p>
                 <div className="cb-grid">
                   {cur.templates.map((t) => (
@@ -268,6 +269,9 @@ function Builder({ initial, ai, meta, number, flows, onClose, onSaved }) {
   const [now, setNow] = useState(null); // the node the test phone is on
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState(''); // palette search
+  // the step palette folded to icons: the canvas gets the room (remembered in this browser)
+  const [palMini, setPalMini] = useState(() => { try { return localStorage.getItem('ff_wfb_pal_mini') === '1'; } catch { return false; } });
+  const foldPal = () => setPalMini((v) => { try { localStorage.setItem('ff_wfb_pal_mini', v ? '' : '1'); } catch { /* private mode */ } return !v; });
   const data = useBuilderData(flows, initial.id);
   const templates = useWaTemplates();
   // the WhatsApp forms published on Meta, as they were published (a changed form needs publishing again)
@@ -363,9 +367,9 @@ function Builder({ initial, ai, meta, number, flows, onClose, onSaved }) {
         <button className="btn ghost sm" onClick={() => save()} disabled={busy || (!dirty && initial.id)}>{dirty || !initial.id ? 'Save' : 'Saved'}</button>
         {f.trigger.type !== 'manual' && (active ? <button className="btn ghost sm" onClick={() => save({ active: false })} disabled={busy}>Switch off</button> : <button className="btn live sm" onClick={() => save({ active: true })} disabled={busy || probs.length > 0} title={probs[0]?.msg}><Icon name="play" size={13} />Go live</button>)}
       </header>
-      <div className="wfb-body">
+      <div className={`wfb-body ${palMini ? 'pal-mini' : ''}`}>
         <aside className="wfb-pal">
-          <div className="wfb-search"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a step" aria-label="Find a step" /></div>
+          <div className="wfb-search">{!palMini && <><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a step" aria-label="Find a step" /></>}<button className="wfb-fold" onClick={foldPal} title={palMini ? 'Show step names' : 'Fold to icons — more room for the canvas'} aria-label={palMini ? 'Show step names' : 'Fold the steps'}><Icon name="panel" size={15} /></button></div>
           {PALETTE.map(([g, types]) => {
             const shown = types.filter((t) => !ql || `${NT[t][0]} ${NT[t][3]}`.toLowerCase().includes(ql));
             return shown.length > 0 && (
@@ -1023,7 +1027,7 @@ function Agent() {
         </Panel>
         <Panel title="Start from your industry">
           <div className="ind-pick">
-            <select value={preset} onChange={(e) => setPreset(e.target.value)} aria-label="Industry">{a.presets.map((x) => <option key={x.id} value={x.id}>{x.icon} {x.name}{x.id === a.industry ? ' (your industry)' : ''}</option>)}</select>
+            <select value={preset} onChange={(e) => setPreset(e.target.value)} aria-label="Industry">{a.presets.map((x) => <option key={x.id} value={x.id}>{x.name}{x.id === a.industry ? ' (your industry)' : ''}</option>)}</select>
             <button className="btn ghost" onClick={usePreset} disabled={busy === 'preset'}>{busy === 'preset' ? <span className="spin dark" /> : <Icon name="wand" size={14} />}Fill in for this industry</button>
           </div>
           <p className="hint">Sets the agent’s name, role, a knowledge outline, the questions your customers usually ask and when to hand over — written for that industry. Replace the [brackets] with your details, test it on the phone, then save.</p>

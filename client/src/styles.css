@@ -2879,3 +2879,36 @@ a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
 @keyframes tkBreathe { 0%, 100% { scale: 1; } 50% { scale: 1.06; } }
 @media (prefers-reduced-motion: reduce) { .tk-fab .tk-fab-orb, .tk-orb i, .tk-orb .tk-core { animation: none !important; } }
 @media (max-width: 640px) { .tk-fab { right: 14px; bottom: 14px; height: 50px; padding-right: 8px; } .tk-fab-l { display: none; } .tk-panel { right: 8px; left: 8px; bottom: 8px; width: auto; } }
+
+/* the main menu folded to icons — more room for every screen (Ctrl+B, or the button by the logo) */
+.brand-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-fold { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--c-side-ink); cursor: pointer; opacity: .7; }
+.side-fold:hover { opacity: 1; background: var(--c-side-2); color: var(--c-ink); }
+@media (min-width: 1001px) {
+  .app, html.glass .app { transition: grid-template-columns .2s ease; }
+  .app.mini, html.glass .app.mini { grid-template-columns: 68px minmax(0, 1fr); }
+  .app.mini .side { padding: 14px 8px; overflow: visible; }
+  .app.mini .brand { flex-direction: column; gap: 8px; padding: 2px 0 14px; justify-content: center; }
+  .app.mini .brand-n, .app.mini .side-jump kbd, .app.mini .nav-l, .app.mini .nav-gh, .app.mini .nav-n, .app.mini .ws-switch,
+  .app.mini .trial-chip, .app.mini .ai-status, .app.mini .me div, .app.mini .me > .ic-svg, .app.mini .nav-more-b .nav-n { display: none; }
+  .app.mini .side-jump { justify-content: center; padding: 8px 0; font-size: 0; gap: 0; margin: -4px 0 10px; }
+  .app.mini .side nav a { justify-content: center; padding: 10px 0; gap: 0; position: relative; }
+  .app.mini .side nav a.active { box-shadow: inset 3px 0 0 var(--c-honey); }
+  .app.mini .nav-badge { position: absolute; top: 3px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; }
+  .app.mini .nav-g + .nav-g { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--c-line-2); }
+  .app.mini .nav-more-b { justify-content: center; font-size: 0; gap: 0; padding: 10px 0; }
+  .app.mini .nav-pop { left: 60px; }
+  .app.mini .me { justify-content: center; padding: 6px 0; border: 0; }
+  .app.mini .me-menu { left: 0; min-width: 230px; }
+  .app.mini .side-foot { gap: 8px; }
+}
+/* the page editor's left panel folded to its icons */
+.ed-fold { flex: 0 0 auto !important; width: 32px; color: var(--c-muted); }
+@media (min-width: 1001px) {
+  .ed-cols.left-mini { grid-template-columns: 56px minmax(0, 1fr) 330px; }
+  .ed-cols.left-mini .ed-left .tabs { flex-direction: column; padding: 8px 6px; gap: 4px; border-bottom: 0; }
+  .ed-cols.left-mini .ed-left .tabs button { flex: none; padding: 10px 0; border-bottom: 0; width: auto; }
+  .ed-cols.left-mini .ed-tl, .ed-cols.left-mini .ed-left .ed-scroll { display: none; }
+  .ed-cols.left-mini .ed-fold { width: auto; order: -1; border-bottom: 1px solid var(--c-line) !important; margin-bottom: 4px; }
+}
+@media (min-width: 1001px) and (max-width: 1300px) { .ed-cols.left-mini { grid-template-columns: 56px minmax(0, 1fr) 300px; } }

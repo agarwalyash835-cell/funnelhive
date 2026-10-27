@@ -5,6 +5,7 @@ import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, t
 import { PagePreview } from '../blocks';
 import { AreaChart, Sparkline, HBars } from '../charts';
 import { TalkToHive } from '../talk';
+import { KitIcon } from '../blockIcons';
 
 const METRICS = [
   ['revenue', 'Revenue', inr],
@@ -168,7 +169,7 @@ function Bento({ data, funnels, days, setDays, kit, onKit }) {
         <h2>Your business at a glance</h2>
         <span className="row" style={{ gap: 8 }}>
           {kit && <label className="gl-kit" title="Shows the numbers that matter in this industry">
-            <span aria-hidden="true">{kit.industry.icon}</span>
+            <KitIcon type={kit.industry.id} size={15} />
             <select value={kit.industry.id} onChange={(e) => onKit(e.target.value)} aria-label="Dashboard industry">{kit.industries.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}</select>
           </label>}
           <RangePicker value={days} onChange={setDays} />

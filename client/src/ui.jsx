@@ -4,72 +4,22 @@ import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
 import { api, meCache, logout, stopImpersonating, fmtDate } from './api';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
+import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft } from 'lucide-react';
 
-const P = {
-  home: 'M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z',
-  funnel: 'M3 4h18l-7 8v6l-4 2v-8z',
-  layout: 'M3 3h18v18H3zM3 9h18M9 21V9',
-  chart: 'M3 3v18h18M7 15l4-4 3 3 5-6',
-  target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01',
-  users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
-  cart: 'M6 6h15l-1.5 9h-12zM6 6 5 3H2M9 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM18 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2z',
-  sparkles: 'M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8zM19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z',
-  settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
-  plus: 'M12 5v14M5 12h14',
-  search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
-  eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
-  copy: 'M9 9h13v13H9zM5 15H2V2h13v3',
-  trash: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6',
-  edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
-  external: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3',
-  undo: 'M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8',
-  redo: 'M21 7v6h-6M21 13a9 9 0 1 1-3-7.7L21 8',
-  desktop: 'M2 4h20v12H2zM8 20h8M12 16v4',
-  tablet: 'M5 2h14v20H5zM12 18h.01',
-  mobile: 'M7 2h10v20H7zM12 18h.01',
-  send: 'M22 2 11 13M22 2l-7 20-4-9-9-4z',
-  grip: 'M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01',
-  download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
-  check: 'M20 6 9 17l-5-5',
-  x: 'M18 6 6 18M6 6l12 12',
-  flow: 'M3 3h6v6H3zM15 15h6v6h-6zM6 9v3h12v3',
-  logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
-  bolt: 'M13 2 3 14h9l-1 8 10-12h-9z',
-  tag: 'M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8zM7 7h.01',
-  link: 'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7',
-  globe: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20',
-  menu: 'M3 6h18M3 12h18M3 18h18',
-  chevron: 'M9 18l6-6-6-6',
-  split: 'M16 3h5v5M8 3H3v5M21 3l-7 7M3 3l7 7M12 22v-8',
-  layers: 'M12 2 2 7l10 5 10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
-  palette: 'M12 22a10 10 0 1 1 10-10c0 2.8-2.2 4-4 4h-2a2 2 0 0 0-1 3.7A2 2 0 0 1 12 22zM7.5 10.5h.01M10.5 7h.01M15 7.5h.01M17 11h.01',
-  wand: 'M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5',
-  wallet: 'M20 12V8H6a2 2 0 0 1 0-4h12v4M4 6v12a2 2 0 0 0 2 2h14v-4M18 12a2 2 0 0 0 0 4h4v-4z',
-  play: 'M5 3l14 9-14 9z',
-  clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
-  clip: 'M9 3h6v3H9zM8 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2',
-  bookmark: 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z',
-  shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
-  card: 'M2 5h20v14H2zM2 10h20M6 15h4',
-  box: 'M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
-  refund: 'M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8M12 8v4l3 2',
-  mail: 'M3 5h18v14H3zM3 6l9 7 9-7',
-  phone: 'M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z',
-  receipt: 'M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2zM9 7h6M9 11h6M9 15h4',
-  vault: 'M4 4h16v16H4zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 9V7M12 17v-2M9 12H7M17 12h-2M4 8H2M4 16H2',
-  bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
-  chat: 'M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.9-.9L3 20l1.1-4.6A8.4 8.4 0 1 1 21 11.5zM8 10h.01M12 10h.01M16 10h.01',
-  bot: 'M12 8V4H8M5 8h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM2 14h2M20 14h2M9 13v2M15 13v2',
-  image: 'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21',
-  list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
-  mic: 'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3',
-  attach: 'M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5',
+// One icon set everywhere: Lucide (ISC licence), the same line icons as the page builder's sections and the CRM's
+// industry styles. The names are FunnelHive's own, so screens ask for "cart" or "bot" and get the Lucide drawing.
+const ICONS = {
+  home: House, funnel: Funnel, layout: LayoutTemplate, chart: ChartLine, target: Target, users: Users, cart: ShoppingCart, sparkles: Sparkles, settings: Settings,
+  plus: Plus, search: Search, eye: Eye, copy: Copy, trash: Trash2, edit: Pencil, external: ExternalLink, undo: Undo2, redo: Redo2, desktop: Monitor, tablet: Tablet,
+  mobile: Smartphone, send: Send, grip: GripVertical, download: Download, check: Check, x: X, flow: Workflow, logout: LogOut, bolt: Zap, tag: Tag, link: Link2,
+  globe: Globe, menu: Menu, chevron: ChevronRight, split: Split, layers: Layers, palette: Palette, wand: WandSparkles, wallet: Wallet, play: Play, clock: Clock,
+  clip: ClipboardList, bookmark: Bookmark, shield: ShieldCheck, card: CreditCard, box: Box, refund: RotateCcw, mail: Mail, phone: Phone, receipt: Receipt,
+  vault: Vault, bell: BellIcon, chat: MessageCircle, bot: Bot, image: Image, list: List, mic: Mic, attach: Paperclip, calendar: CalendarDays, panel: PanelLeft,
 };
-export const Icon = ({ name, size = 18, stroke = 2, className = '' }) => (
-  <svg className={`ic-svg ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={name === 'grip' ? 3.2 : stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={P[name] || P.bolt} />
-  </svg>
-);
+export const Icon = ({ name, size = 18, stroke = 1.75, className = '' }) => {
+  const C = ICONS[name] || Zap;
+  return <C size={size} strokeWidth={stroke === 2 ? 1.75 : stroke} className={`ic-svg ${className}`} aria-hidden="true" />;
+};
 
 export const inr = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 export const num = (n) => Math.round(Number(n) || 0).toLocaleString('en-IN');
@@ -208,7 +158,7 @@ function SideNav({ me, onGo }) {
   const waiting = TOOLS.filter((to) => allowed(to, me) && !inMenu(to, me, p, here));
   const link = (to) => {
     const ic = PAGES[to][0], b = badgeOf(to, me);
-    return <NavLink key={to} to={to} end={to === '/'} onClick={onGo}><Icon name={ic} /><span className="nav-l">{t(labelOf(to, me))}</span>{b && <span className="nav-badge" title={b[1]}>{b[0]}</span>}</NavLink>;
+    return <NavLink key={to} to={to} end={to === '/'} onClick={onGo} title={t(labelOf(to, me))}><Icon name={ic} /><span className="nav-l">{t(labelOf(to, me))}</span>{b && <span className="nav-badge" title={b[1]}>{b[0]}</span>}</NavLink>;
   };
   return (
     <nav>
@@ -356,6 +306,9 @@ function Bell({ me }) {
   );
 }
 
+// the main menu folded to icons (every screen, remembered in this browser)
+export const sideMini = () => { try { return localStorage.getItem('ff_side_mini') === '1'; } catch { return false; } };
+
 // a screen whose data didn't load: Layout shows a banner with Reload instead of an endless skeleton
 export const loadFailed = () => window.dispatchEvent(new Event('ff:loadfail'));
 
@@ -364,14 +317,21 @@ export function Layout({ title, subtitle, actions, children, wide }) {
   const [loadFail, setLoadFail] = useState(false);
   useEffect(() => { const h = () => setLoadFail(true); window.addEventListener('ff:loadfail', h); return () => window.removeEventListener('ff:loadfail', h); }, []);
   const [open, setOpen] = useState(false);
+  const [mini, setMini] = useState(sideMini);
+  const fold = () => setMini((m) => { const n = !m; try { localStorage.setItem('ff_side_mini', n ? '1' : ''); } catch { /* private mode */ } window.dispatchEvent(new Event('ff:side')); return n; });
+  useEffect(() => {
+    const k = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && !document.activeElement?.isContentEditable) { e.preventDefault(); fold(); } };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, []);
   const [paywall, setPaywall] = useState(null);
   useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); }).catch(() => {}); }, []);
   useEffect(() => { applyUiLang(); }, []);
   useEffect(() => { const h = (e) => setPaywall(e.detail || {}); window.addEventListener('ff:paywall', h); return () => window.removeEventListener('ff:paywall', h); }, []);
   return (
-    <div className="app">
+    <div className={`app ${mini ? 'mini' : ''}`}>
       <aside className={`side ${open ? 'open' : ''}`}>
-        <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}{me?.brand || BRAND}</div>
+        <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}<span className="brand-n">{me?.brand || BRAND}</span><button type="button" className="side-fold" onClick={fold} title={t(mini ? 'Show the menu (Ctrl+B)' : 'Fold the menu to icons (Ctrl+B)')} aria-label={t(mini ? 'Show the menu' : 'Fold the menu')}><Icon name="panel" size={16} /></button></div>
         <button type="button" className="side-jump" onClick={() => window.dispatchEvent(new Event('ff:jump'))}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
         <SideNav me={me} onGo={() => setOpen(false)} />
         <div className="side-foot">
