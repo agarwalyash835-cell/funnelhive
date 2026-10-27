@@ -81,8 +81,9 @@
    "kit": "education",
    "message": "Set up my booking calendar for “Counselling call”: 20 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -216,8 +217,9 @@
    "kit": "realestate",
    "message": "Set up my booking calendar for “Site visit”: 45 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -357,8 +359,9 @@
    "kit": "clinic",
    "message": "Set up my booking calendar for “Doctor consultation”: 15 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -498,8 +501,9 @@
    "kit": "fitness",
    "message": "Set up my booking calendar for “Trial session”: 60 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -639,8 +643,9 @@
    "kit": "consultant",
    "message": "Set up my booking calendar for “Strategy call”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -780,8 +785,9 @@
    "kit": "general",
    "message": "Set up my booking calendar for “Discovery call”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -921,8 +927,9 @@
    "kit": "store",
    "message": "Set up my booking calendar for “Bulk order call”: 15 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -1062,8 +1069,9 @@
    "kit": "interior",
    "message": "Set up my booking calendar for “Site measurement”: 60 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -1203,8 +1211,9 @@
    "kit": "homeservices",
    "message": "Set up my booking calendar for “Site survey”: 45 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -1344,8 +1353,9 @@
    "kit": "abroad",
    "message": "Set up my booking calendar for “Counselling session”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -1485,8 +1495,9 @@
    "kit": "finance",
    "message": "Set up my booking calendar for “Review meeting”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -1626,8 +1637,9 @@
    "kit": "events",
    "message": "Set up my booking calendar for “Planning call”: 45 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -1767,8 +1779,9 @@
    "kit": "travel",
    "message": "Set up my booking calendar for “Trip planning call”: 20 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -1901,8 +1914,9 @@
    "kit": "auto",
    "message": "Set up my booking calendar for “Test ride”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -2042,8 +2056,9 @@
    "kit": "professional",
    "message": "Set up my booking calendar for “Consultation”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -2183,8 +2198,9 @@
    "kit": "wellness",
    "message": "Set up my booking calendar for “Intro session”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -2318,8 +2334,9 @@
    "kit": "saas",
    "message": "Set up my booking calendar for “Product demo”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -2459,8 +2476,9 @@
    "kit": "hospitality",
    "message": "Set up my booking calendar for “Booking call”: 15 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -2593,8 +2611,9 @@
    "kit": "recruitment",
    "message": "Set up my booking calendar for “Hiring brief call”: 30 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {
@@ -2735,8 +2754,9 @@
    "kit": "ngo",
    "message": "Set up my booking calendar for “Volunteer call”: 20 minutes, Monday to Saturday, 10 am to 7 pm.",
    "expect": {
-    "tools": [
-     "configure_calendar"
+    "anyTools": [
+     "configure_calendar",
+     "create_calendar"
     ],
     "state": [
      {

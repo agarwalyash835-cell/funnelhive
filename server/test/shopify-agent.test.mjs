@@ -104,13 +104,16 @@ test('the agent profile Shopify reads: catalogue and cart, never checkout', asyn
 
 test('the WhatsApp agent recommends live products as cards with a Buy now button — never one that’s out of stock', async () => {
   assert.equal((await api('/wa-agent', 'PUT', { on: true, name: 'Riya', tone: 'friendly', knowledge: 'Kurtas for women. Delivery across India.' }, T)).status, 200);
-  fake.reply = { reply: 'We have a lovely indigo cotton kurta for *₹1,299* 😊', products: ['P1', 'P2', 'P9'], handoff: false, intent: 'purchase' };
+  fake.reply = { reply: 'We have a lovely indigo cotton kurta (P1) for *₹1,299* 😊', buttons: ['Show me more kurtas please'], products: ['P1', 'P2', 'P9'], handoff: false, intent: 'purchase' };
   await say('919700000011', 'blue kurta under 1500?');
   await waitFor(() => sentTo('919700000011').length >= 2);
   await wait(200);
   const out = sentTo('919700000011');
   assert.equal(out.length, 2, 'the reply and one card (P2 is out of stock, P9 doesn’t exist)');
   const card = out.find((m) => m.interactive?.type === 'cta_url');
+  const said = out.find((m) => m !== card);
+  assert.equal(said.interactive.body.text, 'We have a lovely indigo cotton kurta for *₹1,299* 😊', 'the internal product code never reaches the customer');
+  assert.equal(said.interactive.action.buttons[0].reply.title, 'Show me more kurtas', 'a long button is cut at a word, not mid-word');
   assert.equal(card.cloud, true);
   assert.deepEqual(card.interactive.action.parameters, { display_text: 'Buy now', url: 'https://mystore.myshopify.com/cart/12:1' });
   assert.equal(card.interactive.header.image.link, 'https://cdn.shopify.com/11.jpg');

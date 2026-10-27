@@ -15,7 +15,7 @@ export const aiEnabled = () => !!(KIE_KEY || client);
 export const aiProvider = () => (KIE_KEY ? `kie.ai · ${KIE_MODEL}` : client ? `Anthropic · ${MODEL}` : null);
 
 // One call to whichever model is configured → the model's text
-async function kie(system, messages, json) {
+async function kie(system, messages, json, timeoutMs = TIMEOUT) {
   const m = KIE_MODEL;
   let url, body, pick;
   if (m.startsWith('claude-')) {
@@ -31,7 +31,7 @@ async function kie(system, messages, json) {
     body = { model: m, instructions: system, input: messages.map((x) => ({ role: x.role, content: x.content })), stream: false, ...(json ? { text: { format: { type: 'json_object' } } } : {}) };
     pick = (d) => (d.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('');
   }
-  const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${KIE_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(TIMEOUT) });
+  const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${KIE_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
   const d = await r.json().catch(() => ({}));
   const text = pick(d);
   // kie.ai reports some errors with HTTP 200 and { code, msg }
@@ -109,8 +109,8 @@ export async function generateImage(prompt, { aspect = '16:9', timeoutMs = 15000
   throw new Error('The image is taking too long — please try again');
 }
 
-async function complete(system, messages, { json = true } = {}) {
-  if (KIE_KEY) return kie(system, messages, json);
+async function complete(system, messages, { json = true, timeoutMs } = {}) {
+  if (KIE_KEY) return kie(system, messages, json, timeoutMs);
   const res = await client.messages.create({ model: MODEL, max_tokens: 8000, system, messages });
   return res.content.map((c) => c.text || '').join('');
 }
@@ -193,11 +193,13 @@ function extractJson(text) {
 // general-purpose calls for other modules (the school: AI tutor, course and quiz writer)
 export const aiText = (system, user, history = []) => complete(system, [...history, { role: 'user', content: user }], { json: false });
 export const aiJson = (system, user) => ask(system, user);
-async function ask(system, user, history = []) {
+// deadline (ms timestamp, optional): each call gets only the time that's left
+async function ask(system, user, history = [], { deadline } = {}) {
+  const within = () => ({ timeoutMs: deadline ? Math.max(5000, deadline - Date.now()) : TIMEOUT });
   const messages = [...history, { role: 'user', content: user }];
-  const text = await complete(system, messages);
+  const text = await complete(system, messages, within());
   try { return extractJson(text); } catch {
-    const again = await complete(system, [...messages, { role: 'assistant', content: text.slice(0, 4000) }, { role: 'user', content: 'That was not valid JSON. Reply again with ONLY the complete, valid JSON object.' }]);
+    const again = await complete(system, [...messages, { role: 'assistant', content: text.slice(0, 4000) }, { role: 'user', content: 'That was not valid JSON. Reply again with ONLY the complete, valid JSON object.' }], within());
     return extractJson(again);
   }
 }
@@ -225,16 +227,19 @@ function normalizeFunnel(f) {
 // 3. up to two targeted repair passes by the model, fed the exact problems
 // 4. anything still below the bar is topped up from the closest template (already personalised)
 const MAX_REPAIRS = Number(process.env.AI_REPAIR_PASSES ?? 2);
+// the whole funnel (draft + repairs) within ~3 minutes: a slow model never leaves the seller waiting 10+ minutes —
+// a second draft or a repair starts only with time left for it, and the template tops up whatever is still missing
+const FUNNEL_BUDGET_MS = Number(process.env.AI_FUNNEL_BUDGET_MS || 200000);
 const summarise = (issues) => issues.map((i) => `- ${i.s == null ? 'funnel' : `step ${i.s + 1}${i.b == null ? '' : ` block ${i.b + 1}`}`} (${i.type}): ${i.msg}`).join('\n');
 
-async function repair(system, f, issues) {
+async function repair(system, f, issues, deadline) {
   // structure problems (missing pages / sections / wrong order): the model rewrites the funnel
   if (issues.some((i) => i.b == null)) {
-    return ask(system, `Here is a funnel you generated:\n${JSON.stringify(f)}\n\nIt fails the quality bar:\n${summarise(issues)}\n\nReturn the COMPLETE corrected funnel JSON (same format), fixing every problem and keeping everything that was already good.`);
+    return ask(system, `Here is a funnel you generated:\n${JSON.stringify(f)}\n\nIt fails the quality bar:\n${summarise(issues)}\n\nReturn the COMPLETE corrected funnel JSON (same format), fixing every problem and keeping everything that was already good.`, [], { deadline });
   }
   // content problems: only the failing blocks go back, the rest is untouched
   const targets = [...new Map(issues.map((i) => [`${i.s}.${i.b}`, i])).values()].map((i) => ({ step: i.s, index: i.b, type: f.steps[i.s].blocks[i.b].type, props: f.steps[i.s].blocks[i.b].props, problems: issues.filter((x) => x.s === i.s && x.b === i.b).map((x) => x.msg) }));
-  const out = await ask(system, `These blocks of the funnel "${f.name}" fail the quality bar. The checkout price is ${JSON.stringify(f.steps.flatMap((st) => st.blocks).find((x) => x.type === 'checkout')?.props?.price ?? null)}.\n${JSON.stringify(targets)}\n\nReturn ONLY JSON {"fixes":[{"step":number,"index":number,"props":{...complete corrected props...}}]} with one entry per block above, fixing every listed problem.`);
+  const out = await ask(system, `These blocks of the funnel "${f.name}" fail the quality bar. The checkout price is ${JSON.stringify(f.steps.flatMap((st) => st.blocks).find((x) => x.type === 'checkout')?.props?.price ?? null)}.\n${JSON.stringify(targets)}\n\nReturn ONLY JSON {"fixes":[{"step":number,"index":number,"props":{...complete corrected props...}}]} with one entry per block above, fixing every listed problem.`, [], { deadline });
   const next = structuredClone(f);
   for (const fx of out.fixes || []) {
     const blk = next.steps[fx.step]?.blocks?.[fx.index];
@@ -261,6 +266,7 @@ ${barText(blueprint)}
 Every section has its own job — never repeat a point, benefit, list or claim another section already makes; a reader should never feel they've read it before.${design ? `
 The seller chose their design: ${design}.` : ''}`;
   const report = { model: aiProvider(), template: closest.id, firstDraftIssues: null, repairPasses: 0, filledFromTemplate: [], finalIssues: null };
+  const deadline = Date.now() + FUNNEL_BUDGET_MS, left = () => deadline - Date.now();
   let best = null, bestIssues = null;
   const consider = (f) => {
     if (!f || !Array.isArray(f.steps)) return;
@@ -274,14 +280,14 @@ The seller chose their design: ${design}.` : ''}`;
     const iss = audit(f, blueprint);
     if (!best || iss.length < bestIssues.length) { best = f; bestIssues = iss; }
   };
-  for (let attempt = 0; attempt < 2 && !best; attempt++) {
-    try { consider(await ask(system, prompt)); } catch (e) { console.warn('AI funnel generation failed:', e.message); if (/not authorized|401|API key/i.test(e.message)) break; }
+  for (let attempt = 0; attempt < 2 && !best && (attempt === 0 || left() > 60000); attempt++) {
+    try { consider(await ask(system, prompt, [], { deadline })); } catch (e) { console.warn('AI funnel generation failed:', e.message); if (/not authorized|401|API key/i.test(e.message)) break; }
   }
   if (!best) return Object.assign(normalizeFunnel(trimTemplate(matchTemplate(prompt), length)), { fallback: true, quality: { ...report, fallback: true } });
   report.firstDraftIssues = bestIssues.length;
-  for (let pass = 0; pass < MAX_REPAIRS && bestIssues.length; pass++) {
+  for (let pass = 0; pass < MAX_REPAIRS && bestIssues.length && left() > 45000; pass++) {
     report.repairPasses++;
-    try { consider(await repair(system, best, bestIssues)); } catch (e) { console.warn('AI repair pass failed:', e.message); }
+    try { consider(await repair(system, best, bestIssues, deadline)); } catch (e) { console.warn('AI repair pass failed:', e.message); }
   }
   // guarantee: never below the template bar
   const f = structuredClone(best);

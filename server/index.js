@@ -1073,11 +1073,11 @@ Write every word of the page copy in Hindi (Devanagari script) — natural, conv
   if (opts.primary) gen.theme = { ...gen.theme, primary: opts.primary };
   if (hindi) gen.theme = { ...gen.theme, lang: 'hi', headingFont: gen.theme?.headingFont || 'Mukta', bodyFont: gen.theme?.bodyFont || 'Hind' };
   const usedAI = aiEnabled() && !gen.fallback;
-  const quality = gen.quality;
+  const { model, ...quality } = gen.quality || {}; // the AI vendor/model never reaches sellers
   delete gen.fallback; delete gen.quality;
   const f = createFunnel(req.user.id, gen);
-  if (quality) { f.aiQuality = { ...quality, at: Date.now() }; T.funnels.put(f); }
-  res.json({ ...f, usedAI, quality });
+  if (Object.keys(quality).length) { f.aiQuality = { ...quality, at: Date.now() }; T.funnels.put(f); }
+  res.json({ ...f, usedAI, quality: Object.keys(quality).length ? quality : undefined });
 }));
 
 app.post('/api/ai/edit', auth, aiLimiter, credits('edit'), wrap(async (req, res) => {

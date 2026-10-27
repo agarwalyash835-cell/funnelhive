@@ -730,7 +730,8 @@ steps run top to bottom; each is one of:
   {"type":"condition","match":"all|any","rules":[{"field":"tag|stage|custom|bought|has|source|amount","op":"is|not|equals|contains|gt|lt|filled|empty","value":"…","fieldId":"…","pipelineId":"…","stageId":"…"}],"yes":[steps],"no":[steps]}
   {"type":"split","percent":50,"a":[steps],"b":[steps]}
 Message variables: ${VARIABLES.map((v) => `{{${v}}}`).join(' ')} and contact fields as {{f_<field id>}}.
-Rules: use ONLY ids from the business context below; warm, short, Indian-English messages signed {{business}}; waits at sensible hours ("until 10:00" before WhatsApp); never invent prices or links; 2–8 steps unless asked for more.`;
+Rules: use ONLY ids from the business context below; warm, short, Indian-English messages signed {{business}}; waits at sensible hours ("until 10:00" before WhatsApp); never invent prices or links; 2–8 steps unless asked for more.
+Waits count from when the trigger fired, never back from a future date. Bookings already get automatic email + WhatsApp reminders 1 day and 1 hour before the booking (switched on per booking type) — when asked to remind someone before their booking, add no wait or message for it; put a first {"type":"note"} step saying the booking type's built-in reminders handle that, then build the rest.`;
 function aiContext(userId) {
   const u = userOf(userId);
   return JSON.stringify({

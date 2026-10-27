@@ -443,7 +443,7 @@ Rules: use exactly what the owner asked for (days, times in 24-hour HH:MM, lengt
 export async function draftCalendar(u, prompt) {
   const tpl = bookingTemplates(u).find((t) => t.mine);
   const fields = (u.crmFields || []).map((x) => `${x.label}${x.type === 'select' ? ` (${x.options})` : ''}`).join('; ');
-  const r = await aiJson(CAL_SYSTEM, `Business: ${u.settings?.businessName || u.name || ''}${tpl ? `\nIndustry: ${tpl.industry} — their usual booking: ${tpl.name}, ${tpl.duration} min` : ''}${fields ? `\nTheir CRM fields (reuse these names for questions when they fit): ${fields}` : ''}\n\nWhat they want: ${String(prompt).slice(0, 1500)}`);
+  const r = await aiJson(CAL_SYSTEM, `Business: ${u.settings?.businessName || u.name || ''}${tpl ? `\nIndustry: ${tpl.industry} — their usual booking: ${tpl.name}, ${tpl.duration} min` : ''}${fields ? `\nTheir CRM fields (reuse these names for questions when they fit): ${fields}` : ''}\n(The business details are background only — what they want below decides the name, wording and questions.)\n\nWhat they want: ${String(prompt).slice(0, 1500)}`);
   if (!r || typeof r !== 'object') throw new Error('The AI couldn’t set this up — try describing it differently');
   // questions named like a CRM field are linked to it (the answer lands on the contact)
   const byLabel = new Map((u.crmFields || []).map((x) => [x.label.replace(/ \(₹\)$/, '').toLowerCase(), x.id]));

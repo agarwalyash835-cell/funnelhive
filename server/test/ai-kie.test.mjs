@@ -93,6 +93,7 @@ test('quality gate: a weak first draft is repaired, and whatever is still missin
   assert.deepEqual(r.steps.map((s) => s.type), ['sales', 'checkout', 'upsell', 'downsell', 'thankyou']);
   assert.ok(r.steps[0].blocks.length >= 9, 'a full standard-length landing page, as in the matched template');
   assert.equal(r.name, 'Fake Bakery', 'the AI’s own content is kept');
+  assert.ok(!('model' in q) && !/kie|deepseek|gpt/i.test(JSON.stringify((await api(`/funnels/${r.id}`, 'GET', null, T)).data)), 'the AI vendor/model never reaches the seller');
   const repairCalls = seen.filter((x) => /fails the quality bar/.test(JSON.stringify(x.body.input)));
   assert.ok(repairCalls.length >= 1, 'repair prompts list the exact problems');
 });
