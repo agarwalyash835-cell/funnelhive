@@ -1,4 +1,4 @@
-// Messages to a seller's contacts: email (the seller's own SMTP, or the server's SMTP / Resend)
+// Messages to a seller's contacts: email (the seller's own SMTP, or the server's SMTP / the platform's Mailercloud or Resend)
 // and WhatsApp (Meta WhatsApp Cloud API). Passwords and tokens are stored encrypted (AES-256-GCM).
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
@@ -27,25 +27,59 @@ export function decrypt(blob) {
 }
 
 // ---------- email ----------
-// the platform's own sender (Resend), entered in Admin → Email sending; server env vars win
+// the platform's own sender, entered in Admin → Email sending: Mailercloud (or Resend, for set-ups from before it);
+// server env vars win
 var mailSettings; // var (no initialiser) + function declarations: platform.js registers this during a circular import, before this file runs
 export function useMailSettings(fn) { mailSettings = fn; }
-export function resendKey() { return process.env.RESEND_API_KEY || mailSettings?.()?.resendKey || ''; }
+export const MAILERS = { mailercloud: 'Mailercloud', resend: 'Resend' };
+// → { provider, key, env? } or null
+export function platformMailer() {
+  if (process.env.MAILERCLOUD_API_KEY) return { provider: 'mailercloud', key: process.env.MAILERCLOUD_API_KEY, env: true };
+  if (process.env.RESEND_API_KEY) return { provider: 'resend', key: process.env.RESEND_API_KEY, env: true };
+  const m = mailSettings?.();
+  return m?.key ? { provider: MAILERS[m.provider] ? m.provider : 'resend', key: m.key } : null;
+}
 export function mailFrom() { return process.env.MAIL_FROM || mailSettings?.()?.from || 'FunnelHive <no-reply@funnelhive.app>'; }
 // a seller's emails go out from the platform address under the seller's own name ("Asha Yoga" <no-reply@…>)
 const fromAs = (name) => { const addr = (/<([^>]+)>/.exec(mailFrom()) || [])[1] || mailFrom(); return name ? `"${String(name).replace(/["<>]/g, '')}" <${addr}>` : mailFrom(); };
+const parseAddr = (s) => { const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(String(s)); return m ? { name: m[1].trim(), email: m[2].trim() } : { name: '', email: String(s).trim() }; };
+const providerError = (d, status) => { const e = new Error(d.message || d.error?.message || `Email provider error ${status}`); e.status = status; return e; };
 export async function resendSend(key, payload) {
   const r = await fetch(`${process.env.RESEND_BASE_URL || 'https://api.resend.com'}/emails`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(d.message || `Email provider error ${r.status}`); e.status = r.status; throw e; }
+  if (!r.ok) throw providerError(d, r.status);
   return d;
+}
+// Mailercloud's transactional API (https://apidoc.mailercloud.com/api-reference/email/send-email). The key goes in
+// Authorization as it is; the sender (and any reply-to) must be verified in Mailercloud. Our own message id makes a
+// retry within 24 hours a no-op on their side instead of a second email.
+export async function mailercloudSend(key, { from, to, subject, text, html, headers, promotional }) {
+  const f = parseAddr(from), id = crypto.randomUUID();
+  const send = async (withHeaders) => {
+    const email = { from: f.email, ...(f.name ? { fromName: f.name } : {}), subject, recipients: { to: (Array.isArray(to) ? to : [to]).map((x) => ({ email: String(x) })) }, ...(text ? { text } : {}), ...(html ? { html } : {}), ...(withHeaders && headers ? { headers } : {}) };
+    const r = await fetch(`${process.env.MAILERCLOUD_BASE_URL || 'https://email-api.mailercloud.com'}/email`, { method: 'POST', headers: { Authorization: key, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, version: '1.0', metadata: { campaignType: promotional ? 'PROMOTIONAL' : 'TRANSACTIONAL', messageId: id } }), signal: AbortSignal.timeout(10000) });
+    const d = await r.json().catch(() => ({}));
+    return { ok: r.ok && (!d.status || d.status === 'SUCCESS'), status: r.status, d };
+  };
+  let out = await send(true);
+  // Mailercloud refuses headers it sets itself (it may add its own unsubscribe ones): send once more without ours —
+  // the unsubscribe link is in the body either way
+  if (!out.ok && headers && out.status === 400 && /header/i.test(out.d.message || '')) out = await send(false);
+  if (!out.ok) throw providerError(out.d, out.status);
+  return { id };
+}
+// one email through the platform's provider: { from, to, subject, text, html, replyTo?, headers?, promotional? } → { id }
+// (Mailercloud only accepts a verified reply-to, so a seller's own reply address isn't passed there)
+export function platformSend(mailer, p) {
+  if (mailer.provider === 'mailercloud') return mailercloudSend(mailer.key, p);
+  return resendSend(mailer.key, { from: p.from, to: p.to, subject: p.subject, text: p.text, html: p.html, ...(p.replyTo ? { reply_to: p.replyTo } : {}), ...(p.headers ? { headers: p.headers } : {}) });
 }
 const envSmtp = () => (process.env.SMTP_HOST ? { host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : Number(process.env.SMTP_PORT) === 465, user: process.env.SMTP_USER || '', pass: process.env.SMTP_PASS || '' } : null);
 const userSmtp = (u) => { const e = u?.channels?.email; return e?.host ? { host: e.host, port: e.port, secure: e.secure, user: e.user, pass: decrypt(e.passEnc) } : null; };
 export function emailStatus(u) {
   if (userSmtp(u)) return { configured: true, via: 'your SMTP' };
   if (envSmtp()) return { configured: true, via: 'server SMTP' };
-  if (resendKey()) return { configured: true, via: 'Resend' };
+  if (platformMailer()) return { configured: true, via: 'platform email' };
   return { configured: false };
 }
 const transports = new Map();
@@ -73,8 +107,9 @@ export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverr
     const info = await transportFor(smtp).sendMail({ from, to, subject, text: body, html: htmlOf(body, track), replyTo: e.replyTo || undefined, headers });
     return { status: 'sent', id: info.messageId };
   }
-  if (resendKey()) {
-    const d = await resendSend(resendKey(), { from: u ? fromAs(fromName) : mailFrom(), to, subject, text: body, html: htmlOf(body, track), reply_to: e.replyTo || u?.email, headers });
+  const mailer = platformMailer();
+  if (mailer) {
+    const d = await platformSend(mailer, { from: u ? fromAs(fromName) : mailFrom(), to, subject, text: body, html: htmlOf(body, track), replyTo: e.replyTo || u?.email, headers, promotional: !!unsubscribeUrl });
     return { status: 'sent', id: d.id };
   }
   return { status: 'not-configured' };

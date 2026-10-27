@@ -26,7 +26,7 @@ export default function Admin() {
   );
   if (tfa == null) return <Layout title="Admin"><div className="skeleton" /></Layout>;
   return (
-    <Layout title="Admin" subtitle="Your platform: revenue, sellers and settings." wide actions={<div className="seg">{TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setSp({ tab: k })}>{l}</button>)}</div>}>
+    <Layout title="Admin" subtitle="Your platform: revenue, sellers and settings." wide actions={<div className="seg admin-tabs">{TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setSp({ tab: k })}>{l}</button>)}</div>}>
       {tab === 'overview' && <Overview />}
       {tab === 'sellers' && <Sellers />}
       {tab === 'partners' && <AdminPartners />}
@@ -176,7 +176,7 @@ function Restore() {
   const row = (from, name, label, size) => <div key={`${from}${name}`} className="rs-row"><span><b>{label}</b>{size && <small className="muted"> · {size}</small>}</span><button className="btn ghost sm" onClick={() => { setPick({ from, name }); setWord(''); }}>Restore…</button></div>;
   return (
     <Panel title="Backups & restore" actions={!b && <button className="btn ghost sm" onClick={load}>Show backups</button>}>
-      {!b ? <p className="muted sm">A backup is taken every 6 hours (one file per day). The last 7 days stay on this server; with file storage connected, 90 days are kept off-site.</p> : b.error ? <p className="err">{b.error}</p> : (
+      {!b ? <p className="muted sm">A backup is taken every hour (one file per day, holding that day’s latest state). The last 7 days stay on this server; with file storage connected, 90 days are kept off-site.</p> : b.error ? <p className="err">{b.error}</p> : (
         <div className="rs">
           <div><h4>Off-site ({Array.isArray(b.bucket) ? b.bucket.length : 0})</h4>{Array.isArray(b.bucket) ? (b.bucket.length ? b.bucket.slice(0, 30).map((n) => row('bucket', n, day(n))) : <p className="muted sm">None yet — connect File storage in Plan & settings.</p>) : <p className="err">{b.bucket.error}</p>}</div>
           <div><h4>On this server ({b.local.length})</h4>{b.local.map((f) => row('local', f.name, day(f.name), mb(f.bytes)))}</div>
@@ -344,8 +344,8 @@ function StoragePanel({ s, save, field = 'storage' }) {
   const off = s.offsite;
   return (
     <Panel title="File storage & off-site backups">
-      <p className="muted sm">An S3-compatible bucket (Wasabi, AWS S3, Cloudflare R2…). Once connected, a copy of the database goes there after every backup (every 6 hours, 90 days kept), and new uploaded images and product files are stored there instead of on this server.</p>
-      <div className={`ai-card ${s.ready ? 'on' : ''}`}><Icon name="box" size={20} /><div><b>{s.ready ? `Connected · ${s.fromEnv ? 'from the server’s settings file' : s.bucket}` : 'Not connected — everything stays on this server only'}</b><p className="muted sm">{off ? (off.ok ? `Last off-site backup: ${off.file} · ${new Date(off.at).toLocaleString('en-IN')}` : `Last off-site backup failed: ${off.error}`) : s.ready ? 'The first off-site backup runs within a few minutes.' : 'Wasabi → Buckets → Create bucket, then Access Keys → Create new access key.'}</p></div></div>
+      <p className="muted sm">An S3-compatible bucket (Wasabi, AWS S3, Cloudflare R2…). Once connected, an encrypted copy of the database goes there after every backup (every hour, 90 days kept), and new uploaded images and product files are stored there instead of on this server.</p>
+      <div className={`ai-card ${s.ready ? 'on' : ''}`}><Icon name="box" size={20} /><div><b>{s.ready ? `Connected · ${s.fromEnv ? 'from the server’s settings file' : s.bucket}` : 'Not connected — everything stays on this server only'}</b><p className="muted sm">{off ? (off.ok ? `Last off-site backup: ${off.file} · ${new Date(off.at).toLocaleString('en-IN')}` : `Last off-site backup failed: ${off.error}`) : s.ready ? 'The first off-site backup runs within a few minutes.' : 'Cloudflare R2 (free up to 10 GB): R2 → Create bucket, then Manage API tokens → Create token (Object Read & Write). Endpoint: https://<account id>.r2.cloudflarestorage.com, region: auto.'}</p></div></div>
       <CorsWarn s={s} />
       {s.fromEnv ? <p className="hint">Set by S3_* variables on the server, which take priority over this form.</p> : (
         <>
@@ -406,24 +406,96 @@ function CaptchaPanel({ c, save }) {
   );
 }
 
-// the platform's own email sender (Resend): sign-in codes, password resets, students' alerts
+// the platform's own email sender (Mailercloud, or Resend for older set-ups): sign-in codes, password resets, alerts
+const MAILER_HELP = {
+  mailercloud: { name: 'Mailercloud', placeholder: 'Your Mailercloud API key', steps: 'In Mailercloud: switch to the Transactional Email platform → add and verify your sending domain (its DNS records) and the sender address → Settings → API → create a key. The sender below must be that verified address.' },
+  resend: { name: 'Resend', placeholder: 're_…', steps: 'In Resend: Domains → Add your domain and add its DNS records until it shows Verified → API Keys → Create (Sending access). The sender must be on that verified domain.' },
+};
 function MailPanel({ m, save }) {
-  const [v, setV] = useState({ from: m.hasKey || m.fromEnv ? m.from : '', key: '' });
+  const [v, setV] = useState({ provider: m.provider || 'mailercloud', from: m.hasKey || m.fromEnv ? m.from : '', key: '' });
   const [busy, setBusy] = useState(false);
+  const help = MAILER_HELP[v.provider];
+  const switching = m.hasKey && v.provider !== m.provider; // a new provider needs its own key
   const go = async () => { setBusy(true); if (await save({ mail: v })) { setV({ ...v, key: '' }); toast('Test email sent — check your inbox'); } setBusy(false); };
   return (
     <Panel title="Email sending">
-      <p className="muted sm">Sends sign-in codes, password resets, receipts and students’ alerts — and sellers’ emails when they haven’t connected their own. Uses <b>Resend</b> (free for 3,000 emails a month). Sellers’ emails go out under their own business name from this address.</p>
-      <div className={`ai-card ${m.ready ? 'on' : ''}`}><Icon name="mail" size={20} /><div><b>{m.ready ? `Sending · ${m.fromEnv ? 'Resend key from the server’s settings file' : m.smtpEnv && !m.hasKey ? 'server SMTP' : m.from}` : 'Not set up — no emails are being delivered'}</b>{!m.ready && <p className="muted sm">Students can’t get sign-in codes and sellers can’t reset passwords until this is set up.</p>}</div></div>
-      {m.fromEnv ? <p className="hint">Set by RESEND_API_KEY on the server, which takes priority over this form.</p> : (
+      <p className="muted sm">Sends sign-in codes, password resets, receipts and students’ alerts — and sellers’ emails when they haven’t connected their own. Sellers’ emails go out under their own business name from this address; replies come to this address too (sellers who want replies in their own inbox connect their own email in Settings).</p>
+      <div className={`ai-card ${m.ready ? 'on' : ''}`}><Icon name="mail" size={20} /><div><b>{m.ready ? `Sending · ${m.fromEnv ? `${MAILER_HELP[m.provider]?.name || 'Email'} key from the server’s settings file` : m.smtpEnv && !m.hasKey ? 'server SMTP' : `${MAILER_HELP[m.provider]?.name} · ${m.from}`}` : 'Not set up — no emails are being delivered'}</b>{!m.ready && <p className="muted sm">Students can’t get sign-in codes and sellers can’t reset passwords until this is set up.</p>}</div></div>
+      {m.fromEnv ? <p className="hint">Set by {m.provider === 'resend' ? 'RESEND_API_KEY' : 'MAILERCLOUD_API_KEY'} on the server, which takes priority over this form.</p> : (
         <>
-          <div className="form2">
-            <label>Sender<input value={v.from} onChange={(e) => setV({ ...v, from: e.target.value })} placeholder="FunnelHive <no-reply@theaihive.tech>" /></label>
-            <label>Resend API key {m.hasKey && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.key} onChange={(e) => setV({ ...v, key: e.target.value.trim() })} placeholder="re_…" autoComplete="new-password" /></label>
+          <div className="seg" role="radiogroup" aria-label="Email service" style={{ marginBottom: 12 }}>
+            {Object.entries(MAILER_HELP).map(([id, x]) => <button key={id} type="button" role="radio" aria-checked={v.provider === id} className={v.provider === id ? 'on' : ''} onClick={() => setV({ ...v, provider: id, key: '' })}>{x.name}{id === 'mailercloud' && <small className="muted"> · recommended</small>}</button>)}
           </div>
-          <p className="hint">In Resend: Domains → Add your domain and add its DNS records until it shows Verified → API Keys → Create (Sending access). The sender must be on that verified domain. Saving sends a test email to you, so a wrong key or unverified domain is caught here.</p>
-          <div className="row"><button className="btn primary" disabled={busy || !v.from || (!v.key && !m.hasKey)} onClick={go}>{busy ? 'Sending a test…' : 'Save & send test email'}</button>{m.hasKey && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Stop sending email?', text: 'Sign-in codes and password resets will stop being delivered.', confirm: 'Disconnect', danger: true })) && save({ mail: { clear: true } })}>Disconnect</button>}</div>
+          <div className="form2">
+            <label>Sender<input value={v.from} onChange={(e) => setV({ ...v, from: e.target.value })} placeholder="FunnelHive <no-reply@getaihive.in>" /></label>
+            <label>{help.name} API key {m.hasKey && !switching && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.key} onChange={(e) => setV({ ...v, key: e.target.value.trim() })} placeholder={help.placeholder} autoComplete="new-password" /></label>
+          </div>
+          <p className="hint">{help.steps} Saving sends a test email to you, so a wrong key or unverified sender is caught here.</p>
+          <div className="row"><button className="btn primary" disabled={busy || !v.from || (!v.key && (!m.hasKey || switching))} onClick={go}>{busy ? 'Sending a test…' : 'Save & send test email'}</button>{m.hasKey && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Stop sending email?', text: 'Sign-in codes and password resets will stop being delivered.', confirm: 'Disconnect', danger: true })) && save({ mail: { clear: true } })}>Disconnect</button>}</div>
         </>
+      )}
+    </Panel>
+  );
+}
+
+// Better Stack: an outside uptime check of /api/health, plus heartbeats the app sends (every minute; after every backup)
+// — and the backup recovery key the owner keeps off this server
+const BEATS = {
+  app: { label: 'App heartbeat', every: 'Expect a heartbeat every 1 minute, grace period 3 minutes', what: 'Alerts you if the app crashes, the server goes down, background jobs (automations, emails) stop, or the disk fills up.' },
+  backup: { label: 'Backup heartbeat', every: 'Expect a heartbeat every 1 hour, grace period 1 hour', what: 'Alerts you if a backup fails, or no copy is reaching your storage bucket.' },
+};
+const copyText = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copied'); } catch { toast('Couldn’t copy — select it and copy by hand'); } };
+function MonitorPanel({ m, save }) {
+  const [v, setV] = useState({ app: '', backup: '' });
+  const [busy, setBusy] = useState('');
+  const [key, setKey] = useState(null);
+  const health = `${location.origin}/api/health`;
+  const go = async (kind, url) => { setBusy(kind); if (await save({ monitor: { [kind]: url } })) { setV({ ...v, [kind]: '' }); toast(url ? 'Heartbeat sent — Better Stack shows it as Up' : 'Removed'); } setBusy(''); };
+  const when = (t) => new Date(t).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+  const show = async () => { try { setKey((await api('/admin/recovery-key', 'POST', { confirm: 'SHOW' })).key); } catch (e) { toast(e.message); } };
+  const saved = async () => { try { await api('/admin/recovery-key', 'POST', { saved: true }); setKey(null); await save({}); toast('Noted — keep it safe'); } catch (e) { toast(e.message); } };
+  return (
+    <Panel title="Monitoring & backup safety">
+      <p className="muted sm">Better Stack (free plan) watches the platform from outside and alerts you by email, SMS or phone call. Set up these three in Better Stack, then paste the two heartbeat links here.</p>
+      <div className="mon-steps">
+        <div className="mon-step">
+          <b>1 · Uptime monitor</b>
+          <p className="muted sm">Better Stack → Uptime → Monitors → Create monitor → “URL becomes unavailable”, and check this address. It answers with an error the moment the database, background jobs or disk have a problem.</p>
+          <div className="row"><code className="mon-url">{health}</code><button className="btn ghost sm" onClick={() => copyText(health)}><Icon name="copy" size={14} /> Copy</button></div>
+        </div>
+        {Object.entries(BEATS).map(([kind, b], i) => {
+          const s = m[kind] || {}, last = s.last;
+          return (
+            <div className="mon-step" key={kind}>
+              <b>{i + 2} · {b.label}</b>
+              <p className="muted sm">{b.what} Better Stack → Uptime → Heartbeats → Create heartbeat → {b.every.toLowerCase()} → copy its link.</p>
+              <div className={`ai-card ${s.set && last?.sent && last?.ok ? 'on' : ''}`}><Icon name="bell" size={20} /><div><b>{!s.set ? 'Not set up' : !last ? 'Set — waiting for the first heartbeat' : !last.sent ? `Couldn’t reach Better Stack (${last.error || `HTTP ${last.status}`})` : last.ok ? `Healthy · last heartbeat ${when(last.at)}` : `Reported a problem · ${when(last.at)}`}</b>{s.set && last && !last.ok && last.reason && <p className="muted sm">{last.reason}</p>}</div></div>
+              {s.fromEnv ? <p className="hint">Set on the server (BETTERSTACK_{kind === 'app' ? '' : 'BACKUP_'}HEARTBEAT_URL), which takes priority over this form.</p> : (
+                <div className="row">
+                  <input className="grow" type="password" value={v[kind]} onChange={(e) => setV({ ...v, [kind]: e.target.value.trim() })} placeholder={s.set ? 'Saved — paste a new link to replace it' : 'https://uptime.betterstack.com/api/v1/heartbeat/…'} autoComplete="off" aria-label={`${b.label} link`} />
+                  <button className="btn primary" disabled={!v[kind] || busy === kind} onClick={() => go(kind, v[kind])}>{busy === kind ? 'Checking…' : 'Save & test'}</button>
+                  {s.set && <button className="btn ghost danger" disabled={busy === kind} onClick={() => go(kind, '')}>Remove</button>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mon-step">
+        <b>Backup recovery key</b>
+        <p className="muted sm">Off-site backups are encrypted, and so are the API keys stored inside them. This key opens both. It lives on this server, so if the server is ever lost, you need your own copy to restore anything. Keep it in your password manager, never in email or chat.</p>
+        <div className={`ai-card ${m.recoveryKeySavedAt ? 'on' : ''}`}><Icon name="shield" size={20} /><div><b>{m.recoveryKeySavedAt ? `Saved by you · ${when(m.recoveryKeySavedAt)}` : 'Not saved yet — do this once'}</b></div></div>
+        <button className="btn ghost" onClick={show}><Icon name="eye" size={14} /> Show recovery key</button>
+      </div>
+      {key && (
+        <Modal title="Your backup recovery key" onClose={() => setKey(null)} width={540}>
+          <div className="m-body mon-modal">
+            <div className="row"><code className="mon-url mon-key">{key}</code><button className="btn ghost sm" onClick={() => copyText(key)}><Icon name="copy" size={14} /> Copy</button></div>
+            <p className="sm"><b>To restore on a new server:</b> put <code>ENCRYPTION_KEY={'<this key>'}</code> in <code>server/.env</code> before the first start, connect the same storage bucket in File storage, then open Backups &amp; restore → Off-site and pick a day.</p>
+            <p className="muted sm">Showing this key is recorded in the audit log.</p>
+            <div className="m-foot"><button className="btn ghost" onClick={() => setKey(null)}>Close</button><button className="btn primary" onClick={saved}>I’ve saved it somewhere safe</button></div>
+          </div>
+        </Modal>
       )}
     </Panel>
   );
@@ -546,6 +618,7 @@ function PlatformSettings() {
       {s.composio && <ComposioPanel c={s.composio} save={save} />}
       <StoragePanel s={s.storage} save={save} />
       <StoragePanel s={s.videoStorage} save={save} field="videoStorage" />
+      {s.monitor && <MonitorPanel m={s.monitor} save={save} />}
 
       <Panel title="Razorpay (collects subscriptions)">
         <p className="muted sm">Your own Razorpay account. Sellers connect theirs separately for their customers’ payments.</p>

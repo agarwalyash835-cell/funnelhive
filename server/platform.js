@@ -20,8 +20,10 @@ export const DEFAULTS = {
   razorpay: { keyId: '', secretEnc: '', webhookSecretEnc: '', planIds: {} },
   storage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // S3-compatible (Wasabi…): backups, uploads, product files
   videoStorage: { endpoint: '', region: '', bucket: '', key: '', secretEnc: '', publicUrl: '' }, // course video pieces (Cloudflare R2: no download fees)
-  mail: { from: '', keyEnc: '' }, // the platform's email sender (Resend): sign-in codes, resets, students' alerts
+  mail: { from: '', keyEnc: '', provider: '' }, // the platform's email sender (Mailercloud, or Resend): sign-in codes, resets, students' alerts
   embeddings: { keyEnc: '', model: '', vision: '' },
+  monitor: { appEnc: '', backupEnc: '' }, // Better Stack heartbeat URLs (monitor.js; env BETTERSTACK_* wins)
+  recoveryKeySavedAt: 0, // when the owner confirmed they saved the backup recovery key somewhere off this server
   sarvam: { keyEnc: '' }, // Sarvam AI for the WhatsApp inbox: voice notes, Indian-script pages, translating questions (env SARVAM_API_KEY wins) // OpenRouter key for the WhatsApp AI agent's document search (server env OPENROUTER_API_KEY wins)
   signupsOpen: true,
   announcement: '',
@@ -48,6 +50,7 @@ export function platform() {
     videoStorage: { ...DEFAULTS.videoStorage, ...s.videoStorage },
     mail: { ...DEFAULTS.mail, ...s.mail },
     embeddings: { ...DEFAULTS.embeddings, ...s.embeddings },
+    monitor: { ...DEFAULTS.monitor, ...s.monitor },
     sarvam: { ...DEFAULTS.sarvam, ...s.sarvam },
     captcha: { ...DEFAULTS.captcha, ...s.captcha },
     metaSignup: { ...DEFAULTS.metaSignup, ...s.metaSignup },
@@ -83,7 +86,7 @@ export { encrypt };
 // file storage entered in the admin panel (server env vars win — see storage.js)
 useStorageSettings(() => { const s = platform().storage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
 useConnectHosts(bucketOrigins);
-useMailSettings(() => { const m = platform().mail; return m.keyEnc ? { resendKey: decrypt(m.keyEnc), from: m.from } : null; });
+useMailSettings(() => { const m = platform().mail; return m.keyEnc ? { key: decrypt(m.keyEnc), provider: m.provider || 'resend', from: m.from } : null; });
 useVideoStorageSettings(() => { const s = platform().videoStorage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
 
 // Owners are the accounts listed in ADMIN_EMAILS (once their email is verified) or given the admin role

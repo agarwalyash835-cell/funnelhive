@@ -65,6 +65,7 @@ import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows, customP
 import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan, needsAfa, AFA_NOTE } from './plans.js';
 import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
 import { registerObserve, requestMetrics, reportError } from './observe.js';
+import './monitor.js'; // Better Stack heartbeats (the jobs process pings every minute)
 import { sellerTz, offsetAt, validTz, COMMON_TZ, zoned } from './tz.js';
 import { dropRollups, trimRollups } from './rollup.js';
 import { registerWebinars, registrationFor, previewSession } from './webinars.js';

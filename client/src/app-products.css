@@ -466,3 +466,17 @@ fieldset.plain:disabled { opacity: .75; }
 .wb-att { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--c-line-2); }
 .wb-att input[readonly] { font-family: ui-monospace, monospace; font-size: 12px; }
 @media (max-width: 700px) { .wb-prov { grid-template-columns: 1fr; } .wb-an { grid-template-columns: 1fr; } .wb-fstep { grid-template-columns: 96px minmax(0, 1fr) 44px 34px; } }
+
+/* Admin → Monitoring & backup safety */
+.mon-steps { display: grid; gap: 14px; margin: 10px 0 16px; }
+.mon-step { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--c-line); border-radius: 10px; }
+.mon-step > p { margin: 0; }
+.mon-step .row { flex-wrap: wrap; }
+.mon-step input.grow { flex: 1 1 260px; min-width: 0; }
+.mon-url { display: inline-block; max-width: 100%; overflow-wrap: anywhere; padding: 6px 9px; border-radius: 7px; background: var(--c-line-2); font-size: 12.5px; }
+.mon-key { flex: 1 1 280px; user-select: all; }
+.mon-modal { display: grid; gap: 12px; }
+.mon-modal p { margin: 0; }
+/* Admin tabs: on a phone they scroll sideways inside their own bar instead of widening the page */
+.seg.admin-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.seg.admin-tabs button { flex: none; white-space: nowrap; }

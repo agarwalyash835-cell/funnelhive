@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus, restorePending, safetyDir, dir as dataDir } from './db.js';
 import { saveComposio, composioView } from './composio.js';
 import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE, DEFAULTS, companyMissing } from './platform.js';
-import { decrypt, mailFrom, resendSend } from './messaging.js';
+import { decrypt, mailFrom, platformMailer, platformSend, MAILERS } from './messaging.js';
 import { s3Enabled, storageFromEnv, testStorage, listKeys, getObject, videoBucketReady, videoStorageFromEnv } from './storage.js';
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
 import { call as rzpCall } from './razorpay.js';
@@ -19,7 +19,8 @@ import { limitsFor, usageFor, saveLimits, LIMIT_DEFAULTS, turnstileSiteKey, chec
 import { clientLimit } from './agency.js';
 import { DAY, localDate } from './time.js';
 import { randomToken, hashToken, revokeOthers } from './security.js';
-import { decryptBuffer, isEncrypted } from './backup-crypt.js';
+import { decryptBuffer, isEncrypted, recoveryKey } from './backup-crypt.js';
+import { HEARTBEATS, validHeartbeat, heartbeatUrl, heartbeatFromEnv, monitorStatus, ping, appHealthy } from './monitor.js';
 import { notify } from './notify.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { embed, embedReady, embedModel, visionModel } from './waknow.js';
@@ -209,8 +210,13 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     const p = platform(), r = platformRzp();
     const { razorpay, metaSignup, ...rest } = p; // metaSignup: its own view below (the secret never leaves)
     const st = p.storage, vs = p.videoStorage;
-    return { ...rest, metaSignup: metaSignupView(), composio: composioView(), captcha: { siteKey: p.captcha.siteKey, hasSecret: !!p.captcha.secretEnc, fromEnv: !!(process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY), ready: !!turnstileSiteKey() }, mail: { from: mailFrom(), hasKey: !!p.mail.keyEnc, fromEnv: !!process.env.RESEND_API_KEY, smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, sarvam: { hasKey: !!p.sarvam.keyEnc, fromEnv: !!process.env.SARVAM_API_KEY, ready: sarvamReady(), voiceNotes: q("SELECT COUNT(*) AS n FROM wachat WHERE json_extract(data, '$.transcribed') = 1").get().n }, embeddings: { hasKey: !!p.embeddings.keyEnc, model: embedModel(), vision: visionModel(), fromEnv: !!process.env.OPENROUTER_API_KEY, ready: embedReady(), docs: T.kdocs.count({ status: 'ready' }), vectors: q('SELECT COUNT(*) AS n FROM kvec').get().n }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
+    return { ...rest, monitor: monitorView(), metaSignup: metaSignupView(), composio: composioView(), captcha: { siteKey: p.captcha.siteKey, hasSecret: !!p.captcha.secretEnc, fromEnv: !!(process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY), ready: !!turnstileSiteKey() }, mail: { from: mailFrom(), provider: platformMailer()?.provider || p.mail.provider || 'mailercloud', hasKey: !!p.mail.keyEnc, fromEnv: !!(process.env.MAILERCLOUD_API_KEY || process.env.RESEND_API_KEY), smtpEnv: !!process.env.SMTP_HOST, ready: mailEnabled() }, sarvam: { hasKey: !!p.sarvam.keyEnc, fromEnv: !!process.env.SARVAM_API_KEY, ready: sarvamReady(), voiceNotes: q("SELECT COUNT(*) AS n FROM wachat WHERE json_extract(data, '$.transcribed') = 1").get().n }, embeddings: { hasKey: !!p.embeddings.keyEnc, model: embedModel(), vision: visionModel(), fromEnv: !!process.env.OPENROUTER_API_KEY, ready: embedReady(), docs: T.kdocs.count({ status: 'ready' }), vectors: q('SELECT COUNT(*) AS n FROM kvec').get().n }, videoStorage: { endpoint: vs.endpoint, region: vs.region, bucket: vs.bucket, key: vs.key, hasSecret: !!vs.secretEnc, fromEnv: videoStorageFromEnv(), ready: videoBucketReady(), cors: vs.cors ?? null }, companyMissing: companyMissing(), storage: { endpoint: st.endpoint, region: st.region, bucket: st.bucket, key: st.key, publicUrl: st.publicUrl, hasSecret: !!st.secretEnc, fromEnv: storageFromEnv(), ready: s3Enabled(), cors: st.cors ?? null, offsite: offsiteStatus() }, limits: { ...LIMIT_DEFAULTS, ...(p.limits || {}) }, ...intlSettingsView(), prices: pricing(), states: Object.keys(STATES), razorpay: { keyId: razorpay.keyId || (process.env.PLATFORM_RAZORPAY_KEY_ID ? `${process.env.PLATFORM_RAZORPAY_KEY_ID} (from server env)` : ''), hasSecret: !!(razorpay.secretEnc || process.env.PLATFORM_RAZORPAY_KEY_SECRET), hasWebhookSecret: !!(razorpay.webhookSecretEnc || process.env.PLATFORM_RAZORPAY_WEBHOOK_SECRET), ready: !!r, mode: r?.mode || null, webhookPath: '/api/billing/webhook' } };
   };
+  // Better Stack: whether each heartbeat is set (never the URL — it holds a secret token) and its last ping
+  const monitorView = () => ({
+    ...Object.fromEntries(Object.keys(HEARTBEATS).map((k) => [k, { set: !!heartbeatUrl(k), fromEnv: heartbeatFromEnv(k), last: monitorStatus()[k] || null }])),
+    recoveryKeySavedAt: platform().recoveryKeySavedAt || 0,
+  });
   app.get('/api/admin/settings', ...A, (req, res) => res.json(settingsView()));
   app.put('/api/admin/settings', ...A, wrap(async (req, res) => {
     const b = req.body || {}, changes = [];
@@ -286,20 +292,40 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       }
       changes.push('bot protection');
     }
-    // the platform's email sender (Resend): checked by sending a real test email to the admin before it's saved
+    // the platform's email sender (Mailercloud, or Resend): checked by sending a real test email to the admin before
+    // it's saved. Switching provider needs that provider's key.
     if (b.mail) {
       const m = b.mail, cur = platform().mail;
       if (m.clear) patch.mail = { ...DEFAULTS.mail };
       else {
+        const curProvider = cur.keyEnc ? cur.provider || 'resend' : '';
+        const provider = MAILERS[m.provider] ? m.provider : curProvider || 'mailercloud', name = MAILERS[provider];
         const from = String(m.from ?? cur.from).trim().slice(0, 200);
         if (!/^([^<>"]{1,80} <)?[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}>?$/i.test(from) || from.includes('<') !== from.endsWith('>')) return res.status(400).json({ error: 'The sender looks like: FunnelHive <no-reply@yourdomain.com>' });
-        const key = m.key ? String(m.key).trim() : decrypt(cur.keyEnc);
-        if (!/^re_\w{8,}$/.test(key || '')) return res.status(400).json({ error: 'Paste your Resend API key (it starts with re_)' });
-        try { await resendSend(key, { from, to: req.user.email, subject: 'Your email sending works ✓', text: `This test came from ${from} through Resend. Sign-in codes, password resets and students’ alerts will now be delivered.` }); }
-        catch (e) { return res.status(400).json({ error: e.status === 401 || e.status === 403 ? `Resend refused: ${e.message} — check the key, and that the domain in the sender is verified in Resend` : `Couldn’t send the test email: ${e.message}` }); }
-        patch.mail = { from, keyEnc: m.key ? encrypt(key) : cur.keyEnc };
+        const key = m.key ? String(m.key).trim() : provider === curProvider ? decrypt(cur.keyEnc) : '';
+        if (provider === 'resend' && !/^re_\w{8,}$/.test(key || '')) return res.status(400).json({ error: 'Paste your Resend API key (it starts with re_)' });
+        if (provider === 'mailercloud' && !/^[\w.-]{16,200}$/.test(key || '')) return res.status(400).json({ error: 'Paste your Mailercloud API key (Mailercloud → Settings → API)' });
+        try { await platformSend({ provider, key }, { from, to: req.user.email, subject: 'Your email sending works ✓', text: `This test came from ${from} through ${name}. Sign-in codes, password resets and students’ alerts will now be delivered.`, html: `<p>This test came from ${from.replace(/[<>&]/g, '')} through ${name}. Sign-in codes, password resets and students’ alerts will now be delivered.</p>` }); }
+        catch (e) { return res.status(400).json({ error: e.status === 401 || e.status === 403 ? `${name} refused: ${e.message} — check the key, and that the sender address is verified in ${name}` : `Couldn’t send the test email: ${e.message}` }); }
+        patch.mail = { from, provider, keyEnc: m.key ? encrypt(key) : cur.keyEnc };
       }
       changes.push('email sending');
+    }
+    // Better Stack heartbeats: { app?: url | '', backup?: url | '' } — each is pinged once before it's saved ('' removes it)
+    if (b.monitor) {
+      const next = { ...platform().monitor };
+      for (const kind of Object.keys(HEARTBEATS)) {
+        if (b.monitor[kind] == null) continue;
+        const url = String(b.monitor[kind]).trim();
+        if (!url) { next[`${kind}Enc`] = ''; continue; }
+        if (!validHeartbeat(url)) return res.status(400).json({ error: 'Paste the heartbeat URL from Better Stack — it looks like https://uptime.betterstack.com/api/v1/heartbeat/…' });
+        const h = kind === 'app' ? appHealthy() : { ok: true, reason: '' };
+        const r = await ping(kind, h.ok, h.reason, url);
+        if (!r.sent) return res.status(400).json({ error: `Better Stack didn’t accept the heartbeat (${r.status ? `HTTP ${r.status}` : r.error}) — copy the URL again from the heartbeat’s page` });
+        next[`${kind}Enc`] = encrypt(url);
+      }
+      patch.monitor = next;
+      changes.push('monitoring');
     }
     // the WhatsApp AI agent's document search (OpenRouter embeddings): checked with a real request before it's saved
     if (b.embeddings) {
@@ -335,7 +361,17 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     savePlatform((s) => Object.assign(s, patch));
     audit(req, null, 'settings', [...Object.keys(patch).filter((k) => k !== 'razorpay' && k !== 'storage' && k !== 'videoStorage' && k !== 'mail' && k !== 'captcha' && k !== 'composio'), ...changes].join(', '));
     if (patch.storage?.endpoint) backupNow(); // the first off-site copy right away
+    if (patch.monitor?.backupEnc) backupNow(); // and a first backup heartbeat
     res.json(settingsView());
+  }));
+
+  // the backup recovery key, shown to the owner to keep off this server (password manager): without it, off-site
+  // backups — and the keys stored inside them — can't be opened on a new server. Every showing is in the audit log.
+  app.post('/api/admin/recovery-key', ...A, wrap(async (req, res) => {
+    if (req.body?.saved) { savePlatform((s) => { s.recoveryKeySavedAt = Date.now(); }); audit(req, null, 'recovery key saved'); return res.json({ ok: true, savedAt: platform().recoveryKeySavedAt }); }
+    if (req.body?.confirm !== 'SHOW') return res.status(400).json({ error: 'Confirm to show the key' });
+    audit(req, null, 'recovery key shown');
+    res.json({ key: recoveryKey(dataDir), env: 'ENCRYPTION_KEY' });
   }));
 
   // ---------- invoices, audit, backups ----------

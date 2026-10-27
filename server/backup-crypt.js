@@ -8,12 +8,16 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
 const MAGIC = Buffer.from('FHB1');
-function key(dataDir) {
+// The recovery key: the one secret that opens the off-site backups AND the API keys / tokens stored inside them
+// (messaging.js derives its key from the same value). Kept off the server by the owner (Admin → Backups); on a new
+// server it goes in .env as ENCRYPTION_KEY and everything restored is readable again.
+export function recoveryKey(dataDir) {
   let s = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET;
   if (!s) try { s = fs.readFileSync(path.join(dataDir || process.env.DATA_DIR || '.', '.jwt-secret'), 'utf8').trim(); } catch {}
   if (!s) throw new Error('no ENCRYPTION_KEY / JWT secret to encrypt backups with');
-  return crypto.createHash('sha256').update(`backups:${s}`).digest();
+  return s;
 }
+const key = (dataDir) => crypto.createHash('sha256').update(`backups:${recoveryKey(dataDir)}`).digest();
 export const isEncrypted = (buf) => Buffer.isBuffer(buf) && buf.length > 32 && buf.subarray(0, 4).equals(MAGIC);
 
 // streams src → dst (the database can be large)

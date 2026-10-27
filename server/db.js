@@ -427,9 +427,18 @@ export const backupDue = ({ sig, lastSig: prev, todayExists, offsiteOk }) => !pr
 export async function scheduledBackup() {
   if (stopping) return null;
   const { s3Enabled } = await import('./storage.js');
-  if (!backupDue({ sig: dbFilesSig(), lastSig, todayExists: fs.existsSync(todayFile()), offsiteOk: s3Enabled() ? !!offsiteStatus()?.ok : null })) return 'unchanged';
+  if (!backupDue({ sig: dbFilesSig(), lastSig, todayExists: fs.existsSync(todayFile()), offsiteOk: s3Enabled() ? !!offsiteStatus()?.ok : null })) {
+    // nothing written since a good backup: still a healthy run for the backup heartbeat
+    reportBackup(s3Enabled() ? { ok: true } : { ok: false, reason: NO_BUCKET });
+    return 'unchanged';
+  }
   return backupNow();
 }
+// the Better Stack backup heartbeat (monitor.js): OK only when a copy off this server exists
+const NO_BUCKET = 'No storage bucket connected — backups are only on this server (Admin → File storage)';
+let backupReporter = null; // monitor.js registers itself here (no import from this file: it loads first)
+export function onBackupReport(fn) { backupReporter = fn; }
+function reportBackup({ ok, reason = '' }) { try { backupReporter?.(ok, reason); } catch {} }
 let backingUp = false;
 export async function backupNow() {
   if (backingUp) return null;
@@ -459,16 +468,17 @@ export async function backupNow() {
         try { fs.writeFileSync(offsiteFile, JSON.stringify(lastOffsite)); } catch {}
         // off-site, one file per day is kept for 90 days (Wasabi bills every file for 90 days anyway) — older
         // plain .db copies from before encryption included
+        reportBackup(lastOffsite.ok ? { ok: true } : { ok: false, reason: `Off-site backup failed: ${lastOffsite.error}` });
         if (lastOffsite.ok) {
           const cutoff = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
           try { for (const k of await listKeys('backups/')) { const d = (/funnelhive-(\d{4}-\d{2}-\d{2})\.db(\.enc)?$/.exec(k) || [])[1]; if (d && d < cutoff) await deleteObject(k); } } catch (e) { console.error('Off-site backup cleanup failed', e.message); }
         }
-      }
+      } else reportBackup({ ok: false, reason: NO_BUCKET });
     }
     fs.readdirSync(backupDir).filter((n) => n.endsWith('.db')).sort().slice(0, -7).forEach((n) => fs.rmSync(path.join(backupDir, n)));
     lastSig = sig;
     return f;
-  } catch (e) { console.error('Backup failed', e.message); return null; } finally { backingUp = false; }
+  } catch (e) { console.error('Backup failed', e.message); reportBackup({ ok: false, reason: `Backup failed: ${e.message}` }); return null; } finally { backingUp = false; }
 }
 export const backupFiles = () => { try { return fs.readdirSync(backupDir).filter((n) => n.endsWith('.db')).sort().reverse().map((n) => ({ name: n, bytes: fs.statSync(path.join(backupDir, n)).size })); } catch { return []; } };
 export const dbBytes = () => { try { return fs.statSync(dbFile).size + (fs.existsSync(`${dbFile}-wal`) ? fs.statSync(`${dbFile}-wal`).size : 0); } catch { return 0; } };
