@@ -61,6 +61,16 @@
 	}
 }
 
+# The marketing site (website/ in the repo, mounted at /srv/site) on SITE_DOMAIN, e.g. yourbrand.in; www redirects to it.
+{$SITE_DOMAIN:site.localhost} {
+	encode zstd gzip
+	root * /srv/site
+	file_server
+}
+www.{$SITE_DOMAIN:site.localhost} {
+	redir https://{$SITE_DOMAIN:site.localhost}{uri} permanent
+}
+
 # Any other host name: sellers' custom domains (certificate issued on first visit)
 https:// {
 	tls {
