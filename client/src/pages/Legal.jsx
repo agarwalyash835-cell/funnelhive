@@ -74,11 +74,12 @@ export const Privacy = () => (
     <ul>
       <li><b>Hostinger</b> — the virtual private server that runs {s.brand} and holds its database.</li>
       <li><b>Wasabi</b> — encrypted off-site backups, uploads and product files (S3-compatible storage).</li>
+      <li><b>Cloudflare R2</b> — protected course videos (S3-compatible storage).</li>
       <li><b>Razorpay</b> and <b>Stripe</b> — subscription payments, and your customers’ payments into your own account.</li>
       <li><b>Meta (WhatsApp Business Platform)</b>, through the Hive WhatsApp API or your own Cloud API connection — WhatsApp messages.</li>
-      <li><b>Email delivery</b> — our mail provider (Resend or SMTP), or the SMTP server you connect.</li>
+      <li><b>Email delivery</b> — our mail provider (<b>Mailercloud</b> or <b>Resend</b>, or SMTP), or the SMTP server you connect.</li>
       <li><b>AI model providers</b> we contract with — AI writing and image features, only for what you ask them to create, under data-processing terms.</li>
-      <li><b>Google</b> — “Continue with Google” sign-in and Google Calendar, if you use them; <b>Cloudflare Turnstile</b> — bot checks on sign-up; <b>Sentry</b> — error reports, when switched on.</li>
+      <li><b>Google</b> — “Continue with Google” sign-in and Google Calendar, if you use them; <b>Cloudflare Turnstile</b> — bot checks on sign-up; <b>Sentry</b> — error reports, when switched on; <b>Better Stack</b> — uptime monitoring, which receives only technical health signals (no personal data).</li>
     </ul>
     <h2>Cookies</h2>
     <p>The app uses browser storage to keep you signed in. Funnel pages may load the Meta Pixel or Google Analytics if the seller enables them — by default only after the visitor accepts the cookie notice.</p>
