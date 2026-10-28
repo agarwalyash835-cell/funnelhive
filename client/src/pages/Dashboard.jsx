@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, DRAFT_EXAMPLES, BriefQuestions, DesignPicker, DEFAULT_DESIGN, confirmDialog } from '../ui';
+import { promptsFor } from '../industryPrompts';
+import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, BriefQuestions, DesignPicker, DEFAULT_DESIGN, confirmDialog } from '../ui';
 import { PagePreview } from '../blocks';
 import { AreaChart, Sparkline, HBars } from '../charts';
 import { TalkToHive } from '../talk';
@@ -84,8 +85,9 @@ export const Sources = ({ rows }) => (
   </table></div>
 );
 
-const CHIPS = ['Webinar funnel for a yoga teacher training', 'Paid 1:1 strategy call with booking', 'Online course launch with an upsell', 'Free guide that grows my email list'];
-function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample }) {
+// industry: the CRM industry (or the one picked on the dashboard) — the ready prompts and the examples follow it
+function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample, industry }) {
+  const { chips, examples } = promptsFor(industry);
   const [prompt, setPrompt] = useState('');
   const [lang, setLang] = useState('en');
   const [hint, setHint] = useState(0);
@@ -93,8 +95,8 @@ function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample 
   const [showDesign, setShowDesign] = useState(false);
   const draft = useFunnelDraft();
   const { busy, checking, err, secs, stage, progress, start } = draft;
-  // the placeholder cycles through real examples
-  useEffect(() => { const t = setInterval(() => setHint((h) => (h + 1) % DRAFT_EXAMPLES.length), 3500); return () => clearInterval(t); }, []);
+  // the placeholder cycles through real examples from this industry (back to the first one when the industry changes)
+  useEffect(() => { setHint(0); const t = setInterval(() => setHint((h) => (h + 1) % examples.length), 3500); return () => clearInterval(t); }, [examples]);
   const go = (e) => { e?.preventDefault(); if (prompt.trim().length >= 5 && !busy && !checking) start(prompt.trim(), lang, design); };
   const hour = new Date().getHours();
   return (
@@ -106,7 +108,7 @@ function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample 
       <p className="lv-sub">Describe it in a sentence. Hive AI drafts the whole funnel — sales page, checkout, upsell and thank-you.</p>
       {draft.asking && !busy ? <div className="lv-box lv-ask"><BriefQuestions draft={draft} /></div> : (
       <form className={`lv-box ${busy ? 'busy' : ''}`} onSubmit={go}>
-        <textarea rows={2} value={prompt} disabled={busy} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) go(e); }} placeholder={`e.g. ${DRAFT_EXAMPLES[hint]}`} aria-label="Describe what you sell" />
+        <textarea rows={2} value={prompt} disabled={busy} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) go(e); }} placeholder={`e.g. ${examples[hint % examples.length]}`} aria-label="Describe what you sell" />
         {busy ? (
           <div className="lv-busy"><span className="spin dark" /><b>{stage}…</b><small>{secs}s</small><div className="gen-progress"><i style={{ width: `${progress}%` }} /></div></div>
         ) : (
@@ -121,7 +123,7 @@ function PromptHero({ name, managedBy, aiEnabled, onSample, seeding, showSample 
       </form>
       )}
       {err && <div className="err lv-err">{err}</div>}
-      {!busy && !draft.asking && <div className="lv-chips">{CHIPS.map((x) => <button key={x} type="button" onClick={() => setPrompt(x)}>{x}</button>)}</div>}
+      {!busy && !draft.asking && <div className="lv-chips">{chips.map((x) => <button key={x} type="button" onClick={() => setPrompt(x)}>{x}</button>)}</div>}
       {!aiEnabled && !busy && <p className="lv-note">AI is offline on this server — your description is matched to the closest of our templates.</p>}
       {showSample && !busy && <button className="linkish lv-sample" onClick={onSample} disabled={seeding}>{seeding ? 'Loading sample data…' : 'Or explore with sample data'}</button>}
     </section>
@@ -253,13 +255,13 @@ export default function Dashboard() {
     <Layout>
       <TalkToHive />
       {create && <CreateFunnel onClose={() => setCreate(false)} aiEnabled={me?.aiEnabled} />}
-      <PromptHero name={me?.workspace ? me.workspace.name : me?.name?.split(' ')[0]} managedBy={me?.workspace ? me?.name?.split(' ')[0] : null} aiEnabled={me?.aiEnabled} onSample={seed} seeding={seeding} showSample={!!data && noData} />
+      <PromptHero name={me?.workspace ? me.workspace.name : me?.name?.split(' ')[0]} managedBy={me?.workspace ? me?.name?.split(' ')[0] : null} aiEnabled={me?.aiEnabled} onSample={seed} seeding={seeding} showSample={!!data && noData} industry={kit?.industry?.id || me?.nav?.industry} />
       {data && !noData && <Bento data={data} funnels={funnels} days={days} setDays={setDays} kit={kit} onKit={pickKit} />}
       <FunnelCards list={funnels} />
       {!data ? <div className="skeleton" /> : noData ? (
         <div className="lv-how">
           <ol className="how">
-            <li><b>1</b><div><h4>Describe your offer</h4><p>“Online yoga classes for women, ₹499”</p></div></li>
+            <li><b>1</b><div><h4>Describe your offer</h4><p>“{promptsFor(kit?.industry?.id || me?.nav?.industry).examples[0]}”</p></div></li>
             <li><b>2</b><div><h4>Refine it</h4><p>Edit by hand, or ask: “add an upsell”</p></div></li>
             <li><b>3</b><div><h4>Publish</h4><p>On your domain, with checkout and analytics</p></div></li>
           </ol>
