@@ -132,6 +132,16 @@ test('numbers are listed; alerts number is normalised; webhook registration need
   assert.equal((await api('/channels/whatsapp/hive/webhook/test', 'POST', {}, T)).status, 200);
 });
 
+test('the number can be cleared even when Hive has only one: WhatsApp stops until one is chosen again', async () => {
+  // no question to Hive when clearing (it may already refuse the key once the number's channel is cancelled)
+  const n = fake.reqs.length;
+  const cleared = (await api('/channels/whatsapp/hive', 'PUT', { from: '' }, T)).data;
+  assert.deepEqual([cleared.from, cleared.fromLabel, cleared.configured], ['', '', false]);
+  assert.equal(fake.reqs.length, n, 'Hive wasn’t called');
+  const back = (await api('/channels/whatsapp/hive', 'PUT', { from: '1111' }, T)).data;
+  assert.deepEqual([back.from, back.configured], ['1111', true]);
+});
+
 test('a webhook deleted on Hive comes back when the key is saved again; a test event shows up even right after another', async () => {
   // the seller deletes the webhook in Hive's dashboard, then pastes the key again here
   fake.hook = null;

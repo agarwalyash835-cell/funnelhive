@@ -469,7 +469,10 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
       try { me = await call(apiKey, 'GET', '/me'); numbers = (await call(apiKey, 'GET', '/numbers')).numbers || []; } catch (e) { return fail(res, e); }
     } else if (!prev.apiKeyEnc) return res.status(400).json({ error: 'Paste your Hive WhatsApp API key' });
     let from = 'from' in b ? clip(b.from, 80) : prev.from || '', fromLabel = prev.fromLabel || '', fromId = prev.fromId || '';
-    if ('from' in b || (numbers && !from)) {
+    // cleared on purpose: WhatsApp stops sending until a number is chosen — no need to ask Hive (which may already
+    // refuse the key once the number's channel is gone)
+    if ('from' in b && !from) { fromLabel = ''; fromId = ''; }
+    else if ('from' in b || (numbers && !from)) {
       numbers ||= (await call(keyOf(prev), 'GET', '/numbers').catch((e) => { throw Object.assign(e, { status: 400 }); })).numbers || [];
       // with a single number connected, it's picked for you
       const n = from ? numbers.find((x) => [x.id, x.display, x.phone_number_id].includes(from)) : numbers.length === 1 ? numbers[0] : null;
