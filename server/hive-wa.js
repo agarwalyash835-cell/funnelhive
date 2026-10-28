@@ -431,7 +431,7 @@ function view(u) {
   return {
     provider: w.provider || 'meta', configured: isOn(u), hasKey: !!h.apiKeyEnc, keyPrefix: h.keyPrefix || '', mode: h.mode || null,
     from: h.from || '', fromLabel: h.fromLabel || '', notifyPhone: h.notifyPhone || '', metaConfigured: !!(w.phoneNumberId && w.tokenEnc),
-    webhook: h.webhook ? { url: h.webhook.url, connectedAt: h.webhook.at, lastEventAt: h.webhook.lastEventAt || null, events: h.webhook.events || [] } : null,
+    webhook: h.webhook ? { url: h.webhook.url, connectedAt: h.webhook.at, lastEventAt: h.webhook.lastEventAt || null, testSentAt: h.webhook.testSentAt || null, events: h.webhook.events || [] } : null,
     quality: h.quality || null, abandonedReminder: !!h.abandonedReminder,
     // the latest sends and how they went (delivery statuses come in on the webhook)
     recent: T.wamsgs.all({ userId: u.id }, { order: 'at', desc: true, limit: 20 }).map((m) => ({ id: m.id, event: m.event || '', template: m.template || '', to: m.to, status: m.status, error: m.error || '', at: m.at })),
@@ -447,6 +447,14 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
   const need = (req, res) => { const h = hiveOf(req.user); if (!h?.apiKeyEnc) { res.status(400).json({ error: 'Add your Hive WhatsApp API key first' }); return null; } return h; };
   const needNumber = (req, res) => { const h = need(req, res); if (h && !h.from) { res.status(400).json({ error: 'Choose your WhatsApp number first' }); return null; } return h; };
   const P = '/api/channels/whatsapp/hive';
+  // (re)registers our webhook with Hive — PUT /webhooks replaces whatever Hive had for this key, so it also brings
+  // back a webhook deleted on Hive's side. → the updated user
+  const registerHook = async (req, h) => {
+    const url = `${String(process.env.APP_URL || appUrl(req)).replace(/\/+$/, '')}/api/hive/webhook/${req.user.id}`;
+    const secret = crypto.randomBytes(32).toString('hex');
+    await call(keyOf(h), 'PUT', '/webhooks', { url, secret, events: EVENTS, ...(h.fromId ? { channel_ids: [h.fromId] } : {}) });
+    return setHive(req.user.id, (x) => { x.webhookSecretEnc = encrypt(secret); x.webhook = { url, at: Date.now(), events: EVENTS }; });
+  };
 
   app.get(P, auth, (req, res) => res.json(view(req.user)));
   // { apiKey?, from?, notifyPhone?, provider?, events?, abandonedReminder?, clear? }
@@ -482,6 +490,12 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
       if (b.events && typeof b.events === 'object') { h.events = { ...h.events }; for (const k of Object.keys(TEMPLATES)) if (typeof b.events[k] === 'boolean') h.events[k] = b.events[k]; }
       if ('abandonedReminder' in b) { if (b.abandonedReminder && !h.abandonedReminder) h.abandonedSince = Date.now(); h.abandonedReminder = !!b.abandonedReminder; }
     });
+    // a new key or another number: Hive gets our webhook again (it may have been deleted there, or belong to the old
+    // number). The key is saved either way; a failure is reported so the seller can press Reconnect.
+    const h = hiveOf(out);
+    if ((apiKey || from !== prev.from) && h?.from) {
+      try { return res.json({ ...view(await registerHook(req, h)), webhookRenewed: true }); } catch (e) { return res.json({ ...view(out), webhookError: e.message }); }
+    }
     res.json(view(out));
   }));
   app.get(`${P}/numbers`, auth, wrap(async (req, res) => {
@@ -491,15 +505,14 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
   // registers our webhook with Hive — the seller never copies a URL or secret
   app.post(`${P}/webhook`, auth, setupLimiter, wrap(async (req, res) => {
     const h = needNumber(req, res); if (!h) return;
-    const url = `${String(process.env.APP_URL || appUrl(req)).replace(/\/+$/, '')}/api/hive/webhook/${req.user.id}`;
-    const secret = crypto.randomBytes(32).toString('hex');
-    try { await call(keyOf(h), 'PUT', '/webhooks', { url, secret, events: EVENTS, ...(h.fromId ? { channel_ids: [h.fromId] } : {}) }); } catch (e) { return fail(res, e); }
-    res.json(view(setHive(req.user.id, (x) => { x.webhookSecretEnc = encrypt(secret); x.webhook = { url, at: Date.now(), events: EVENTS }; })));
+    try { res.json(view(await registerHook(req, h))); } catch (e) { fail(res, e); }
   }));
   app.post(`${P}/webhook/test`, auth, testLimiter, wrap(async (req, res) => {
     const h = need(req, res); if (!h) return;
     if (!h.webhookSecretEnc) return res.status(400).json({ error: 'Connect the webhook first' });
-    try { await call(keyOf(h), 'POST', '/webhooks/test'); res.json({ ok: true }); } catch (e) { fail(res, e); }
+    try { await call(keyOf(h), 'POST', '/webhooks/test'); } catch (e) { return res.status(400).json({ error: `Hive couldn’t send the test event (${e.message}) — press Reconnect webhook` }); }
+    const out = setHive(req.user.id, (x) => { x.webhook = { ...x.webhook, testSentAt: Date.now() }; });
+    res.json({ ok: true, testSentAt: out.channels.whatsapp.hive.webhook.testSentAt });
   }));
   app.post(`${P}/templates/setup`, auth, setupLimiter, wrap(async (req, res) => {
     const h = needNumber(req, res); if (!h) return;
@@ -574,7 +587,8 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
     if (did && hit(`hivewa:${u.id}:${did}`, 3 * DAY).n > 1) return res.json({ ok: true, duplicate: true });
     try {
       handle(u.id, String(body.event || req.headers['x-hive-event'] || ''), body.data || {}, body);
-      if (Date.now() - (h.webhook?.lastEventAt || 0) > 5 * 60000) setHive(u.id, (x) => { x.webhook = { ...x.webhook, lastEventAt: Date.now() }; });
+      // recorded at most every 5 minutes — and always while a test event is awaited (2 minutes after asking)
+      if (Date.now() - (h.webhook?.lastEventAt || 0) > 5 * 60000 || Date.now() - (h.webhook?.testSentAt || 0) < 2 * 60000) setHive(u.id, (x) => { x.webhook = { ...x.webhook, lastEventAt: Date.now() }; });
     } catch (e) { console.error('Hive WhatsApp webhook failed', e.message); }
     res.json({ ok: true });
   });

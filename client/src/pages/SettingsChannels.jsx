@@ -144,7 +144,21 @@ function HiveWhatsApp({ onChange }) {
     setBusy('');
   };
   const save = (body, ok, name = 'save') => run(name, () => api('/channels/whatsapp/hive', 'PUT', body), ok);
-  const saveKey = () => run('key', async () => { const r = await api('/channels/whatsapp/hive', 'PUT', { apiKey: key.trim() }); setKey(''); return r; }, 'Key verified and saved');
+  // saving the key also registers the webhook with Hive again (it may have been deleted there)
+  const saveKey = () => run('key', async () => { const r = await api('/channels/whatsapp/hive', 'PUT', { apiKey: key.trim() }); setKey(''); return r; },
+    (r) => (r.webhookError ? `Key saved — but the webhook couldn’t be registered: ${r.webhookError}` : r.webhookRenewed ? 'Key verified — webhook registered with Hive' : 'Key verified and saved'));
+  // a test event, then wait (up to ~15 s) to see it arrive back here: proof the webhook really works
+  const testHook = async () => {
+    setBusy('hooktest');
+    try {
+      const { testSentAt } = await api('/channels/whatsapp/hive/webhook/test', 'POST');
+      let x = null;
+      for (let i = 0; i < 8 && !(x?.webhook?.lastEventAt >= testSentAt); i++) { await new Promise((r) => setTimeout(r, 2000)); x = await api('/channels/whatsapp/hive'); }
+      if (x) load(x);
+      toast(x?.webhook?.lastEventAt >= testSentAt ? 'Test event arrived — the webhook works' : 'Hive sent the test, but it didn’t arrive here — press Reconnect webhook');
+    } catch (e) { toast(e.message); }
+    setBusy('');
+  };
   const clear = async () => { if (await confirmDialog({ title: 'Disconnect Hive WhatsApp?', text: 'Messages stop going out through it.', confirm: 'Disconnect', danger: true })) save({ clear: true }, 'Hive WhatsApp disconnected'); };
   const approved = h.templates.filter((t) => t.status === 'APPROVED').length;
   const toSubmit = h.templates.filter((t) => !t.status || ['ERROR', 'REJECTED'].includes(t.status)).length;
@@ -175,10 +189,10 @@ function HiveWhatsApp({ onChange }) {
         {h.quality && <p className="muted sm">Number quality: <span className={`pill ${q?.[0] || 'info'}`}>{q?.[1] || h.quality.rating}</span>{h.quality.limit && <> · messaging limit {h.quality.limit}</>}{h.quality.at && <> · updated {when(h.quality.at)}</>}</p>}
 
         <div className="rzp-hook">
-          <b>Replies, opt-outs and delivery updates</b> {h.webhook ? <span className="pill ok">Connected{h.webhook.lastEventAt ? ` · last event ${when(h.webhook.lastEventAt)}` : ''}</span> : <span className="pill warn">Not connected</span>}
-          <p className="hint">One click: FunnelHive tells Hive where to send WhatsApp events, with a private signing key — nothing to copy. Old chats from the WhatsApp app aren’t imported.</p>
-          <div className="row"><button className="btn ghost" disabled={!!busy || !h.from} onClick={() => run('hook', () => api('/channels/whatsapp/hive/webhook', 'POST'), 'Webhook connected')}>{busy === 'hook' ? 'Connecting…' : h.webhook ? 'Reconnect webhook' : 'Connect webhook'}</button>
-            {h.webhook && <button className="btn ghost" disabled={!!busy} onClick={() => run('hooktest', () => api('/channels/whatsapp/hive/webhook/test', 'POST'), 'Test event sent — it shows as “last event” in a few seconds')}>Send test event</button>}</div>
+          <b>Replies, opt-outs and delivery updates</b> {h.webhook ? <span className="pill ok">Registered {when(h.webhook.connectedAt)}{h.webhook.lastEventAt ? ` · last event ${when(h.webhook.lastEventAt)}` : ' · no events yet'}</span> : <span className="pill warn">Not connected</span>}
+          <p className="hint">One click: FunnelHive tells Hive where to send WhatsApp events, with a private signing key — nothing to copy. Saving your key registers it again automatically. Deleted or changed the webhook in Hive’s dashboard? Press Reconnect webhook, then Send test event to check it arrives. Old chats from the WhatsApp app aren’t imported.</p>
+          <div className="row"><button className="btn ghost" disabled={!!busy || !h.from} onClick={() => run('hook', () => api('/channels/whatsapp/hive/webhook', 'POST'), 'Webhook registered with Hive — send a test event to check it')}>{busy === 'hook' ? 'Connecting…' : h.webhook ? 'Reconnect webhook' : 'Connect webhook'}</button>
+            {h.webhook && <button className="btn ghost" disabled={!!busy} onClick={testHook}>{busy === 'hooktest' ? 'Waiting for it to arrive…' : 'Send test event'}</button>}</div>
           {/^https?:\/\/(localhost|127\.)/.test(location.origin) && <p className="hint warn">This app is running on your computer — Hive can only reach the webhook once it’s hosted on a public https address.</p>}
         </div>
 

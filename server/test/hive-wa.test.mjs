@@ -132,6 +132,24 @@ test('numbers are listed; alerts number is normalised; webhook registration need
   assert.equal((await api('/channels/whatsapp/hive/webhook/test', 'POST', {}, T)).status, 200);
 });
 
+test('a webhook deleted on Hive comes back when the key is saved again; a test event shows up even right after another', async () => {
+  // the seller deletes the webhook in Hive's dashboard, then pastes the key again here
+  fake.hook = null;
+  const old = (await api('/channels/whatsapp/hive', 'GET', null, T)).data.webhook.connectedAt;
+  const r = (await api('/channels/whatsapp/hive', 'PUT', { apiKey: KEY }, T)).data;
+  assert.equal(r.webhookRenewed, true);
+  assert.ok(fake.hook?.url && fake.hook.secret.length === 64, 'registered with Hive again');
+  assert.ok(r.webhook.connectedAt >= old);
+  // the new secret signs deliveries (the old one would be refused)
+  assert.equal((await hook('message.status', { message_id: 'nothing', status: 'read' })).status, 200);
+  // a test event: its arrival is recorded even though an event came in moments ago
+  const t = (await api('/channels/whatsapp/hive/webhook/test', 'POST', {}, T)).data;
+  await new Promise((res) => setTimeout(res, 5));
+  await hook('webhook.test', {});
+  const v = (await api('/channels/whatsapp/hive', 'GET', null, T)).data.webhook;
+  assert.ok(v.lastEventAt >= t.testSentAt, JSON.stringify(v));
+});
+
 test('templates: the standard set is submitted (existing ones skipped) and approved through template.status', async () => {
   const r = await api('/channels/whatsapp/hive/templates/setup', 'POST', {}, T);
   assert.equal(r.status, 200, JSON.stringify(r.data));
