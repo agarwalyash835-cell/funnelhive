@@ -30,6 +30,8 @@ const Orders = lazy(() => import('./pages/Orders'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Ads = lazy(() => import('./pages/Ads'));
 const Products = lazy(() => import('./pages/Products'));
+const StoreSettings = lazy(() => import('./pages/StoreSettings'));
+const Storefront = lazy(() => import('./pages/Store'));
 const Library = lazy(() => import('./pages/Library'));
 const Learn = lazy(() => import('./pages/Learn'));
 const School = lazy(() => import('./pages/School'));
@@ -138,6 +140,8 @@ const app = onDomain ? (
         <Route path="/reports" element={P(Reports)} />
         <Route path="/ads" element={P(Ads)} />
         <Route path="/products/:id?" element={P(Products)} />
+        <Route path="/store" element={P(StoreSettings)} />
+        <Route path="/s/:handle/*" element={L(Storefront)} />
         <Route path="/access/:token?" element={L(Library)} />
         <Route path="/invoice/:id" element={L(SaleInvoice)} />
         <Route path="/bookings" element={P(Bookings)} />

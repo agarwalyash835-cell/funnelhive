@@ -172,6 +172,9 @@ const SCHEMA = {
   iitems: { cols: { userId: 0, lname: (r) => lower(r.name), sku: (r) => (r.sku ? lower(r.sku) : null), barcode: (r) => r.barcode || null, active: (r) => bool(r.active !== false), at: 0 }, index: [['userId', 'lname'], ['userId', 'sku'], ['userId', 'barcode'], ['userId', 'active']] },
   igodowns: { cols: { userId: 0, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false) }, index: [['userId', 'lname']] },
   imoves: { cols: { userId: 0, itemId: 0, godownId: 0, kind: 0, day: 0, at: 0 }, index: [['userId', 'at'], ['itemId', 'godownId'], ['userId', 'itemId', 'day'], ['userId', 'kind', 'day']] },
+  // the storefront (store.js): one store per seller (its /s/<handle> address), and what it lists for sale
+  stores: { cols: { userId: 0, handle: 0 }, unique: [['userId'], ['handle']] },
+  slistings: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] },
   // ---- inventory phase 2 tables go here ----
   // ---- inventory-pro (industry) tables go here ----
   // bills of materials (one per finished item), schemes per item, named rate lists, credit limits per party, counter bills

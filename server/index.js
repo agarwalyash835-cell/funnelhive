@@ -90,6 +90,7 @@ import { registerTalk } from './talk.js';
 import { registerAiBuild } from './aibuild.js';
 import { registerMetaSignup } from './meta-signup.js';
 import { registerWaKnowledge } from './waknow.js';
+import { registerStore, storeFunnel, storeFunnelId, takeStock, STORE_NAME } from './store.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
@@ -458,7 +459,7 @@ const demoCount = (userId) => ({
   orders: T.orders.count({ userId, demo: 1 }), leads: T.leads.count({ userId, demo: 1 }), abandoned: T.abandoned.count({ userId, demo: 1 }),
 });
 // the pages a menu can show (pinned / hidden / an agency's default)
-const MENU_PAGES = ['/funnels', '/hive', '/orders', '/reports', '/ads', '/products', '/school', '/quotes', '/contacts', '/vault', '/automations', '/broadcasts', '/bookings', '/webinars'];
+const MENU_PAGES = ['/funnels', '/hive', '/orders', '/reports', '/ads', '/products', '/store', '/school', '/quotes', '/contacts', '/vault', '/automations', '/broadcasts', '/bookings', '/webinars'];
 app.get('/api/me', auth, (req, res) => {
   const s = req.user.settings;
   const funnels = q('SELECT COUNT(*) AS n, COALESCE(SUM(json_extract(data, \'$.published\')), 0) AS pub FROM funnels WHERE userId = ?').get(req.user.id);
@@ -1024,6 +1025,7 @@ registerVault(app, { auth, wrap, rateLimit, isTest, secret: SECRET });
 app.get('/api/orders', auth, (req, res) => {
   const fs_ = T.funnels.all({ userId: req.user.id });
   const name = Object.fromEntries(fs_.map((f) => [f.id, f.name]));
+  name[storeFunnelId(req.user.id)] = STORE_NAME; // storefront orders (store.js)
   const byId = Object.fromEntries(fs_.map((f) => [f.id, f]));
   const s = (k) => (typeof req.query[k] === 'string' ? req.query[k].slice(0, 200) : '');
   const out = orderPage(req.user.id, name, { limit: s('limit'), cursor: s('cursor'), tab: s('tab'), q: s('q'), funnel: s('funnel'), status: s('status'), days: s('days'), id: s('id') });
@@ -1651,8 +1653,10 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
     const first = order.items.length - items.length;
     const owner = ownerOf(f);
     let access = null, invoice = null;
+    if (verified || cod) takeStock(order, items); // storefront inventory items (store.js): a SALE move each
     if (verified) {
-      const inv = issueInvoice(owner, order, items.map((it, i) => ({ index: first + i, name: it.name, kind: it.kind, amount: it.price })).filter((l) => l.amount > 0), { paymentId: payment?.id || null, gst: order.gst || buyer.gst || (order.address?.state ? { state: order.address.state } : null), test: payment ? payment.mode === 'test' : testMode });
+      // an item's own HSN / GST rate (storefront inventory items) wins over the product's and the seller's defaults
+      const inv = issueInvoice(owner, order, items.map((it, i) => ({ index: first + i, name: it.name, kind: it.kind, amount: it.price, ...(it.hsn ? { sac: it.hsn } : {}), ...(it.gstRate != null ? { rate: it.gstRate } : {}) })).filter((l) => l.amount > 0), { paymentId: payment?.id || null, gst: order.gst || buyer.gst || (order.address?.state ? { state: order.address.state } : null), test: payment ? payment.mode === 'test' : testMode });
       invoice = inv ? invoiceUrl(linkBase(f.id, base), inv) : null;
       const grants = items.map((it, i) => (it.productId ? { productId: it.productId, item: first + i } : null)).filter(Boolean);
       const delivered = updated && T.access.exists({ orderId: order.id });
@@ -1739,7 +1743,7 @@ function finalizePayment(pay, paymentId, base) {
   return tx(() => {
     const fresh = T.payments.get(pay.id) || pay;
     if (fresh.status === 'paid') { Object.assign(pay, fresh); return fresh.result; }
-    const f = T.funnels.get(fresh.funnelId);
+    const f = fresh.kind === 'store' ? storeFunnel(fresh.userId) : T.funnels.get(fresh.funnelId);
     if (!f) return null;
     fresh.status = 'paid'; fresh.paymentId = paymentId; fresh.paidAt = Date.now();
     const charge = { ...fresh.charge, couponObj: fresh.charge.usedCoupon ? T.coupons.find({ userId: f.userId, code: fresh.charge.usedCoupon }) : null };
@@ -2031,6 +2035,9 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
     .replace('<!--ff-head-->', () => head)
     .replace('<!--ff-ssr-->', () => `${body}<script>window.__FUNNEL__=${json}</script>`);
 }
+
+// the storefront (/s/<handle>): its API, checkout for a whole cart, and its page with title / link-preview tags
+registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml });
 
 // an API path nobody answered is a JSON 404, never the app's HTML page
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
