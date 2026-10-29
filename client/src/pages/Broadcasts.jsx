@@ -181,7 +181,7 @@ function Editor({ b, meta, funnels, onBack, onChange, onOpen }) {
                 <b>{num(aud.reach)}</b> {v.channel === 'email' ? 'will get this email' : 'will get this on WhatsApp'}
                 {/* marketing reaches only people who agreed to it: form consent, or marked opted in on the contact / at import */}
                 {aud.left.notOptedIn > 0 && <small>{num(aud.reach)} opted in · <b>{num(aud.left.notOptedIn)} not opted in</b> — they won’t receive this</small>}
-                {(aud.left.unsubscribed > 0 || aud.left.noAddress > 0) && <small>{[aud.left.unsubscribed && `${num(aud.left.unsubscribed)} unsubscribed`, aud.left.noAddress && `${num(aud.left.noAddress)} without ${v.channel === 'email' ? 'an email' : 'a phone number'}`].filter(Boolean).join(' · ')} left out</small>}
+                {(aud.left.unsubscribed > 0 || aud.left.noAddress > 0 || aud.left.duplicate > 0) && <small>{[aud.left.unsubscribed && `${num(aud.left.unsubscribed)} unsubscribed`, aud.left.noAddress && `${num(aud.left.noAddress)} without ${v.channel === 'email' ? 'an email' : 'a phone number'}`, aud.left.duplicate && `${num(aud.left.duplicate)} sharing ${v.channel === 'email' ? 'an email' : 'a number'} with another contact (sent once)`].filter(Boolean).join(' · ')} left out</small>}
                 {aud.sample?.length > 0 && <small className="muted">{aud.sample.map((c) => c.name || c.email || c.phone).join(', ')}{aud.reach > aud.sample.length ? '…' : ''}</small>}
               </div>
             )}

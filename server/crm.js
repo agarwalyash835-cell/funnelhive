@@ -331,6 +331,10 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     if (!email && !phone) return res.status(400).json({ error: 'Add an email or a phone number' });
     const key = contactKey(email, phone);
     if (buildContacts(req.user.id, key).contacts[key]) return res.status(409).json({ error: 'This contact already exists', key });
+    // the same number however it's typed (+91 98765 43210 = 09876543210 = 9876543210), as the CSV import matches it
+    const pid = !email && phoneId(phone);
+    const dup = pid && Object.values(buildContacts(req.user.id).contacts).find((c) => phoneId(c.phone || (c.key.startsWith('phone:') ? c.key.slice(6) : '')) === pid);
+    if (dup) return res.status(409).json({ error: 'A contact with this phone number already exists', key: dup.key });
     const m = ensureMeta(req.user.id, key);
     T.crm.put(Object.assign(m, { manual: true, name, email, phone, at: Date.now() }));
     res.json({ key });
@@ -530,6 +534,8 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     const text = str(req.body.text, 4096);
     if (!r.c.phone) return res.status(400).json({ error: 'This contact has no phone number' });
     if (!text) return res.status(400).json({ error: 'Write a message first' });
+    // Meta-direct sends don't check this themselves (Hive does)
+    if (metaFor(req.user.id, r.c.key)?.waOptOut) return res.status(400).json({ error: 'This contact opted out of WhatsApp messages' });
     try {
       const out = await sendWhatsApp(userOf(req), r.c.phone, { text, ckey: r.c.key });
       if (out.status !== 'sent') return res.status(400).json({ error: 'WhatsApp isn’t connected yet' });
