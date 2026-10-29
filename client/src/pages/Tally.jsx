@@ -138,9 +138,37 @@ function Overview({ rev, onOpen, go }) {
   if (!d.company) return null;
   const m = (t) => d.month?.[t] || { count: 0, amount: 0 };
   const n = (c, one, many) => `${c} ${c === 1 ? one : many}`;
-  const kpi = (l, v, f, onClick) => <button type="button" className="kpi tl-kpi" key={l} onClick={onClick}><span className="kpi-l">{l}</span><b className="kpi-v">{v}</b>{f && <div className="kpi-f"><small>{f}</small></div>}</button>;
+  const ICON = { 'To receive': 'wallet', 'To pay': 'receipt', 'Sales this month': 'chart', 'Purchases this month': 'cart', 'Received this month': 'download', 'Stock value': 'box' };
+  const TONE = { 'To receive': 'in', 'To pay': 'out' };
+  const kpi = (l, v, f, onClick) => <button type="button" className={`kpi tl-kpi ${TONE[l] || ''}`} key={l} onClick={onClick}><span className="kpi-l"><span className="kpi-ic"><Icon name={ICON[l]} size={14} /></span>{l}</span><b className="kpi-v">{v}</b>{f && <div className="kpi-f"><small>{f}</small></div>}</button>;
+  // the money picture: what's owed both ways, and this month's flow in and out
+  const recv = d.receivable.total || 0, pay = d.payable.total || 0, net = recv - pay;
+  const flow = [['Sales', m('Sales').amount, 'in'], ['Received', m('Receipt').amount, 'in'], ['Purchases', m('Purchase').amount, 'out'], ['Paid out', m('Payment').amount, 'out']];
+  const flowMax = Math.max(1, ...flow.map((f) => f[1] || 0));
+  const debtMax = Math.max(1, ...d.topDebtors.map((x) => x.amount));
   return (
     <>
+      <section className="tl-hero" aria-label="Money position">
+        <div className="tl-hero-net">
+          <span className="tl-hero-l">Net position</span>
+          <b className={`tl-hero-v ${net < 0 ? 'neg' : ''}`}>{net < 0 ? '−' : ''}{money(net)}</b>
+          <small>{net >= 0 ? 'more coming in than going out' : 'more going out than coming in'}</small>
+          <div className="tl-split" role="img" aria-label={`${money(recv)} to receive, ${money(pay)} to pay`}>
+            <i className="tl-in" style={{ flexGrow: recv || (pay ? 0 : 1) }} /><i className="tl-out" style={{ flexGrow: pay || (recv ? 0 : 1) }} />
+          </div>
+          <div className="tl-split-k"><span><em className="tl-in" />To receive <b>{money(recv)}</b></span><span><em className="tl-out" />To pay <b>{money(pay)}</b></span></div>
+        </div>
+        <div className="tl-hero-flow">
+          <span className="tl-hero-l">This month</span>
+          {flow.map(([label, v, dir]) => (
+            <div className="tl-flow" key={label}>
+              <span>{label}</span>
+              <div className="tl-flow-bar"><i className={`tl-${dir}`} style={{ width: `${Math.max(v ? 3 : 0, (100 * (v || 0)) / flowMax)}%` }} /></div>
+              <b>{money(v || 0)}</b>
+            </div>
+          ))}
+        </div>
+      </section>
       <div className="kpis tl-kpis">
         {kpi('To receive', money(d.receivable.total), `${d.receivable.overdue ? `${money(d.receivable.overdue)} overdue · ${n(d.receivable.overdueBills, 'bill', 'bills')}` : n(d.receivable.bills, 'open bill', 'open bills')}${d.receivable.advances ? ` · after ${money(d.receivable.advances)} advance` : ''}`, () => go('outstandings'))}
         {kpi('To pay', money(d.payable.total), `${d.payable.overdue ? `${money(d.payable.overdue)} overdue` : n(d.payable.bills, 'open bill', 'open bills')}${d.payable.advances ? ` · after ${money(d.payable.advances)} advance` : ''}`, () => go('outstandings'))}
@@ -151,7 +179,12 @@ function Overview({ rev, onOpen, go }) {
       </div>
       <div className="tl-two">
         <Panel title="Who owes you most">
-          {!d.topDebtors.length ? <p className="muted sm">Nobody owes you anything right now.</p> : <ul className="tl-rank">{d.topDebtors.map((x) => <li key={x.name}><span>{x.name}</span><b>{inr(x.amount)}</b></li>)}</ul>}
+          {!d.topDebtors.length ? <p className="muted sm">Nobody owes you anything right now.</p> : <ul className="tl-rank">{d.topDebtors.map((x) => (
+            <li key={x.name}>
+              <span className="tl-av" aria-hidden="true">{x.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}</span>
+              <div><div className="tl-rank-t"><span>{x.name}</span><b>{inr(x.amount)}</b></div><div className="tl-rank-bar"><i style={{ width: `${(100 * x.amount) / debtMax}%` }} /></div></div>
+            </li>
+          ))}</ul>}
         </Panel>
         <Panel title="Latest vouchers" pad={false}>
           <VoucherTable rows={d.recent} onOpen={(row) => onOpen('vouchers', row)} compact />
