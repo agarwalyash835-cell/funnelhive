@@ -2,6 +2,7 @@
 // tracking, emailed to the buyer), and when it's delivered the cash counts as paid — the GST invoice is issued and
 // any digital products are delivered then. A COD order that's refused / returned (RTO) is cancelled and nets out of
 // revenue. Online-paid orders use the same shipping steps.
+import { storeFunnel, storeFunnelId } from './store.js';
 import { T, tx, contactKey } from './db.js';
 import { sendEmail } from './messaging.js';
 import { waEvent } from './hive-wa.js';
@@ -31,8 +32,8 @@ const trackingUrl = (courier, awb) => { const k = Object.keys(TRACK).find((c) =>
 // Cash collected (COD delivered, or the seller says it's paid): invoice + digital delivery, once
 function settleCod(owner, order, base) {
   if (order.status !== 'cod') return order;
-  const f = T.funnels.get(order.funnelId);
-  const lines = order.items.map((it, i) => ({ index: i, name: it.name, kind: it.kind, amount: it.price })).filter((l) => l.amount > 0 && !order.items[l.index].refunded);
+  const f = T.funnels.get(order.funnelId) || (order.funnelId === storeFunnelId(order.userId) ? storeFunnel(order.userId) : null);
+  const lines = order.items.map((it, i) => ({ index: i, name: it.name, kind: it.kind, amount: it.price, ...(it.hsn ? { sac: it.hsn } : {}), ...(it.gstRate != null ? { rate: it.gstRate } : {}) })).filter((l) => l.amount > 0 && !order.items[l.index].refunded);
   const paid = T.orders.update(order.id, (o) => { o.status = 'paid'; o.codPaidAt = Date.now(); });
   // place of supply for goods: where they were delivered (unless the buyer gave a GSTIN)
   const inv = issueInvoice(owner, paid, lines, { test: false, gst: paid.gst || (paid.address?.state ? { state: paid.address.state } : null) });

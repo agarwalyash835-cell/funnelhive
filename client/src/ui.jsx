@@ -64,6 +64,7 @@ const PAGES = {
   '/reports': ['chart', 'Reports', 'Revenue, refunds, cohorts and lifetime value'],
   '/ads': ['target', 'Ads', 'Which ads bring leads, calls and sales — spend, ROAS and lifetime value per ad'],
   '/products': ['box', 'Products', 'Courses, downloads and memberships buyers get access to'],
+  '/store': ['tag', 'Store', 'Your online shop — products and stock items in one cart, one checkout'],
   '/school': ['bookmark', 'School', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
   '/inventory': ['box', 'Inventory', 'Your stock in FunnelHive — items, godowns, stock in and out, low-stock alerts'],
@@ -82,7 +83,7 @@ const PAGES = {
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
-const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Chat', ['/inbox', '/chatbots']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/school', '/quotes', '/tally', '/inventory']], ['Audience', ['/contacts', '/vault', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
+const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Chat', ['/inbox', '/chatbots']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/store', '/school', '/quotes', '/tally', '/inventory']], ['Audience', ['/contacts', '/vault', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
 const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/ads', '/school', '/contacts', '/vault'];
 const TOOLS = GROUPS.flatMap(([, l]) => l).filter((to) => to !== '/');
 // the everyday menu for each industry (its CRM kit); an agency can set its own for its clients; the rest wait under
@@ -127,7 +128,7 @@ const labelOf = (to, me) => {
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/inbox': 'inbox', '/chatbots': 'inbox', '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
 // which permission areas (custom team roles) open each page
-const PAGE_AREAS = { '/inbox': ['inbox'], '/chatbots': ['inbox'], '/funnels': ['funnels'], '/templates': ['funnels'], '/hive': ['ai'], '/orders': ['orders'], '/reports': ['dashboard'], '/ads': ['ads'], '/products': ['products'], '/school': ['products'], '/quotes': ['quotes'], '/tally': ['tally'], '/inventory': ['tally', 'counter'], '/contacts': ['crm'], '/vault': ['files', 'secrets'], '/automations': ['automations'], '/broadcasts': ['broadcasts'], '/bookings': ['bookings'], '/webinars': ['webinars'], '/settings': ['settings', 'team'] };
+const PAGE_AREAS = { '/inbox': ['inbox'], '/chatbots': ['inbox'], '/funnels': ['funnels'], '/templates': ['funnels'], '/hive': ['ai'], '/orders': ['orders'], '/reports': ['dashboard'], '/ads': ['ads'], '/products': ['products'], '/store': ['products'], '/school': ['products'], '/quotes': ['quotes'], '/tally': ['tally'], '/inventory': ['tally', 'counter'], '/contacts': ['crm'], '/vault': ['files', 'secrets'], '/automations': ['automations'], '/broadcasts': ['broadcasts'], '/bookings': ['bookings'], '/webinars': ['webinars'], '/settings': ['settings', 'team'] };
 const NAV_KEY = 'ff_nav';
 const navLocal = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
