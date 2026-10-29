@@ -117,7 +117,8 @@ export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverr
 
 // ---------- WhatsApp (Meta Cloud API) ----------
 const GRAPH = process.env.WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v21.0';
-export const waTo = (p = '') => { const d = String(p).replace(/\D/g, ''); return d.length === 10 ? `91${d}` : d.replace(/^0+/, ''); };
+// (an Indian number typed with its trunk 0 — 09876543210 — is +91, never "98…", which Meta would read as Iran)
+export const waTo = (p = '') => { let d = String(p).replace(/\D/g, '').replace(/^00/, ''); if (/^0\d{10}$/.test(d)) d = d.slice(1); return d.length === 10 ? `91${d}` : d.replace(/^0+/, ''); };
 // other providers (the owner's Hive WhatsApp API — hive-wa.js) plug in here; Meta direct stays the default
 // (a hoisted function holding the list, so a provider can register while this module is still loading)
 export function registerWhatsAppProvider(name, p) { registerWhatsAppProvider.list = { ...registerWhatsAppProvider.list, [name]: p }; }

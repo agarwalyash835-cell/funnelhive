@@ -89,6 +89,22 @@ export function postPinned(url, { headers, body, timeout = 10000 }) {
   });
 }
 
+// the same pinned connection for any method, with the answer: → { ok, status, type, text } (the first maxBytes)
+export function fetchPinned(url, { method = 'GET', headers = {}, body, timeout = 10000, maxBytes = 100000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const h = body != null ? { ...headers, 'Content-Length': Buffer.byteLength(body) } : headers;
+    const req = (u.protocol === 'https:' ? https : http).request(u, { method, headers: h, lookup: safeLookup }, (res) => {
+      const chunks = []; let n = 0;
+      res.on('data', (c) => { if (n < maxBytes) { chunks.push(c); n += c.length; } });
+      res.on('end', () => { clearTimeout(t); resolve({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300, type: String(res.headers['content-type'] || ''), text: Buffer.concat(chunks).toString('utf8').slice(0, maxBytes) }); });
+    });
+    const t = setTimeout(() => { const e = new Error(`Timed out after ${Math.round(timeout / 1000)}s`); e.name = 'TimeoutError'; req.destroy(e); }, timeout);
+    req.on('error', (e) => { clearTimeout(t); reject(e); });
+    req.end(body ?? undefined);
+  });
+}
+
 export const newWebhookSecret = () => `whsec_${crypto.randomBytes(24).toString('hex')}`;
 export const sign = (secret, ts, body) => crypto.createHmac('sha256', secret).update(`${ts}.${body}`).digest('hex');
 

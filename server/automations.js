@@ -415,6 +415,7 @@ async function runStep(a, r, s, u) {
     case 'whatsapp': {
       if (!ctx.phone) return { result: 'skipped', detail: 'No phone number' };
       if (meta(r)?.waOptOut || waOptedOut(r.userId, ctx.phone)) return { result: 'skipped', detail: 'Contact opted out of WhatsApp' };
+      if (meta(r)?.optIn === false) return { result: 'skipped', detail: 'Contact withdrew marketing consent' }; // as for email
       if (!whatsappStatus(u).configured) { tl('whatsapp', `WhatsApp not sent — WhatsApp isn’t connected (${a.name})`, s.mode === 'text' ? fill(s.text, ctx) : `Template: ${s.template}`, { status: 'not-configured' }); return { result: 'skipped', detail: 'WhatsApp not connected' }; }
       const msg = s.mode === 'text' ? { text: fill(s.text, ctx) } : { template: s.template, language: s.language, params: s.params ? s.params.split(',').map((p) => fill(p.trim(), ctx)) : [] };
       // one message per run and step: a retried step never sends twice (Hive's Idempotency-Key)

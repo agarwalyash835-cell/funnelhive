@@ -4,7 +4,7 @@
 // never blocks the server. Only contacts who opted in to marketing are sent to, unsubscribed ones never;
 // email opens and clicks are tracked. A campaign can be followed up (retargeted) — the same people, or those who
 // didn't open / click / receive it — and shows the sales its recipients made in the 7 days after it reached them.
-import { T, q, tx, uid, JOBS, paidOrder, ordersByPhone } from './db.js';
+import { T, q, tx, uid, JOBS, paidOrder, ordersByPhone, phoneTail } from './db.js';
 import { sendEmail, sendWhatsApp, emailStatus, whatsappStatus } from './messaging.js';
 import { contactList, metaFor, logActivity, pipelinesFor } from './crm.js';
 import { fill, emailTracking } from './automations.js';
@@ -74,13 +74,16 @@ export function audience(userId, segment, channel) {
   const demo = demoKeys(userId);
   const only = segment.from ? retargetKeys(segment.from) : null;
   const all = contactList(userId).filter((c) => !demo.has(c.key) && (!only || only.has(c.key)) && matches(c, segment, now));
-  const reach = [], left = { unsubscribed: 0, notOptedIn: 0, noAddress: 0 };
+  const reach = [], left = { unsubscribed: 0, notOptedIn: 0, noAddress: 0, duplicate: 0 };
+  const seen = new Set(); // one message per number / address, even when two contacts hold the same one
   for (const c of all) {
+    const addr = channel === 'whatsapp' ? phoneTail(c.phone) : low(c.email);
     if (c.unsubscribed || (channel === 'whatsapp' && c.waOptOut)) left.unsubscribed++;
     // marketing goes only to people who agreed to it (DPDP; WhatsApp's opt-in rule) — buying something isn't agreeing
     else if (!c.optIn) left.notOptedIn++;
     else if (channel === 'whatsapp' ? String(c.phone).replace(/\D/g, '').length < 10 : !c.email) left.noAddress++;
-    else reach.push(c);
+    else if (seen.has(addr)) left.duplicate++;
+    else { seen.add(addr); reach.push(c); }
   }
   return { matched: all.length, reach, left };
 }

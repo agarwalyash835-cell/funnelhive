@@ -21,7 +21,7 @@ import { notify } from './notify.js';
 import { aiEnabled, aiJson, aiText } from './ai.js';
 import { creditsShort, spendCredits, AI_COST } from './billing.js';
 import { fire } from './automations.js';
-import { checkPublicHost } from './webhooks.js';
+import { checkPublicHost, fetchPinned, postPinned } from './webhooks.js';
 import { funnelUrl } from './domains.js';
 import { cleanForm, formProblems, formLive, formResult, formReplyOf, readToken, formToken, flowPayload, publishForm, metaOf, askField, choiceOf, rawAnswers, formText, CHOICE as FORM_CHOICE, CHECK as FORM_CHECK } from './waforms.js';
 import crypto from 'node:crypto';
@@ -703,8 +703,9 @@ async function apiCall({ method, url, headers, body }) {
   await checkPublicHost(host);
   const h = { Accept: 'application/json', ...Object.fromEntries(headers.map((x) => [x.key, x.value])) };
   if (body && !Object.keys(h).some((k) => k.toLowerCase() === 'content-type')) h['Content-Type'] = 'application/json';
-  const res = await fetch(url, { method, headers: h, ...(body ? { body } : {}), signal: AbortSignal.timeout(8000), redirect: 'error' });
-  const text = (await res.text()).slice(0, 100000);
+  // pinned: the address is checked again as the connection is made (a DNS answer that turns private can't slip in)
+  const res = await fetchPinned(url, { method, headers: h, body: body || undefined, timeout: 8000 });
+  const text = res.text;
   let json = null;
   try { json = JSON.parse(text); } catch { /* not JSON: only the status counts */ }
   return { ok: res.ok, status: res.status, json };
@@ -728,7 +729,7 @@ function removeTags(u, conv, tags) {
 async function postHook(u, conv, url, vars) {
   try {
     await checkPublicHost(new URL(url).hostname);
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'whatsapp.chatbot', contact: { name: conv.name || '', phone: `+${conv.num}` }, answers: vars, at: new Date().toISOString() }), signal: AbortSignal.timeout(8000), redirect: 'error' });
+    await postPinned(url, { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'whatsapp.chatbot', contact: { name: conv.name || '', phone: `+${conv.num}` }, answers: vars, at: new Date().toISOString() }), timeout: 8000 });
   } catch (e) { addMsg(conv, { dir: 'note', by: 'system', text: `Chatbot webhook didn’t go through: ${clip(e.message, 150)}` }); }
 }
 // a flow step for this conversation, for real: sends, saves, tags, hands over, then remembers where it waits
@@ -1497,10 +1498,10 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
     try { url = new URL(clip(req.body?.url, 500)); if (!/^https?:$/.test(url.protocol)) throw new Error(); } catch { return res.status(400).json({ error: 'Enter the page’s web address, e.g. https://yourbusiness.in/about' }); }
     try {
       await checkPublicHost(url.hostname);
-      const r = await fetch(url, { signal: AbortSignal.timeout(12000), redirect: 'error', headers: { 'User-Agent': 'FunnelHive-Agent/1.0' } });
+      const r = await fetchPinned(url.href, { headers: { 'User-Agent': 'FunnelHive-Agent/1.0' }, timeout: 12000, maxBytes: 600000 });
       if (!r.ok) throw new Error(`The page answered ${r.status}`);
-      if (!/text\/html|text\/plain/.test(r.headers.get('content-type') || '')) throw new Error('That isn’t a web page');
-      const html = (await r.text()).slice(0, 600000);
+      if (!/text\/html|text\/plain/.test(r.type)) throw new Error('That isn’t a web page');
+      const html = r.text;
       const text = html.replace(/<(script|style|noscript|svg|nav|footer)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr)>/gi, '\n').replace(/<[^>]+>/g, ' ')
         .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/&quot;/g, '"').replace(/&[a-z]+;/g, ' ')
         .split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter((l) => l.length > 2).join('\n').slice(0, 12000);
