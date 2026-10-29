@@ -68,7 +68,7 @@ const ALL3 = LEVELS;
 // the shop counter inside Inventory: items and stock, counter bills, returns and stock entries. Not the Tally books
 // (ledgers, bank, outstandings), GSTR-1, rate lists / schemes / credit limits / BOMs (reading lists and schemes is
 // fine: the counter prices with them), cancelling a bill or undoing an entry. Edit = only the counter's own writes.
-const COUNTER_RE = /^\/api\/inventory(\/(items(\/[^/]+)?|barcode\/[^/]+|low|moves(\/batch)?|transfer|pro(\/(batches|expiring|fefo|variants(\/[^/]+)?|bills(\/[^/]+)?|bills\/[^/]+\/(paid|return(\/preview)?)|credit-notes(\/[^/]+)?|counter\/day|rate|ratelists|schemes(\/calc)?|gst-profile))?))?$/;
+const COUNTER_RE = /^\/api\/inventory(\/(items(\/[^/]+)?|barcode\/[^/]+|low|moves(\/batch)?|transfer|pro(\/(batches|expiring|fefo|variants(\/[^/]+)?|bills(\/[^/]+)?|bills\/[^/]+\/(paid|return(\/preview)?)|credit-notes(\/[^/]+)?|counter\/(day|catalog|settings)|rate|ratelists|schemes(\/calc)?|gst-profile))?))?$/;
 const COUNTER_WRITE = /^\/api\/inventory\/(moves(\/batch)?|transfer|pro\/(bills(\/preview)?|bills\/[^/]+\/(paid|return(\/preview)?)|schemes\/calc))$/;
 const counterAllows = (method, path) => (isRead(method) ? COUNTER_RE.test(path) : method === 'POST' && COUNTER_WRITE.test(path));
 export const AREAS = [

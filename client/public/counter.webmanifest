@@ -1,0 +1,16 @@
+{
+  "name": "FunnelHive Counter",
+  "short_name": "Counter",
+  "description": "Bill at the shop counter: scan, bill, print — works offline",
+  "id": "/counter",
+  "start_url": "/counter",
+  "scope": "/counter",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f5f2",
+  "theme_color": "#1c1917",
+  "icons": [
+    { "src": "/counter-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/counter-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

@@ -229,7 +229,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // or IGST per line, the HSN summary, the amount in words), else a plain bill that says it isn't a tax invoice. A credit
 // note prints the same way, against its invoice. A4 by default; one tap switches to an 80 mm counter printer.
 const MODE = { cash: 'Refunded in cash', credit: 'Credited to the account' };
-function printBill(b, me) {
+// thermal: open in the 80 mm counter layout (counter mode's fallback when there's no Bluetooth printer)
+export function printBill(b, me, { thermal = false } = {}) {
   // money on a tax invoice: always two decimals, a minus before the ₹; dates as dd-mm-yyyy
   const m2 = (n) => `${Number(n) < 0 ? '−' : ''}₹${Math.abs(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const dt = (d) => String(d || '').split('-').reverse().join('-');
@@ -259,8 +260,8 @@ function printBill(b, me) {
     body.thermal{max-width:302px;padding:6px;font-size:11.5px} body.thermal .parties{grid-template-columns:1fr} body.thermal .head{flex-direction:column} body.thermal .meta{text-align:left} body.thermal .hsn,body.thermal .x{display:none} body.thermal .tot{width:100%}
     .irn{display:flex;gap:12px;align-items:center;margin:10px 0;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:11px;word-break:break-all} .irn img{width:110px;height:110px;flex:none} body.thermal .irn{flex-direction:column;align-items:flex-start}
     @media print{.bar{display:none} body{padding:0} @page{margin:10mm} body.thermal{padding:0} }
-    </style></head><body>
-    <div class="bar"><button class="on" onclick="document.body.classList.remove('thermal');this.classList.add('on');this.nextElementSibling.classList.remove('on')">A4</button><button onclick="document.body.classList.add('thermal');this.classList.add('on');this.previousElementSibling.classList.remove('on')">80 mm counter</button><button onclick="print()">Print</button></div>
+    </style></head><body${thermal ? ' class="thermal"' : ''}>
+    <div class="bar"><button class="${thermal ? '' : 'on'}" onclick="document.body.classList.remove('thermal');this.classList.add('on');this.nextElementSibling.classList.remove('on')">A4</button><button class="${thermal ? 'on' : ''}" onclick="document.body.classList.add('thermal');this.classList.add('on');this.previousElementSibling.classList.remove('on')">80 mm counter</button><button onclick="print()">Print</button></div>
     <div class="head"><div><h1>${esc(sel.name)}</h1>${sel.address ? `<div>${esc(sel.address)}</div>` : ''}${sel.gstin ? `<div>GSTIN <b>${esc(sel.gstin)}</b>${sel.state ? ` · ${esc(sel.state)}` : ''}</div>` : ''}</div>
       <div class="meta"><h2>${esc(title)}</h2><div>No. <b>${esc(b.number)}</b></div><div>Date ${esc(dt(b.day))}</div>${tax && b.place_of_supply ? `<div>Place of supply: ${esc(b.place_of_supply)}${b.pos_code ? ` (${esc(b.pos_code)})` : ''}</div><div>Reverse charge: No</div>` : ''}${cn ? `<div>Against ${esc(b.bill_number)} of ${esc(dt(b.bill_day))}</div>` : ''}</div></div>
     ${irn}
@@ -335,7 +336,7 @@ function CounterTab({ me, items, onChange }) {
   const left = (b) => b.lines.reduce((s, l) => s + l.qty + (l.free_qty || 0) - (l.returned_qty || 0), 0) > 0.0005;
   return (<>
     {today && (today.bills > 0 || today.credit_notes > 0) && <Strip items={[['Today’s bills', inr(today.gross), `${today.bills} ${today.bills === 1 ? 'bill' : 'bills'}`, 'receipt'], ['Returns', inr(today.returns), today.credit_notes ? `${today.credit_notes} credit ${today.credit_notes === 1 ? 'note' : 'notes'}` : 'none today', 'refund', today.returns ? 'bad' : ''], ['Net sales', inr(today.net), today.cash_refunds ? `${inr(today.cash_refunds)} refunded in cash` : 'bills less returns', 'wallet', 'in']]} />}
-    <Panel title="Counter bill">
+    <Panel title="Counter bill" actions={<Link className="btn ghost sm" to="/counter" title="Phone-first billing: camera scan, works offline, Bluetooth receipt printer"><Icon name="receipt" size={13} /> Counter mode (phone)</Link>}>
       <div className="ip-counter">
         <form className="row ip-plan" onSubmit={scanned}><input autoFocus value={scan} onChange={(e) => setScan(e.target.value)} placeholder="Scan barcode or type SKU, then Enter" aria-label="Barcode or SKU" /><button className="btn ghost sm">Add</button></form>
         <div className="row ip-plan"><ItemPick items={items} value={pick.itemId} onChange={(v) => setPick({ ...pick, itemId: v })} /><input type="number" min="0" step="any" value={pick.qty} onChange={(e) => setPick({ ...pick, qty: e.target.value })} aria-label="Quantity" /><button className="btn ghost sm" disabled={!pick.itemId} onClick={() => { addLine(items.find((i) => i.id === pick.itemId), Number(pick.qty) || 1); setPick({ itemId: '', qty: 1 }); }}><Icon name="plus" size={13} /> Add</button></div>
@@ -372,15 +373,36 @@ function CounterTab({ me, items, onChange }) {
     <Panel title="Recent bills" pad={false}>
       <Table head={['Bill', 'Party', 'Total', 'Status', '']} empty="No counter bills yet." rows={bills.map((b) => <tr key={b.id} className={b.cancelled ? 'ip-off' : ''}><td><b className="mono">{b.number}</b><small className="sub-t">{b.day}</small></td><td>{b.party_name || '—'}</td>
         <td className="r">{b.returned ? <><s className="muted">{inr(b.total)}</s> {inr(b.net_total)}</> : inr(b.total)}{b.returns?.length > 0 && <small className="sub-t ip-cns">{b.returns.map((n) => <button key={n.id} className="ip-cn" onClick={() => openNote(n.id)} title={`Print credit note ${n.number}`}>{n.number} −{inr(n.total)}</button>)}</small>}</td>
-        <td>{b.cancelled ? <span className="pill">Cancelled</span> : b.credit && !b.paid ? <span className="pill warn">Credit · unpaid</span> : <span className="pill ok">Paid</span>}{!b.cancelled && b.returns?.length > 0 && <span className={`pill ${left(b) ? 'info' : ''}`}>{left(b) ? 'Part returned' : 'Returned'}</span>}</td>
+        <td>{b.cancelled ? <span className="pill">Cancelled</span> : b.credit && !b.paid ? <span className="pill warn">Credit · unpaid</span> : <span className="pill ok">Paid</span>}{!b.cancelled && b.returns?.length > 0 && <span className={`pill ${left(b) ? 'info' : ''}`}>{left(b) ? 'Part returned' : 'Returned'}</span>}
+          {b.flags?.length > 0 ? <span className="pill warn" title={b.flags.map((f) => f.message).join('\n')}>{b.flags.some((f) => f.code === 'PRICE_CHANGED') ? 'Offline · price changed' : b.flags.some((f) => f.code === 'NEGATIVE_STOCK') ? 'Offline · stock below 0' : 'Offline · check'}</span> : b.offline ? <span className="pill info" title="Made offline in counter mode and synced">Offline</span> : null}
+          {b.flags?.length > 0 && <small className="sub-t warn-t">{b.flags.map((f) => f.message).join(' · ')}</small>}</td>
         <td className="r nowrap"><button className="btn ghost sm" onClick={() => printBill(b, me)}>Print</button>{!b.cancelled && b.doc_type === 'TAX_INVOICE' && <button className="btn ghost sm" title="E-invoice JSON, IRN, e-way bill" onClick={() => setGstDoc(b.id)}>GST{b.irn ? ' ✓' : ''}</button>}{!b.cancelled && left(b) && <button className="btn ghost sm" onClick={() => setRet(b)}><Icon name="refund" size={13} /> Return</button>}{!b.cancelled && b.credit && !b.paid && <button className="btn ghost sm" onClick={() => act(b, 'paid')}>Mark paid</button>}{!b.cancelled && !b.returns?.length && <button className="btn ghost sm" onClick={() => act(b, 'cancel')}>Cancel</button>}</td></tr>)} />
     </Panel>
+    {(!me?.workspace || me.workspace.role === 'admin' || me.perms?.tally === 'edit') && <CounterSettings />}
     <Gstr1Panel />
-    {gd && <GstDocsModal title={`GST documents — ${gd.number}`} onClose={() => setGstDoc(null)} onChanged={loadBills}
+    {gd &&<GstDocsModal title={`GST documents — ${gd.number}`} onClose={() => setGstDoc(null)} onChanged={loadBills}
       docs={[{ source: 'counter', id: gd.id, number: gd.number, label: `Tax invoice · ${inr(gd.total)}`, b2b: !!gd.buyer?.gstin, irn: gd.irn?.irn || null }, ...(gd.returns || []).map((n) => ({ source: 'counter-note', id: n.id, number: n.number, label: `Credit note · ${inr(n.total)}`, b2b: !!gd.buyer?.gstin, irn: n.irn }))]}
       eway={gd.total >= 50000 ? gd : null} />}
     {ret && <ReturnForm bill={ret} me={me} onClose={() => setRet(null)} onSaved={() => { setRet(null); loadBills(); onChange(); }} />}
   </>);
+}
+
+// counter receipts: the UPI ID printed as a pay-by-UPI QR on counter-mode receipts (UPI and credit bills)
+function CounterSettings() {
+  const [s, setS] = useState(null);
+  useEffect(() => { api(`${P}/counter/settings`).then((d) => setS({ upi_id: d.upi_id || '', upi_name: d.upi_name || '' })).catch(() => {}); }, []);
+  if (!s) return null;
+  const save = async (e) => { e.preventDefault(); try { const d = await api(`${P}/counter/settings`, 'PUT', s); setS({ upi_id: d.upi_id || '', upi_name: d.upi_name || '' }); toast(d.upi_id ? 'UPI ID saved — receipts show a pay-by-UPI QR' : 'UPI QR removed from receipts'); } catch (e2) { fail(e2); } };
+  return (
+    <Panel title="Counter receipts">
+      <form className="ip-inline" onSubmit={save}>
+        <input placeholder="UPI ID for counter receipts — e.g. shopname@okhdfcbank" value={s.upi_id} onChange={(e) => setS({ ...s, upi_id: e.target.value.trim() })} aria-label="UPI ID for counter receipts" />
+        <input placeholder="Name shown in the UPI app (optional)" value={s.upi_name} onChange={(e) => setS({ ...s, upi_name: e.target.value })} aria-label="Name for UPI payments" />
+        <button className="btn primary sm">Save</button>
+      </form>
+      <small className="muted">Counter mode prints this as a QR code on UPI and credit receipts, with the bill amount filled in.</small>
+    </Panel>
+  );
 }
 
 // a return against a bill: pieces per line (free pieces count too), the refund priced by the server as you type

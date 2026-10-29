@@ -3,7 +3,7 @@
 // Routes live under /api/inventory/pro. Every stock change is a move through addMove — nothing keeps a running total,
 // so cancelling a counter bill or a production run is just deleting its moves.
 import { T, q, tx, uid } from './db.js';
-import { inventoryOn, mainGodown, stockOf, addMove, MOVE_SOURCES } from './inventory-core.js';
+import { inventoryOn, mainGodown, stockOf, stockMap, addMove, MOVE_SOURCES } from './inventory-core.js';
 import { tallyOn, selectedCompany } from './tally.js';
 import { STATES, GSTIN_RE } from './platform.js';
 import { sellerOf, fyOf, PIN_RE, nextInSeries, gstr1 } from './gst-returns.js';
@@ -302,28 +302,91 @@ export function priceBill(u, body) {
     seller: g.seller, buyer: g.buyer, place_of_supply: g.place_of_supply, pos_code: g.pos_code, intra: g.intra, doc_type: g.doc_type,
     credit_check: party && body.credit ? creditCheck(u, party, rounded) : null };
 }
+// Counter mode (a phone, maybe offline) sends each bill with its own clientId: sending it again — a retry after a
+// dropped connection, a queue synced twice — returns the bill already made instead of a second one. A bill made
+// offline also carries { offline: { total, at } }: what the phone charged from its cached catalog. The server prices
+// it again and its total stands; a different total (a rate or scheme changed meanwhile), stock taken below zero, or a
+// credit limit crossed are kept as flags on the bill for the seller to look at — the sale already happened, so none
+// of them refuses it.
+const CLIENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 export function saveBill(u, body) {
+  const clientId = body.clientId == null || body.clientId === '' ? null : String(body.clientId);
+  if (clientId && !CLIENT_ID_RE.test(clientId)) fail(400, 'clientId is 8–64 letters, digits, - or _');
+  const already = () => { const b = clientId && T.ibills.find({ userId: u.id, clientId }); return b ? { ...billView(b), repeat: true } : null; };
+  const had = already();
+  if (had) return had;
+  const off = body.offline && typeof body.offline === 'object' ? body.offline : null;
   const p = priceBill(u, body);
   if (p.credit && !p.party_name) fail(400, 'A credit bill needs the party’s name');
-  if (p.credit_check?.over && body.override !== true) fail(409, p.credit_check.message, { code: 'CREDIT_LIMIT', credit_check: p.credit_check });
+  if (p.credit_check?.over && body.override !== true && !off) fail(409, p.credit_check.message, { code: 'CREDIT_LIMIT', credit_check: p.credit_check });
   const g = body.godownId ? T.igodowns.get(body.godownId) : mainGodown(u.id);
   if (!g || g.userId !== u.id) fail(404, 'That godown isn’t yours');
   const src = MOVE_SOURCES.includes(body.source) ? body.source : 'MANUAL';
-  return billView(tx(() => {
-    const fy = fyOf(p.day), number = nextInSeries(u.id, 'CB', fy);
-    const moveIds = [];
-    for (const l of p.lines) {
-      // batched stock goes first-expiry-first-out, so batch balances stay true; free units leave stock at ₹0
-      const sell = (qty, rate) => {
-        const { take, short } = fefo(u.id, l.itemId, qty, g.id);
-        for (const t of take) moveIds.push(addMove(u.id, { itemId: l.itemId, godownId: g.id, qty: t.qty, kind: 'SALE', rate, day: p.day, party_name: p.party_name, ref: number, source: src, batch: t.batch, expiry: t.expiry }).id);
-        if (short > 0) moveIds.push(addMove(u.id, { itemId: l.itemId, godownId: g.id, qty: short, kind: 'SALE', rate, day: p.day, party_name: p.party_name, ref: number, source: src }, { allowNegative: body.allowNegative === true }).id);
-      };
-      sell(l.qty, l.qty ? r2(l.taxable / l.qty) : l.rate);
-      if (l.free_qty) sell(l.free_qty, 0);
+  const flags = [];
+  let offline = null;
+  if (off) {
+    const charged = Number(off.total), at = Number(off.at);
+    offline = { total: Number.isFinite(charged) ? r2(charged) : null, at: Number.isFinite(at) && at > 0 && at <= Date.now() + 600000 ? at : null, synced_at: Date.now() };
+    if (offline.total != null && Math.abs(offline.total - p.total) > 0.005) {
+      flags.push({ code: 'PRICE_CHANGED', offline_total: offline.total, server_total: p.total, diff: r2(p.total - offline.total), message: `Charged ₹${offline.total} offline; priced at ₹${p.total} now (a rate or scheme changed) — the bill keeps ₹${p.total}` });
     }
-    return T.ibills.insert({ id: uid(), userId: u.id, number, fy, ...p, lparty: p.party_name ? lower(p.party_name) : null, credit_check: undefined, moveIds, paid: !p.credit, cancelled: false, at: Date.now() });
-  }));
+    if (p.credit_check?.over) flags.push({ code: 'CREDIT_OVER', message: p.credit_check.message });
+  }
+  try {
+    return tx(() => {
+      const b = makeBill(u, p, g, src, { allowNegative: body.allowNegative === true || !!off });
+      if (off) {
+        // stock taken below zero by this offline sale: allowed (it already left the shop), flagged
+        const neg = [...new Set(p.lines.map((l) => l.itemId))].map((id) => ({ itemId: id, name: p.lines.find((l) => l.itemId === id).name, stock: stockOf(id, g.id) })).filter((x) => x.stock < -0.0005);
+        if (neg.length) flags.push({ code: 'NEGATIVE_STOCK', items: neg, message: `Stock went below zero: ${neg.map((x) => `${x.name} (${x.stock})`).join(', ')}` });
+      }
+      return billView(T.ibills.insert({ id: uid(), userId: u.id, ...b, pay_mode: p.credit ? 'credit' : ['cash', 'upi', 'card'].includes(body.pay_mode) ? body.pay_mode : null, party_phone: clip(body.party_phone, 20).replace(/[^\d+ -]/g, '') || null, clientId, offline, flags: flags.length ? flags : undefined, at: Date.now() }));
+    });
+  } catch (e) {
+    const again = already(); // the same clientId saved by a parallel request a moment ago
+    if (again) return again;
+    throw e;
+  }
+}
+// the bill's number and its sale moves (inside the caller's transaction)
+function makeBill(u, p, g, src, { allowNegative }) {
+  const fy = fyOf(p.day), number = nextInSeries(u.id, 'CB', fy);
+  const moveIds = [];
+  for (const l of p.lines) {
+    // batched stock goes first-expiry-first-out, so batch balances stay true; free units leave stock at ₹0
+    const sell = (qty, rate) => {
+      const { take, short } = fefo(u.id, l.itemId, qty, g.id);
+      for (const t of take) moveIds.push(addMove(u.id, { itemId: l.itemId, godownId: g.id, qty: t.qty, kind: 'SALE', rate, day: p.day, party_name: p.party_name, ref: number, source: src, batch: t.batch, expiry: t.expiry }).id);
+      if (short > 0) moveIds.push(addMove(u.id, { itemId: l.itemId, godownId: g.id, qty: short, kind: 'SALE', rate, day: p.day, party_name: p.party_name, ref: number, source: src }, { allowNegative }).id);
+    };
+    sell(l.qty, l.qty ? r2(l.taxable / l.qty) : l.rate);
+    if (l.free_qty) sell(l.free_qty, 0);
+  }
+  return { number, fy, ...p, lparty: p.party_name ? lower(p.party_name) : null, credit_check: undefined, moveIds, paid: !p.credit, cancelled: false };
+}
+
+// ---------- counter mode (the phone app at /counter) ----------
+// Everything a phone needs to bill with no network: items with rate, GST and stock, rate lists, schemes, the seller's
+// GST details and UPI ID, and what sells most (the tiles on the screen). Offline bills priced from this are priced
+// again on the server when they sync.
+const UPI_RE = /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,63}$/;
+export const counterSettings = (u) => ({ upi_id: u.settings?.counter?.upi_id || null, upi_name: clip(u.settings?.counter?.upi_name, 60) || null });
+export function counterCatalog(u) {
+  const all = T.iitems.all({ userId: u.id, active: 1 });
+  const parents = new Set(all.map((i) => i.parent_id).filter(Boolean)), stock = stockMap(u.id);
+  const items = all.filter((i) => !parents.has(i.id)).map((i) => ({ ...itemView(i), hsn: i.hsn || null, gst_percent: Number(i.gst_percent) || 0, sale_rate: i.sale_rate != null && i.sale_rate !== '' ? Number(i.sale_rate) : null, category: i.category || null, stock: stock.get(i.id) || 0 }));
+  const popular = q("SELECT itemId, COUNT(*) AS n FROM imoves WHERE userId = ? AND kind = 'SALE' AND at > ? GROUP BY itemId ORDER BY n DESC LIMIT 24").all(u.id, Date.now() - 30 * 86400000).map((r) => r.itemId);
+  const schemes = T.ischemes.all({ userId: u.id }).filter((s) => s.active !== false).map(({ id, itemId, kind, name, buy, free, pct, min_qty, from, to }) => ({ id, itemId, kind, name, buy, free, pct, min_qty, from, to }));
+  const ratelists = T.iratelists.all({ userId: u.id }, { order: 'lname' }).map(({ id, name, rates }) => ({ id, name, rates }));
+  return { owner: u.id, at: Date.now(), today: ymd(), seller: sellerOf(u), states: STATES, items, popular, schemes, ratelists, settings: counterSettings(u) };
+}
+function saveCounterSettings(u, body) {
+  const upi = clip(body.upi_id, 300).replace(/\s/g, '');
+  if (upi && !UPI_RE.test(upi)) fail(400, 'That UPI ID doesn’t look right — it looks like shopname@okhdfcbank');
+  const cur = u.settings?.counter || {};
+  const next = { ...cur, upi_id: upi || null, upi_name: body.upi_name !== undefined ? clip(body.upi_name, 60) || null : cur.upi_name || null };
+  T.users.update(u.id, (x) => { x.settings = { ...(x.settings || {}), counter: next }; });
+  return counterSettings({ settings: { counter: next } });
 }
 const ownBill = (userId, id) => { const b = T.ibills.get(id); if (!b || b.userId !== userId) fail(404, 'Bill not found'); return b; };
 
@@ -474,7 +537,7 @@ export function registerInventoryPro(app, { auth, rateLimit, isTest }) {
   get('/bills', (req) => {
     const party = clip(req.query.party, 120);
     const rows = party ? T.ibills.all({ userId: uid_(req), lparty: lower(party) }, { order: 'at', desc: true, limit: 200 }) : T.ibills.all({ userId: uid_(req) }, { order: 'at', desc: true, limit: Math.min(200, Number(req.query.limit) || 50) });
-    return rows.filter((b) => req.query.open !== '1' || (b.credit && !b.paid && !b.cancelled)).map(billView);
+    return rows.filter((b) => (req.query.open !== '1' || (b.credit && !b.paid && !b.cancelled)) && (req.query.flagged !== '1' || b.flags?.length)).map(billView);
   });
   get('/bills/:id', (req) => billView(ownBill(uid_(req), req.params.id)));
   app.post(`${P}/bills/preview`, auth, on, send((req) => priceBill(req.user, req.body || {})));
@@ -500,6 +563,10 @@ export function registerInventoryPro(app, { auth, rateLimit, isTest }) {
   });
   get('/credit-notes/:id', (req) => { const n = T.icnotes.get(req.params.id); if (!n || n.userId !== uid_(req)) fail(404, 'Credit note not found'); return noteView(n); });
   get('/counter/day', (req) => counterDay(uid_(req), req.query.day));
+  // counter mode: the catalog a phone caches for offline billing, and the UPI ID printed as a QR on its receipts
+  get('/counter/catalog', (req) => counterCatalog(req.user));
+  get('/counter/settings', (req) => counterSettings(req.user));
+  write('put', '/counter/settings', (req) => saveCounterSettings(req.user, req.body || {}));
   get('/gstr1', (req) => gstr1(req.user, clip(req.query.month, 7), { counter: req.query.counter !== '0', checkout: req.query.checkout !== '0' }));
   get('/gst-profile', (req) => ({ seller: sellerOf(req.user), states: Object.keys(STATES) }));
 
