@@ -156,8 +156,11 @@ function markComplete(owner, s, product, access) {
 }
 export function courseComplete(product, access) {
   const lessons = product.lessons || [];
-  return lessons.length > 0 && lessons.every((l) => access.progress?.[l.id] && (!l.quiz || access.quiz?.[l.id]?.passed));
+  return lessons.length > 0 && lessons.every((l) => !dripLocked(access, l) && access.progress?.[l.id] && (!l.quiz || access.quiz?.[l.id]?.passed));
 }
+// a lesson the drip hasn't released yet: can't be marked done, quizzed or counted towards the certificate
+const dripLocked = (access, l) => (access.at || 0) + (l.dripDays || 0) * DAY > Date.now();
+const dripError = (access, l) => `This lesson opens on ${new Date((access.at || 0) + (l.dripDays || 0) * DAY).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}`;
 function issueCert(owner, s, product) {
   const have = T.certs.find({ studentId: s.id, productId: product.id });
   if (have) return have;
@@ -304,6 +307,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const lesson = p?.lessons.find((l) => l.id === req.body.lessonId);
     if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
     if (lessonGate(s, p, lesson.id)) return res.status(403).json({ error: `Reach level ${lesson.minLevel} to unlock this lesson` });
+    if (dripLocked(a, lesson) && req.body.done !== false) return res.status(403).json({ error: dripError(a, lesson) });
     let firstTime = false;
     const n = T.access.update(a.id, (x) => {
       x.progress ||= {};
@@ -326,10 +330,14 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const lesson = p?.lessons.find((l) => l.id === req.body.lessonId);
     if (!lesson?.quiz) return res.status(404).json({ error: 'Quiz not found' });
     if (lessonGate(s, p, lesson.id)) return res.status(403).json({ error: `Reach level ${lesson.minLevel} to unlock this lesson` });
+    if (dripLocked(a, lesson)) return res.status(403).json({ error: dripError(a, lesson) });
     const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
-    const results = lesson.quiz.questions.map((x, i) => ({ correct: Number(answers[i]) === x.answer, answer: x.answer, explain: x.explain }));
-    const score = Math.round((results.filter((r) => r.correct).length / results.length) * 100);
+    const marked = lesson.quiz.questions.map((x, i) => Number(answers[i]) === x.answer);
+    const score = Math.round((marked.filter(Boolean).length / marked.length) * 100);
     const passed = score >= lesson.quiz.pass;
+    // the right options only after a pass (or a pass before, or the seller allows it): a fail says which were wrong
+    const reveal = passed || !!a.quiz?.[lesson.id]?.passed || lesson.quiz.showAnswers === true;
+    const results = lesson.quiz.questions.map((x, i) => (reveal ? { correct: marked[i], answer: x.answer, explain: x.explain } : { correct: marked[i] }));
     let firstPass = false;
     const n = T.access.update(a.id, (x) => {
       x.quiz ||= {};

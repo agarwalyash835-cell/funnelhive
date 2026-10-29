@@ -56,7 +56,8 @@ export function cleanQuiz(z) {
     const answer = Math.round(Number(x?.answer));
     return { q: clip(x?.q, 500), options, answer: answer >= 0 && answer < options.length ? answer : 0, explain: clip(x?.explain, 600) };
   }).filter((x) => x.q && x.options.length >= 2);
-  return questions.length ? { questions, pass: intIn(z.pass ?? 70, 0, 100) } : null;
+  // showAnswers: the seller lets a student see the right answers after a failed try too (else only after a pass)
+  return questions.length ? { questions, pass: intIn(z.pass ?? 70, 0, 100), ...(z.showAnswers === true ? { showAnswers: true } : {}) } : null;
 }
 function cleanProduct(b = {}, cur = {}) {
   const out = { ...cur };

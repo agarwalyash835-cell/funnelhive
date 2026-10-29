@@ -757,6 +757,8 @@ app.put('/api/funnels/:id', auth, (req, res) => {
   if ('steps' in b) for (const s of b.steps) cleanPopups(s);
   // a step kept open without a purchase / sign-up (lockOf): a plain true, or not at all
   if ('steps' in b) for (const s of b.steps) if (s && typeof s === 'object') { if (s.open) s.open = true; else delete s.open; }
+  // a thank-you page shown in full to Cash on Delivery buyers too (unpaidView): a plain true, or not at all
+  if ('steps' in b) for (const s of b.steps) if (s && typeof s === 'object') { if (s.codFull) s.codFull = true; else delete s.codFull; }
   if (req.body.baseVersion != null && Number(req.body.baseVersion) !== f.version) {
     return res.status(409).json({ error: 'This funnel was changed somewhere else (another tab, device or teammate).', funnel: withKey(f) });
   }
@@ -1305,13 +1307,44 @@ function passLevel(f, pass) {
   if (!['lead', 'paid'].includes(level) || !(Number(exp) > Date.now()) || typeof sig !== 'string' || sig.length !== 22) return null;
   return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(passSig(f.id, level, exp))) ? level : null;
 }
-// what the visitor showed: an order placed in this funnel (paid, or cash on delivery) or a pass
+// what the visitor showed: an order placed in this funnel, or a pass. A Cash on Delivery (or not yet confirmed)
+// order is 'ordered': it opens the upsells and the order confirmation, never what they paid for (unpaidView)
 function proofLevel(f, req) {
   const o = typeof req.query.o === 'string' && req.query.o.length <= 64 ? T.orders.get(req.query.o) : null;
-  if (o && o.funnelId === f.id && ['paid', 'cod', 'pending'].includes(o.status)) return 'paid';
+  if (o && o.funnelId === f.id && o.status === 'paid') return 'paid';
+  if (o && o.funnelId === f.id && ['cod', 'pending'].includes(o.status)) return 'ordered';
   return passLevel(f, req.query.p);
 }
-const unlocks = (need, have) => !need || have === 'paid' || (need === 'lead' && have === 'lead');
+const unlocks = (need, have) => !need || have === 'paid' || have === 'ordered' || (need === 'lead' && have === 'lead');
+// A thank-you page seen with an unpaid order: the confirmation and the offers stay, anything that could be what
+// they paid for (videos, links, downloads, text, custom HTML) waits for the payment. A seller can say the page
+// holds nothing paid (step.codFull).
+const CONFIRM_BLOCKS = new Set(['thankyou', 'crosssell', 'offer', 'whatsapp', 'navbar', 'footer', 'spacer', 'divider', 'hellobar', 'countdown', 'stock', 'livecount', 'proof', 'stickybar', 'exitpopup', 'guarantee', 'faq', 'testimonials']);
+const HAS_LINK = /https?:\/\/|www\.|chat\.whatsapp\.com|t\.me\/|drive\.google|bit\.ly/i;
+const AWAITING_PAYMENT = 'You’ll get access once your payment is received — we’ll send it to your email and WhatsApp the moment it’s confirmed.';
+function unpaidView(step) {
+  if (step.type !== 'thankyou' || step.codFull) return step;
+  const keep = (blocks = []) => {
+    let held = false;
+    const out = blocks.flatMap((b) => {
+      const linked = HAS_LINK.test(JSON.stringify(b.props || {}));
+      if (b.type === 'thankyou') {
+        const steps = (b.props?.steps || []).filter((x) => !HAS_LINK.test(JSON.stringify(x)));
+        held ||= linked;
+        return [{ ...b, props: { ...b.props, body: HAS_LINK.test(String(b.props?.body || '')) ? '' : b.props?.body, steps } }];
+      }
+      if (['crosssell', 'offer', 'whatsapp'].includes(b.type) || (CONFIRM_BLOCKS.has(b.type) && !linked)) return [b];
+      held = true;
+      return [];
+    });
+    if (!held) return out;
+    const ty = out.find((b) => b.type === 'thankyou');
+    const note = { text: AWAITING_PAYMENT };
+    return ty ? out.map((b) => (b === ty ? { ...b, props: { ...b.props, steps: [note, ...(b.props.steps || [])] } } : b))
+      : [{ id: `awaiting-${step.id}`, type: 'thankyou', props: { headline: 'Order received — thank you! 🎉', body: '', steps: [note] } }, ...out];
+  };
+  return { ...step, blocks: keep(step.blocks), ...(step.ab ? { ab: { ...step.ab, blocks: keep(step.ab.blocks) } } : {}), popups: [], awaitingPayment: true };
+}
 // the editor's preview (with its key) sees every step as it is
 const fullView = (f, req) => isPreview(req) && validPreviewKey(f, req.query.pv);
 
@@ -1337,10 +1370,11 @@ app.get('/api/public/:slug/step/:stepId', (req, res) => {
   if (!f) return;
   const step = f.steps.find((s) => s.id === req.params.stepId);
   if (!step) return res.status(404).json({ error: 'Page not found' });
-  const need = lockOf(f, step);
-  if (!fullView(f, req) && !unlocks(need, proofLevel(f, req))) return res.status(403).json({ error: need === 'paid' ? 'This page opens after you buy' : 'This page opens after you sign up', locked: need });
+  const need = lockOf(f, step), full = fullView(f, req), have = full ? 'paid' : proofLevel(f, req);
+  if (!unlocks(need, have)) return res.status(403).json({ error: need === 'paid' ? 'This page opens after you buy' : 'This page opens after you sign up', locked: need });
   const owner = T.users.get(f.userId);
-  res.set('Cache-Control', 'private, no-store').json(productOrigins(resolveWhatsApp([step], owner?.settings?.supportWhatsapp, !owner || whatsappStatus(owner).configured), f.userId)[0]);
+  const shown = need === 'paid' && have === 'ordered' ? unpaidView(step) : step;
+  res.set('Cache-Control', 'private, no-store').json(productOrigins(resolveWhatsApp([shown], owner?.settings?.supportWhatsapp, !owner || whatsappStatus(owner).configured), f.userId)[0]);
 });
 // Real numbers for the live-viewers, stock and recent-buyer blocks — never invented. Visitors to this step in the
 // last 30 minutes, the seller's stock less real orders since they set it, and the last 10 real buyers
@@ -1523,7 +1557,10 @@ const checkoutPrice = (f, stepId) => {
   const b = step && allBlocks(step).find((x) => x.type === 'checkout');
   return b ? Number(b.props.price) || 0 : null;
 };
-app.post('/api/public/:slug/coupon', (req, res) => {
+// trying codes one after another (guessing a seller's coupons): ~20 checks a minute per network and funnel, tests
+// too. Checkout applies its coupon itself, so a real buyer is never stopped from paying by this.
+const couponLimiter = rateLimit({ windowMs: 60000, max: 20, key: (req) => `${req.ip}:${req.params.slug}`, message: 'Too many codes tried — please wait a minute and try again.' });
+app.post('/api/public/:slug/coupon', couponLimiter, (req, res) => {
   const f = pub(req, res);
   if (!f) return;
   const r = couponFor(f, req.body.code, { email: req.body.email, subtotal: checkoutPrice(f, req.body.stepId) });

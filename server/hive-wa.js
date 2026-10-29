@@ -121,9 +121,12 @@ function contactFor(userId, num, name) {
 // a chatbot's "Update contact" step: unsubscribe, or subscribe again (the customer asked for it)
 export function waSetOptOut(userId, key, num, on) {
   if (on) return optOut(userId, key, num, 'Unsubscribed by a chatbot step');
+  optIn(userId, key, 'By a chatbot step');
+}
+function optIn(userId, key, why) {
   const m = ensureMeta(userId, key);
   if (!m.waOptOut) return;
-  T.crm.update(m.id, (x) => { x.waOptOut = false; delete x.waOptPhone; delete x.waOptAt; x.activities = [...(x.activities || []), { id: uid(), at: Date.now(), type: 'note', title: 'Subscribed to WhatsApp again', text: 'By a chatbot step' }].slice(-500); });
+  T.crm.update(m.id, (x) => { x.waOptOut = false; delete x.waOptPhone; delete x.waOptAt; x.activities = [...(x.activities || []), { id: uid(), at: Date.now(), type: 'note', title: 'Subscribed to WhatsApp again', text: why }].slice(-500); });
 }
 function optOut(userId, key, num, why) {
   const m = ensureMeta(userId, key);
@@ -382,7 +385,13 @@ export async function hiveTick(now = Date.now()) {
 // the same events from Meta's own webhook (meta-signup.js), already in Hive's shape
 export const waHandle = (userId, ev, d, env) => handle(userId, ev, d, env);
 export const waContact = (userId, num, name) => contactFor(userId, num, name);
-const STOP = /^\s*(stop|stop all|unsubscribe|opt[\s-]?out)\s*[.!]*\s*$/i;
+// the whole message (case, spaces and . ! । aside), in English, Hindi or Hinglish — "band baja" is not a STOP
+const STOP_WORDS = new Set(['stop', 'stop all', 'unsubscribe', 'opt out', 'optout', 'opt-out', 'stop karo', 'stop kar do', 'unsubscribe karo', 'unsubscribe kar do',
+  'band', 'band karo', 'band kar do', 'band kardo', 'mat bhejo', 'mat bhejna', 'message mat bhejo', 'बंद', 'बंद करो', 'बंद कर दो', 'मत भेजो', 'मैसेज मत भेजो']);
+const START_WORDS = new Set(['start', 'resume', 'subscribe', 'start karo', 'shuru', 'shuru karo', 'shuru kar do', 'शुरू', 'शुरू करो', 'शुरू कर दो']);
+const said = (words, text) => words.has(String(text || '').toLowerCase().replace(/[.!।?]+/g, ' ').replace(/\s+/g, ' ').trim());
+export const isStop = (text) => said(STOP_WORDS, text);
+export const isStart = (text) => said(START_WORDS, text);
 const RANK = { sending: 0, queued: 1, sent: 2, delivered: 3, read: 4 };
 function handle(userId, ev, d = {}, env = {}) {
   const u = T.users.get(userId);
@@ -392,8 +401,9 @@ function handle(userId, ev, d = {}, env = {}) {
     const text = clip(d.text || d.interactive_title || (d.type && d.type !== 'text' ? `[${d.type}]` : ''), 4000);
     const key = contactFor(userId, num, d.contact_name);
     logActivity(userId, key, { type: 'whatsapp', title: `WhatsApp message: ${clip(text, 120) || '(empty)'}`, text, status: 'received', by: 'contact' });
-    const stop = STOP.test(text);
+    const stop = isStop(text);
     if (stop) optOut(userId, key, num, `Replied “${clip(text, 40)}” on WhatsApp`);
+    else if (isStart(text) && ensureMeta(userId, key).waOptOut) optIn(userId, key, `Replied “${clip(text, 40)}” on WhatsApp`);
     // an answer to a Cash on Delivery confirmation (cod.js) is handled there, not by the inbox's chatbot / AI agent
     if (!stop && replyHook) { try { if (replyHook(u, { num, key, text, d })) return; } catch (e) { console.error('WhatsApp reply hook failed', e.message); } }
     // the inbox keeps the conversation, runs the chatbot / AI agent and notifies when a person is needed

@@ -228,6 +228,23 @@ test('exit-popup coupon codes are created automatically and work at checkout', a
   assert.equal((await api('/coupons', 'GET', null, token)).data.find((x) => x.code === code).active, false);
 });
 
+test('guessing coupon codes is slowed down; checkout still applies a real code', async () => {
+  const { token } = await register(api);
+  const f = (await api('/templates/skincare/use', 'POST', {}, token)).data;
+  await api('/coupons', 'POST', { code: 'REAL20', type: 'percent', value: 20 }, token);
+  await api(`/funnels/${f.id}`, 'PUT', { published: true }, token);
+  for (let i = 0; i < 20; i++) assert.equal((await api(`/public/${f.slug}/coupon`, 'POST', { code: `GUESS${i}` })).status, 200);
+  const r = await api(`/public/${f.slug}/coupon`, 'POST', { code: 'REAL20' });
+  assert.equal(r.status, 429);
+  assert.match(r.data.error, /Too many codes tried/);
+  const pub = (await api(`/public/${f.slug}`)).data;
+  const co = pub.steps.find((s) => s.blocks.some((b) => b.type === 'checkout'));
+  const o = await api(`/public/${f.slug}/order`, 'POST', { stepId: co.id, email: 'c@x.dev', coupon: 'REAL20', address: ADDR });
+  assert.equal(o.status, 200, JSON.stringify(o.data));
+  const price = Number(co.blocks.find((b) => b.type === 'checkout').props.price);
+  assert.equal(o.data.total, price - Math.round(price * 0.2));
+});
+
 test('WhatsApp buttons use the seller number from Settings, or are hidden', async () => {
   const { token } = await register(api);
   const f = (await api('/templates/pickle/use', 'POST', {}, token)).data;

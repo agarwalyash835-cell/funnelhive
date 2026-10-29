@@ -948,17 +948,38 @@ export function registerAutomations(app, { auth, secret, appUrl, rateLimit, isTe
   });
 
   // one-click unsubscribe (link in every automated email)
-  const unsub = (req, res) => {
+  // GET only shows a confirm page: corporate link scanners open every link in an email and must not unsubscribe
+  // anyone. The POST does it — our button, or an email app's RFC 8058 one-click (body List-Unsubscribe=One-Click).
+  const esc = (v) => String(v || '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]);
+  const unsubPage = (res, biz, inner, status = 200) => res.status(status).set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'Referrer-Policy': 'no-referrer' }).type('html')
+    .send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${biz ? `${esc(biz)} — ` : ''}Unsubscribe</title><div style="font:16px/1.6 system-ui;max-width:420px;margin:12vh auto;padding:28px 24px;text-align:center;border:1px solid #e5e7eb;border-radius:14px">${biz ? `<div style="font-weight:700;font-size:15px;color:#6b7280;margin-bottom:8px">${esc(biz)}</div>` : ''}${inner}</div>`);
+  const unsubCheck = (req, res) => {
     const { uid: userId, key, sig: s } = req.params;
     const ok = s && s.length === 24 && crypto.timingSafeEqual(Buffer.from(s), Buffer.from(sig(userId, key)));
-    if (!ok) return res.status(400).type('html').send('<p style="font:16px system-ui;padding:40px;text-align:center">This unsubscribe link isn’t valid.</p>');
-    const m = T.users.get(userId) ? ensureMeta(userId, key) : null;
-    if (m && !m.unsubscribed) { m.unsubscribed = true; m.activities.push({ id: uid(), at: Date.now(), type: 'note', title: 'Unsubscribed from emails', text: 'Clicked the unsubscribe link' }); T.crm.put(m); }
-    const biz = userOf(userId)?.settings?.businessName;
-    res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribed</title><div style="font:16px/1.6 system-ui;max-width:420px;margin:12vh auto;padding:24px;text-align:center"><h1 style="font-size:22px">You’re unsubscribed ✅</h1><p>You won’t receive marketing emails${biz ? ` from ${biz.replace(/[<>&]/g, '')}` : ''} any more.</p></div>`);
+    if (!ok) { unsubPage(res, '', '<p>This unsubscribe link isn’t valid.</p>', 400); return null; }
+    return { userId, key, biz: userOf(userId)?.settings?.businessName || '' };
   };
-  app.get('/u/:uid/:key/:sig', unsub);
-  app.post('/u/:uid/:key/:sig', unsub); // RFC 8058 one-click
+  app.get('/u/:uid/:key/:sig', (req, res) => {
+    const c = unsubCheck(req, res);
+    if (!c) return;
+    const m = T.users.get(c.userId) ? metaFor(c.userId, c.key) : null;
+    if (m?.unsubscribed) return unsubPage(res, c.biz, '<h1 style="font-size:22px">You’re already unsubscribed</h1><p>You won’t receive marketing emails from us any more.</p>');
+    unsubPage(res, c.biz, `<h1 style="font-size:22px">Unsubscribe from our emails?</h1><p>You’ll stop getting marketing emails${c.biz ? ` from ${esc(c.biz)}` : ''}. Order and receipt emails still reach you.</p><form method="post"><button type="submit" style="font:600 16px system-ui;padding:12px 28px;border:0;border-radius:10px;background:#111827;color:#fff;cursor:pointer">Unsubscribe</button></form>`);
+  });
+  app.post('/u/:uid/:key/:sig', (req, res) => {
+    let body = '';
+    const done = () => {
+      const c = unsubCheck(req, res);
+      if (!c) return;
+      const oneClick = /List-Unsubscribe=One-Click/i.test(body) || req.body?.['List-Unsubscribe'] === 'One-Click';
+      const m = T.users.get(c.userId) ? ensureMeta(c.userId, c.key) : null;
+      if (m && !m.unsubscribed) { m.unsubscribed = true; m.activities.push({ id: uid(), at: Date.now(), type: 'note', title: 'Unsubscribed from emails', text: oneClick ? 'Used the email app’s unsubscribe button' : 'Clicked the unsubscribe link' }); T.crm.put(m); }
+      unsubPage(res, c.biz, `<h1 style="font-size:22px">You’re unsubscribed ✅</h1><p>You won’t receive marketing emails${c.biz ? ` from ${esc(c.biz)}` : ''} any more.</p>`);
+    };
+    if (req.readableEnded) return done(); // a JSON body the global parser already read
+    req.on('data', (d) => { if (body.length < 2048) body += d; });
+    req.on('end', done);
+  });
 
   originFallback = () => process.env.APP_URL || 'http://localhost:4000';
   if (JOBS) setInterval(tick, TICK).unref();

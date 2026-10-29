@@ -334,6 +334,20 @@ test('STOP opts the contact out: buyer messages, automations and broadcasts skip
   assert.equal((await api('/contacts', 'GET', null, T)).data.find((x) => x.key === 'priya@x.in').waOptOut, true);
 });
 
+test('Hindi / Hinglish opt-out words, whole message only; START / शुरू subscribes again', async () => {
+  const out = async (text, n) => { await hook('message.inbound', { from: `9197000001${n}`, type: 'text', text }); return !!(await api('/contacts', 'GET', null, T)).data.find((x) => x.key === `phone:97000001${n}`)?.waOptOut; };
+  let n = 10;
+  for (const w of ['बंद', ' Band  Karo! ', 'band', 'mat bhejo', 'मत भेजो', 'Unsubscribe karo', 'STOP KARO']) assert.equal(await out(w, n++), true, w);
+  for (const w of ['band karo mat', 'shop band hai kya?', 'stop by tomorrow']) assert.equal(await out(w, n++), false, w);
+  await hook('message.inbound', { from: '919700000077', type: 'text', text: 'band baja' });
+  const c = () => api('/contacts', 'GET', null, T).then((r) => r.data.find((x) => x.key === 'phone:9700000077'));
+  assert.ok(!(await c()).waOptOut, 'a sentence that merely contains "band" is not an opt-out');
+  await hook('message.inbound', { from: '919700000077', type: 'text', text: 'बंद करो' });
+  assert.equal((await c()).waOptOut, true);
+  await hook('message.inbound', { from: '919700000077', type: 'text', text: 'shuru karo' });
+  assert.ok(!(await c()).waOptOut, 'opted back in');
+});
+
 test('automation WhatsApp steps go through Hive (one key per run and step) and skip opted-out numbers', async () => {
   const a = (await api('/automations', 'POST', { name: 'Thanks', trigger: { type: 'purchase' }, steps: [{ type: 'whatsapp', mode: 'template', template: 'thanks_v1', language: 'en', params: '{{first_name}}, {{product}}' }] }, T)).data;
   assert.equal((await api(`/automations/${a.id}`, 'PUT', { active: true }, T)).status, 200);

@@ -283,6 +283,7 @@ function QuizEditor({ l, onChange }) {
     <div className="fld full pr-quiz"><span>Quiz · pass mark <input className="pr-pass" type="number" min="0" max="100" value={z.pass} onChange={(e) => onChange({ ...z, pass: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />%
       <button type="button" className="btn ghost sm" onClick={ai} disabled={busy}>{busy ? <span className="spin dark" /> : <Icon name="sparkles" size={12} />} Rewrite with AI</button>
       <button type="button" className="btn ghost sm danger" onClick={() => onChange(null)}>Remove quiz</button></span>
+      <label className="tog"><input type="checkbox" checked={!!z.showAnswers} onChange={(e) => onChange({ ...z, showAnswers: e.target.checked })} /><span />Show the right answers after a failed try too <small className="hint">· otherwise only after they pass</small></label>
       {z.questions.map((q, i) => (
         <div key={i} className="pr-qq">
           <div className="row"><b>{i + 1}.</b><input value={q.q} maxLength={500} placeholder="Question" onChange={(e) => setQ(i, { q: e.target.value })} />{z.questions.length > 1 && <button type="button" className="icon-btn xs danger" aria-label="Remove question" onClick={() => onChange({ ...z, questions: z.questions.filter((_, n) => n !== i) })}><Icon name="x" size={12} /></button>}</div>

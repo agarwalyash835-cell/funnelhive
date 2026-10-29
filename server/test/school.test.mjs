@@ -78,9 +78,16 @@ test('a course: progress and resume, quiz answers stay on the server, certificat
   assert.equal((await L('/certificate/' + course.id, 'GET', null, asha)).status, 400, 'not finished yet');
   const fail = (await L('/quiz', 'POST', { accessId: c.accessId, lessonId: c.lessons[1].id, answers: [0, 1] }, asha)).data;
   assert.deepEqual([fail.score, fail.passed], [0, false]);
-  assert.equal(fail.results[0].answer, 1, 'the right answers come back after an attempt');
+  assert.deepEqual(fail.results, [{ correct: false }, { correct: false }], 'a fail says which were wrong, not the right options');
+  // the seller can allow the answers after a failed try
+  const withAns = (on) => api(`/products/${course.id}`, 'PUT', { lessons: course.lessons.map((l) => (l.quiz ? { ...l, quiz: { ...l.quiz, showAnswers: on } } : l)) }, T);
+  assert.equal((await withAns(true)).data.lessons[1].quiz.showAnswers, true);
+  const shown = (await L('/quiz', 'POST', { accessId: c.accessId, lessonId: c.lessons[1].id, answers: [0, 1] }, asha)).data;
+  assert.deepEqual([shown.passed, shown.results[0].answer, shown.results[1].answer], [false, 1, 0]);
+  await withAns(false);
   const pass = (await L('/quiz', 'POST', { accessId: c.accessId, lessonId: c.lessons[1].id, answers: [1, 0] }, asha)).data;
   assert.deepEqual([pass.score, pass.passed], [100, true]);
+  assert.equal(pass.results[0].answer, 1, 'the right answers come back after a pass');
   assert.equal(pass.cert.title, 'Certified Yoga Foundations', 'finishing the course issues the certificate');
   assert.equal(pass.cert.name, 'Asha Verma');
   // anyone can check it's genuine by its number
@@ -254,4 +261,20 @@ test('the members area installs as an app with the school’s name, colour and i
   const svg = await fetch(`${srv.base}/api/learn/${handle}/icon.svg`);
   assert.match(svg.headers.get('content-type'), /svg/);
   assert.match(await svg.text(), /^<svg[\s\S]+<\/svg>$/);
+});
+
+test('a lesson the drip hasn’t released can’t be marked done, quizzed or counted towards the certificate', async () => {
+  const dc = (await api('/products', 'POST', { name: 'Drip Course' }, T)).data;
+  await api(`/products/${dc.id}`, 'PUT', { lessons: [{ title: 'Day 1', section: 'A', body: 'Now' }, { title: 'Week 2', section: 'A', body: 'Later', dripDays: 7, quiz: { pass: 50, questions: [{ q: 'Q?', options: ['a', 'b'], answer: 0 }] } }], certificate: { enabled: true } }, T);
+  await api(`/products/${dc.id}/grant`, 'POST', { email: 'drip@x.in', name: 'Drip Student', notify: false }, T);
+  const st = await signIn('drip@x.in');
+  const c = (await L('/home', 'GET', null, st)).data.courses.find((x) => x.productId === dc.id);
+  const lessonIds = (await api(`/products/${dc.id}`, 'GET', null, T)).data.lessons.map((l) => l.id);
+  assert.equal((await L('/progress', 'POST', { accessId: c.accessId, lessonId: lessonIds[0], done: true }, st)).status, 200);
+  const early = await L('/progress', 'POST', { accessId: c.accessId, lessonId: lessonIds[1], done: true }, st);
+  assert.equal(early.status, 403);
+  assert.match(early.data.error, /^This lesson opens on \d{1,2} \w{3} \d{4}$/);
+  const quiz = await L('/quiz', 'POST', { accessId: c.accessId, lessonId: lessonIds[1], answers: [0] }, st);
+  assert.equal(quiz.status, 403);
+  assert.equal((await L(`/certificate/${dc.id}`, 'GET', null, st)).status, 400, 'not finished while a lesson is still locked');
 });
