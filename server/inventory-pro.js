@@ -6,6 +6,7 @@ import { T, q, tx, uid } from './db.js';
 import { inventoryOn, mainGodown, stockOf, addMove, MOVE_SOURCES } from './inventory-core.js';
 import { tallyOn, selectedCompany } from './tally.js';
 import { STATES, GSTIN_RE } from './platform.js';
+import { sellerOf, fyOf, PIN_RE, nextInSeries, gstr1 } from './gst-returns.js';
 
 const fail = (status, error, extra) => { throw Object.assign(new Error(error), { status, extra }); };
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -253,20 +254,16 @@ const backOf = (notes, i) => notes.flatMap((n) => n.lines.filter((x) => x.line =
 const billView = (b) => {
   const { userId, lparty, cnIds, ...rest } = b;
   const notes = notesOf(b), returned = r2(notes.reduce((s, n) => s + n.total, 0));
-  return { ...rest, lines: rest.lines.map((l, i) => ({ ...l, returned_qty: backOf(notes, i).qty })), returns: notes.map(({ id, number, day, total, refund_mode, reason }) => ({ id, number, day, total, refund_mode, reason })), returned, net_total: r2(b.total - returned) };
+  return { ...rest, lines: rest.lines.map((l, i) => ({ ...l, returned_qty: backOf(notes, i).qty })), returns: notes.map(({ id, number, day, total, refund_mode, reason, irn }) => ({ id, number, day, total, refund_mode, reason, irn: irn?.irn || null })), returned, net_total: r2(b.total - returned) };
 };
 // ---------- GST on counter bills ----------
 // The seller is the business in Settings → GST invoices (its GSTIN fixes its state); the buyer is optional — a GSTIN
 // makes it B2B, and its first two digits are the place of supply. Same state as the seller → CGST + SGST half each,
 // another state → IGST. A seller with no GSTIN gets a plain bill, never a "Tax Invoice" (only a registered person may
 // issue one). Numbers run per financial year, as GST asks: CB/2026-27/0001, CN/2026-27/0001 (≤16 characters).
+// sellerOf / fyOf / the shared number series live in gst-returns.js (both sales sources use them)
+export { fyOf };
 const STATE_BY_CODE = Object.fromEntries(Object.entries(STATES).map(([n, c]) => [c, n]));
-export const fyOf = (day) => { const [y, m] = String(day).split('-').map(Number); return m >= 4 ? `${y}-${String((y + 1) % 100).padStart(2, '0')}` : `${y - 1}-${String(y % 100).padStart(2, '0')}`; };
-function sellerOf(u) {
-  const i = u.settings?.invoicing || {}, gstin = clip(i.gstin, 15).toUpperCase();
-  const state = (gstin && STATE_BY_CODE[gstin.slice(0, 2)]) || (STATES[i.state] ? i.state : '');
-  return { name: clip(i.legalName, 160) || clip(u.settings?.businessName, 160) || u.name || '', gstin: gstin || null, address: clip(i.address, 400) || null, state: state || null };
-}
 function buyerOf(body, party) {
   const b = body.buyer && typeof body.buyer === 'object' ? body.buyer : {};
   const gstin = clip(b.gstin, 15).toUpperCase();
@@ -275,7 +272,9 @@ function buyerOf(body, party) {
   if (typed && !gstin && !STATES[typed]) fail(400, 'Pick the buyer’s state from the list');
   const state = (gstin && STATE_BY_CODE[gstin.slice(0, 2)]) || (STATES[typed] ? typed : null);
   const name = clip(b.name, 160) || party || null;
-  return gstin || state || clip(b.address, 400) ? { name, gstin: gstin || null, address: clip(b.address, 400) || null, state } : null;
+  const pincode = String(b.pincode ?? '').replace(/\s/g, '');
+  if (pincode && !PIN_RE.test(pincode)) fail(400, 'The buyer’s PIN code has 6 digits, like 560001');
+  return gstin || state || clip(b.address, 400) || pincode ? { name, gstin: gstin || null, address: clip(b.address, 400) || null, state, pincode: pincode || null } : null;
 }
 // where the supply is, and how each line's GST splits
 function gstContext(u, body, party) {
@@ -285,7 +284,6 @@ function gstContext(u, body, party) {
   return { seller, buyer, place_of_supply: pos, pos_code: pos ? STATES[pos] : null, intra, doc_type: seller.gstin ? 'TAX_INVOICE' : 'BILL' };
 }
 const splitGst = (l, intra) => { const cgst = intra ? r2(l.gst / 2) : 0; return { ...l, cgst, sgst: intra ? r2(l.gst - cgst) : 0, igst: intra ? 0 : r2(l.gst) }; };
-const nextNo = (table, userId, prefix, fy) => `${prefix}/${fy}/${String(q(`SELECT COUNT(*) AS n FROM ${table} WHERE userId = ? AND json_extract(data, '$.fy') = ?`).get(userId, fy).n + 1).padStart(4, '0')}`;
 export function priceBill(u, body) {
   const lines = Array.isArray(body.lines) ? body.lines.filter((l) => l && (l.itemId || l.barcode || l.item)) : [];
   if (!lines.length) fail(400, 'Add at least one item to the bill');
@@ -312,7 +310,7 @@ export function saveBill(u, body) {
   if (!g || g.userId !== u.id) fail(404, 'That godown isn’t yours');
   const src = MOVE_SOURCES.includes(body.source) ? body.source : 'MANUAL';
   return billView(tx(() => {
-    const fy = fyOf(p.day), number = nextNo('ibills', u.id, 'CB', fy);
+    const fy = fyOf(p.day), number = nextInSeries(u.id, 'CB', fy);
     const moveIds = [];
     for (const l of p.lines) {
       // batched stock goes first-expiry-first-out, so batch balances stay true; free units leave stock at ₹0
@@ -391,7 +389,7 @@ export function priceReturn(u, b, body = {}) {
 export function saveReturn(u, billId, body = {}) {
   return tx(() => {
     const b = ownBill(u.id, billId), p = priceReturn(u, b, body);
-    const fy = fyOf(p.day), number = nextNo('icnotes', u.id, 'CN', fy);
+    const fy = fyOf(p.day), number = nextInSeries(u.id, 'CN', fy);
     const src = MOVE_SOURCES.includes(body.source) ? body.source : 'MANUAL';
     // stock goes back to the godown / batch it left from: the bill's sale moves less what earlier notes put back there
     const key = (m) => `${m.godownId}|${m.batch || ''}`, room = new Map(), info = new Map();
@@ -426,61 +424,7 @@ export function counterDay(userId, day = ymd()) {
 }
 
 // ---------- routes ----------
-// ---------- GSTR-1 for a month: the counter bills and credit notes as the GST portal's offline tool reads them ----------
-// b2b (buyer has a GSTIN), b2cl (no GSTIN, another state, over ₹1 lakh), b2cs (the rest, summed by place and rate,
-// less their returns), cdnr / cdnur (credit notes), hsn (b2b and b2c tables), doc_issue (numbers used, cancelled).
-// Only tax invoices count — a seller without a GSTIN files no GSTR-1.
-const UQC = { nos: 'NOS', no: 'NOS', pcs: 'PCS', pc: 'PCS', piece: 'PCS', pieces: 'PCS', kg: 'KGS', kgs: 'KGS', g: 'GMS', gm: 'GMS', gms: 'GMS', bag: 'BAG', bags: 'BAG', box: 'BOX', boxes: 'BOX', set: 'SET', sets: 'SET', l: 'LTR', ltr: 'LTR', litre: 'LTR', liter: 'LTR', ml: 'MLT', m: 'MTR', mtr: 'MTR', metre: 'MTR', meter: 'MTR', bottle: 'BTL', btl: 'BTL', dozen: 'DOZ', doz: 'DOZ', ton: 'TON', tonne: 'TON', roll: 'ROL', pair: 'PRS', pairs: 'PRS', packet: 'PAC', pack: 'PAC', strip: 'OTH' };
-const uqcOf = (unit) => UQC[lower(unit).replace(/\.$/, '')] || 'OTH';
-const gstDate = (day) => { const [y, m, d] = day.split('-'); return `${d}-${m}-${y}`; };
-// one row per GST rate, as the portal wants items
-const byRate = (lines) => {
-  const m = new Map();
-  for (const l of lines) { const k = Number(l.gst_percent) || 0, x = m.get(k) || { txval: 0, iamt: 0, camt: 0, samt: 0 }; x.txval += l.taxable; x.iamt += l.igst || 0; x.camt += l.cgst || 0; x.samt += l.sgst || 0; m.set(k, x); }
-  return [...m].map(([rt, x], i) => ({ num: i + 1, itm_det: { txval: r2(x.txval), rt, iamt: r2(x.iamt), camt: r2(x.camt), samt: r2(x.samt), csamt: 0 } }));
-};
-export function gstr1(u, month) {
-  if (!/^\d{4}-\d{2}$/.test(month || '')) fail(400, 'Pick a month, like 2026-10');
-  const seller = sellerOf(u);
-  if (!seller.gstin) fail(400, 'Add your GSTIN in Settings → GST invoices first — GSTR-1 is for registered businesses');
-  const home = STATES[seller.state];
-  const inMonth = (x) => String(x.day).startsWith(month) && x.doc_type === 'TAX_INVOICE';
-  const allBills = T.ibills.all({ userId: u.id }).filter(inMonth), bills = allBills.filter((b) => !b.cancelled);
-  const notes = T.icnotes.all({ userId: u.id }).filter(inMonth);
-  const billOf = new Map(T.ibills.all({ userId: u.id }).map((b) => [b.id, b]));
-  const b2cl = (b) => !b.buyer?.gstin && b.intra === false && b.total > 100000;
-  const json = { gstin: seller.gstin, fp: `${month.slice(5)}${month.slice(0, 4)}`, version: 'GST3.2.1', hash: 'hash', b2b: [], b2cl: [], b2cs: [], cdnr: [], cdnur: [], hsn: { hsn_b2b: [], hsn_b2c: [] }, doc_issue: { doc_det: [] } };
-  const inv = (b) => ({ inum: b.number, idt: gstDate(b.day), val: b.total, pos: b.pos_code || home, rchrg: 'N', inv_typ: 'R', itms: byRate(b.lines) });
-  for (const b of bills.filter((b) => b.buyer?.gstin)) { let r = json.b2b.find((x) => x.ctin === b.buyer.gstin); if (!r) json.b2b.push(r = { ctin: b.buyer.gstin, inv: [] }); r.inv.push(inv(b)); }
-  for (const b of bills.filter(b2cl)) { let r = json.b2cl.find((x) => x.pos === b.pos_code); if (!r) json.b2cl.push(r = { pos: b.pos_code, inv: [] }); const { pos, rchrg, inv_typ, ...rest } = inv(b); r.inv.push(rest); }
-  // b2cs: small B2C supplies summed by (intra / inter, place, rate) — their credit notes come off the same rows
-  const cs = new Map();
-  const addCs = (d, sign) => { for (const l of d.lines) { const rt = Number(l.gst_percent) || 0, pos = d.pos_code || home, intra = d.intra !== false, k = `${intra}|${pos}|${rt}`; const x = cs.get(k) || { sply_ty: intra ? 'INTRA' : 'INTER', pos, typ: 'OE', rt, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 }; x.txval += sign * l.taxable; x.iamt += sign * (l.igst || 0); x.camt += sign * (l.cgst || 0); x.samt += sign * (l.sgst || 0); cs.set(k, x); } };
-  for (const b of bills.filter((b) => !b.buyer?.gstin && !b2cl(b))) addCs(b, 1);
-  const noteRow = (n) => ({ ntty: 'C', nt_num: n.number, nt_dt: gstDate(n.day), val: n.total, pos: n.pos_code || home, rchrg: 'N', inv_typ: 'R', itms: byRate(n.lines) });
-  for (const n of notes) {
-    const b = billOf.get(n.billId) || {};
-    if (n.buyer?.gstin) { let r = json.cdnr.find((x) => x.ctin === n.buyer.gstin); if (!r) json.cdnr.push(r = { ctin: n.buyer.gstin, nt: [] }); r.nt.push(noteRow(n)); }
-    else if (b2cl(b)) { const { rchrg, inv_typ, ...row } = noteRow(n); json.cdnur.push({ ...row, typ: 'B2CL' }); }
-    else addCs(n, -1);
-  }
-  json.b2cs = [...cs.values()].map((x) => ({ ...x, txval: r2(x.txval), iamt: r2(x.iamt), camt: r2(x.camt), samt: r2(x.samt) })).filter((x) => x.txval || x.iamt || x.camt || x.samt);
-  // HSN summary, net of credit notes, split B2B / B2C as the portal asks since 2025
-  for (const [key, keep] of [['hsn_b2b', (x) => !!x.buyer?.gstin], ['hsn_b2c', (x) => !x.buyer?.gstin]]) {
-    const m = new Map();
-    const add = (doc, sign) => { for (const l of doc.lines) { const rt = Number(l.gst_percent) || 0, uqc = uqcOf(l.unit), k = `${l.hsn || ''}|${rt}|${uqc}`; const x = m.get(k) || { hsn_sc: l.hsn || '', desc: l.name, uqc, qty: 0, rt, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 }; x.qty += sign * (Number(l.qty) || 0); x.txval += sign * l.taxable; x.iamt += sign * (l.igst || 0); x.camt += sign * (l.cgst || 0); x.samt += sign * (l.sgst || 0); m.set(k, x); } };
-    for (const b of bills.filter(keep)) add(b, 1);
-    for (const n of notes.filter(keep)) add(n, -1);
-    json.hsn[key] = [...m.values()].map((x, i) => ({ num: i + 1, ...x, qty: r3(x.qty), txval: r2(x.txval), iamt: r2(x.iamt), camt: r2(x.camt), samt: r2(x.samt) }));
-  }
-  // the number series used this month, with cancelled invoices counted
-  const series = (docs, doc_num) => { if (!docs.length) return; const nums = docs.map((d) => d.number).sort(); json.doc_issue.doc_det.push({ doc_num, docs: [{ num: 1, from: nums[0], to: nums.at(-1), totnum: docs.length, cancel: docs.filter((d) => d.cancelled).length, net_issue: docs.filter((d) => !d.cancelled).length }] }); };
-  series(allBills, 1); series(notes, 5);
-  const missingHsn = [...new Set([...bills, ...notes].flatMap((d) => d.lines.filter((l) => !l.hsn).map((l) => l.name)))];
-  return { month, json, summary: { invoices: bills.length, cancelled: allBills.length - bills.length, credit_notes: notes.length, b2b: json.b2b.reduce((t, x) => t + x.inv.length, 0), b2cl: json.b2cl.reduce((t, x) => t + x.inv.length, 0),
-    taxable: r2(bills.reduce((t, b) => t + b.taxable, 0) - notes.reduce((t, n) => t + n.taxable, 0)), tax: r2(bills.reduce((t, b) => t + b.gst, 0) - notes.reduce((t, n) => t + n.gst, 0)),
-    warnings: missingHsn.length ? [`HSN code missing on ${missingHsn.slice(0, 5).join(', ')}${missingHsn.length > 5 ? ` and ${missingHsn.length - 5} more` : ''} — add it to the item so the HSN summary is complete`] : [] } };
-}
+// GSTR-1 is built in gst-returns.js from counter bills and checkout sales together; this route keeps its old address
 export function registerInventoryPro(app, { auth, rateLimit, isTest }) {
   const P = '/api/inventory/pro';
   // like wrap, but a refusal can carry details (a production shortfall, a credit-limit warning)
@@ -556,7 +500,7 @@ export function registerInventoryPro(app, { auth, rateLimit, isTest }) {
   });
   get('/credit-notes/:id', (req) => { const n = T.icnotes.get(req.params.id); if (!n || n.userId !== uid_(req)) fail(404, 'Credit note not found'); return noteView(n); });
   get('/counter/day', (req) => counterDay(uid_(req), req.query.day));
-  get('/gstr1', (req) => gstr1(req.user, clip(req.query.month, 7)));
+  get('/gstr1', (req) => gstr1(req.user, clip(req.query.month, 7), { counter: req.query.counter !== '0', checkout: req.query.checkout !== '0' }));
   get('/gst-profile', (req) => ({ seller: sellerOf(req.user), states: Object.keys(STATES) }));
 
   // rate lists

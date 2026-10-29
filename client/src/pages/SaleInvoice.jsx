@@ -2,6 +2,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { inWords } from './Invoice';
+import { qrImage } from '../gstDocs';
 
 const SYM = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ' };
 let CUR = 'INR';
@@ -13,9 +14,11 @@ export default function SaleInvoice() {
   const [qs] = useSearchParams();
   const [i, setI] = useState(null);
   const [err, setErr] = useState('');
+  const [qr, setQr] = useState(null); // the IRP's signed QR (e-invoice), drawn here from its text
   useEffect(() => {
     fetch(`/api/public/invoices/${id}?k=${encodeURIComponent(qs.get('k') || '')}`).then(async (r) => { const d = await r.json(); r.ok ? setI(d) : setErr(d.error || 'Invoice not found'); });
   }, [id]);
+  useEffect(() => { let on = true; qrImage(i?.irn?.signed_qr, 220).then((d) => on && setQr(d)); return () => { on = false; }; }, [i?.irn?.signed_qr]);
   useEffect(() => { if (i) document.title = `${i.type === 'credit' ? 'Credit note' : 'Invoice'} ${i.number}`; }, [i]);
   if (err) return <div className="inv-page"><p className="err">{err}</p></div>;
   if (!i) return <div className="inv-page"><div className="skeleton" /></div>;
@@ -33,6 +36,7 @@ export default function SaleInvoice() {
           <div><h1>{credit ? 'Credit Note' : i.registered ? 'Tax Invoice' : 'Invoice'}</h1><p className="muted">{i.number}</p>{credit && i.against && <p className="muted sm">Against invoice {i.against}</p>}</div>
           <div className="inv-from"><b>{s.name}</b>{s.address && <span>{s.address}</span>}{s.state && <span>{s.state}{s.stateCode ? ` (${s.stateCode})` : ''}</span>}{s.gstin && <span>GSTIN: {s.gstin}</span>}{s.email && <span>{s.email}</span>}</div>
         </header>
+        {i.irn?.irn && <div className="inv-irn">{qr && <img src={qr} alt="Signed QR code" />}<div><small>IRN</small>{i.irn.irn}{i.irn.ack_no && <><small>Ack no. / date</small>{i.irn.ack_no}{i.irn.ack_dt ? ` · ${i.irn.ack_dt}` : ''}</>}</div></div>}
         <section className="inv-meta">
           <div><small>Billed to</small><b>{b.name || b.email}</b>{b.name && b.person && b.person !== b.name && <span>Attn: {b.person}</span>}{b.email && <span>{b.email}</span>}{b.phone && <span>{b.phone}</span>}{b.gstin && <span>GSTIN: {b.gstin}</span>}{b.state && <span>{b.state}{b.stateCode ? ` (${b.stateCode})` : ''}</span>}</div>
           <div><small>{credit ? 'Date' : 'Invoice date'}</small><b>{day(i.at)}</b>{i.registered && <><small>Place of supply</small><span>{i.placeOfSupply || '—'}</span></>}{i.paymentId && <><small>Payment</small><span className="mono">{i.paymentId}</span></>}</div>

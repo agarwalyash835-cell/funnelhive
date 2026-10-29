@@ -7,6 +7,7 @@ import { api } from '../api';
 import { Panel, Icon, Empty, Modal, toast, confirmDialog, promptDialog, inr } from '../ui';
 import { inWords } from './Invoice';
 import '../inventory-pro.css';
+import { Gstr1Panel, GstDocsModal, qrImage } from '../gstDocs';
 
 const P = '/inventory/pro';
 const TAB = { bom: ['Production', 'layers'], batches: ['Batches & expiry', 'clock'], schemes: ['Schemes', 'tag'], variants: ['Variants', 'palette'], counter: ['Counter bill', 'receipt'], rates: ['Rate lists', 'list'], credit: ['Credit limits', 'wallet'] };
@@ -243,6 +244,9 @@ function printBill(b, me) {
   const party = (who, label) => (who ? `<div class="pty"><small>${label}</small><b>${esc(who.name || '')}</b>${who.address ? `<div>${esc(who.address)}</div>` : ''}${who.gstin ? `<div>GSTIN <b>${esc(who.gstin)}</b></div>` : ''}${who.state ? `<div>State: ${esc(who.state)}</div>` : ''}</div>` : '');
   const taxCols = intra ? '<th class="r">CGST</th><th class="r">SGST</th>' : '<th class="r">IGST</th>';
   const taxCells = (x) => (intra ? `<td class="r">${m2(x.cgst ?? x.gst / 2)}</td><td class="r">${m2(x.sgst ?? x.gst / 2)}</td>` : `<td class="r">${m2(x.igst ?? x.gst)}</td>`);
+  // the IRN, ack and signed QR from the IRP (e-invoice), when the seller has added them
+  qrImage(b.irn?.signed_qr).then((qr) => {
+  const irn = b.irn?.irn ? `<div class="irn">${qr ? `<img src="${qr}" alt="Signed QR code">` : ''}<div><small>IRN</small>${esc(b.irn.irn)}${b.irn.ack_no ? `<small>Ack no. / date</small>${esc(b.irn.ack_no)}${b.irn.ack_dt ? ` · ${esc(b.irn.ack_dt)}` : ''}` : ''}</div></div>` : '';
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} ${esc(b.number)}</title><style>
     *{box-sizing:border-box} body{font:12.5px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:#111;margin:0;padding:24px;max-width:800px}
     .bar{display:flex;gap:8px;margin-bottom:14px} .bar button{font:inherit;padding:6px 12px;border-radius:8px;border:1px solid #ccc;background:#fff;cursor:pointer} .bar button.on{background:#111;color:#fff;border-color:#111}
@@ -253,11 +257,13 @@ function printBill(b, me) {
     .r{text-align:right;white-space:nowrap} .tot{width:46%;margin-left:auto} .tot td{border:0;padding:3px 6px} .grand td{font-size:15px;font-weight:700;border-top:2px solid #111;padding-top:6px}
     .words{margin:6px 0 12px;padding:8px 10px;background:#f6f6f6;border-radius:8px} .note{color:#a15c00;font-weight:600} .sign{display:flex;justify-content:space-between;margin-top:28px;font-size:11.5px} .sign div:last-child{text-align:right}
     body.thermal{max-width:302px;padding:6px;font-size:11.5px} body.thermal .parties{grid-template-columns:1fr} body.thermal .head{flex-direction:column} body.thermal .meta{text-align:left} body.thermal .hsn,body.thermal .x{display:none} body.thermal .tot{width:100%}
+    .irn{display:flex;gap:12px;align-items:center;margin:10px 0;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:11px;word-break:break-all} .irn img{width:110px;height:110px;flex:none} body.thermal .irn{flex-direction:column;align-items:flex-start}
     @media print{.bar{display:none} body{padding:0} @page{margin:10mm} body.thermal{padding:0} }
     </style></head><body>
     <div class="bar"><button class="on" onclick="document.body.classList.remove('thermal');this.classList.add('on');this.nextElementSibling.classList.remove('on')">A4</button><button onclick="document.body.classList.add('thermal');this.classList.add('on');this.previousElementSibling.classList.remove('on')">80 mm counter</button><button onclick="print()">Print</button></div>
     <div class="head"><div><h1>${esc(sel.name)}</h1>${sel.address ? `<div>${esc(sel.address)}</div>` : ''}${sel.gstin ? `<div>GSTIN <b>${esc(sel.gstin)}</b>${sel.state ? ` · ${esc(sel.state)}` : ''}</div>` : ''}</div>
       <div class="meta"><h2>${esc(title)}</h2><div>No. <b>${esc(b.number)}</b></div><div>Date ${esc(dt(b.day))}</div>${tax && b.place_of_supply ? `<div>Place of supply: ${esc(b.place_of_supply)}${b.pos_code ? ` (${esc(b.pos_code)})` : ''}</div><div>Reverse charge: No</div>` : ''}${cn ? `<div>Against ${esc(b.bill_number)} of ${esc(dt(b.bill_day))}</div>` : ''}</div></div>
+    ${irn}
     ${buy ? `<div class="parties">${party(buy, cn ? 'Issued to' : 'Bill to')}${b.credit && !cn ? '<div class="pty"><small>Payment</small><b>On credit</b></div>' : ''}</div>` : ''}
     <table><thead><tr><th>#</th><th>${cn ? 'Returned' : 'Item'}</th><th class="x">HSN</th><th class="r">Qty</th><th class="r">Rate</th><th class="r x">Taxable</th><th class="r">GST</th><th class="r">Amount</th></tr></thead><tbody>
     ${b.lines.map((l, k) => `<tr><td>${k + 1}</td><td>${esc(l.name)}${l.scheme ? `<div class="x" style="color:#666">${esc(l.scheme.name)}${l.free_qty ? ` — ${l.free_qty} free` : ''}</div>` : ''}${l.returned_qty ? `<div style="color:#666">${l.returned_qty} returned</div>` : ''}</td><td class="x">${esc(l.hsn || '')}</td><td class="r">${qn(l.qty)}${l.free_qty ? `+${qn(l.free_qty)}` : ''} ${esc(l.unit || '')}</td><td class="r">${m2(l.rate)}</td><td class="r x">${m2(l.taxable)}</td><td class="r">${l.gst_percent}%</td><td class="r">${m2(l.amount)}</td></tr>`).join('')}
@@ -276,6 +282,7 @@ function printBill(b, me) {
     <div class="sign"><div>${tax ? 'Certified that the particulars given above are true and correct.' : 'Thank you! Visit again.'}<br>E. &amp; O.E.</div><div>For ${esc(sel.name)}<br><br><br>Authorised signatory</div></div>
     <script>setTimeout(()=>print(),300)</script></body></html>`);
   w.document.close();
+  });
 }
 function CounterTab({ me, items, onChange }) {
   const [lines, setLines] = useState([]);
@@ -287,8 +294,9 @@ function CounterTab({ me, items, onChange }) {
   const [bills, setBills] = useState([]);
   const [busy, setBusy] = useState(false);
   const [ret, setRet] = useState(null);
+  const [gstDoc, setGstDoc] = useState(null); // a tax-invoice bill whose e-invoice / IRN / e-way bill dialog is open
   const [today, setToday] = useState(null);
-  const [buyer, setBuyer] = useState({ gstin: '', name: '', state: '', address: '' }), [showBuyer, setShowBuyer] = useState(false);
+  const [buyer, setBuyer] = useState({ gstin: '', name: '', state: '', address: '', pincode: '' }), [showBuyer, setShowBuyer] = useState(false);
   const [gst, setGst] = useState(null); // the seller's GST profile: a GSTIN means tax invoices
   const loadBills = () => { api(`${P}/bills?limit=20`).then(setBills).catch(fail); api(`${P}/counter/day`).then(setToday).catch(() => {}); };
   useEffect(() => { loadBills(); api(`${P}/ratelists`).then(setLists).catch(() => {}); api(`${P}/gst-profile`).then(setGst).catch(() => {}); }, []);
@@ -311,7 +319,7 @@ function CounterTab({ me, items, onChange }) {
     setBusy(true);
     try {
       const b = await api(`${P}/bills`, 'POST', { ...body, override });
-      toast(`Bill ${b.number} saved — ${inr(b.total)}`); setLines([]); setO({ ...o, party_name: '', credit: false }); setBuyer({ gstin: '', name: '', state: '', address: '' }); setShowBuyer(false); loadBills(); onChange(); printBill(b, me);
+      toast(`Bill ${b.number} saved — ${inr(b.total)}`); setLines([]); setO({ ...o, party_name: '', credit: false }); setBuyer({ gstin: '', name: '', state: '', address: '', pincode: '' }); setShowBuyer(false); loadBills(); onChange(); printBill(b, me);
     } catch (e) {
       if (e.data?.code === 'CREDIT_LIMIT' && (await confirmDialog({ title: 'Over the credit limit', text: `${e.message}. Save the bill anyway?`, confirm: 'Save anyway', danger: true }))) { setBusy(false); return save(true); }
       fail(e);
@@ -323,6 +331,7 @@ function CounterTab({ me, items, onChange }) {
     try { await api(`${P}/bills/${b.id}/${what}`, 'POST', {}); loadBills(); if (what === 'cancel') onChange(); } catch (e) { fail(e); }
   };
   const openNote = async (id) => { try { printBill(await api(`${P}/credit-notes/${id}`), me); } catch (e) { fail(e); } };
+  const gd = gstDoc && bills.find((b) => b.id === gstDoc);
   const left = (b) => b.lines.reduce((s, l) => s + l.qty + (l.free_qty || 0) - (l.returned_qty || 0), 0) > 0.0005;
   return (<>
     {today && (today.bills > 0 || today.credit_notes > 0) && <Strip items={[['Today’s bills', inr(today.gross), `${today.bills} ${today.bills === 1 ? 'bill' : 'bills'}`, 'receipt'], ['Returns', inr(today.returns), today.credit_notes ? `${today.credit_notes} credit ${today.credit_notes === 1 ? 'note' : 'notes'}` : 'none today', 'refund', today.returns ? 'bad' : ''], ['Net sales', inr(today.net), today.cash_refunds ? `${inr(today.cash_refunds)} refunded in cash` : 'bills less returns', 'wallet', 'in']]} />}
@@ -350,7 +359,8 @@ function CounterTab({ me, items, onChange }) {
         <input placeholder="Buyer GSTIN (B2B)" value={buyer.gstin} maxLength={15} onChange={(e) => setBuyer({ ...buyer, gstin: e.target.value.toUpperCase() })} aria-label="Buyer GSTIN" />
         <input placeholder="Buyer’s registered name" value={buyer.name} onChange={(e) => setBuyer({ ...buyer, name: e.target.value })} aria-label="Buyer name" />
         <select value={buyer.state} onChange={(e) => setBuyer({ ...buyer, state: e.target.value })} aria-label="Buyer state" disabled={buyer.gstin.length === 15}><option value="">{buyer.gstin.length === 15 ? 'State from the GSTIN' : 'Buyer’s state (place of supply)'}</option>{(gst?.states || []).map((x) => <option key={x}>{x}</option>)}</select>
-        <input className="full" placeholder="Buyer’s address (optional)" value={buyer.address} onChange={(e) => setBuyer({ ...buyer, address: e.target.value })} aria-label="Buyer address" />
+        <input className="full" placeholder="Buyer’s address (optional — e-invoices and e-way bills need it)" value={buyer.address} onChange={(e) => setBuyer({ ...buyer, address: e.target.value })} aria-label="Buyer address" />
+        <input placeholder="Buyer’s PIN code" inputMode="numeric" maxLength={6} value={buyer.pincode} onChange={(e) => setBuyer({ ...buyer, pincode: e.target.value.replace(/\D/g, '') })} aria-label="Buyer PIN code" />
       </div>}
       {gst && !gst.seller.gstin && <p className="hint warn sm">Bills print as plain bills, not GST tax invoices — add your GSTIN in <Link to="/settings">Settings → GST invoices for your buyers</Link>.</p>}
       {pre && <>
@@ -363,39 +373,17 @@ function CounterTab({ me, items, onChange }) {
       <Table head={['Bill', 'Party', 'Total', 'Status', '']} empty="No counter bills yet." rows={bills.map((b) => <tr key={b.id} className={b.cancelled ? 'ip-off' : ''}><td><b className="mono">{b.number}</b><small className="sub-t">{b.day}</small></td><td>{b.party_name || '—'}</td>
         <td className="r">{b.returned ? <><s className="muted">{inr(b.total)}</s> {inr(b.net_total)}</> : inr(b.total)}{b.returns?.length > 0 && <small className="sub-t ip-cns">{b.returns.map((n) => <button key={n.id} className="ip-cn" onClick={() => openNote(n.id)} title={`Print credit note ${n.number}`}>{n.number} −{inr(n.total)}</button>)}</small>}</td>
         <td>{b.cancelled ? <span className="pill">Cancelled</span> : b.credit && !b.paid ? <span className="pill warn">Credit · unpaid</span> : <span className="pill ok">Paid</span>}{!b.cancelled && b.returns?.length > 0 && <span className={`pill ${left(b) ? 'info' : ''}`}>{left(b) ? 'Part returned' : 'Returned'}</span>}</td>
-        <td className="r nowrap"><button className="btn ghost sm" onClick={() => printBill(b, me)}>Print</button>{!b.cancelled && left(b) && <button className="btn ghost sm" onClick={() => setRet(b)}><Icon name="refund" size={13} /> Return</button>}{!b.cancelled && b.credit && !b.paid && <button className="btn ghost sm" onClick={() => act(b, 'paid')}>Mark paid</button>}{!b.cancelled && !b.returns?.length && <button className="btn ghost sm" onClick={() => act(b, 'cancel')}>Cancel</button>}</td></tr>)} />
+        <td className="r nowrap"><button className="btn ghost sm" onClick={() => printBill(b, me)}>Print</button>{!b.cancelled && b.doc_type === 'TAX_INVOICE' && <button className="btn ghost sm" title="E-invoice JSON, IRN, e-way bill" onClick={() => setGstDoc(b.id)}>GST{b.irn ? ' ✓' : ''}</button>}{!b.cancelled && left(b) && <button className="btn ghost sm" onClick={() => setRet(b)}><Icon name="refund" size={13} /> Return</button>}{!b.cancelled && b.credit && !b.paid && <button className="btn ghost sm" onClick={() => act(b, 'paid')}>Mark paid</button>}{!b.cancelled && !b.returns?.length && <button className="btn ghost sm" onClick={() => act(b, 'cancel')}>Cancel</button>}</td></tr>)} />
     </Panel>
     <Gstr1Panel />
+    {gd && <GstDocsModal title={`GST documents — ${gd.number}`} onClose={() => setGstDoc(null)} onChanged={loadBills}
+      docs={[{ source: 'counter', id: gd.id, number: gd.number, label: `Tax invoice · ${inr(gd.total)}`, b2b: !!gd.buyer?.gstin, irn: gd.irn?.irn || null }, ...(gd.returns || []).map((n) => ({ source: 'counter-note', id: n.id, number: n.number, label: `Credit note · ${inr(n.total)}`, b2b: !!gd.buyer?.gstin, irn: n.irn }))]}
+      eway={gd.total >= 50000 ? gd : null} />}
     {ret && <ReturnForm bill={ret} me={me} onClose={() => setRet(null)} onSaved={() => { setRet(null); loadBills(); onChange(); }} />}
   </>);
 }
 
 // a return against a bill: pieces per line (free pieces count too), the refund priced by the server as you type
-// GSTR-1 for a month: the JSON the GST portal's offline tool imports (Returns → GSTR-1 → Prepare offline → Import)
-function Gstr1Panel() {
-  const now = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()).slice(0, 7);
-  const [month, setMonth] = useState(now);
-  const [r, setR] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const run = async (download) => {
-    setBusy(true);
-    try {
-      const d = await api(`${P}/gstr1?month=${month}`); setR(d);
-      if (download) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(d.json, null, 1)], { type: 'application/json' })); a.download = `GSTR1_${d.json.gstin}_${d.json.fp}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
-    } catch (e) { fail(e); setR(null); }
-    setBusy(false);
-  };
-  const s = r?.summary;
-  return (
-    <Panel title="GSTR-1 from counter bills" actions={<div className="row"><input type="month" value={month} max={now} onChange={(e) => { setMonth(e.target.value); setR(null); }} aria-label="Month" /><button className="btn ghost sm" disabled={busy} onClick={() => run(false)}>Check</button><button className="btn primary sm" disabled={busy} onClick={() => run(true)}><Icon name="download" size={13} /> Download JSON</button></div>}>
-      <p className="muted sm">Your tax invoices and credit notes for the month, sorted into B2B, B2C (large and small), credit notes, the HSN summary and the documents issued — ready for the GST portal’s offline tool. Check it there before you file.</p>
-      {s && <div className="ip-gstr">
-        <span><b>{s.invoices}</b> {s.invoices === 1 ? 'invoice' : 'invoices'}{s.cancelled ? ` · ${s.cancelled} cancelled` : ''}</span><span><b>{s.b2b}</b> B2B · <b>{s.b2cl}</b> B2C large</span><span><b>{s.credit_notes}</b> {s.credit_notes === 1 ? 'credit note' : 'credit notes'}</span><span>Taxable <b>{rs(s.taxable)}</b> · tax <b>{rs(s.tax)}</b></span>
-        {s.warnings.map((w) => <p key={w} className="hint warn sm">{w}</p>)}
-      </div>}
-    </Panel>
-  );
-}
 function ReturnForm({ bill, me, onClose, onSaved }) {
   const owed = bill.credit && !bill.paid;
   const [qty, setQty] = useState(() => bill.lines.map(() => ''));

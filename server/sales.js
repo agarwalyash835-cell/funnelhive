@@ -17,11 +17,12 @@ import { linkBase } from './products.js';
 import { stripeCreds, stripeRefund } from './stripe.js';
 import { trackServer } from './tracking.js';
 import { notify, money } from './notify.js';
+import { nextInSeries, PIN_RE } from './gst-returns.js';
 
 let SECRET = '';
 const r2 = (x) => Math.round(x * 100) / 100;
 const STATE_BY_CODE = Object.fromEntries(Object.entries(STATES).map(([n, c]) => [c, n]));
-export const INVOICING_DEFAULTS = { enabled: false, legalName: '', gstin: '', address: '', state: '', rate: 18, prefix: 'INV', sac: '998431', email: '', lut: false };
+export const INVOICING_DEFAULTS = { enabled: false, legalName: '', gstin: '', address: '', state: '', rate: 18, prefix: 'INV', sac: '998431', email: '', lut: false, pincode: '', city: '', phone: '' };
 export const invoicingOf = (u) => ({ ...INVOICING_DEFAULTS, ...(u?.settings?.invoicing || {}) });
 // GST slabs (0.25% / 3%: rough diamonds, gold and jewellery; 40%: the post-2025 luxury slab)
 export const GST_RATES = [0, 0.25, 3, 5, 12, 18, 28, 40];
@@ -35,6 +36,10 @@ export function cleanInvoicing(b = {}, cur = {}) {
   if ('legalName' in b) out.legalName = s(b.legalName, 160);
   if ('address' in b) out.address = s(b.address, 400);
   if ('email' in b) out.email = s(b.email, 160);
+  // PIN code, city and phone: what an e-invoice (IRN) and an e-way bill need on top of the invoice address
+  if ('pincode' in b) { const p = s(b.pincode, 10).replace(/\s/g, ''); if (p && !PIN_RE.test(p)) return { error: 'The PIN code has 6 digits, like 411001' }; out.pincode = p; }
+  if ('city' in b) out.city = s(b.city, 50);
+  if ('phone' in b) { const p = s(b.phone, 20); if (p && !/^\+?[\d\s-]{6,16}$/.test(p)) return { error: 'The phone number has digits only, like 9876543210' }; out.phone = p; }
   if ('gstin' in b) { const g = s(b.gstin, 15).toUpperCase(); if (g && !GSTIN_RE.test(g)) return { error: 'That GSTIN doesn’t look right — it has 15 characters, like 27ABCDE1234F1Z5' }; out.gstin = g; if (g && STATE_BY_CODE[g.slice(0, 2)]) out.state = STATE_BY_CODE[g.slice(0, 2)]; }
   if ('state' in b && !(out.gstin && STATE_BY_CODE[out.gstin.slice(0, 2)])) { const st = s(b.state, 60); if (st && !STATES[st]) return { error: 'Pick your state from the list' }; out.state = st; }
   if ('rate' in b) { const r = Number(b.rate); if (!GST_RATES.includes(r)) return { error: `GST rate must be one of ${GST_RATES.join(', ')}%` }; out.rate = r; }
@@ -71,10 +76,8 @@ function split(amount, rate, intra, registered) {
   const taxable = r2(amount / (1 + rate / 100)), tax = r2(amount - taxable);
   return intra ? { taxable, cgst: r2(tax / 2), sgst: r2(tax - r2(tax / 2)), igst: 0 } : { taxable, cgst: 0, sgst: 0, igst: tax };
 }
-function nextNumber(userId, prefix, fy) {
-  const n = q("SELECT COUNT(*) AS n FROM sinvoices WHERE userId = ? AND json_extract(data, '$.fy') = ? AND json_extract(data, '$.prefix') = ?").get(userId, fy, prefix).n;
-  return `${prefix}/${fy}/${String(n + 1).padStart(4, '0')}`;
-}
+// one series per prefix and year, shared with counter bills / credit notes (gst-returns.js), so numbers never repeat
+const nextNumber = (userId, prefix, fy) => nextInSeries(userId, prefix, fy);
 
 // lines: [{ index, name, kind, amount, sac?, rate? }] — amounts include GST; sac / rate given (credit notes) win,
 // otherwise the order item's product decides, otherwise the seller's defaults

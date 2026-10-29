@@ -1,0 +1,36 @@
+/* GST returns and e-documents (gstDocs.jsx): the GSTR-1 panel's source toggle and summary, the per-document dialog
+   (e-invoice / IRN / e-way bill), and the IRN block on printed invoices. */
+.gst-acts { flex-wrap: wrap; gap: 6px; }
+.gst-src { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
+.gst-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--c-line, #e7e5e4); border-radius: 999px; font-size: 12.5px; cursor: pointer; background: var(--c-surface-2, #faf9f7); }
+.gst-chip input { margin: 0; }
+.gst-sum { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-top: 10px; font-size: 13px; }
+.gst-sum .hint { flex-basis: 100%; margin: 4px 0 0; }
+
+.gst-docs { display: grid; gap: 12px; }
+.gst-tbl { width: 100%; border-collapse: collapse; }
+.gst-tbl td { padding: 8px 4px; border-bottom: 1px solid var(--c-line, #e7e5e4); vertical-align: middle; }
+.gst-tbl td.r { text-align: right; }
+.gst-tbl .btn { margin-left: 6px; }
+.gst-need { border: 1px solid #f3c27a; background: rgba(245, 165, 36, .08); border-radius: 12px; padding: 10px 14px; }
+.gst-need ul, .gst-miss { margin: 4px 0 8px 18px; padding: 0; }
+.gst-miss { color: #a15c00; }
+.gst-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: end; }
+.gst-form label { display: grid; gap: 4px; font-size: 12.5px; }
+.gst-form .full { grid-column: 1 / -1; }
+.gst-form.one { grid-template-columns: 1fr; }
+.gst-form .grow, .gst-eway .grow { flex: 1; }
+.gst-eway { border-top: 1px dashed var(--c-line, #e7e5e4); padding-top: 12px; display: grid; gap: 8px; }
+.gst-eway h4 { margin: 0; font-size: 14px; }
+.gst-req { color: #a15c00; font-weight: 600; margin: 0; }
+
+/* the IRN on a printed / opened invoice */
+.inv-irn { display: flex; gap: 14px; align-items: center; margin: 10px 0; padding: 10px 12px; border: 1px solid #e5e5e5; border-radius: 10px; font-size: 12px; word-break: break-all; }
+.inv-irn img { width: 110px; height: 110px; flex: none; }
+.inv-irn small { display: block; color: #666; text-transform: uppercase; letter-spacing: .05em; font-size: 10px; }
+
+@media (max-width: 640px) {
+  .gst-form { grid-template-columns: 1fr; }
+  .gst-tbl td.r { white-space: normal; }
+  .gst-tbl .btn { margin: 4px 0 0 4px; }
+}

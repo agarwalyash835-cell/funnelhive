@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, inr, num, ago, downloadCSV, toast, confirmDialog } from '../ui';
 import { t, tx } from '../appI18n';
+import { Gstr1Panel, GstDocsModal } from '../gstDocs';
 
 const STATUS = { refunded: ['Refunded', 'bad'], partially_refunded: ['Part refunded', 'warn'], cod: ['COD · unpaid', 'warn'], cancelled: ['Cancelled', 'bad'] };
 const PLAN = { active: ['', 'ok'], authenticated: ['starting', ''], created: ['starting', ''], pending: ['payment due', 'warn'], halted: ['payment failed', 'bad'], cancelled: ['cancelled', 'bad'], completed: ['paid in full', 'ok'], expired: ['ended', ''], demo: ['demo', ''] };
@@ -31,6 +32,7 @@ export default function Orders() {
   const [open, setOpen] = useState(null);
   const [refund, setRefund] = useState(null);
   const [ship, setShip] = useState(null);
+  const [gstr1, setGstr1] = useState(false); // GSTR-1 for a month (checkout sales, plus counter bills)
   // the server filters, searches, pages and totals (server/orderlist.js); "Show more" fetches the next page
   const [orders, setOrders] = useState([]);
   const [abandoned, setAbandoned] = useState([]);
@@ -140,6 +142,7 @@ export default function Orders() {
     <Layout title={t('Orders')} subtitle={t('Sales, one-click upsells, refunds and abandoned checkouts.')} actions={<>
       {toShipCount > 0 && <button className="btn ghost" onClick={exportShipping}><Icon name="box" size={16} /> {t('To ship ({n})', { n: num(toShipCount) })}</button>}
       <button className="btn ghost" onClick={exportInvoices}><Icon name="receipt" size={16} /> {t('GST invoices')}</button>
+      <button className="btn ghost" onClick={() => setGstr1(true)}><Icon name="download" size={16} /> GSTR-1</button>
       <button className="btn ghost" onClick={exportCsv}><Icon name="download" size={16} /> {t('Export CSV')}</button>
     </>}>
       {!d ? <div className="skeleton" /> : (
@@ -197,6 +200,7 @@ export default function Orders() {
         </>
       )}
       {open && <OrderDetail o={open} actions={actions(open)} onClose={() => setOpen(null)} onSaved={load} />}
+      {gstr1 && <Modal title="GSTR-1" onClose={() => setGstr1(false)} width={760}><div className="m-body"><Gstr1Panel title="Your GST return for a month" /></div></Modal>}
       {ship && <ShipModal o={ship} onClose={() => setShip(null)} onDone={() => { setShip(null); load(); }} />}
       {refund && <RefundModal o={refund} onClose={() => setRefund(null)} onDone={() => { setRefund(null); load(); }} />}
     </Layout>
@@ -208,6 +212,7 @@ function OrderDetail({ o, actions, onClose, onSaved }) {
   const [note, setNote] = useState(o.note || '');
   const [tags, setTags] = useState((o.tags || []).join(', '));
   const [busy, setBusy] = useState(false);
+  const [gstOpen, setGstOpen] = useState(false);
   const dirty = note !== (o.note || '') || tags !== (o.tags || []).join(', ');
   const save = async () => {
     setBusy(true);
@@ -238,6 +243,7 @@ function OrderDetail({ o, actions, onClose, onSaved }) {
             {payIds.map((p) => <p key={p} className="mono sm muted">{p}</p>)}
             {o.plan && <p>🔁 {planLabel(o.plan, o)}{PLAN[o.plan.status]?.[0] ? ` · ${PLAN[o.plan.status][0]}` : ''}{o.plan.nextAt ? ` · next ${new Date(o.plan.nextAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}</p>}
             {(o.invoices || []).length > 0 && <p>{o.invoices.map((i) => <a key={i.id} className="od-inv" href={i.url} target="_blank" rel="noreferrer">{i.type === 'credit' ? 'Credit note' : 'Invoice'} {i.number}</a>)}</p>}
+            {(o.invoices || []).some((i) => i.registered && !i.test) && <button className="btn ghost sm" onClick={() => setGstOpen(true)}><Icon name="receipt" size={13} /> GST · e-invoice{o.invoices.some((i) => i.irn) ? ' ✓' : ''}</button>}
           </section>
         </div>
         <section>
@@ -264,6 +270,8 @@ function OrderDetail({ o, actions, onClose, onSaved }) {
           <div className="row end"><button className="btn primary sm" disabled={!dirty || busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></div>
         </section>
       </div>
+      {gstOpen && <GstDocsModal title={`GST documents — order #${o.id}`} onClose={() => setGstOpen(false)} onChanged={onSaved} eway={null}
+        docs={o.invoices.filter((i) => i.registered && !i.test).map((i) => ({ source: 'checkout', id: i.id, number: i.number, label: `${i.type === 'credit' ? 'Credit note' : 'Tax invoice'} · ${money(i.total, o)}${i.gstin ? ` · GSTIN ${i.gstin}` : ' · no buyer GSTIN'}`, b2b: !!i.gstin, irn: i.irn }))} />}
     </Modal>
   );
 }
