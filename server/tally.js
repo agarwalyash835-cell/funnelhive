@@ -573,7 +573,9 @@ function resolveOffset(company, type, p) {
   if (!group) return;
   const ledgers = T.tledgers.all({ companyId: company.id, active: 1 });
   const exact = p.offset_ledger && ledgers.find((l) => lname(l.name) === lname(p.offset_ledger));
-  if (exact) { p.offset_ledger = exact.name; return; }
+  // the party itself (said by Hive live) or another party / bank ledger can't be the sales or purchase side
+  const partySide = exact && (lname(exact.name) === lname(p.party_name) || /^(sundry (debtors|creditors)|bank accounts|cash-in-hand)$/.test(lname(exact.ledger_group || exact.parent)));
+  if (exact && !partySide) { p.offset_ledger = exact.name; return; }
   const inGroup = ledgers.filter((l) => lname(l.ledger_group || l.parent) === group);
   if (inGroup.length === 1) p.offset_ledger = inGroup[0].name;
 }

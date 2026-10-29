@@ -214,6 +214,7 @@ test('writes: queued for the PC; pre-checks for the books and stock; the result 
   const g1 = (await post('CREATE_VOUCHER', { ...gstSale, offset_ledger: 'Sales' })).data.payload;
   assert.deepEqual(g1.taxes, [{ ledger_name: 'Output CGST', amount: 90 }, { ledger_name: 'Output SGST', amount: 90 }]);
   assert.equal(g1.offset_ledger, 'Sales Account', '"Sales" (a voucher type, said by Hive live) → the one Sales Accounts ledger');
+  assert.equal((await post('CREATE_VOUCHER', { ...gstSale, offset_ledger: 'Gupta Hardware' })).data.payload.offset_ledger, 'Sales Account', 'the party as its own offset (said by Hive live) → the Sales Accounts ledger');
   assert.deepEqual((await post('CREATE_VOUCHER', { ...gstSale, interstate: true })).data.payload.taxes, [{ ledger_name: 'Output IGST', amount: 180 }]);
   assert.deepEqual((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Purchase', gst_percent: 5 })).data.payload.taxes, [{ ledger_name: 'Input CGST', amount: 25 }, { ledger_name: 'Input SGST', amount: 25 }]);
   assert.match((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Purchase', interstate: true })).data.error, /Create Input IGST/);
