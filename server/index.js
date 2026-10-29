@@ -78,6 +78,7 @@ import { registerTally } from './tally.js';
 import { registerTallyInsights } from './tally-insights.js';
 import { registerInventory } from './inventory.js';
 import { registerInventoryPro } from './inventory-pro.js';
+import { registerInventoryReports } from './inventory-reports.js';
 import './tally-crm.js'; // Tally customer / supplier ledgers → CRM contacts
 import { registerTallyReminders } from './tally-remind.js';
 import { registerTallyOcr } from './tally-ocr.js';
@@ -977,6 +978,7 @@ registerTally(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl });
 registerTallyInsights(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerInventory(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerInventoryPro(app, { auth, wrap, rateLimit, isTest, appUrl });
+registerInventoryReports(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerTallyReminders(app, { auth, wrap, rateLimit, isTest });
 registerTallyOcr(app, { auth, wrap, rateLimit, isTest, credits });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });

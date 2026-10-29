@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, confirmDialog, promptDialog, inr } from '../ui';
 import IndustryTools from './InventoryPro';
+import InventoryReports from './InventoryReports';
 import { inventoryPromptsFor } from '../industryPrompts';
 import '../inventory.css';
 
@@ -92,6 +93,7 @@ export default function Inventory() {
           <div className="inv-ask-chips">{inventoryPromptsFor(industry).map((p) => <Link key={p} to={`/hive?ask=${encodeURIComponent(p)}`}>{p}</Link>)}</div>
         </div>
         <IndustryTools me={me} items={all} onChange={reload} />
+        <InventoryReports />
       </>}
       {open && <ItemDrawer id={open} rev={rev} godowns={godowns} onClose={() => setOpen(null)} onChange={reload} onForm={setForm} />}
       {form?.kind === 'move' && <MoveForm items={all} godowns={godowns} preset={form} onClose={() => setForm(null)} onDone={reload} />}

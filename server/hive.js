@@ -20,6 +20,7 @@ import * as insightTools from './hive-tally-insights.js';
 import * as inventoryTools from './hive-inventory.js';
 import * as proTools from './hive-inventory-pro.js';
 import * as contactTools from './hive-contacts.js';
+import * as reportTools from './hive-inventory-reports.js';
 
 const MAX_MODEL_CALLS = 16, RESULT_MAX = 40000; // a full 21-section page with all props is ~25k characters
 
@@ -798,7 +799,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Made a copy: “${r.name}”`,
   },
   // stock insights on Tally, and the Inventory add-on (each module keeps its own tools)
-  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS,
+  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS,
 ];
 const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -832,7 +833,7 @@ const NEEDS_OK = {
   // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
   run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${String(a.slug || '').startsWith('GOOGLEADS') ? 'Google Ads' : 'Meta Ads'} account: ${String(a.slug || '').replace(/^(METAADS|GOOGLEADS)_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
-  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK,
+  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK,
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
@@ -883,7 +884,7 @@ export const TOOL_GROUPS = {
   school: { about: 'courses, quizzes, the members community', tools: ['school_overview', 'create_course', 'add_quiz', 'get_course', 'create_space', 'post_to_community'], re: /\b(courses?|school|lessons?|modules?|quiz\w*|community|members? area|students?|certificates?)\b/i },
   website: { about: 'business websites, custom domains, images', tools: ['create_website', 'connect_domain', 'check_domain', 'generate_image'], re: /\b(website|site|about( us)?|home ?page|domains?|dns|cname|images?|photos?|pictures?)\b/i },
   tally: { about: 'the Tally books (add-on): money owed both ways, vouchers, ledgers, stock, payment reminders, saving vouchers / ledgers into TallyPrime', tools: ['tally_overview', 'find_tally', 'tally_change', 'remind_tally_bill', ...insightTools.TOOLS.map((t) => t.name)], re: /\b(tally|ledgers?|vouchers?|outstanding|receivables?|payables?|debtors?|creditors?|udhaar|dues?|stock|godowns?|inventory|purchase|receipts?)\b/i },
-  inventory: { about: 'the Inventory add-on: items, godowns, stock in / out, low stock, stock from bill photos', tools: inventoryTools.TOOLS.map((t) => t.name), re: /\b(inventory|stock|godowns?|warehouse|items?|sku|barcode|reorder|restock|sold|received|bags?|pcs|pieces|boxes|cartons?)\b/i },
+  inventory: { about: 'the Inventory add-on: items, godowns, stock in / out, low stock, stock from bill photos; reports — stock valuation, gross profit, party ledger, day book, sales / purchase registers, GST summary, fast / slow / dead stock', tools: [...inventoryTools.TOOLS, ...reportTools.TOOLS].map((t) => t.name), re: /\b(inventory|stock|godowns?|warehouse|items?|sku|barcode|reorder|restock|sold|received|bags?|pcs|pieces|boxes|cartons?|profit|margin|ledger|day ?book|registers?|valuation)\b/i },
   inventory_pro: { about: 'inventory for the seller’s industry: bills of materials and production, batches and expiry, schemes, variants and counter billing, rate lists and credit limits', tools: proTools.TOOLS.map((t) => t.name), re: /\b(bom|bill of materials?|production|raw materials?|batch(es)?|expiry|schemes?|variants?|sizes?|colou?rs?|counter|rate lists?|credit limits?|today’s sales|counter sales|returned|exchange)\b/i },
   account: { about: 'business settings, team members, agency clients, tracking, webhooks', tools: ['update_business', 'list_team', 'invite_team_member', 'list_clients', 'copy_funnel_to_client', 'set_tracking', 'connect_webhook'], re: /\b(team|invite|staff|employees?|clients?|agency|business (name|settings)|time ?zone|consent|settings)\b/i },
 };
