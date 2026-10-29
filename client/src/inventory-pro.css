@@ -60,3 +60,10 @@
   .ip-line { grid-template-columns: 1fr 90px auto; }
   .ip-total b { font-size: 19px; }
 }
+
+/* buyer GST details on a counter bill, and the GSTR-1 summary */
+.ip-buyer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 4px; padding: 10px; border: 1px dashed var(--c-line); border-radius: 12px; background: var(--c-surface-2, #faf9f7); }
+.ip-buyer .full { grid-column: 1 / -1; }
+.ip-gstr { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-top: 8px; font-size: 13px; }
+.ip-gstr .hint { flex-basis: 100%; margin: 4px 0 0; }
+@media (max-width: 640px) { .ip-buyer { grid-template-columns: 1fr; } }

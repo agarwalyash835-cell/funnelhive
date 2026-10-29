@@ -77,10 +77,10 @@ test('stock entries of a counter bill or a production run can’t be undone one 
   assert.equal(bill.total, 71);
   const r = await inv(`/moves/${bill.moveIds[0]}`, 'DELETE');
   assert.equal(r.status, 409);
-  assert.match(r.data.error, /counter bill CB-0002 — cancel the bill/);
+  assert.match(r.data.error, /counter bill CB\/\d{4}-\d{2}\/0002 — cancel the bill/);
   assert.equal((await inv(`/items/${soap.id}`)).data.item.stock, 8);
   const note = (await inv(`/pro/bills/${bill.id}/return`, 'POST', { lines: [{ line: 0, qty: 1 }] })).data;
-  assert.match((await inv(`/moves/${note.moveIds[0]}`, 'DELETE')).data.error, /credit note CN-0001/);
+  assert.match((await inv(`/moves/${note.moveIds[0]}`, 'DELETE')).data.error, /credit note CN\/\d{4}-\d{2}\/0001/);
 
   // a production run comes off as a whole
   const box = (await inv('/items', 'POST', { name: 'Gift Box', sale_rate: 200 })).data;

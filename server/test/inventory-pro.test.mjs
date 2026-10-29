@@ -145,7 +145,7 @@ test('variants and counter bill: SALE moves by barcode or name, GST from each it
   const bill = await api(`${P}/bills`, 'POST', { lines: [{ barcode: '8901234567890', qty: 2 }, { item: 'shirt m blue', qty: 1, rate: 450 }, { itemId: pen.id, qty: 3 }] }, S);
   assert.equal(bill.status, 200, JSON.stringify(bill.data));
   const b = bill.data;
-  assert.match(b.number, /^CB-\d{4}$/);
+  assert.match(b.number, /^CB\/\d{4}-\d{2}\/\d{4}$/, 'a GST number series per financial year');
   assert.deepEqual(b.lines.map((l) => [l.name, l.qty, l.rate, l.gst]), [['Shirt M Blue', 2, 500, 50], ['Shirt M Blue', 1, 450, 22.5], ['Pen', 3, 10, 5.4]]);
   assert.equal(b.taxable, 1480);
   assert.equal(b.gst, 77.9);
@@ -264,7 +264,7 @@ test('Hive tools: produce, expiring, counter bill by name, credit limit — writ
   assert.ok(exp.batches.some((b) => b.batch === 'B1' && b.status === '20 days left'));
 
   const bill = await tool.inventory_counter_bill.run(ctx, { lines: [{ item: 'shirt m blue', qty: 2 }] });
-  assert.match(bill.bill, /^CB-/);
+  assert.match(bill.bill, /^CB\//);
   assert.equal(bill.total, '₹1,050');
   const priced = await tool.inventory_price_check.run(ctx, { lines: [{ item: 'cement', qty: 4 }], party_name: 'Sharma Builders', credit: true });
   assert.equal(priced.overLimit, true);
@@ -321,7 +321,7 @@ test('Hive end-to-end gaps: bill of materials, scheme, variants, counter sales; 
   assert.ok(after_.bills.some((b) => b.total === '₹1,364'), '₹1,299 + 5% GST, rounded');
 });
 
-// returns against a counter bill: a credit note (CN-…) linked to the bill; stock back as RETURN_IN to where it left from;
+// returns against a counter bill: a credit note (CN/2026-27/0001…) linked to the bill; stock back as RETURN_IN to where it left from;
 // the bill's net, a credit party's outstanding and the day's net counter sales all go down
 test('returns: part return with GST, never more than sold, scheme rule, stock back, credit outstanding, day’s net', async () => {
   const d0 = (await api(`${P}/counter/day`, 'GET', null, S)).data;
@@ -336,7 +336,7 @@ test('returns: part return with GST, never more than sold, scheme rule, stock ba
   assert.equal(stockOf(kurta.id), 2, 'a preview saves nothing');
   const cn = await api(`${P}/bills/${b.id}/return`, 'POST', { lines: [{ line: 0, qty: 1 }], reason: 'size exchange' }, S);
   assert.equal(cn.status, 200, JSON.stringify(cn.data));
-  assert.match(cn.data.number, /^CN-\d{4}$/);
+  assert.match(cn.data.number, /^CN\/\d{4}-\d{2}\/\d{4}$/);
   assert.deepEqual([cn.data.bill_number, cn.data.taxable, cn.data.gst, cn.data.total, cn.data.round_off, cn.data.reason], [b.number, 1299, 64.95, 1364, 0.05, 'size exchange']);
   assert.equal(stockOf(kurta.id), 3);
   const back = cn.data.moveIds.map((id) => T.imoves.get(id));
@@ -421,10 +421,10 @@ test('Hive: take back a piece by name (finds the latest bill with it), the day�
   assert.equal(r.bill, sold.bill);
   assert.match(r.picked, new RegExp(`used ${sold.bill}`));
   assert.deepEqual([r.refund, r.refundMode, r.billNow], ['₹1,364', 'cash', '₹0']);
-  assert.match(r.creditNote, /^CN-/);
+  assert.match(r.creditNote, /^CN\//);
   assert.equal(stockOf(kid), stock + 1);
   await assert.rejects(tool.inventory_counter_return.run(ctx, { bill: sold.bill, lines: [{ item: 'linen kurta m beige', qty: 1 }] }), /Only 0/);
-  await assert.rejects(tool.inventory_counter_return.run(ctx, { bill: 'CB-0001', lines: [{ item: 'shirt m blue', qty: 1 }] }), /cancelled/);
+  await assert.rejects(tool.inventory_counter_return.run(ctx, { bill: '1', lines: [{ item: 'shirt m blue', qty: 1 }] }), /cancelled/);
 
   const after = await tool.inventory_counter_bills.run(ctx, {});
   const n = (s) => Number(String(s).replace(/[₹,]/g, ''));
@@ -434,4 +434,54 @@ test('Hive: take back a piece by name (finds the latest bill with it), the day�
   assert.ok(after.creditNotes.some((c) => c.number === r.creditNote && c.bill === sold.bill && c.reason === 'exchanged for L'));
   assert.ok(after.bills.some((b) => b.number === sold.bill && b.net === '₹0'));
   assert.match(tool.inventory_counter_bills.summary(after), /returns = /);
+});
+
+// GST tax invoices: the seller's GSTIN (Settings → GST invoices) makes counter bills tax invoices; the buyer's GSTIN or
+// state is the place of supply — same state CGST + SGST, another state IGST; numbers run per financial year; GSTR-1
+test('GST tax invoices: plain bill without a GSTIN, CGST+SGST or IGST by place of supply, yearly numbers, GSTR-1', async () => {
+  const P_ = '/inventory/pro';
+  const steel = item('GST Steel Rod', { unit: 'Kg', hsn: '7214', gst_percent: 18, sale_rate: 100 }), lathe = item('GST Lathe', { unit: 'Nos', hsn: '8458', gst_percent: 18, sale_rate: 60000 });
+  stockIn(steel, 500); stockIn(lathe, 5);
+  const bill = (body) => api(`${P_}/bills`, 'POST', body, S);
+
+  // no GSTIN yet: a plain bill, and GSTR-1 says why it can't be made
+  const plain = (await bill({ lines: [{ itemId: steel.id, qty: 1 }] })).data;
+  assert.equal(plain.doc_type, 'BILL');
+  assert.match((await api(`${P_}/gstr1?month=${day().slice(0, 7)}`, 'GET', null, S)).data.error, /Add your GSTIN/);
+
+  assert.equal((await api('/settings', 'PUT', { invoicing: { enabled: true, legalName: 'Sharma Traders', gstin: '27ABCDE1234F1Z5', address: 'Pune' } }, S)).status, 200);
+  assert.equal((await api(`${P_}/gst-profile`, 'GET', null, S)).data.seller.state, 'Maharashtra', 'the state comes from the GSTIN');
+
+  // walk-in, same state: CGST + SGST half each
+  const b2c = (await bill({ lines: [{ itemId: steel.id, qty: 10 }] })).data;
+  assert.deepEqual([b2c.doc_type, b2c.intra, b2c.place_of_supply, b2c.cgst, b2c.sgst, b2c.igst, b2c.total], ['TAX_INVOICE', true, 'Maharashtra', 90, 90, 0, 1180]);
+  assert.match(b2c.number, /^CB\/\d{4}-\d{2}\/\d{4}$/);
+  assert.equal(b2c.seller.gstin, '27ABCDE1234F1Z5');
+
+  // B2B to Karnataka: the buyer's GSTIN is the place of supply → IGST
+  assert.match((await bill({ lines: [{ itemId: steel.id, qty: 1 }], buyer: { gstin: '29AAACB1234' } })).data.error, /GSTIN doesn’t look right/);
+  const b2b = (await bill({ lines: [{ itemId: steel.id, qty: 20 }], buyer: { gstin: '29aaacb1234c1z5', name: 'Bangalore Builders' }, credit: true })).data;
+  assert.deepEqual([b2b.intra, b2b.place_of_supply, b2b.pos_code, b2b.igst, b2b.cgst, b2b.party_name, b2b.lines[0].igst], [false, 'Karnataka', '29', 360, 0, 'Bangalore Builders', 360]);
+
+  // B2C to another state over ₹1 lakh: B2CL in GSTR-1
+  const big = (await bill({ lines: [{ itemId: lathe.id, qty: 2 }], buyer: { state: 'Gujarat' } })).data;
+  assert.deepEqual([big.intra, big.pos_code, big.igst, big.total], [false, '24', 21600, 141600]);
+
+  // a credit note against the B2B bill keeps its IGST and its own yearly series
+  const cn = (await api(`${P_}/bills/${b2b.id}/return`, 'POST', { lines: [{ itemId: steel.id, qty: 5 }] }, S)).data;
+  assert.match(cn.number, /^CN\/\d{4}-\d{2}\/\d{4}$/);
+  assert.deepEqual([cn.igst, cn.cgst, cn.buyer.gstin, cn.doc_type], [90, 0, '29AAACB1234C1Z5', 'TAX_INVOICE']);
+
+  const r = (await api(`${P_}/gstr1?month=${day().slice(0, 7)}`, 'GET', null, S)).data, j = r.json;
+  assert.equal(j.gstin, '27ABCDE1234F1Z5');
+  assert.equal(j.fp, `${day().slice(5, 7)}${day().slice(0, 4)}`);
+  assert.deepEqual(j.b2b.map((x) => [x.ctin, x.inv.length, x.inv[0].pos, x.inv[0].itms[0].itm_det.iamt]), [['29AAACB1234C1Z5', 1, '29', 360]]);
+  assert.deepEqual(j.b2cl.map((x) => [x.pos, x.inv[0].val]), [['24', 141600]]);
+  assert.ok(j.b2cs.some((x) => x.sply_ty === 'INTRA' && x.pos === '27' && x.rt === 18 && x.txval >= 1000 && x.camt >= 90), 'the walk-in sale in B2CS');
+  assert.deepEqual(j.cdnr.map((x) => [x.ctin, x.nt[0].nt_num, x.nt[0].ntty, x.nt[0].itms[0].itm_det.iamt]), [['29AAACB1234C1Z5', cn.number, 'C', 90]]);
+  const hb = j.hsn.hsn_b2b.find((x) => x.hsn_sc === '7214');
+  assert.deepEqual([hb.qty, hb.uqc, hb.txval, hb.iamt], [15, 'KGS', 1500, 270], 'HSN net of the credit note: 20 − 5 kg');
+  assert.ok(j.hsn.hsn_b2c.some((x) => x.hsn_sc === '8458' && x.uqc === 'NOS'));
+  assert.ok(j.doc_issue.doc_det.some((d) => d.doc_num === 1) && j.doc_issue.doc_det.some((d) => d.doc_num === 5));
+  assert.ok(!j.b2b.concat(j.b2cl).some((x) => x.inv.some((i) => i.inum === plain.number)), 'a plain bill isn’t reported');
 });

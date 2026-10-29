@@ -89,7 +89,7 @@ export const TOOLS = [
   },
   {
     name: 'inventory_counter_return', description: 'Take back items sold on a counter bill (Inventory add-on; waits for the seller’s Confirm): makes a credit note (CN-…) against the bill — the pieces go back into stock, the refund is their share of the bill incl. GST (schemes respected: a return that breaks “buy 10 get 1” reclaims the free piece’s value), the bill and the day’s sales go down, and on an unpaid credit bill it comes off what the party owes. Give the bill number if the seller knows it; otherwise the latest bill with those items is used — tell the seller which bill it picked. For an exchange: this return, then a new inventory_counter_bill.',
-    schema: S({ bill: str('Bill number, e.g. CB-0012 (optional)'), lines: { type: 'array', description: 'What came back', items: S({ item: str('Item name as the seller says it, a barcode or a SKU'), qty: num('Pieces returned') }, ['item', 'qty']) }, reason: str('Why (optional, e.g. size exchange)'), refund_mode: { type: 'string', enum: ['cash', 'credit'], description: 'cash, or credit to the party’s account (optional — unpaid credit bills always take credit)' } }, ['lines']),
+    schema: S({ bill: str('Bill number, e.g. CB/2026-27/0012 or just 12 (optional)'), lines: { type: 'array', description: 'What came back', items: S({ item: str('Item name as the seller says it, a barcode or a SKU'), qty: num('Pieces returned') }, ['item', 'qty']) }, reason: str('Why (optional, e.g. size exchange)'), refund_mode: { type: 'string', enum: ['cash', 'credit'], description: 'cash, or credit to the party’s account (optional — unpaid credit bills always take credit)' } }, ['lines']),
     run: async (ctx, a) => {
       const lines = [];
       for (const l of a.lines || []) lines.push({ itemId: (await ctx.call('GET', `${P}/rate?${qs({ item: l.item })}`)).item.id, qty: Number(l.qty), name: l.item });
@@ -97,8 +97,9 @@ export const TOOLS = [
       const all = await ctx.call('GET', `${P}/bills?limit=200`);
       let bill, picked = false;
       if (a.bill) {
-        const d = String(a.bill).match(/\d+/)?.[0], want = d ? `CB-${d.padStart(4, '0')}` : String(a.bill).toUpperCase();
-        bill = all.find((b) => b.number === want || b.number === String(a.bill).trim().toUpperCase());
+        // the full number (CB/2026-27/0012, or an older CB-0012), else just its serial — the latest bill with it
+        const raw = String(a.bill).trim().toUpperCase(), serial = Number(raw.match(/(\d+)\s*$/)?.[1]), tail = (n) => Number(String(n).match(/(\d+)$/)?.[1]);
+        bill = all.find((b) => b.number === raw) || (serial ? all.find((b) => tail(b.number) === serial) : null);
         if (!bill) throw new Error(`No counter bill ${a.bill} among the last 200 bills`);
       } else {
         // the latest live bill that still has every item, in that quantity, left to return
