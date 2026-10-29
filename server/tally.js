@@ -259,9 +259,13 @@ export const onLedgersSynced = (fn) => { ledgerContactsHook = fn; };
 // website-created vouchers carry our import REMOTEID; a later export is matched back to that skeleton by reference, or
 // by amount (magnitude: receipts sync signed) and party
 const refKey = (r) => lname(r.reference_number ?? r.bill_number ?? r.voucher_number ?? '');
+// an invoice-style create carries items, not an amount
+const itemsTotal = (items) => { const t = (Array.isArray(items) ? items : []).reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.rate) || 0), 0); return t > 0 ? Math.round(t * 100) / 100 : null; };
 const skeletonMatches = (s, rec) => {
   const a = refKey(s), b = refKey(rec);
   if (a && b && a === b) return true;
+  // the bill we raised (bill_number) comes back as the export's bill allocation, not its reference
+  if (s.bill_number && (rec.bill_allocations || []).some((x) => lname(x.bill_name) === lname(s.bill_number)) && (!lname(s.party_name) || lname(s.party_name) === lname(rec.party_name))) return true;
   const sa = num(s.amount ?? s.total_credit ?? s.total_debit), ra = num(rec.amount ?? rec.total_credit ?? rec.total_debit);
   return sa != null && ra != null && Math.abs(Math.abs(sa) - Math.abs(ra)) < 0.05 && !!lname(s.party_name) && lname(s.party_name) === lname(rec.party_name);
 };
@@ -314,7 +318,7 @@ function syncVouchers(agent, guid, records, rec0, before) {
         due_date: istDay(rec.due_date) || prev?.due_date || null, payment_terms: clip(rec.payment_terms, 200) || null,
         status: rec.status || (rec.is_cancelled ? 'CANCELLED' : rec.is_optional ? 'OPTIONAL' : prev?.status === 'DUE' ? 'DUE' : 'POSTED'),
         is_cancelled: !!rec.is_cancelled, is_optional: !!rec.is_optional, total_debit: num(rec.total_debit), total_credit: num(rec.total_credit), narration: clip(rec.narration, 2000) || null,
-        remoteId: prev?.remoteId || rid || null, source: prev?.source || 'TALLY', lines, items, bills, active: true, syncedAt: Date.now(), at: prev?.at || Date.now(),
+        remoteId: prev?.remoteId || rid || null, source: prev?.source || 'TALLY', lines, items, bills, active: true, pending: undefined, syncedAt: Date.now(), at: prev?.at || Date.now(),
       });
       prev ? c.updated++ : c.created++;
       // bill allocations, for linking outstanding bills to the voucher that raised them
@@ -436,7 +440,7 @@ function applyLocal(cmd) {
   const company = (T.tagents.get(cmd.agentId)?.active_company_guid && T.tcompanies.find({ userId: cmd.userId, guid: T.tagents.get(cmd.agentId).active_company_guid })) || selectedCompany(cmd.userId);
   // our create, held as a skeleton (remote id, no guid) so it can be altered / cancelled before the next export
   if (VOUCHER_CREATE.has(t) && p.remote_id && !T.tvouchers.exists({ remoteId: p.remote_id }) && company) {
-    T.tvouchers.insert({ userId: cmd.userId, companyId: company.id, tally_guid: null, remoteId: p.remote_id, voucher_number: p.voucher_number || null, voucher_type: p.voucher_type || (t === 'CREATE_PAYMENT' ? 'Payment' : t === 'CREATE_RECEIPT' ? 'Receipt' : 'Sales'), voucher_date: p.date || istDay(new Date()), party_name: p.party_name || p.debit_ledger || p.credit_ledger || null, amount: num(p.amount), status: 'POSTED', reference_number: p.reference_number || p.bill_number || null, source: p.voucher_source || 'CRM', lines: [], items: [], bills: [], active: false, pending: true, syncedAt: Date.now(), at: Date.now() });
+    T.tvouchers.insert({ userId: cmd.userId, companyId: company.id, tally_guid: null, remoteId: p.remote_id, voucher_number: p.voucher_number || null, voucher_type: p.voucher_type || (t === 'CREATE_PAYMENT' ? 'Payment' : t === 'CREATE_RECEIPT' ? 'Receipt' : 'Sales'), voucher_date: p.date || istDay(new Date()), party_name: p.party_name || p.debit_ledger || p.credit_ledger || null, amount: num(p.amount) ?? itemsTotal(p.items), status: 'POSTED', reference_number: p.reference_number || p.bill_number || null, bill_number: p.bill_number || null, source: p.voucher_source || 'CRM', lines: [], items: [], bills: [], active: false, pending: true, syncedAt: Date.now(), at: Date.now() });
     return;
   }
   const masterTable = { CREATE_LEDGER: 'tledgers', CREATE_STOCK_ITEM: 'tstock', CREATE_GODOWN: 'tgodowns', CREATE_UNIT: 'tunits' }[t];

@@ -959,6 +959,10 @@ class TallyClient {
         effective_date: asDate(firstTag(block, "EFFECTIVEDATE")) || asDate(firstTag(block, "DATE")),
         party_name: (() => {
           const rawParty = firstTag(block, "PARTYLEDGERNAME") || firstTag(block, "PARTYNAME");
+          // TallyPrime names the cash / bank ledger as PARTYLEDGERNAME on receipts and payments; the customer or
+          // supplier is the line that carries the bill allocation
+          const billed = ledgerEntries.find((l) => l.ledger_name && (l.bill_allocations || []).length);
+          if (billed) return billed.ledger_name;
           const nonCash = ledgerEntries.find((l) => l.ledger_name && !/^(cash\b|bank\b|check\b)/i.test(l.ledger_name.trim()));
           return (rawParty && !/^(cash\b|check\b)/i.test(rawParty.trim()) ? rawParty : nonCash?.ledger_name) || rawParty || null;
         })(),

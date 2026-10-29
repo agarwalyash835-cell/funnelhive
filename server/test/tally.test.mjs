@@ -175,6 +175,16 @@ test('writes: queued for the PC; pre-checks for the books and stock; the result 
   assert.equal(list.length, 2);
   assert.equal(receipt.remoteId, c.data.payload.remote_id);
   assert.equal(receipt.source, 'CRM');
+  assert.equal(receipt.pending, undefined, 'no longer waiting for Tally');
+  // an invoice made from items, with our bill number: Tally's export has no reference or amount we sent, only the bill
+  // allocation (found live on TallyPrime 7.2) — still adopted, by the bill
+  const sale = await post('CREATE_VOUCHER', { voucher_type: 'Sales', party_name: 'Gupta Hardware', offset_ledger: 'Sales', date: today, bill_number: 'FH/9', items: [{ stock_item_name: 'Steel Rod 12mm', quantity: 2, rate: 300 }] });
+  const ps = (await agent('/commands/pending')).data.find((x) => x.command_type === 'CREATE_VOUCHER');
+  await agent(`/commands/${ps.command_id}/result`, 'POST', { status: 'SUCCESS', result: { created: 1 } });
+  await agent('/sync/vouchers', 'POST', { company_guid: COMPANY.tally_guid, records: [{ tally_guid: 'v-9', voucher_number: '7', voucher_type: 'Sales', voucher_date: today, party_name: 'Gupta Hardware', amount: 600, bill_allocations: [{ bill_name: 'FH/9', amount: -600 }], ledger_entries: [{ ledger_name: 'Gupta Hardware', amount: -600 }, { ledger_name: 'Sales', amount: 600 }] }] });
+  const sold = (await api('/tally/vouchers', 'GET', null, T)).data.items.find((v) => v.tally_guid === 'v-9');
+  assert.equal(sold.remoteId, sale.data.payload.remote_id);
+  assert.equal((await api('/tally/vouchers', 'GET', null, T)).data.total, 3, 'adopted, not duplicated');
 
   // cancel it from FunnelHive: the voucher's type, date and remote id are filled from the mirror
   const cancel = await post('CANCEL_VOUCHER', { record_id: receipt.id });
@@ -208,7 +218,7 @@ test('switching the add-on off stops the connector and the seller screens; the m
   assert.equal((await agent('/commands/pending')).status, 403);
   assert.equal((await api('/tally/vouchers', 'GET', null, T)).status, 403);
   await api(`/admin/users/${sellerId}/action`, 'POST', { action: 'tally_on' }, ADMIN);
-  assert.equal((await api('/tally/vouchers', 'GET', null, T)).data.total, 2);
+  assert.equal((await api('/tally/vouchers', 'GET', null, T)).data.total, 3);
   // another seller sees nothing of it
   const other = (await register(api, 'other@tally.test')).token;
   const vid = (await api('/tally/vouchers', 'GET', null, T)).data.items[0].id;
