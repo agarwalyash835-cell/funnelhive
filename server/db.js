@@ -204,6 +204,14 @@ const SCHEMA = {
   vaultShares: { cols: { userId: 0, fileId: 0, hash: 0, expiresAt: 0, at: 0 }, unique: [['hash']], index: [['fileId']] },
   vaultSecrets: { cols: { userId: 0, kind: 0, at: 0 }, index: [['userId', 'kind', 'at']] },
   snotes: { cols: { studentId: 0, read: (n) => bool(n.read), at: 0 }, index: [['studentId', 'at']] }, // a student's notifications
+  // ---- affiliates (affiliates.js): the program (id = seller), affiliates, one commission per attributed order,
+  // payouts the seller marked paid, clicks per affiliate per day, portal sign-in links / sessions ----
+  affprogs: { cols: { userId: 0, slug: 0 }, unique: [['slug']], index: [['userId']] },
+  affiliates: { cols: { userId: 0, code: 0, email: (a) => lower(a.email), coupon: 0, status: 0, at: 0 }, unique: [['code'], ['userId', 'email']], index: [['userId', 'at'], ['userId', 'coupon']] },
+  affcomms: { cols: { userId: 0, affiliateId: 0, orderId: 0, status: 0, amount: 0, at: 0 }, unique: [['orderId']], index: [['userId', 'status'], ['userId', 'at'], ['affiliateId', 'status'], ['affiliateId', 'at'], ['status', 'at']] },
+  affpayouts: { cols: { userId: 0, affiliateId: 0, at: 0 }, index: [['userId', 'at'], ['affiliateId', 'at']] },
+  affclicks: { cols: { userId: 0, affiliateId: 0, day: 0, n: 0 }, index: [['userId'], ['affiliateId', 'day']] },
+  affsess: { cols: { affiliateId: 0, hash: 0, expiresAt: 0 }, unique: [['hash']], index: [['affiliateId'], ['expiresAt']] },
 };
 const COLS = Object.fromEntries(Object.entries(SCHEMA).map(([t, d]) => [t, Object.keys(d.cols)]));
 
