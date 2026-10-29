@@ -174,6 +174,12 @@ const SCHEMA = {
   imoves: { cols: { userId: 0, itemId: 0, godownId: 0, kind: 0, day: 0, at: 0 }, index: [['userId', 'at'], ['itemId', 'godownId'], ['userId', 'itemId', 'day'], ['userId', 'kind', 'day']] },
   // ---- inventory phase 2 tables go here ----
   // ---- inventory-pro (industry) tables go here ----
+  // bills of materials (one per finished item), schemes per item, named rate lists, credit limits per party, counter bills
+  iboms: { cols: { userId: 0, itemId: 0, at: 0 }, index: [['userId', 'itemId']] },
+  ischemes: { cols: { userId: 0, itemId: 0, at: 0 }, index: [['userId', 'itemId']] },
+  iratelists: { cols: { userId: 0, lname: (r) => lower(r.name), at: 0 }, index: [['userId', 'lname']] },
+  icredit: { cols: { userId: 0, lparty: 0, at: 0 }, unique: [['userId', 'lparty']] },
+  ibills: { cols: { userId: 0, lparty: 0, at: 0 }, index: [['userId', 'at'], ['userId', 'lparty', 'at']] },
   // ---- school: the members area (students, courses, community) ----
   students: { cols: { userId: 0, ckey: 0, at: 0 }, unique: [['userId', 'ckey']], index: [['userId', 'at']] }, // a seller's student: one per email
   ssessions: { cols: { studentId: 0, hash: 0, expiresAt: 0 }, unique: [['hash']], index: [['studentId'], ['expiresAt']] }, // signed-in student devices
