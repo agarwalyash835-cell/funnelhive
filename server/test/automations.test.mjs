@@ -126,11 +126,21 @@ test('automation: new lead → wait → personalised email + WhatsApp template; 
 
   // unsubscribe link from the email
   const url = /Unsubscribe: (http:\/\/app\.example\.test\/u\/\S+)/.exec(mail)[1].replace('http://app.example.test', srv.base);
+  assert.match(mail, /List-Unsubscribe-Post: List-Unsubscribe=One-Click/);
+  // opening the link (a mail scanner does this) only asks; a POST unsubscribes
   const page = await fetch(url);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /unsubscribed/);
-  assert.equal((await fetch(url.replace(/\/[0-9a-f]{24}$/, '/000000000000000000000000'))).status, 400, 'forged links refused');
-  assert.equal((await api(`/contacts/${k('priya@example.com')}`, 'GET', null, T)).data.unsubscribed, true);
+  assert.match(await page.text(), /Unsubscribe from our emails\?[\s\S]*<form method="post"><button[^>]*>Unsubscribe</);
+  assert.equal((await api(`/contacts/${k('priya@example.com')}`, 'GET', null, T)).data.unsubscribed, false, 'a GET never unsubscribes');
+  assert.equal((await fetch(url.replace(/\/[0-9a-f]{24}$/, '/000000000000000000000000'), { method: 'POST' })).status, 400, 'forged links refused');
+  // RFC 8058 one-click from the email app
+  const done = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' });
+  assert.equal(done.status, 200);
+  assert.match(await done.text(), /unsubscribed/);
+  assert.match(await (await fetch(url)).text(), /already unsubscribed/);
+  const c2 = (await api(`/contacts/${k('priya@example.com')}`, 'GET', null, T)).data;
+  assert.equal(c2.unsubscribed, true);
+  assert.ok(c2.timeline.some((t) => t.title === 'Unsubscribed from emails' && /email app/.test(t.text || '')));
   const a2 = (await api('/automations', 'POST', { name: 'Promo', trigger: { type: 'tag', tag: 'promo' }, steps: [{ type: 'email', subject: 'Sale', body: 'Hi' }] }, T)).data;
   await api(`/automations/${a2.id}`, 'PUT', { active: true }, T);
   const n = mails.length;
