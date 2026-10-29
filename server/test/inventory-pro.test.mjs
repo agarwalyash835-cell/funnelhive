@@ -245,3 +245,34 @@ test('credit limits: warns past the limit — outstanding from credit counter bi
   const list = (await api(`${P}/credit`, 'GET', null, S)).data;
   assert.ok(list.some((x) => x.party_name === 'Sharma Builders' && x.outstanding === 8500));
 });
+
+test('Hive tools: produce, expiring, counter bill by name, credit limit — writes wait for Confirm', async () => {
+  const { TOOLS, OK } = await import('../hive-inventory-pro.js');
+  const tool = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  const ctx = { call: async (method, path, body) => { const r = await api(path, method, body, S); if (r.status >= 400) throw new Error(r.data.error); return r.data; } };
+  assert.deepEqual(Object.keys(OK).sort(), ['inventory_counter_bill', 'inventory_produce', 'inventory_set_credit_limit']);
+  assert.match(OK.inventory_counter_bill({ lines: [{ item: 'shirt M blue', qty: 2 }] }), /2 × shirt M blue/);
+
+  const need = await tool.inventory_production.run(ctx, { item: 'chair', qty: 10 });
+  assert.equal(need.canMakeNow, 5, '20 legs left → 5 chairs');
+  await assert.rejects(tool.inventory_produce.run(ctx, { item: 'chair', qty: 10 }), /short of 20 pcs Chair Leg/);
+  const made = await tool.inventory_produce.run(ctx, { item: 'Chair', qty: 5 });
+  assert.equal(made.produced, 5);
+  assert.deepEqual([T.imoves.get(made.moves.at(-1)).kind, T.imoves.get(made.moves.at(-1)).source], ['PRODUCE', 'HIVE']);
+
+  const exp = await tool.inventory_expiring.run(ctx, { days: 30 });
+  assert.ok(exp.batches.some((b) => b.batch === 'B1' && b.status === '20 days left'));
+
+  const bill = await tool.inventory_counter_bill.run(ctx, { lines: [{ item: 'shirt m blue', qty: 2 }] });
+  assert.match(bill.bill, /^CB-/);
+  assert.equal(bill.total, '₹1,050');
+  const priced = await tool.inventory_price_check.run(ctx, { lines: [{ item: 'cement', qty: 4 }], party_name: 'Sharma Builders', credit: true });
+  assert.equal(priced.overLimit, true);
+  await assert.rejects(tool.inventory_counter_bill.run(ctx, { lines: [{ item: 'cement', qty: 4 }], party_name: 'Sharma Builders', credit: true }), /over their ₹10,000 credit limit/);
+
+  const cr = await tool.inventory_credit.run(ctx, { party: "sharma builders" });
+  assert.deepEqual([cr.limit, cr.owes, cr.from], ['₹10,000', '₹8,500', 'Tally']);
+  const set = await tool.inventory_set_credit_limit.run(ctx, { party: 'Sharma Builders', limit: 20000, ratelist: 'dealer' });
+  assert.equal(set.limit, '₹20,000');
+  assert.equal((await tool.inventory_rate.run(ctx, { item: 'basmati', party: 'Sharma Builders' })).rate, '₹1,800');
+});
