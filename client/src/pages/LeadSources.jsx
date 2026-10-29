@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Panel, Icon, toast, ago, confirmDialog } from '../ui';
 
-const copy = (v, what = 'Copied') => { navigator.clipboard?.writeText(v); toast(what); };
+// a blocked clipboard (no focus, permissions) said “Copied” anyway — say so instead
+const copy = (v, what = 'Copied') => (navigator.clipboard ? navigator.clipboard.writeText(v).then(() => toast(what), () => toast('Couldn’t copy — select it and press Ctrl+C')) : toast('Couldn’t copy — select it and press Ctrl+C'));
 const Copy = ({ label, value }) => (
   <label className="ls-copy"><span>{label}</span>
     <div className="ls-copy-row"><input readOnly value={value} onFocus={(e) => e.target.select()} /><button type="button" className="icon-btn" title="Copy" aria-label={`Copy ${label}`} onClick={() => copy(value, `${label} copied`)}><Icon name="copy" size={15} /></button></div>

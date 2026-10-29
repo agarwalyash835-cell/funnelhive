@@ -14,7 +14,7 @@ const SMTP_PRESETS = [
   ['ses', 'Amazon SES (Mumbai)', 'email-smtp.ap-south-1.amazonaws.com', 587, 'Use SES SMTP credentials, and a verified “from” address.'],
   ['sendgrid', 'SendGrid', 'smtp.sendgrid.net', 587, 'Username is literally “apikey”; password is your SendGrid API key.'],
 ];
-const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
+const copy = (t) => (navigator.clipboard ? navigator.clipboard.writeText(t).then(() => toast('Copied'), () => toast('Couldn’t copy — select it and press Ctrl+C')) : toast('Couldn’t copy — select it and press Ctrl+C'));
 
 export function EmailPanel({ me }) {
   const [ch, setCh] = useState(null);
