@@ -467,6 +467,7 @@ app.get('/api/me', auth, (req, res) => {
       calls: T.bookings.count({ userId: req.user.id, status: 'confirmed', start: { gte: Date.now(), lte: Date.now() + 86400000 } }),
       unread: unreadCount(req.user.id), // notifications (the bell)
       industry: s.crmKit?.id || null, // the menu starts from the business's industry (its CRM kit)
+      tally: !!req.user.addons?.tally, // the Tally add-on (tally.js): its page joins the menu
       prefs: (req.actor || req.user).settings?.navPrefs?.[req.user.id] || null, // this person's own layout here
       clientMenu: (req.user.agencyId && T.users.get(req.user.agencyId)?.settings?.clientMenu) || null, // its agency's default
     },

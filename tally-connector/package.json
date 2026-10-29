@@ -1,0 +1,96 @@
+{
+  "name": "funnelhive-tally-connector",
+  "version": "1.1.0",
+  "private": true,
+  "description": "FunnelHive Tally Connector: keeps TallyPrime on this PC in sync with FunnelHive",
+  "main": "src/main.js",
+  "author": {
+    "name": "FunnelHive",
+    "email": "support@getaihive.in"
+  },
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "start:dev": "cross-env TALLY_BACKEND_URL=http://127.0.0.1:4000 electron .",
+    "check": "node scripts/smoke-check.js",
+    "check:xml": "node scripts/xml-decode.check.js",
+    "icon": "node scripts/make-icon.js",
+    "clean": "node -e \"require('node:fs').rmSync('release',{recursive:true,force:true})\"",
+    "prebuild": "npm run icon",
+    "pack": "npm run prebuild && electron-builder --win --dir --x64",
+    "dist:win": "npm run clean && npm run prebuild && electron-builder --win nsis --x64",
+    "dist:win:portable": "npm run prebuild && electron-builder --win portable --x64"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "in.getaihive.tallyconnector",
+    "productName": "FunnelHive Tally Connector",
+    "copyright": "Copyright (c) 2026 FunnelHive",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "README.md",
+      "!**/{test,tests,__tests__,__mocks__}/**",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "electronLanguages": [
+      "en-US"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "build/icon.ico"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "build/icon.png"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "funnelhive-tally-connector-setup.${ext}",
+      "requestedExecutionLevel": "asInvoker",
+      "legalTrademarks": "FunnelHive",
+      "signtoolOptions": {
+        "publisherName": "FunnelHive"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "FunnelHive Tally Connector",
+      "uninstallDisplayName": "FunnelHive Tally Connector ${version}",
+      "include": "build/installer.nsh",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "differentialPackage": false
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}

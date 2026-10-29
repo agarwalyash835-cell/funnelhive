@@ -37,6 +37,7 @@ const Bookings = lazy(() => import('./pages/Bookings'));
 const BookingManage = lazy(() => import('./pages/BookingManage'));
 const MeetPage = lazy(() => import('./pages/MeetPage'));
 const Quotes = lazy(() => import('./pages/Quotes'));
+const Tally = lazy(() => import('./pages/Tally'));
 const Vault = lazy(() => import('./pages/Vault'));
 const QuotePublic = lazy(() => import('./pages/QuotePublic'));
 const Webinars = lazy(() => import('./pages/Webinars'));
@@ -143,6 +144,7 @@ const app = onDomain ? (
         <Route path="/booking/:id" element={L(BookingManage)} />
         <Route path="/school" element={P(School)} />
         <Route path="/quotes" element={P(Quotes)} />
+        <Route path="/tally" element={P(Tally)} />
         <Route path="/vault" element={P(Vault)} />
         <Route path="/q/:id" element={L(QuotePublic)} />
         <Route path="/webinars" element={P(Webinars)} />

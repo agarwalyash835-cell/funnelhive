@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FunnelHive Tally Connector</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">FunnelHive Tally Connector</p>
+          <h1>Connect TallyPrime on this PC to FunnelHive.</h1>
+          <p class="subcopy">Open TallyPrime with your company, paste the connect code, click Connect. It runs in the tray and keeps Tally in sync.</p>
+        </div>
+        <div class="status-stack">
+          <span id="backendBadge" class="badge">FunnelHive UNKNOWN</span>
+          <span id="tallyBadge" class="badge">Tally UNKNOWN</span>
+          <span id="backendTarget" class="backend-target"></span>
+        </div>
+      </section>
+      <div id="backendWarning" class="backend-warning" hidden></div>
+
+      <section class="grid">
+        <form id="setupForm" class="panel setup-panel">
+          <div class="panel-title">
+            <h2>Connect</h2>
+            <p>In FunnelHive: Tally → Connect a PC → copy the code (it works once, for 30 minutes).</p>
+          </div>
+          <label>
+            Connect code
+            <input id="licenseKey" required placeholder="FH-7KD9-1PQ4-4MN2" autocomplete="off" />
+          </label>
+          <div class="two">
+            <label>
+              Tally host
+              <input id="tallyHost" required placeholder="localhost" />
+            </label>
+            <label>
+              Tally port
+              <input id="tallyPort" required type="number" min="1" max="65535" placeholder="9000" />
+            </label>
+          </div>
+          <label class="check">
+            <input id="autoStart" type="checkbox" />
+            Start automatically when Windows starts
+          </label>
+          <button id="activateBtn" class="primary" type="submit">Connect and start</button>
+          <p id="setupMessage" class="message"></p>
+        </form>
+
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Live status</h2>
+            <p id="agentId">Not activated</p>
+          </div>
+          <dl class="facts">
+            <div><dt>Running</dt><dd id="running">No</dd></div>
+            <div><dt>Company</dt><dd id="company">—</dd></div>
+            <div><dt>Last heartbeat</dt><dd id="lastHeartbeat">—</dd></div>
+            <div><dt>Last command poll</dt><dd id="lastPoll">—</dd></div>
+            <div><dt>Last sync</dt><dd id="lastSync">—</dd></div>
+            <div><dt>Last error</dt><dd id="lastError">—</dd></div>
+          </dl>
+          <div class="actions">
+            <button id="startBtn" type="button">Start</button>
+            <button id="stopBtn" type="button">Stop</button>
+            <button id="testBtn" type="button">Test Tally</button>
+            <button id="syncBtn" type="button">Sync now</button>
+          </div>
+        </section>
+      </section>
+
+      <div class="footer-actions">
+        <button id="openLogsBtn" type="button">Open app data</button>
+        <button id="resetBtn" class="danger" type="button">Disconnect this PC</button>
+      </div>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

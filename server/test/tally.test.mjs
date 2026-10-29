@@ -30,7 +30,8 @@ test('Tally is an add-on: off until an admin switches it on', async () => {
   assert.equal((await api(`/admin/users/${sellerId}/action`, 'POST', { action: 'tally_on' }, ADMIN)).status, 200);
   const s = (await api('/tally', 'GET', null, T)).data;
   assert.equal(s.on, true);
-  assert.match(s.download, /\/downloads\/funnelhive-tally-connector-setup\.exe$/);
+  assert.equal(s.download, null, 'no installer published on this server yet');
+  assert.equal((await fetch(`${srv.base}/downloads/funnelhive-tally-connector-setup.exe`)).status, 404);
   assert.ok(s.groups.includes('Sundry Debtors'));
 });
 

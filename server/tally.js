@@ -1,15 +1,18 @@
 // Tally (TallyPrime) for sellers who have the add-on (Admin → Sellers → Tally): manufacturers, retailers, traders.
 // Ported from AI Hive's Tally mini-app. TallyPrime never leaves the seller's Windows PC: the FunnelHive Tally Connector
-// (windows-tally-agent/) polls us over HTTPS, uploads a mirror of the companies open in Tally (ledgers, vouchers with
+// (tally-connector/) polls us over HTTPS, uploads a mirror of the companies open in Tally (ledgers, vouchers with
 // their lines / bills / stock lines, outstanding bills, units, godowns, stock items) and runs the writes queued here
 // (a ledger, a voucher, a stock transfer…) through Tally's own XML import.
 //   /api/v1/agent/tally/*  the connector, with its own token (never a seller session). Same paths, bodies and replies
 //                          as AI Hive, so one connector code base runs against both.
 //   /api/tally/*           the seller: reads from the mirror; writes become commands the connector picks up.
-// Connecting a PC: the seller copies a one-time code (Settings → Tally) into the connector, which trades it for a token.
+// Connecting a PC: the seller copies a one-time code (Tally → Connect a PC) into the connector, which trades it for a token.
+// The installer is served from DATA_DIR/downloads (copied there on deploy) unless an admin set another link.
 // Synced records keep Tally's own snake_case fields; our keys (userId, companyId, active, syncedAt…) are camelCase.
 import crypto from 'node:crypto';
-import { T, q, tx, uid, JOBS } from './db.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { T, q, tx, uid, JOBS, dir } from './db.js';
 import { platform } from './platform.js';
 
 export const tallyOn = (u) => !!u?.addons?.tally;
@@ -623,7 +626,9 @@ export function summary(userId) {
   };
 }
 // the connector installer: an admin-set link, else the one published on this server
-export const downloadUrl = (origin) => tallySettings().download_url || `${origin}/downloads/funnelhive-tally-connector-setup.exe`;
+export const INSTALLER = 'funnelhive-tally-connector-setup.exe';
+const installerFile = () => path.join(dir, 'downloads', INSTALLER);
+export const downloadUrl = (origin) => tallySettings().download_url || (fs.existsSync(installerFile()) ? `${origin}/downloads/${INSTALLER}` : null);
 
 // ---------- jobs: connectors that stopped calling in are offline; old commands expire ----------
 export function tallyJob(now = Date.now()) {
@@ -655,6 +660,12 @@ export function registerTally(app, { auth, wrap, rateLimit, isTest, secret, appU
   for (const [path, fn, max] of [['ledgers', syncLedgers, 500], ['vouchers', syncVouchers, 5000], ['outstandings', syncOutstandings, 5000], ['units', syncUnits, 500], ['godowns', syncGodowns, 500], ['stock-items', syncStockItems, 500]]) {
     app.post(`${A}/sync/${path}`, agentLimit, asAgent((agent, b) => fn(agent, clip(b.company_guid, 500) || fail(400, 'company_guid is required'), records(b, max), b.reconcile === true, b.reconcile_before || null)));
   }
+
+  // the installer (public: it holds nothing account-specific; connecting needs a code from a signed-in seller)
+  app.get(`/downloads/${INSTALLER}`, (req, res) => {
+    if (!fs.existsSync(installerFile())) return res.status(404).type('text').send('The Tally connector isn’t published on this server yet.');
+    res.download(installerFile(), INSTALLER);
+  });
 
   // ---- the seller (/api/tally is the 'tally' team area in team.js) ----
   const S = '/api/tally';
