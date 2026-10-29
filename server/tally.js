@@ -314,7 +314,8 @@ function syncVouchers(agent, guid, records, rec0, before) {
       const row = T.tvouchers.put({
         ...(prev || {}), id: prev?.id, userId: agent.userId, companyId: company.id, tally_guid: tguid, master_id: clip(rec.master_id, 100) || null, alter_id: clip(rec.alter_id, 100) || null,
         voucher_number: clip(rec.voucher_number, 200) || null, voucher_type: vtype, voucher_date: vdate, effective_date: istDay(rec.effective_date) || vdate,
-        party_name: clip(rec.party_name) || null, amount: magnitude(rec.amount ?? rec.total_credit ?? rec.total_debit), reference_number: clip(rec.reference_number) || null,
+        // a cancelled voucher is exported without its lines: keep who it was for and how much
+        party_name: clip(rec.party_name) || (rec.is_cancelled ? prev?.party_name : null) || null, amount: magnitude(rec.amount ?? rec.total_credit ?? rec.total_debit) ?? (rec.is_cancelled ? prev?.amount ?? null : null), reference_number: clip(rec.reference_number) || null,
         due_date: istDay(rec.due_date) || prev?.due_date || null, payment_terms: clip(rec.payment_terms, 200) || null,
         status: rec.status || (rec.is_cancelled ? 'CANCELLED' : rec.is_optional ? 'OPTIONAL' : prev?.status === 'DUE' ? 'DUE' : 'POSTED'),
         is_cancelled: !!rec.is_cancelled, is_optional: !!rec.is_optional, total_debit: num(rec.total_debit), total_credit: num(rec.total_credit), narration: clip(rec.narration, 2000) || null,
@@ -516,6 +517,13 @@ function precheck(userId, company, type, p) {
   if (['CREATE_VOUCHER', 'CREATE_RECEIPT', 'CREATE_PAYMENT', 'CREATE_STOCK_JOURNAL'].includes(type) && p.date) {
     const w = fyWindow(company), day = String(p.date).slice(0, 10);
     if (w && (day < w.start || day > w.end)) fail(400, `${day} is outside ${company.name}’s books in Tally (${w.start} to ${w.end}) — pick a date inside them`);
+  }
+  // a payment against a bill can't be dated before the bill: TallyPrime silently turns it into a new bill of that name
+  // (seen live on TallyPrime 7.2), leaving the real bill unpaid
+  const vt0 = lname(p.voucher_type) || (type === 'CREATE_RECEIPT' ? 'receipt' : type === 'CREATE_PAYMENT' ? 'payment' : '');
+  if (VOUCHER_CREATE.has(type) && ['receipt', 'payment'].includes(vt0) && p.bill_number && p.date && !/new ref|advance|on account/i.test(p.bill_type || '')) {
+    const bill = T.touts.all({ companyId: company.id, active: 1 }).find((o) => lname(o.bill_number) === lname(p.bill_number) && (!p.party_name || lname(o.party_name) === lname(p.party_name)) && o.bill_type === (vt0 === 'receipt' ? 'RECEIVABLE' : 'PAYABLE'));
+    if (bill?.bill_date && String(p.date).slice(0, 10) < bill.bill_date) fail(400, `Bill ${bill.bill_number} is dated ${bill.bill_date}, so a ${vt0} against it can’t be dated ${String(p.date).slice(0, 10)} — use ${bill.bill_date} or later`);
   }
   const needs = [];
   if (type === 'CREATE_STOCK_JOURNAL') needs.push({ name: p.stock_item_name, qty: num(p.quantity), where: ` in ${p.source_godown}` });

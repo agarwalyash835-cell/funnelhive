@@ -192,7 +192,7 @@ function List({ kind, rev, onOpen, voucherTypes }) {
   const set = (p) => setQ({ ...q, ...p, offset: 'offset' in p ? p.offset : 0 });
   const c = COLS[kind];
   return (
-    <Panel pad={false} title={d ? `${d.total.toLocaleString('en-IN')} ${kind === 'outstandings' ? 'bills' : kind === 'stock' ? 'items' : kind}` : ' '}
+    <Panel pad={false} title={d ? `${d.total.toLocaleString('en-IN')} ${(kind === 'outstandings' ? 'bills' : kind === 'stock' ? 'items' : kind).replace(/s$/, d.total === 1 ? '' : 's')}` : ' '}
       actions={<div className="row tl-filters">
         <input type="search" value={q.search} onChange={(e) => set({ search: e.target.value })} placeholder={kind === 'vouchers' ? 'Search party, number or narration' : c.search} aria-label="Search" />
         {kind === 'vouchers' && <select value={q.voucher_type} onChange={(e) => set({ voucher_type: e.target.value })} aria-label="Voucher type"><option value="">All types</option>{voucherTypes.map((t) => <option key={t}>{t}</option>)}</select>}

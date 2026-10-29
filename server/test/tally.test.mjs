@@ -149,6 +149,8 @@ test('writes: queued for the PC; pre-checks for the books and stock; the result 
   assert.match((await post('CREATE_VOUCHER', { voucher_type: 'Sales', party_name: 'Gupta Hardware' })).data.error, /amount/);
   assert.match((await post('CREATE_VOUCHER', { voucher_type: 'Sales', party_name: 'Gupta Hardware', amount: 1000, date: '2025-01-10' })).data.error, /outside Sharma Traders’s books/);
   assert.match((await post('CREATE_VOUCHER', { voucher_type: 'Sales', party_name: 'Gupta Hardware', items: [{ stock_item_name: 'Steel Rod 12mm', quantity: 300, rate: 300 }] })).data.error, /Not enough stock of Steel Rod 12mm: this needs 300/);
+  // a receipt dated before the bill it settles: TallyPrime would turn it into a new bill (seen live)
+  assert.match((await post('CREATE_RECEIPT', { party_name: 'Gupta Hardware', offset_ledger: 'Cash', amount: 100, date: '2026-08-01', bill_number: 'INV-1' })).data.error, /Bill INV-1 is dated 2026-08-10/);
   assert.match((await post('CREATE_UNIT', { name: 'Kg 2' })).data.error, /letters only/);
   assert.match((await post('CREATE_STOCK_JOURNAL', { stock_item_name: 'Steel Rod 12mm', quantity: 5, unit: 'Nos', source_godown: 'Main Location', dest_godown: 'main location' })).data.error, /two different godowns/);
 
@@ -192,6 +194,10 @@ test('writes: queued for the PC; pre-checks for the books and stock; the result 
   const p2 = (await agent('/commands/pending')).data.find((x) => x.command_type === 'CANCEL_VOUCHER');
   await agent(`/commands/${p2.command_id}/result`, 'POST', { status: 'SUCCESS' });
   assert.equal((await api(`/tally/vouchers/${receipt.id}`, 'GET', null, T)).data.status, 'CANCELLED');
+  // Tally exports a cancelled voucher without lines, party or amount: the mirror keeps who and how much
+  await agent('/sync/vouchers', 'POST', { company_guid: COMPANY.tally_guid, records: [{ tally_guid: 'v-2', voucher_number: '1', voucher_type: 'Receipt', voucher_date: today, is_cancelled: true }] });
+  const gone = (await api(`/tally/vouchers/${receipt.id}`, 'GET', null, T)).data;
+  assert.deepEqual([gone.status, gone.party_name, gone.amount], ['CANCELLED', 'Gupta Hardware', 6000]);
   // a refusal from Tally comes back as the command's error
   const led = await post('CREATE_LEDGER', { name: 'Verma Steels', parent: 'Sundry Creditors', email: 'verma@steel.in' });
   const p3 = (await agent('/commands/pending')).data.find((x) => x.command_type === 'CREATE_LEDGER');
