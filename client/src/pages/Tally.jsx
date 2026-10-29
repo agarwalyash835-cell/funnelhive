@@ -124,7 +124,7 @@ function ConnectPC({ s, onDone, compact }) {
   const steps = (
     <ol className="tl-steps">
       <li><b>Install the connector on the PC with TallyPrime</b>{s.download ? <a className="btn ghost sm" href={s.download}><Icon name="download" size={14} /> Download for Windows</a> : <small className="muted">The installer isn’t published yet — ask us for it.</small>}<small className="muted">Windows 10 or 11 (64-bit). If Windows says “protected your PC”: More info → Run anyway.</small></li>
-      <li><b>Open TallyPrime with your company</b><small className="muted">In TallyPrime: F1 Help → Settings → Connectivity → set “TallyPrime acts as” to Both, port 9000.</small></li>
+      <li><b>Open TallyPrime with your company</b><small className="muted">In TallyPrime: F1 Help → Settings → Connectivity → set “TallyPrime acts as” to Both, port 9000, then restart TallyPrime. For GST on vouchers, keep Output CGST / SGST / IGST (and Input … for purchases) ledgers under Duties &amp; Taxes.</small></li>
       <li><b>Paste this code into the connector</b>{code ? <div className="row"><code className="tl-code">{code.code}</code><button className="btn ghost sm" onClick={copy}><Icon name="copy" size={14} /> Copy</button></div> : <button className="btn primary sm" onClick={get}>Get a connect code</button>}<small className="muted">{code ? `It works once, until ${new Date(code.expiresAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}. This page updates when your PC connects.` : 'The code links that PC to this FunnelHive account.'}</small></li>
     </ol>
   );
@@ -398,20 +398,23 @@ function VoucherForm({ s, onClose, onDone }) {
     setRead({ reading: true });
     try {
       const d = await api('/tally/invoice-read', 'POST', { image: await photoData(file), voucher_type: ['Sales', 'Purchase', 'Credit Note', 'Debit Note'].includes(v.voucher_type) ? v.voucher_type : 'Purchase' });
-      setV({ ...v, voucher_type: d.voucher_type, date: d.date || v.date, party_name: d.party_name || '', reference_number: d.reference_number || '', bill_number: d.reference_number || '', due_date: d.due_date || '', narration: d.narration || '', amount: d.items.length ? '' : (d.grand_total || ''), items: d.items.filter((i) => i.quantity).map((i) => ({ stock_item_name: i.stock_item_name, quantity: i.quantity, rate: i.rate ?? '', matched: i.matched })), source: 'INVOICE' });
+      setV({ ...v, voucher_type: d.voucher_type, date: d.date || v.date, party_name: d.party_name || '', reference_number: d.reference_number || '', bill_number: d.reference_number || '', due_date: d.due_date || '', narration: d.narration || '', amount: d.items.length ? '' : (d.grand_total || ''), items: d.items.filter((i) => i.quantity).map((i) => ({ stock_item_name: i.stock_item_name, quantity: i.quantity, rate: i.rate ?? '', matched: i.matched })), gst_percent: d.items.find((i) => i.tax_percent)?.tax_percent ?? '', source: 'INVOICE' });
       setRead(d);
     } catch (e) { toast(e.message); setRead(null); }
   };
   const twoLedgers = ['Journal', 'Contra'].includes(v.voucher_type);
   const withItems = ['Sales', 'Purchase'].includes(v.voucher_type);
+  const gstOn = ['Sales', 'Purchase', 'Credit Note', 'Debit Note'].includes(v.voucher_type);
   const itemTotal = v.items.reduce((t, i) => t + (Number(i.quantity) || 0) * (Number(i.rate) || 0), 0);
+  const taxable = withItems && v.items.length ? itemTotal : Number(v.amount) || 0;
+  const gstAmt = gstOn ? Math.round(taxable * (Number(v.gst_percent) || 0)) / 100 : 0;
   const setItem = (k, p) => set({ items: v.items.map((i, j) => (j === k ? { ...i, ...p } : i)) });
   const offsetHint = { Sales: 'Sales account (e.g. Sales Account)', Purchase: 'Purchase account (e.g. Purchase Account)', Receipt: 'Cash or bank it came into', Payment: 'Cash or bank it was paid from', 'Credit Note': 'Sales account', 'Debit Note': 'Purchase account' }[v.voucher_type];
   const submit = () => {
     const items = v.items.filter((i) => i.stock_item_name && Number(i.quantity) > 0).map(({ matched, ...i }) => ({ ...i, quantity: Number(i.quantity), rate: Number(i.rate) || 0 }));
     const p = { voucher_type: v.voucher_type, date: v.date, narration: v.narration || undefined, reference_number: v.reference_number || undefined, ...(v.source ? { voucher_source: v.source } : {}) };
     if (twoLedgers) Object.assign(p, { debit_ledger: v.debit_ledger, credit_ledger: v.credit_ledger, amount: Number(v.amount) });
-    else Object.assign(p, { party_name: v.party_name, offset_ledger: v.offset_ledger || undefined, ...(items.length ? { items } : { amount: Number(v.amount) }), ...(v.bill_number ? { bill_number: v.bill_number, bill_type: ['Receipt', 'Payment', 'Credit Note', 'Debit Note'].includes(v.voucher_type) ? 'Agst Ref' : 'New Ref' } : {}), ...(v.due_date ? { due_date: v.due_date } : {}) });
+    else Object.assign(p, { party_name: v.party_name, offset_ledger: v.offset_ledger || undefined, ...(items.length ? { items } : { amount: Number(v.amount) }), ...(v.bill_number ? { bill_number: v.bill_number, bill_type: ['Receipt', 'Payment', 'Credit Note', 'Debit Note'].includes(v.voucher_type) ? 'Agst Ref' : 'New Ref' } : {}), ...(v.due_date ? { due_date: v.due_date } : {}), ...(gstOn && Number(v.gst_percent) > 0 ? { gst_percent: Number(v.gst_percent), interstate: !!v.interstate } : {}) });
     go(v.voucher_type === 'Receipt' ? 'CREATE_RECEIPT' : v.voucher_type === 'Payment' ? 'CREATE_PAYMENT' : 'CREATE_VOUCHER', p, `${v.voucher_type} voucher`);
   };
   return (
@@ -420,7 +423,7 @@ function VoucherForm({ s, onClose, onDone }) {
       <div className="tl-read">
         <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => readBill(e.target.files?.[0])} />
         <button type="button" className="btn ghost sm" disabled={read?.reading} onClick={() => fileRef.current?.click()}><Icon name="image" size={14} /> {read?.reading ? 'Reading the bill…' : 'Read a bill photo'}</button>
-        {read && !read.reading && <small className="muted">Read from the photo — check everything before saving.{!read.party_matched && read.party_read ? ` “${read.party_read}” isn’t a ledger in Tally yet: pick one or create it first.` : ''}{read.items.some((i) => !i.matched) ? ' Some items aren’t stock items in Tally yet.' : ''}{read.tax_total ? ` Tax on the bill: ₹${read.tax_total.toLocaleString('en-IN')} — add the tax ledgers in TallyPrime.` : ''}</small>}
+        {read && !read.reading && <small className="muted">Read from the photo — check everything before saving.{!read.party_matched && read.party_read ? ` “${read.party_read}” isn’t a ledger in Tally yet: pick one or create it first.` : ''}{read.items.some((i) => !i.matched) ? ' Some items aren’t stock items in Tally yet.' : ''}{read.tax_total ? ` Tax on the bill: ₹${read.tax_total.toLocaleString('en-IN')} — check the GST rate below.` : ''}</small>}
         {read?.duplicateOf && <small className="bad-t">This bill looks entered already: {read.duplicateOf.voucher_type} {read.duplicateOf.voucher_number || ''} on {read.duplicateOf.voucher_date}.</small>}
       </div>
       <div className="seg tl-vt" role="radiogroup" aria-label="Voucher type">{s.voucherTypes.map((t) => <button key={t} type="button" role="radio" aria-checked={v.voucher_type === t} className={v.voucher_type === t ? 'on' : ''} onClick={() => set({ voucher_type: t, items: [] })}>{t}</button>)}</div>
@@ -448,12 +451,19 @@ function VoucherForm({ s, onClose, onDone }) {
         <div className="row"><button type="button" className="btn ghost sm" onClick={() => set({ items: [...v.items, { stock_item_name: '', quantity: '', rate: '' }] })}><Icon name="plus" size={14} /> Add item</button>{v.items.length > 0 && <b>{inr(itemTotal)}</b>}</div>
       </div>}
       <div className="form2">
-        {!(withItems && v.items.length) && <label>Amount (₹)<input type="number" min="0" step="any" value={v.amount} onChange={(e) => set({ amount: e.target.value })} required /></label>}
+        {!(withItems && v.items.length) && <label>{gstOn ? 'Amount before GST (₹)' : 'Amount (₹)'}<input type="number" min="0" step="any" value={v.amount} onChange={(e) => set({ amount: e.target.value })} required /></label>}
         {!twoLedgers && <label>Bill number <small className="muted">· optional{['Receipt', 'Payment'].includes(v.voucher_type) ? ' — the bill this settles' : ''}</small><input value={v.bill_number} onChange={(e) => set({ bill_number: e.target.value })} /></label>}
         {['Sales', 'Purchase'].includes(v.voucher_type) && v.bill_number && <label>Due date<input type="date" value={v.due_date} onChange={(e) => set({ due_date: e.target.value })} /></label>}
+        {gstOn && <>
+          <label>GST<select value={v.gst_percent ?? ''} onChange={(e) => set({ gst_percent: e.target.value })}>
+            <option value="">No GST</option>{[0.25, 3, 5, 12, 18, 28, 40].map((r) => <option key={r} value={r}>{r}%</option>)}
+          </select></label>
+          {Number(v.gst_percent) > 0 && <label className="tog"><input type="checkbox" checked={!!v.interstate} onChange={(e) => set({ interstate: e.target.checked })} /><span />Other state — IGST <small className="muted">· otherwise CGST + SGST</small></label>}
+        </>}
         <label className="full">Narration <small className="muted">· optional</small><input value={v.narration} onChange={(e) => set({ narration: e.target.value })} /></label>
       </div>
-      <p className="hint">GST and tax ledgers aren’t added for you — add them as items or adjust the voucher in TallyPrime if needed.</p>
+      {gstAmt > 0 && <p className="tl-gst">{inr(taxable)} + {v.interstate ? 'IGST' : 'CGST + SGST'} {inr(gstAmt)} = <b>{inr(taxable + gstAmt)}</b></p>}
+      {gstOn && Number(v.gst_percent) > 0 && <p className="hint">Posted to your {v.voucher_type === 'Purchase' || v.voucher_type === 'Credit Note' ? 'Input' : 'Output'} {v.interstate ? 'IGST' : 'CGST and SGST'} ledgers under Duties &amp; Taxes in Tally.</p>}
     </FormModal>
   );
 }

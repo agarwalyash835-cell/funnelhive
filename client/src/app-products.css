@@ -524,3 +524,4 @@ fieldset.plain:disabled { opacity: .75; }
 .tl-admin small { flex: 1; min-width: 160px; }
 .tl-read { display: grid; gap: 4px; justify-items: start; }
 .tl-unmatched { border-color: #f59e0b !important; }
+.tl-gst { text-align: right; margin: 6px 0 0; font-size: 14px; }

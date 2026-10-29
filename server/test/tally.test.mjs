@@ -204,6 +204,20 @@ test('writes: queued for the PC; pre-checks for the books and stock; the result 
   await agent(`/commands/${p3.command_id}/result`, 'POST', { status: 'FAILED', error_message: 'Ledger already exists', result: { tally_response: '<LINEERROR>…' } });
   const failed = (await api(`/tally/commands/${led.data.id}`, 'GET', null, T)).data;
   assert.deepEqual([failed.status, failed.error_message], ['FAILED', 'Ledger already exists']);
+
+  // GST: CGST + SGST half each inside the state, IGST across states, on the company's own Duties & Taxes ledgers
+  const gstSale = { voucher_type: 'Sales', party_name: 'Gupta Hardware', offset_ledger: 'Sales Account', date: today, items: [{ stock_item_name: 'Steel Rod 12mm', quantity: 2, rate: 500 }], gst_percent: 18 };
+  assert.match((await post('CREATE_VOUCHER', gstSale)).data.error, /Create Output CGST and Output SGST under Duties & Taxes/);
+  await agent('/sync/ledgers', 'POST', { company_guid: COMPANY.tally_guid, records: ['Output CGST', 'Output SGST', 'Output IGST', 'Input CGST', 'Input SGST'].map((n, i) => ({ tally_guid: `tax-${i}`, name: n, parent: 'Duties & Taxes', ledger_group: 'Duties & Taxes' })).concat({ tally_guid: 'l-2', name: 'Sales Account', parent: 'Sales Accounts' }) });
+  assert.match((await post('CREATE_VOUCHER', gstSale)).data.error, /Update the FunnelHive Tally Connector/, 'a connector before 1.1.2 would drop the tax lines');
+  await agent('/heartbeat', 'POST', { agent_id: agentId, tally_status: 'ONLINE', company_loaded: true, company_name: COMPANY.name, company_guid: COMPANY.tally_guid, app_version: '1.1.2' });
+  const g1 = (await post('CREATE_VOUCHER', { ...gstSale, offset_ledger: 'Sales' })).data.payload;
+  assert.deepEqual(g1.taxes, [{ ledger_name: 'Output CGST', amount: 90 }, { ledger_name: 'Output SGST', amount: 90 }]);
+  assert.equal(g1.offset_ledger, 'Sales Account', '"Sales" (a voucher type, said by Hive live) → the one Sales Accounts ledger');
+  assert.deepEqual((await post('CREATE_VOUCHER', { ...gstSale, interstate: true })).data.payload.taxes, [{ ledger_name: 'Output IGST', amount: 180 }]);
+  assert.deepEqual((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Purchase', gst_percent: 5 })).data.payload.taxes, [{ ledger_name: 'Input CGST', amount: 25 }, { ledger_name: 'Input SGST', amount: 25 }]);
+  assert.match((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Purchase', interstate: true })).data.error, /Create Input IGST/);
+  assert.equal((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Receipt', offset_ledger: 'Cash', items: undefined, amount: 100 })).data.payload.taxes, undefined, 'no GST on a receipt');
 });
 
 test('the PC must be online with the company open; a disconnected PC stops working', async () => {
@@ -232,4 +246,19 @@ test('switching the add-on off stops the connector and the seller screens; the m
   await api(`/admin/users/${otherId}/action`, 'POST', { action: 'tally_on' }, ADMIN);
   assert.equal((await api(`/tally/vouchers/${vid}`, 'GET', null, other)).status, 404);
   assert.equal((await api('/tally/vouchers', 'GET', null, other)).data.total, 0);
+});
+
+test('a big upload is saved in chunks: every row kept, the reconcile still retires what the export dropped', async () => {
+  const BIG = { tally_guid: 'c-big', name: 'Big Traders', financial_year_from: '2026-04-01', financial_year_to: '2027-03-31' };
+  await agent('/sync/companies', 'POST', { records: [BIG] });
+  const v = (i) => ({ tally_guid: `big-${i}`, voucher_number: String(i), voucher_type: 'Sales', voucher_date: '2026-06-01', party_name: 'Gupta Hardware', amount: 100 + i });
+  const first = await agent('/sync/vouchers', 'POST', { company_guid: BIG.tally_guid, reconcile: true, records: Array.from({ length: 1200 }, (_, i) => v(i)) });
+  assert.equal(first.status, 200, JSON.stringify(first.data));
+  assert.equal(first.data.records_created, 1200);
+  const co = (await api('/tally', 'GET', null, T)).data.companies.find((c) => c.tally_guid === BIG.tally_guid);
+  await api(`/tally/companies/${co.id}/select`, 'POST', {}, T);
+  assert.equal((await api('/tally/vouchers', 'GET', null, T)).data.total, 1200);
+  // the next full export no longer has the first 100
+  await agent('/sync/vouchers', 'POST', { company_guid: BIG.tally_guid, reconcile: true, records: Array.from({ length: 1100 }, (_, i) => v(i + 100)) });
+  assert.equal((await api('/tally/vouchers', 'GET', null, T)).data.total, 1100);
 });

@@ -1,6 +1,6 @@
 {
   "name": "funnelhive-tally-connector",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "FunnelHive Tally Connector: keeps TallyPrime on this PC in sync with FunnelHive",
   "main": "src/main.js",

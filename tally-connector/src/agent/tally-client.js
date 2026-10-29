@@ -970,6 +970,9 @@ class TallyClient {
         due_date: firstBill?.due_date || null,
         payment_terms: firstBill?.credit_period || null,
         amount: (() => {
+          // the party's line is the voucher total (with GST); the first AMOUNT can be a pre-tax purchase / sales line
+          const billedLine = ledgerEntries.find((l) => (l.bill_allocations || []).length && l.amount != null);
+          if (billedLine) return Math.abs(billedLine.amount);
           const parsed = numeric(firstTag(block, "AMOUNT"));
           if (parsed != null) return Math.abs(parsed);
           return totalCredit || totalDebit || null;
@@ -1538,6 +1541,11 @@ class TallyClient {
     const hasItems = rawItems.length > 0;
     const itemsTotal = rawItems.reduce((sum, item) => sum + (Number(item.amount) || (Number(item.quantity || 0) * Number(item.rate || 0))), 0);
     const amount = Math.abs(Number(payload.amount || itemsTotal || 0));
+    // GST lines worked out by the backend ([{ ledger_name, amount }]): the party owes the taxable value plus these
+    const taxes = ["journal", "contra"].includes(vchTypeLower) ? [] : (Array.isArray(payload.taxes) ? payload.taxes : [])
+      .filter((t) => t && String(t.ledger_name || "").trim() && Number(t.amount) > 0)
+      .map((t) => ({ ledger_name: String(t.ledger_name).trim(), amount: Math.round(Number(t.amount) * 100) / 100 }));
+    const partyAmount = Math.round((amount + taxes.reduce((sum, t) => sum + t.amount, 0)) * 100) / 100;
 
     // Outward / sales direction: moves stock out, debits customer/cash, credits revenue.
     // - Explicit sales vouchers: Sales, Debit Note, Delivery Note, Rejections Out
@@ -1601,7 +1609,14 @@ class TallyClient {
       // If Sales-type / Outward: party is positive (Yes) debit (-amount)
       // If Purchase-type / Inward: party is deemed positive No credit (amount)
       const partyIsPositive = isSalesType;
-      const partySigned = partyIsPositive ? -amount : amount;
+      const partySigned = partyIsPositive ? -partyAmount : partyAmount;
+      // tax sits on the revenue / purchase side: credited on a sale, debited on a purchase
+      const taxXml = taxes.map((t) => `
+    <LEDGERENTRIES.LIST>
+      <LEDGERNAME>${escapeXml(t.ledger_name)}</LEDGERNAME>
+      <ISDEEMEDPOSITIVE>${isSalesType ? "No" : "Yes"}</ISDEEMEDPOSITIVE>
+      <AMOUNT>${escapeXml((isSalesType ? t.amount : -t.amount).toFixed(2))}</AMOUNT>
+    </LEDGERENTRIES.LIST>`).join("");
 
       const billXml = billNumber
         ? `
@@ -1665,14 +1680,15 @@ class TallyClient {
       <ISDEEMEDPOSITIVE>${partyIsPositive ? "Yes" : "No"}</ISDEEMEDPOSITIVE>
       <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
       <AMOUNT>${escapeXml(partySigned.toFixed(2))}</AMOUNT>${billXml}
-    </LEDGERENTRIES.LIST>${inventoryXml}
+    </LEDGERENTRIES.LIST>${taxXml}${inventoryXml}
   </VOUCHER>
 </TALLYMESSAGE>`, "Vouchers");
     }
 
     // Standard Pure Accounting Entry Mode
     const line = (ledger, isDebit) => {
-      const signed = isDebit ? -amount : amount;
+      const lineAmount = ledger === partyLedger ? partyAmount : amount;
+      const signed = isDebit ? -lineAmount : lineAmount;
       const isParty = ledger === partyLedger;
       // payload.bills splits one party line across several bills (e.g. a receipt settling oldest bills first).
       const bills = Array.isArray(payload.bills) && payload.bills.length > 0
@@ -1713,7 +1729,16 @@ class TallyClient {
     <PARTYLEDGERNAME>${escapeXml(partyLedger)}</PARTYLEDGERNAME>
     ${payload.reference_number ? `<REFERENCE>${escapeXml(payload.reference_number)}</REFERENCE>` : ""}
     ${payload.reference_date ? `<REFERENCEDATE>${escapeXml(tallyDate(payload.reference_date))}</REFERENCEDATE>` : ""}
-    <NARRATION>${escapeXml(payload.narration || "")}</NARRATION>${line(debitLedger, true)}${line(creditLedger, false)}
+    <NARRATION>${escapeXml(payload.narration || "")}</NARRATION>${line(debitLedger, true)}${line(creditLedger, false)}${taxes.map((t) => {
+      // tax on the opposite side to the party
+      const taxDebit = creditLedger === partyLedger;
+      return `
+    <ALLLEDGERENTRIES.LIST>
+      <LEDGERNAME>${escapeXml(t.ledger_name)}</LEDGERNAME>
+      <ISDEEMEDPOSITIVE>${taxDebit ? "Yes" : "No"}</ISDEEMEDPOSITIVE>
+      <AMOUNT>${escapeXml(taxDebit ? -t.amount : t.amount)}</AMOUNT>
+    </ALLLEDGERENTRIES.LIST>`;
+    }).join("")}
   </VOUCHER>
 </TALLYMESSAGE>`, "Vouchers");
   }
@@ -2205,7 +2230,8 @@ class TallyClient {
     }
     const wantType = String(payload.voucher_type || voucherType || "");
     const wantDate = String(payload.date || "").slice(0, 10);
-    const wantAmt = payload.amount == null || payload.amount === "" ? NaN : Math.abs(Number(payload.amount));
+    const taxTotal = (Array.isArray(payload.taxes) ? payload.taxes : []).reduce((sum, t) => sum + (Number(t?.amount) || 0), 0);
+    const wantAmt = payload.amount == null || payload.amount === "" ? NaN : Math.round((Math.abs(Number(payload.amount)) + taxTotal) * 100) / 100;
     const wantParty = payload.party_name ? String(payload.party_name).toLowerCase() : "";
     return (
       tagBlocks(xml, "VOUCHER").find((b) => {

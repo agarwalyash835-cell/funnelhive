@@ -292,6 +292,9 @@ function syncVouchers(agent, guid, records, rec0, before) {
   return runSync(agent, 'VOUCHERS', company.id, (c) => {
     c.reconcileBefore = Date.now();
     if (company.active === false) return;
+    // our own creates still waiting for Tally's export: a handful, read once per batch (a per-voucher query scanned every
+    // voucher of the type, and a 20,000-voucher company took 45 s a batch — load test)
+    let waiting = T.tvouchers.all({ companyId: company.id, guid: null }).filter((s) => s.remoteId);
     for (const rec of records) {
       const tguid = clip(rec.tally_guid, 500) || null, vtype = clip(rec.voucher_type, 120) || null, vdate = istDay(rec.voucher_date);
       let prev = tguid ? T.tvouchers.find({ companyId: company.id, guid: tguid })
@@ -299,11 +302,11 @@ function syncVouchers(agent, guid, records, rec0, before) {
       const rid = websiteRemoteId(rec.remote_id);
       if (!prev && rid) prev = T.tvouchers.find({ companyId: company.id, remoteId: rid });
       // our own create, waiting for Tally's export (a "skeleton": remote id, no guid yet)
-      const skeletons = vtype ? T.tvouchers.all({ companyId: company.id, vtype, guid: null }).filter((s) => s.remoteId) : [];
-      if (!prev) prev = skeletons.find((s) => skeletonMatches(s, rec)) || null;
+      const skeletons = vtype && waiting.length ? waiting.filter((s) => s.voucher_type === vtype) : [];
+      if (!prev) { prev = skeletons.find((s) => skeletonMatches(s, rec)) || null; if (prev) waiting = waiting.filter((s) => s.id !== prev.id); }
       else if (!prev.remoteId && prev.tally_guid) {
         const sk = skeletons.find((s) => s.id !== prev.id && skeletonMatches(s, rec));
-        if (sk) { prev = { ...prev, remoteId: sk.remoteId, source: sk.source }; T.tvouchers.del(sk.id); T.tbills.delWhere({ voucherId: sk.id }); }
+        if (sk) { prev = { ...prev, remoteId: sk.remoteId, source: sk.source }; T.tvouchers.del(sk.id); T.tbills.delWhere({ voucherId: sk.id }); waiting = waiting.filter((s) => s.id !== sk.id); }
       }
       const lines = (Array.isArray(rec.ledger_entries) ? rec.ledger_entries : []).filter((l) => clip(l.ledger_name) && clip(l.ledger_name) !== 'Unknown Ledger').map((l, i) => {
         const amt = Number(l.amount ?? 0);
@@ -332,7 +335,7 @@ function syncVouchers(agent, guid, records, rec0, before) {
 }
 
 const outKey = (party, bill, type) => `${lname(party)}|${lname(bill)}|${type === 'PAYABLE' ? 'PAYABLE' : 'RECEIVABLE'}`;
-function syncOutstandings(agent, guid, records, rec0, before) {
+function syncOutstandings(agent, guid, records, rec0, before, lastChunk = true) {
   const company = resolveCompany(agent, guid);
   return runSync(agent, 'OUTSTANDINGS', company.id, (c) => {
     c.reconcileBefore = Date.now();
@@ -360,7 +363,7 @@ function syncOutstandings(agent, guid, records, rec0, before) {
       prev ? c.updated++ : c.created++;
     }
     if (rec0) reconcile('touts', company.id, c, records, before, (r) => r.okey || outKey(r.party_name, r.bill_number, r.bill_type));
-    refreshVoucherDue(company.id);
+    if (lastChunk) refreshVoucherDue(company.id); // reads every open bill: once per upload, not per chunk
   });
 }
 // a voucher is DUE while one of its own bills is unpaid and overdue; it fills a missing due date from them too
@@ -441,7 +444,7 @@ function applyLocal(cmd) {
   const company = (T.tagents.get(cmd.agentId)?.active_company_guid && T.tcompanies.find({ userId: cmd.userId, guid: T.tagents.get(cmd.agentId).active_company_guid })) || selectedCompany(cmd.userId);
   // our create, held as a skeleton (remote id, no guid) so it can be altered / cancelled before the next export
   if (VOUCHER_CREATE.has(t) && p.remote_id && !T.tvouchers.exists({ remoteId: p.remote_id }) && company) {
-    T.tvouchers.insert({ userId: cmd.userId, companyId: company.id, tally_guid: null, remoteId: p.remote_id, voucher_number: p.voucher_number || null, voucher_type: p.voucher_type || (t === 'CREATE_PAYMENT' ? 'Payment' : t === 'CREATE_RECEIPT' ? 'Receipt' : 'Sales'), voucher_date: p.date || istDay(new Date()), party_name: p.party_name || p.debit_ledger || p.credit_ledger || null, amount: num(p.amount) ?? itemsTotal(p.items), status: 'POSTED', reference_number: p.reference_number || p.bill_number || null, bill_number: p.bill_number || null, source: p.voucher_source || 'CRM', lines: [], items: [], bills: [], active: false, pending: true, syncedAt: Date.now(), at: Date.now() });
+    T.tvouchers.insert({ userId: cmd.userId, companyId: company.id, tally_guid: null, remoteId: p.remote_id, voucher_number: p.voucher_number || null, voucher_type: p.voucher_type || (t === 'CREATE_PAYMENT' ? 'Payment' : t === 'CREATE_RECEIPT' ? 'Receipt' : 'Sales'), voucher_date: p.date || istDay(new Date()), party_name: p.party_name || p.debit_ledger || p.credit_ledger || null, amount: round2((num(p.amount) ?? itemsTotal(p.items) ?? 0) + (p.taxes || []).reduce((s, x) => s + (num(x.amount) || 0), 0)) || null, status: 'POSTED', reference_number: p.reference_number || p.bill_number || null, bill_number: p.bill_number || null, source: p.voucher_source || 'CRM', lines: [], items: [], bills: [], active: false, pending: true, syncedAt: Date.now(), at: Date.now() });
     return;
   }
   const masterTable = { CREATE_LEDGER: 'tledgers', CREATE_STOCK_ITEM: 'tstock', CREATE_GODOWN: 'tgodowns', CREATE_UNIT: 'tunits' }[t];
@@ -539,6 +542,42 @@ function precheck(userId, company, type, p) {
     if (Number(item.closing_balance) < n.qty) fail(409, `Not enough stock of ${item.name}: this needs ${n.qty}${n.unit ? ` ${n.unit}` : ''}${n.where || ''}, but only ${item.closing_balance} is on hand. Lower the quantity, or sync the latest stock from Tally and try again.`);
   }
 }
+// GST on a sale / purchase / note: gst_percent for the voucher (or tax_percent per item) and interstate → the tax lines,
+// CGST + SGST half each inside the state, IGST across states, posted to the company's own Duties & Taxes ledgers
+// (Output … on sales, Input … on purchases when both exist). The connector adds them and charges the party the total.
+const GST_TYPES = new Set(['sales', 'purchase', 'credit note', 'debit note']);
+const round2 = (n) => Math.round(n * 100) / 100;
+function applyGst(company, type, p) {
+  const vt = lname(p.voucher_type) || 'sales';
+  if (type !== 'CREATE_VOUCHER' || !GST_TYPES.has(vt) || p.taxes?.length) return;
+  const rate = (r) => { const n = num(r); if (n != null && (n < 0 || n > 40)) fail(400, 'GST is between 0% and 40%'); return n || 0; };
+  const lines = p.items?.length ? p.items.map((i) => ({ taxable: num(i.amount) || num(i.quantity) * num(i.rate), pct: rate(i.tax_percent ?? p.gst_percent) })) : [{ taxable: num(p.amount) || 0, pct: rate(p.gst_percent) }];
+  const tax = round2(lines.reduce((s, l) => s + (l.taxable * l.pct) / 100, 0));
+  if (!(tax > 0)) return;
+  const interstate = p.interstate === true || p.interstate === 'true';
+  const outward = ['sales', 'debit note'].includes(vt);
+  const taxLedgers = T.tledgers.all({ companyId: company.id, active: 1 }).filter((l) => lname(l.ledger_group || l.parent) === 'duties & taxes');
+  const pick = (re) => { const all = taxLedgers.filter((l) => re.test(l.name)); return (all.find((l) => (outward ? /output/i : /input/i).test(l.name)) || all.find((l) => !(outward ? /input/i : /output/i).test(l.name)))?.name; }; // never Input tax on a sale
+  const want = interstate ? [['IGST', /igst|integrated/i, tax]] : [['CGST', /cgst|central/i, round2(tax / 2)], ['SGST', /sgst|utgst|state/i, round2(tax - round2(tax / 2))]];
+  const found = want.map(([label, re, amount]) => ({ label, ledger_name: pick(re), amount }));
+  const missing = found.filter((t) => !t.ledger_name).map((t) => `${outward ? 'Output' : 'Input'} ${t.label}`);
+  if (missing.length) fail(400, `Create ${missing.join(' and ')} under Duties & Taxes in Tally first (or ask Hive to), then sync and try again`);
+  p.taxes = found.map(({ ledger_name, amount }) => ({ ledger_name, amount }));
+}
+
+// the "against" ledger of a sale / purchase, as people (and Hive) say it: "Sales", "sales account", nothing at all →
+// the company's own ledger, when the name isn't one and there's a single Sales / Purchase Accounts ledger to use
+const OFFSET_GROUP = { sales: 'sales accounts', 'credit note': 'sales accounts', purchase: 'purchase accounts', 'debit note': 'purchase accounts' };
+function resolveOffset(company, type, p) {
+  const group = type === 'CREATE_VOUCHER' && OFFSET_GROUP[lname(p.voucher_type) || 'sales'];
+  if (!group) return;
+  const ledgers = T.tledgers.all({ companyId: company.id, active: 1 });
+  const exact = p.offset_ledger && ledgers.find((l) => lname(l.name) === lname(p.offset_ledger));
+  if (exact) { p.offset_ledger = exact.name; return; }
+  const inGroup = ledgers.filter((l) => lname(l.ledger_group || l.parent) === group);
+  if (inGroup.length === 1) p.offset_ledger = inGroup[0].name;
+}
+
 // → the command row; refuses (409) when the Tally PC can't run it now
 export function queueCommand(userId, type, payload = {}, { by = 'user', byId = null, priority = 5 } = {}) {
   if (!COMMANDS.includes(type)) fail(400, 'That isn’t a Tally action FunnelHive can run');
@@ -556,6 +595,9 @@ export function queueCommand(userId, type, payload = {}, { by = 'user', byId = n
   }
   if (WRITE_RE.test(type)) {
     precheck(userId, company, type, p);
+    if (company) { resolveOffset(company, type, p); applyGst(company, type, p); }
+    // connectors before 1.1.2 ignore the tax lines and would save the voucher without GST
+    if (p.taxes?.length && semverLt(agent.app_version, '1.1.2')) fail(409, 'Update the FunnelHive Tally Connector on your PC to save GST vouchers — download the latest from the Tally page and install it over the old one');
     if (company && !p.company_guid) Object.assign(p, { company_guid: company.tally_guid, company_name: company.name });
   }
   if (VOUCHER_CREATE.has(type)) { p.remote_id ||= crypto.randomUUID(); p.voucher_source ||= 'CRM'; }
@@ -684,6 +726,24 @@ export function tallyJob(now = Date.now()) {
   T.truns.delWhere({ at: { lt: now - 30 * DAY } });
 }
 
+// a big upload (up to 5,000 vouchers or bills) is saved 500 at a time, letting other sellers' requests in between: in one
+// go a 20,000-voucher company held the whole server 3–5 s a batch (load test). The first chunk's watermark stands for
+// the upload, so the reconcile on the last chunk retires only what this upload didn't send.
+const CHUNK = 500;
+async function inChunks(fn, agent, guid, recs, rec0, before) {
+  if (recs.length <= CHUNK) return fn(agent, guid, recs, rec0, before);
+  const sum = { records_created: 0, records_updated: 0, records_failed: 0 };
+  let first = null, out = null;
+  for (let i = 0; i < recs.length; i += CHUNK) {
+    const last = i + CHUNK >= recs.length;
+    out = fn(agent, guid, recs.slice(i, i + CHUNK), rec0 && last, rec0 && last ? before || first : null, last);
+    first ||= out.reconcile_before || null;
+    for (const k of Object.keys(sum)) sum[k] += out[k] || 0;
+    if (!last) await new Promise((r) => setImmediate(r));
+  }
+  return { ...out, ...sum, ...(first ? { reconcile_before: first } : {}) };
+}
+
 // ---------- routes ----------
 export function registerTally(app, { auth, wrap, rateLimit, isTest, secret, appUrl }) {
   SECRET = secret;
@@ -702,7 +762,7 @@ export function registerTally(app, { auth, wrap, rateLimit, isTest, secret, appU
   const records = (b, max) => { if (!Array.isArray(b.records) || b.records.length > max) fail(400, `records: up to ${max} at a time`); return b.records; };
   app.post(`${A}/sync/companies`, agentLimit, asAgent((agent, b) => syncCompanies(agent, records(b, 500))));
   for (const [path, fn, max] of [['ledgers', syncLedgers, 500], ['vouchers', syncVouchers, 5000], ['outstandings', syncOutstandings, 5000], ['units', syncUnits, 500], ['godowns', syncGodowns, 500], ['stock-items', syncStockItems, 500]]) {
-    app.post(`${A}/sync/${path}`, agentLimit, asAgent((agent, b) => fn(agent, clip(b.company_guid, 500) || fail(400, 'company_guid is required'), records(b, max), b.reconcile === true, b.reconcile_before || null)));
+    app.post(`${A}/sync/${path}`, agentLimit, asAgent((agent, b) => inChunks(fn, agent, clip(b.company_guid, 500) || fail(400, 'company_guid is required'), records(b, max), b.reconcile === true, b.reconcile_before || null)));
   }
 
   // the installer (public: it holds nothing account-specific; connecting needs a code from a signed-in seller)
