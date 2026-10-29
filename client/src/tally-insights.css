@@ -1,0 +1,40 @@
+/* Tally → Stock: insights above the stock list (reorder, dead / fast / slow stock, purchase-order drafts).
+   Builds on the tl-* look in app-products.css (strip cards, avatars, tables); honey / amber accents. */
+.ti { margin-bottom: 16px; }
+.ti-skel { height: 92px; margin-bottom: 14px; }
+
+/* the cards double as the chooser for the list below */
+.ti-cards { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.ti-card { font: inherit; color: inherit; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.ti-card:hover { border-color: var(--c-line-strong, #d6d3d1); transform: translateY(-1px); }
+.ti-card:focus-visible { outline: 2px solid var(--c-accent-2, #d97706); outline-offset: 2px; }
+.ti-card.on { border-color: #f3c46b; background: linear-gradient(180deg, #fff8ea, var(--c-surface) 75%); box-shadow: 0 0 0 3px rgba(245, 158, 11, .14), var(--sh-1); }
+.ti-card.on::after { height: 3px; }
+
+.ti-tbl td { vertical-align: middle; }
+.ti-tbl .pill { white-space: nowrap; }
+.ti-qty { display: inline-block; padding: 2px 9px; border-radius: 99px; color: #7c4a03; background: linear-gradient(135deg, #fde9bd, #fbd38d); box-shadow: inset 0 0 0 1px rgba(180, 83, 9, .16); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ti-stuck { color: #b45309; font-variant-numeric: tabular-nums; }
+
+/* purchase-order drafts: one card per supplier */
+.ti-pos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+.ti-po { display: grid; gap: 10px; align-content: start; padding: 14px; border: 1px solid var(--c-line); border-radius: var(--r-lg, 12px); background: var(--c-surface); box-shadow: var(--sh-1); }
+.ti-po header { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ti-po header > div { display: grid; min-width: 0; }
+.ti-po header b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ti-po-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.ti-po-items li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: baseline; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--c-line-2); font-size: 13.5px; }
+.ti-po-items li:last-child { border-bottom: 0; }
+.ti-po-items li > span { overflow-wrap: anywhere; }
+.ti-po-items li b { font-variant-numeric: tabular-nums; }
+.ti-po-items .pill { margin-left: 6px; font-size: 11px; padding: 1px 7px; }
+.ti-po-msg { margin: 0; max-height: 170px; overflow: auto; padding: 10px 12px; border-radius: var(--r, 10px); background: #fdf8ee; border: 1px solid #f3e3c3; font-family: inherit; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--c-ink-2); }
+.ti-po footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ti-wa { color: #fff; background: #16a34a; border-color: #16a34a; text-decoration: none; }
+.ti-wa:hover { background: #15803d; border-color: #15803d; color: #fff; }
+
+@media (max-width: 560px) {
+  .ti-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ti-card { padding: 11px 12px; gap: 9px; }
+  .ti-card .tl-stat-ic { display: none; }
+}
