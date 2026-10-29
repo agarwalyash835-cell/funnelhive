@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, inr, num, ago, downloadCSV, toast, confirmDialog } from '../ui';
 import { t, tx } from '../appI18n';
+import '../cod.css';
 
 const STATUS = { refunded: ['Refunded', 'bad'], partially_refunded: ['Part refunded', 'warn'], cod: ['COD · unpaid', 'warn'], cancelled: ['Cancelled', 'bad'] };
 const PLAN = { active: ['', 'ok'], authenticated: ['starting', ''], created: ['starting', ''], pending: ['payment due', 'warn'], halted: ['payment failed', 'bad'], cancelled: ['cancelled', 'bad'], completed: ['paid in full', 'ok'], expired: ['ended', ''], demo: ['demo', ''] };
@@ -18,7 +19,10 @@ const thisYear = new Date().getFullYear();
 const shortDate = (t) => new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', ...(new Date(t).getFullYear() !== thisYear ? { year: 'numeric' } : {}) });
 const fullDate = (t) => new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 const RANGES = [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last 12 months'], [0, 'All time']];
-const FILTERS = [['all', 'All orders'], ['paid', 'Paid'], ['cod', 'COD to collect'], ['ship', 'To ship'], ['refunded', 'Refunded'], ['plan', 'Memberships & instalments'], ['test', 'Test orders']];
+// Cash on Delivery confirmation (server/cod.js)
+const CODST = { pending: ['COD · awaiting reply', ''], confirmed: ['COD · confirmed', 'ok'], unconfirmed: ['COD · no reply', 'warn'], cancelled: ['COD · cancelled by buyer', 'bad'] };
+const VIA = { whatsapp: 'WhatsApp', whatsapp_buttons: 'WhatsApp buttons', email: 'email', none: 'not sent — no WhatsApp or email available' };
+const FILTERS = [['all', 'All orders'], ['paid', 'Paid'], ['cod', 'COD to collect'], ['cod_pending', 'COD · awaiting reply'], ['cod_confirmed', 'COD · confirmed'], ['cod_unconfirmed', 'COD · no reply'], ['cod_cancelled', 'COD · cancelled by buyer'], ['rto', 'Returned (RTO)'], ['ship', 'To ship'], ['refunded', 'Refunded'], ['plan', 'Memberships & instalments'], ['test', 'Test orders']];
 const PAGE = 100;
 
 export default function Orders() {
@@ -91,7 +95,11 @@ export default function Orders() {
   };
   const codAct = async (o, action) => {
     if (action === 'cancel' && !(await confirmDialog({ title: t('Cancel COD order #{id}?', { id: o.id }), text: t('The buyer’s access (if any) is removed.'), confirm: t('Cancel order'), cancel: t('Keep it'), danger: true }))) return;
-    try { await api(`/orders/${o.id}/cod`, 'POST', { action }); toast(action === 'paid' ? t('Marked paid — invoice and delivery sent') : t('Order cancelled')); load(); } catch (e) { toast(e.message); }
+    try {
+      const r = await api(`/orders/${o.id}/cod`, 'POST', { action });
+      toast(action === 'paid' ? t('Marked paid — invoice and delivery sent') : action === 'resend' ? (r.sentVia === 'none' ? t('Couldn’t send — no WhatsApp or email for this buyer. Copy the link from the order instead.') : t('Confirmation sent by {via}', { via: VIA[r.sentVia] || r.sentVia })) : t('Order cancelled'));
+      load();
+    } catch (e) { toast(e.message); }
   };
   // a courier-ready sheet (Shiprocket / Delhivery bulk upload columns) of everything waiting to ship
   const exportShipping = async () => {
@@ -130,6 +138,7 @@ export default function Orders() {
       {o.fulfilment && !['cancelled', 'refunded'].includes(o.status) && <button className="icon-btn" title={t('Shipping')} onClick={() => setShip(o)}><Icon name="box" size={15} /></button>}
       {o.plan?.subId && ['active', 'pending', 'halted', 'authenticated'].includes(o.plan.status) && !o.plan.cancelAtEnd && <button className="icon-btn" title={o.plan.type === 'recurring' ? t('Cancel membership (at the end of the paid period)') : t('Stop the remaining instalments')} onClick={() => planCancel(o)}><Icon name="x" size={15} /></button>}
       {o.status === 'cod' && <button className="btn soft sm" title={t('Cash collected — issue the invoice and deliver')} onClick={() => codAct(o, 'paid')}>{t('Paid')}</button>}
+      {o.status === 'cod' && ['pending', 'unconfirmed'].includes(o.codStatus) && <button className="btn ghost sm" title={t('Send the confirmation message again')} onClick={() => codAct(o, 'resend')}>{t('Resend')}</button>}
       {o.status === 'cod' && <button className="icon-btn" title={t('Cancel this COD order')} onClick={() => codAct(o, 'cancel')}><Icon name="x" size={15} /></button>}
       {!['refunded', 'cod', 'cancelled'].includes(o.status) && <button className="icon-btn" title={t('Refund')} onClick={() => setRefund(o)}><Icon name="refund" size={15} /></button>}
     </div>
@@ -151,7 +160,7 @@ export default function Orders() {
             {(days || funnel || status !== 'all' || q) ? <button className="link-btn" onClick={() => { setDays(0); setFunnel(''); setStatus('all'); setQ(''); }}>{t('Clear filters')}</button> : null}
           </div>
           <div className="kpis k4">
-            <div className="kpi"><span className="kpi-l"><span className="kpi-ic"><Icon name="wallet" size={14} /></span>{t('Revenue · after refunds')}</span><b className="kpi-v">{inr(revenue)}</b>{refunded > 0 && <small>{t('{amount} refunded', { amount: inr(refunded) })}</small>}{codDue > 0 && <small>{t('+ {amount} COD to collect', { amount: inr(codDue) })}</small>}</div>
+            <div className="kpi"><span className="kpi-l"><span className="kpi-ic"><Icon name="wallet" size={14} /></span>{t('Revenue · after refunds')}</span><b className="kpi-v">{inr(revenue)}</b>{refunded > 0 && <small>{t('{amount} refunded', { amount: inr(refunded) })}</small>}{codDue > 0 && <small>{t('+ {amount} COD to collect', { amount: inr(codDue) })}</small>}{(k.rto > 0 || k.codUnconfirmed > 0) && <small>{t('{rto} RTO · {n} COD with no reply', { rto: num(k.rto || 0), n: num(k.codUnconfirmed || 0) })}</small>}</div>
             <div className="kpi"><span className="kpi-l"><span className="kpi-ic"><Icon name="cart" size={14} /></span>{t('Paid orders')}</span><b className="kpi-v">{num(paidCount)}</b>{tests > 0 && <small>{t('+ {n} test, not counted', { n: num(tests) })}</small>}</div>
             <div className="kpi"><span className="kpi-l"><span className="kpi-ic"><Icon name="tag" size={14} /></span>{t('Avg. order value')}</span><b className="kpi-v">{inr(k.aov || 0)}</b></div>
             <div className="kpi warn"><span className="kpi-l"><span className="kpi-ic"><Icon name="clock" size={14} /></span>{t('Abandoned checkouts')}</span><b className="kpi-v">{num(abandonedTotal)}</b><small>{t('recover them via WhatsApp ↓')}</small></div>
@@ -165,7 +174,7 @@ export default function Orders() {
                 <thead><tr><th>{t('Order')}</th><th>{t('Customer')}</th><th>{t('Funnel')}</th><th>{t('Items')}</th><th className="r">{t('Total')}</th><th>{t('Source')}</th><th className="r">{t('Date')}</th><th /></tr></thead>
                 <tbody>{orders.map((o) => (
                   <tr key={o.id} className="click" onClick={() => setOpen(o)}>
-                    <td className="mono">#{o.id}{STATUS[o.status] && <span className={`pill ${STATUS[o.status][1]}`}>{t(STATUS[o.status][0])}</span>}{(o.tags || []).map((t) => <span key={t} className="pill or-tag">{t}</span>)}</td>
+                    <td className="mono">#{o.id}{STATUS[o.status] && <span className={`pill ${STATUS[o.status][1]}`}>{t(STATUS[o.status][0])}</span>}{CODST[o.codStatus] && (o.status === 'cod' || o.codStatus === 'cancelled') && <span className={`pill cod-st ${CODST[o.codStatus][1]}`}>{t(CODST[o.codStatus][0])}</span>}{o.rtoAt || o.cancelReason === 'returned' ? <span className="pill bad cod-st">RTO</span> : null}{(o.tags || []).map((t) => <span key={t} className="pill or-tag">{t}</span>)}</td>
                     <td><b>{o.name || '—'}</b><small className="sub-t">{o.email}</small>{o.address && <small className="sub-t addr" title={addrText(o.address)}>📍 {o.address.city} {o.address.pincode}</small>}</td><td>{o.funnel}</td>
                     <td className="items">{o.fulfilment && SHIP[o.fulfilment.status] && <span className={`pill ${SHIP[o.fulfilment.status][1]}`} title={[o.fulfilment.courier, o.fulfilment.tracking].filter(Boolean).join(' · ')}>{t(SHIP[o.fulfilment.status][0])}</span>}{o.items.map((i, k) => <span key={k} className={`it k-${i.kind} ${i.refunded ? 'refunded' : ''}`} title={`${i.name} · ${money(i.price, o)}${i.refunded ? ` · ${t('refunded')}` : ''}`}>{i.productId && '📦 '}{i.kind === 'main' ? i.name : i.kind}</span>)}{o.coupon && <span className="it">🏷 {o.coupon}</span>}{o.plan && <span className={`pill ${PLAN[o.plan.status]?.[1] || ''}`}>🔁 {planLabel(o.plan, o)}{PLAN[o.plan.status]?.[0] ? ` · ${t(PLAN[o.plan.status][0])}` : ''}{o.plan.cancelAtEnd ? ` · ${t('ending')}` : ''}</span>}
                       {o.undelivered && <span className="it warn" title={t('Products are delivered only after a real payment (Razorpay or Stripe)')}>{t('not delivered')}</span>}{o.note && <span className="it" title={o.note}>📝 {t('note')}</span>}</td>
@@ -240,6 +249,7 @@ function OrderDetail({ o, actions, onClose, onSaved }) {
             {(o.invoices || []).length > 0 && <p>{o.invoices.map((i) => <a key={i.id} className="od-inv" href={i.url} target="_blank" rel="noreferrer">{i.type === 'credit' ? 'Credit note' : 'Invoice'} {i.number}</a>)}</p>}
           </section>
         </div>
+        {o.paymentMethod === 'cod' && <CodBox o={o} onSaved={onSaved} />}
         <section>
           <h4>Items</h4>
           <table className="od-items"><tbody>
@@ -331,5 +341,31 @@ function RefundModal({ o, onClose, onDone }) {
         <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn danger" disabled={!pick.length || busy} onClick={go}>{busy ? 'Refunding…' : `Refund ${money(amount, o)}`}</button></div>
       </div>
     </Modal>
+  );
+}
+
+// a COD order's confirmation, the buyer's COD record with you, and the seller's actions
+function CodBox({ o, onSaved }) {
+  const [risk, setRisk] = useState(null);
+  useEffect(() => { api(`/orders/${o.id}/cod-risk`).then(setRisk).catch(() => {}); }, [o.id, o.status, o.codStatus]);
+  const act = async (action) => {
+    if (action === 'rto' && !(await confirmDialog({ title: t('Mark returned to origin (RTO)?'), text: t('An unpaid COD order is cancelled. It counts against this buyer’s number for your COD risk rules.'), confirm: t('Mark RTO'), danger: true }))) return;
+    try { const r = await api(`/orders/${o.id}/cod`, 'POST', { action }); toast(action === 'resend' ? (r.sentVia === 'none' ? t('Couldn’t send — copy the link instead') : t('Confirmation sent by {via}', { via: VIA[r.sentVia] || r.sentVia })) : t('Updated')); onSaved(); } catch (e) { toast(e.message); }
+  };
+  const c = o.codConfirm || {}, last = c.sends?.at(-1);
+  const rto = !!(o.rtoAt || o.cancelReason === 'returned');
+  return (
+    <section className="cod-box">
+      <h4>{t('Cash on Delivery')}</h4>
+      <p>{o.codStatus ? t(CODST[o.codStatus]?.[0] || o.codStatus) : t('No confirmation asked')}{c.answeredAt ? ` · ${fullDate(c.answeredAt)} (${c.by})` : ''}{rto ? ` · ${t('returned to origin (RTO)')}` : ''}</p>
+      {last && <small className="muted">{t('Last asked {when} by {via}', { when: fullDate(last.at), via: t(VIA[last.via] || last.via) })}{c.dueAt && o.codStatus === 'pending' ? ` · ${t('no reply after {when}', { when: fullDate(c.dueAt) })}` : ''}</small>}
+      {risk && <p className={`cod-risk ${risk.bad ? 'bad' : ''}`}>{t('This number with you: {n} COD orders · {d} delivered · {r} RTO · {c} cancelled · {u} no reply', { n: risk.orders, d: risk.delivered, r: risk.rto, c: risk.cancelled, u: risk.unconfirmed })}</p>}
+      <div className="row">
+        {o.status === 'cod' && (!o.codStatus || ['pending', 'unconfirmed'].includes(o.codStatus)) && <button className="btn soft sm" onClick={() => act('resend')}>{t(o.codStatus ? 'Resend confirmation' : 'Ask to confirm')}</button>}
+        {o.status === 'cod' && o.codStatus !== 'confirmed' && <button className="btn ghost sm" onClick={() => act('confirm')}>{t('Confirmed by phone')}</button>}
+        {risk?.link && o.status === 'cod' && <button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(risk.link); toast(t('Confirmation link copied')); }}>{t('Copy confirm link')}</button>}
+        {!rto && ['cod', 'cancelled'].includes(o.status) && <button className="btn ghost sm" onClick={() => act('rto')}>{t('Returned to origin (RTO)')}</button>}
+      </div>
+    </section>
   );
 }

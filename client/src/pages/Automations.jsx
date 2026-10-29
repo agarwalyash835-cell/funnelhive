@@ -4,6 +4,7 @@ import {
   Clock, Mail, MessageCircle, Tag, ArrowRightLeft, Webhook, BellRing, Zap, Plus, Trash2, ChevronUp, ChevronDown, Copy, UserPlus,
   ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass, KeyRound, StickyNote, GripVertical, Search, X, GraduationCap, BadgeCheck, Award, MessagesSquare, Eye, FileX,
   CalendarCheck, CalendarX, Target, ListTodo, Check, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX, CheckCheck, Handshake,
+  PackageCheck, PackageX,
 } from 'lucide-react';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
@@ -40,7 +41,7 @@ const STEP = {
   exit: { label: 'End automation', icon: CircleStop, color: '#ef4444' },
 };
 const TRIGGER_ICON = {
-  lead: UserPlus, quiz: ListTodo, purchase: ShoppingBag, offer: TrendingUp, abandoned: ShoppingCart, refund: Undo2, renewal: RefreshCw, payment_failed: CreditCard, shipped: Truck,
+  lead: UserPlus, quiz: ListTodo, purchase: ShoppingBag, offer: TrendingUp, abandoned: ShoppingCart, refund: Undo2, renewal: RefreshCw, payment_failed: CreditCard, shipped: Truck, cod_confirmed: PackageCheck, cod_cancelled: PackageX,
   booking: CalendarCheck, booking_cancelled: CalendarX, webinar_registered: Presentation, webinar_attended: UserCheck, webinar_missed: UserX,
   stage: Kanban, tag: Tag, field: PenLine, stuck: Hourglass, date: CalendarDays, inbound: Link2, manual: Hand,
   wa_message: MessageCircle, wa_handoff: Handshake, wa_resolved: CheckCheck,
@@ -49,7 +50,7 @@ const TRIGGER_ICON = {
 // the pickers: grouped like Zapier, with a line on what each one is for
 const TRIGGER_GROUPS = [
   ['Leads & forms', ['lead', 'quiz', 'inbound', 'manual']],
-  ['Sales & payments', ['purchase', 'offer', 'abandoned', 'refund', 'renewal', 'payment_failed', 'shipped']],
+  ['Sales & payments', ['purchase', 'offer', 'abandoned', 'refund', 'renewal', 'payment_failed', 'shipped', 'cod_confirmed', 'cod_cancelled']],
   ['CRM', ['stage', 'stuck', 'field', 'tag', 'date']],
   ['WhatsApp inbox', ['wa_message', 'wa_handoff', 'wa_resolved']],
   ['Calls & webinars', ['booking', 'booking_cancelled', 'webinar_registered', 'webinar_attended', 'webinar_missed']],
@@ -59,7 +60,7 @@ const TRIGGER_GROUPS = [
 const TRIGGER_HELP = {
   lead: 'An opt-in or form on a funnel is filled in', quiz: 'A quiz funnel is finished — any result, or one result', inbound: 'Zapier, Pabbly, Make or Google Forms sends you a contact', manual: 'You add contacts by hand or in bulk',
   purchase: 'A checkout, quote or booking is paid', offer: 'An upsell, downsell or add-on is accepted', abandoned: 'Checkout started but not paid', refund: 'An order is refunded',
-  renewal: 'A membership renews or an instalment is paid', payment_failed: 'A renewal or instalment fails', shipped: 'An order gets a courier and tracking number',
+  renewal: 'A membership renews or an instalment is paid', payment_failed: 'A renewal or instalment fails', shipped: 'An order gets a courier and tracking number', cod_confirmed: 'A buyer confirms a Cash on Delivery order (WhatsApp reply or link)', cod_cancelled: 'A buyer cancels a Cash on Delivery order before it ships',
   booking: 'A call is booked on your calendar', booking_cancelled: 'A booked call is cancelled', webinar_registered: 'Someone registers for a webinar',
   webinar_attended: 'After the webinar — they showed up', webinar_missed: 'After the webinar — they didn’t',
   stage: 'A contact moves to a pipeline stage', stuck: 'A contact sits in a stage for N days', field: 'A CRM field changes — e.g. Home loan → Needed',

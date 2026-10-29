@@ -12,6 +12,7 @@ import { ActivityPanel } from './Agency';
 import { allZones, zoneOption } from '../tzfmt';
 import { EmailPanel, WhatsAppPanel, DomainsPanel, RazorpayPanel, StripePanel, HiveMcpPanel } from './SettingsChannels';
 import { LeadSourcesPanel } from './LeadSources';
+import { CodPanel } from './CodSettings';
 
 
 // flat coupons are in one currency (₹500 off never applies to a $ price)
@@ -72,6 +73,8 @@ export default function Settings() {
           <StripePanel />
           <p className="hint">{t('Stripe, Cashfree and PhonePe aren’t connected yet — Razorpay covers UPI, cards, netbanking, wallets and EMI in India.')}</p>
         </Panel>
+
+        <CodPanel />
 
         <Panel title={t('Tracking pixels')}>
           <p className="muted sm">Fires PageView on every step, ViewContent on sales pages, Lead on opt-ins, InitiateCheckout and AddPaymentInfo at checkout, and Purchase on every sale — upsells and add-ons are reported with their own amount, each with a unique id so Meta and Google never count a sale twice. Pixels don’t load in preview. UTM tags and Meta/Google click ids are saved on every lead and order automatically.</p>

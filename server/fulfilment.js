@@ -10,6 +10,7 @@ import { fire as fireAutomation } from './automations.js';
 import { deliver, revoke, linkBase } from './products.js';
 import { issueInvoice, invoiceUrl } from './sales.js';
 import { STATES } from './platform.js';
+import { codSellerAction } from './cod.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 // "Where should we ship it?" — checked whenever a checkout asks for an address
@@ -73,8 +74,12 @@ export function registerFulfilment(app, { auth, appUrl }) {
     res.json(order);
   });
   // COD: cash received (without the shipping steps), or cancel before it ships
-  app.post('/api/orders/:oid/cod', auth, (req, res) => {
+  // (cod.js: resend the confirmation, note the buyer's answer, returned to origin)
+  app.post('/api/orders/:oid/cod', auth, async (req, res, next) => {
     const o = own(req, res); if (!o) return;
+    let r;
+    try { r = await codSellerAction(req, o, appUrl); } catch (e) { return next(e); }
+    if (r) return res.status(r[0]).json(r[1]);
     if (o.status !== 'cod') return res.status(400).json({ error: 'This isn’t an unpaid Cash on Delivery order' });
     if (req.body?.action === 'paid') return res.json(settleCod(req.user, o, linkBase(o.funnelId, process.env.APP_URL || appUrl(req))));
     if (req.body?.action === 'cancel') return res.json(cancelCod(o, 'cancelled'));
@@ -82,10 +87,19 @@ export function registerFulfilment(app, { auth, appUrl }) {
   });
 }
 
-function cancelCod(o, why) {
-  const order = tx(() => T.orders.update(o.id, (x) => { x.cancelledAmount = x.total; x.total = 0; x.status = 'cancelled'; x.cancelReason = why; x.cancelledAt = Date.now(); for (const it of x.items) it.refunded ||= { at: Date.now(), cod: true }; }));
+// an unpaid COD order cancelled (by the seller, the buyer, or returned to origin): nothing to refund. COD orders
+// don't take stock out of Inventory or the stock counter (those count paid orders only), so there's none to put back.
+export function cancelCod(o, why) {
+  const order = tx(() => T.orders.update(o.id, (x) => { x.cancelledAmount = x.total; x.total = 0; x.status = 'cancelled'; x.cancelReason = why; x.cancelledAt = Date.now(); if (why === 'returned') x.rtoAt ||= Date.now(); for (const it of x.items) it.refunded ||= { at: Date.now(), cod: true }; }));
   revoke(o.userId, { orderId: o.id }, 'cancelled');
   const { userId, ...out } = order;
   fireWebhook(o.userId, 'order.cancelled', { reason: why, order: out });
   return order;
+}
+
+// Returned to origin: the buyer refused it / wasn't there. An unpaid COD order is cancelled; one the seller already
+// cancelled is just marked. It counts against the buyer's number (cod.js codHistory) and in Orders.
+export function markRto(o) {
+  if (o.status === 'cod') { T.orders.update(o.id, (x) => { if (x.fulfilment) x.fulfilment = { ...x.fulfilment, status: 'returned', at: Date.now() }; }); return cancelCod(o, 'returned'); }
+  return T.orders.update(o.id, (x) => { x.rtoAt = Date.now(); if (x.fulfilment) x.fulfilment = { ...x.fulfilment, status: 'returned', at: Date.now() }; });
 }

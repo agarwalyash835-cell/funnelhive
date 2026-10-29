@@ -33,6 +33,7 @@ export const TEMPLATES = {
   abandoned_checkout: { label: 'Unfinished checkout', text: 'Hi {{1}}, we noticed that your order for {{2}} was not completed. Your details are saved, so it only takes a moment to finish.\n\nYou can complete your order using this link: {{3}}\n\nIf you had any trouble during checkout or have a question, please reply to this message and we will help.', samples: ['Priya', 'Yoga for Beginners', 'https://example.com/f/yoga/checkout'] },
   community_reply: { label: 'Community replies (to students)', text: 'Hi {{1}}, there is something new for you in {{2}}: {{3}}.\n\nYou can read it and reply using this link: {{4}}\n\nYou are receiving this because you take part in this community, and you can turn these messages off in your profile.', samples: ['Priya', 'Ananya Yoga Academy', 'Ananya answered your question', 'https://app.theaihive.tech/learn/ananya-yoga/post/abc123'] },
   payment_due: { label: 'Payment reminders (Tally bills)', text: 'Hi {{1}}, this is a friendly reminder from {{2}} that bill {{3}} for {{4}} was due on {{5}}.\n\nIf you have already paid, please reply here with the payment reference so we can update our records. For any question about this bill, simply reply to this message.\n\nThank you for your business.', samples: ['Rajesh', 'Sharma Steel Traders', 'SST/101', '₹80,000', '19 Oct 2026'] },
+  cod_confirm: { label: 'Cash on Delivery confirmation', text: 'Hi {{1}}, thank you for your Cash on Delivery order for {{2}}. The amount to pay when it is delivered is {{3}}.\n\nPlease reply YES to confirm your order or NO to cancel it. You can also confirm or cancel it using this link: {{4}}\n\nWe will pack and ship your order as soon as it is confirmed.', samples: ['Priya', 'Mango Pickle 500 g', '₹549', 'https://app.example.com/cod/abc/k1'] },
   seller_alert: { label: 'Alerts to you (new orders and bookings)', text: 'You have a new {{1}} on your funnel {{2}}. Here are the details: {{3}}.\n\nYou can open your dashboard to see everything about it using this link: {{4}}\n\nThis is an automatic alert from your FunnelHive account.', samples: ['order', 'Yoga for Beginners', '₹1,999 from Priya', 'https://app.example.com/orders'] },
 };
 const tplName = (ev) => `fh_${ev}`;
@@ -185,6 +186,20 @@ async function providerSend(u, to, msg = {}) {
   throw new Error('More than 24 hours since this contact last messaged you — WhatsApp only allows approved templates now');
 }
 registerWhatsAppProvider('hive', { configured: isOn, send: providerSend });
+
+// a module that reads buyers' replies first (cod.js: YES / NO to a COD confirmation) → true when it took the message
+let replyHook = null;
+export function onWaReply(fn) { replyHook = fn; }
+// Quick-reply buttons, only while the 24-hour window is open (outside it only templates may go) and the contact
+// hasn't opted out → { status: 'sent' | 'closed' | 'not-configured' }
+export async function waButtons(u, to, text, buttons, ikey) {
+  const h = live(u);
+  if (!h) return { status: 'not-configured' };
+  const num = waNumber(to);
+  if (!num || waOptedOut(u.id, num)) return { status: 'closed' };
+  if (!(await windowOpen(h, num))) return { status: 'closed' };
+  return send(u, num, { type: 'interactive', interactive: { type: 'button', body: { text: String(text).slice(0, 1024) }, action: { buttons: buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id, title: clip(b.title, 20) } })) } } }, { ikey, event: 'cod_confirm' });
+}
 
 // ---------- for the inbox (wainbox.js): session sends, media, approved templates, and the webhook events ----------
 // The inbox registers here (it imports this file, never the other way round). Without it, an inbound message
@@ -379,6 +394,8 @@ function handle(userId, ev, d = {}, env = {}) {
     logActivity(userId, key, { type: 'whatsapp', title: `WhatsApp message: ${clip(text, 120) || '(empty)'}`, text, status: 'received', by: 'contact' });
     const stop = STOP.test(text);
     if (stop) optOut(userId, key, num, `Replied “${clip(text, 40)}” on WhatsApp`);
+    // an answer to a Cash on Delivery confirmation (cod.js) is handled there, not by the inbox's chatbot / AI agent
+    if (!stop && replyHook) { try { if (replyHook(u, { num, key, text, d })) return; } catch (e) { console.error('WhatsApp reply hook failed', e.message); } }
     // the inbox keeps the conversation, runs the chatbot / AI agent and notifies when a person is needed
     if (inbox) inbox.inbound(u, { num, key, text, stop, d });
     else notify(userId, { kind: 'whatsapp', title: `WhatsApp from ${clip(d.contact_name, 60) || `+${num}`}`, body: text, link: `/contacts/${encodeURIComponent(key)}` });

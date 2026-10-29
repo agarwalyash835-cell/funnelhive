@@ -360,6 +360,8 @@ export default function Public() {
         return d.preview ? { start: data.start, end: data.start + (data.duration || 30) * 60000, manage: null } : d;
       },
       onCoupon: (code, email) => post(`${base}/coupon${preview}`, { code, email, stepId: step.id }),
+      // delivery / Cash on Delivery at this PIN code, and the state it's probably in (server/cod.js)
+      onPincode: (pin) => fetch(`${base}/pincode${preview ? `${preview}&` : '?'}pin=${encodeURIComponent(pin)}`).then((r) => r.json()).catch(() => null),
       onClaim: (code) => code && store.set(`ff_coupon_${slug}`, code, sessionStorage),
       getPendingCoupon: () => store.get(`ff_coupon_${slug}`, sessionStorage),
       onCheckout: async (data) => {

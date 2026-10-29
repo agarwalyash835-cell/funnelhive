@@ -14,6 +14,7 @@ import './page-premium.css';
 import './app-products.css';
 import './app-refresh.css';
 import './glass.css';
+import './cod.css';
 
 const named = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })));
 const Toaster = named(() => import('./ui'), 'Toaster');
