@@ -3,7 +3,8 @@
 // a role may do is checked on every authenticated request (see allows), before any route runs.
 //   admin     — everything except billing, the team owner's account and platform admin
 //   marketer  — funnels, pages, AI, automations, broadcasts, contacts, products, webinars, bookings; reads orders
-//   sales     — contacts and pipelines, orders (shipping / COD, no refunds), bookings, buyer access; reads the rest
+//   sales     — contacts and pipelines, orders (shipping / COD, no refunds), bookings, buyer access, the counter
+//               (stock, counter bills, returns, stock entries; not the Tally books); reads the rest
 //   viewer    — read-only, no settings or secrets
 // A member can also be limited to some funnels (funnelIds, "this project only"): see scopeAllows.
 import { T, q, uid, tx } from './db.js';
@@ -47,8 +48,8 @@ export function allows(role, method, path, perms) {
   if (!BUILT_IN.has(role)) return !!perms && customAllows(perms, method, path);
   if (OWNER_ONLY.test(path)) return ['/api/team/members', '/api/team/roles'].includes(path) && method === 'GET' && role === 'admin';
   if (role === 'admin') return true;
-  // the Tally books and Inventory: admins, or a custom role given the Tally area (the built-in presets say none)
-  if (/^\/api\/(tally|inventory)(\/|$)/.test(path)) return false;
+  // the Tally books and Inventory: admins, or a custom role given the Tally area; sales staff work the counter only
+  if (/^\/api\/(tally|inventory)(\/|$)/.test(path)) return role === 'sales' && counterAllows(method, path);
   // the approved WhatsApp templates (names and wording only), for those who build automations and broadcasts
   if (path === '/api/channels/whatsapp/hive/templates/approved') return method === 'GET' && role === 'marketer';
   if (SECRET.test(path)) return false;
@@ -64,6 +65,12 @@ export function allows(role, method, path, perms) {
 // the account, sign-in, platform admin), API keys / MCP tokens (owners and admins) and erasing a contact.
 export const LEVELS = ['none', 'view', 'edit'];
 const ALL3 = LEVELS;
+// the shop counter inside Inventory: items and stock, counter bills, returns and stock entries. Not the Tally books
+// (ledgers, bank, outstandings), GSTR-1, rate lists / schemes / credit limits / BOMs (reading lists and schemes is
+// fine: the counter prices with them), cancelling a bill or undoing an entry. Edit = only the counter's own writes.
+const COUNTER_RE = /^\/api\/inventory(\/(items(\/[^/]+)?|barcode\/[^/]+|low|moves(\/batch)?|transfer|pro(\/(batches|expiring|fefo|variants(\/[^/]+)?|bills(\/[^/]+)?|bills\/[^/]+\/(paid|return(\/preview)?)|credit-notes(\/[^/]+)?|counter\/day|rate|ratelists|schemes(\/calc)?|gst-profile))?))?$/;
+const COUNTER_WRITE = /^\/api\/inventory\/(moves(\/batch)?|transfer|pro\/(bills(\/preview)?|bills\/[^/]+\/(paid|return(\/preview)?)|schemes\/calc))$/;
+const counterAllows = (method, path) => (isRead(method) ? COUNTER_RE.test(path) : method === 'POST' && COUNTER_WRITE.test(path));
 export const AREAS = [
   { key: 'dashboard', label: 'Dashboard & reports', desc: 'Overview numbers, reports, the activity log and plan usage (read-only)', levels: ['none', 'view'], re: /^\/api\/(analytics|reports|activity|usage|ads\/report)(\/|$)/ },
   { key: 'funnels', label: 'Funnels, templates & pages', desc: 'Build, edit and publish funnels and their pages, saved sections, templates', levels: ALL3, re: /^\/api\/(funnels|templates|saved)(\/|$)/ },
@@ -79,6 +86,7 @@ export const AREAS = [
   { key: 'broadcasts', label: 'Campaigns', desc: 'WhatsApp and email campaigns to a segment of your list, and AI calling campaigns', levels: ALL3, re: /^\/api\/(broadcasts|voice|campaign-templates)(\/|$)/, viewPost: /^\/api\/(broadcasts|voice)\/audience$/ },
   { key: 'files', label: 'Vault files', desc: 'Private files and folders, and sharing them', levels: ALL3, re: /^\/api\/vault(\/(files|folders|shares)(\/|$)|$)/ },
   { key: 'secrets', label: 'Vault passwords & notes', desc: 'Saved passwords and secure notes (view = can reveal them)', levels: ALL3, re: /^\/api\/vault\/secrets(\/|$)/, viewPost: /^\/api\/vault\/secrets\/[^/]+\/reveal$/ },
+  { key: 'counter', label: 'Counter & stock', desc: 'Inventory items and stock, counter bills, returns and stock entries — not the Tally books, rate lists, credit limits or BOMs', levels: ALL3, re: COUNTER_RE, write: COUNTER_WRITE },
   { key: 'tally', label: 'Tally', desc: 'The Tally mirror (ledgers, vouchers, outstanding bills, stock), changes sent to TallyPrime, and the Inventory add-on', levels: ALL3, re: /^\/api\/(tally|inventory)(\/|$)/ },
   { key: 'ads', label: 'Ads & ad spend', desc: 'Ad spend (Meta sync, CSV), conversions sent to ad platforms', levels: ALL3, re: /^\/api\/(adspend|conversions|gads)(\/|$)/ },
   { key: 'settings', label: 'Settings & integrations', desc: 'Business settings, payments and channels, domains, webhooks, apps, privacy', levels: ALL3, re: /^\/api\/(settings|lead-sources|webhooks|v1\/hooks|channels|domains|demo|privacy|integrations|google)(\/|$)/ },
@@ -103,8 +111,9 @@ export function customAllows(perms, method, path) {
   }
   const a = AREAS.find((x) => x.re.test(path));
   if (!a) return false; // deny by default
-  const lvl = perms[a.key] || 'none';
-  if (lvl === 'edit') return true;
+  // the Tally area covers the counter too (it's part of Inventory)
+  const lvl = a.key === 'counter' && RANK[perms.tally] > RANK[perms.counter || 'none'] ? perms.tally : perms[a.key] || 'none';
+  if (lvl === 'edit') return a.key !== 'counter' || perms.tally === 'edit' || counterAllows(method, path);
   return lvl === 'view' && (isRead(method) || (method === 'POST' && !!a.viewPost?.test(path)));
 }
 // the four built-in roles in the same area model, for showing what they allow (enforced by the rules above)
@@ -113,14 +122,14 @@ const allLevel = (lvl) => P(Object.fromEntries(AREAS.map((a) => [a.key, a.levels
 export const PRESETS = {
   admin: { ...allLevel('edit'), team: 'view' },
   marketer: P({ inbox: 'edit', dashboard: 'view', funnels: 'edit', ai: 'edit', crm: 'edit', orders: 'view', products: 'edit', bookings: 'edit', webinars: 'edit', quotes: 'view', automations: 'edit', broadcasts: 'edit', files: 'edit', ads: 'view' }),
-  sales: P({ inbox: 'edit', dashboard: 'view', funnels: 'view', crm: 'edit', orders: 'edit', products: 'view', bookings: 'edit', webinars: 'view', quotes: 'edit', automations: 'view', broadcasts: 'view', files: 'edit', ads: 'view' }),
+  sales: P({ inbox: 'edit', dashboard: 'view', funnels: 'view', crm: 'edit', orders: 'edit', products: 'view', bookings: 'edit', webinars: 'view', quotes: 'edit', automations: 'view', broadcasts: 'view', files: 'edit', ads: 'view', counter: 'edit' }),
   viewer: P({ dashboard: 'view', funnels: 'view', crm: 'view', orders: 'view', products: 'view', bookings: 'view', webinars: 'view', quotes: 'view', automations: 'view', broadcasts: 'view', ads: 'view' }),
   agency: allLevel('edit'),
 };
 const PRESET_NOTES = {
   admin: 'Sees the team but can’t change it. No billing or account deletion.',
   marketer: 'No settings, secrets or refunds.',
-  sales: 'Orders: shipping and COD only, no refunds. Products: can grant buyer access. School: students and community.',
+  sales: 'Orders: shipping and COD only, no refunds. Products: can grant buyer access. School: students and community. Counter: stock, counter bills, returns and stock entries — not the Tally books, settings, rate lists, credit limits or BOMs.',
   viewer: 'Read-only. Contact details and the vault stay hidden.',
 };
 const BUILT_IN = new Set(Object.keys(ROLES));

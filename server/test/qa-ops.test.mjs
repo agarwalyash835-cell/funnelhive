@@ -47,7 +47,7 @@ test('an MCP token a team member made acts with their role, not as the owner', a
 });
 
 test('built-in roles other than admin don’t see the Tally books or Inventory (the roles screen says none)', async () => {
-  for (const role of ['viewer', 'marketer', 'sales']) {
+  for (const role of ['viewer', 'marketer']) {
     const t = await join(`${role}@ops.test`, role);
     assert.equal((await api('/tally/ledgers', 'GET', null, t)).status, 403, role);
     assert.equal((await api('/inventory/items', 'GET', null, t)).status, 403, role);
@@ -100,4 +100,26 @@ test('an agency’s API key can’t invite into, hand over or delete a client ac
   assert.equal((await api(`/agency/clients/${c.id}/invite`, 'POST', { email: 'taker@ops.test' }, token)).status, 404);
   assert.equal((await api(`/agency/clients/${c.id}`, 'DELETE', { confirm: 'DELETE' }, token)).status, 404);
   assert.equal((await api('/agency', 'GET', null, ag)).data.clients.length, 1, 'still there');
+});
+
+test('sales staff work the counter (stock, bills, returns, stock entries) but never see the Tally books or settings', async () => {
+  const t = await join('sales@ops.test', 'sales');
+  const item = (await api('/inventory/items', 'POST', { name: 'Counter soap', unit: 'pcs', sale_rate: 50 }, owner)).data;
+  assert.ok(item.id, JSON.stringify(item));
+  assert.equal((await api('/inventory/items', 'GET', null, t)).status, 200);
+  assert.equal((await api(`/inventory/items/${item.id}`, 'GET', null, t)).status, 200);
+  const stock = await api('/inventory/moves', 'POST', { kind: 'PURCHASE', itemId: item.id, qty: 10 }, t);
+  assert.equal(stock.status, 200, JSON.stringify(stock.data));
+  const bill = await api('/inventory/pro/bills', 'POST', { lines: [{ itemId: item.id, qty: 2, rate: 50 }] }, t);
+  assert.equal(bill.status, 200, JSON.stringify(bill.data));
+  assert.equal((await api('/inventory/pro/bills', 'GET', null, t)).status, 200);
+  const ret = await api(`/inventory/pro/bills/${bill.data.id}/return`, 'POST', { lines: [{ line: 0, qty: 1 }] }, t);
+  assert.equal(ret.status, 200, JSON.stringify(ret.data));
+  // not the books, the settings or the pricing / credit rules
+  for (const [m, p, b] of [['GET', '/tally/ledgers'], ['GET', '/tally/summary'], ['GET', '/inventory/pro/credit'], ['PUT', '/inventory/pro/credit', { party_name: 'A', limit: 1 }], ['POST', '/inventory/pro/ratelists', { name: 'X' }], ['PUT', '/inventory/pro/boms', {}], ['POST', '/inventory/pro/schemes', {}], ['POST', '/inventory/items', { name: 'Y' }], ['GET', '/inventory/pro/gstr1'], ['POST', `/inventory/pro/bills/${bill.data.id}/cancel`], ['PUT', '/settings', { businessName: 'x' }]]) {
+    assert.equal((await api(p, m, b, t)).status, 403, `${m} ${p}`);
+  }
+  const me = (await api('/me', 'GET', null, t)).data;
+  assert.equal(me.perms.counter, 'edit');
+  assert.equal(me.perms.tally, 'none');
 });
