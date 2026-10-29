@@ -974,6 +974,7 @@ registerTally(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl });
 registerTallyInsights(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerInventory(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerInventoryPro(app, { auth, wrap, rateLimit, isTest, appUrl });
+(await import('./inventory-reports.js')).registerInventoryReports(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerTallyReminders(app, { auth, wrap, rateLimit, isTest });
 registerTallyOcr(app, { auth, wrap, rateLimit, isTest, credits });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
