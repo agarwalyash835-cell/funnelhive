@@ -7,6 +7,8 @@ import {
 import { api } from '../api';
 import { KitIcon } from '../blockIcons';
 import { ContactFiles } from '../vaultKit';
+import { GitMerge } from 'lucide-react';
+import '../contacts-merge.css';
 import { Layout, Panel, Icon, Empty, Modal, toast, inr, num, ago, downloadCSV, confirmDialog, promptDialog } from '../ui';
 
 const LS = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
@@ -40,7 +42,8 @@ export default function Contacts() {
   const [type, setType] = useState('all');
   const [view, setView] = useState(() => LS.get('ff_contacts_view', 'list'));
   const [pid, setPid] = useState(() => LS.get('ff_pipeline', ''));
-  const [modal, setModal] = useState(null); // 'add' | 'import' | 'fields' | 'pipes'
+  const [modal, setModal] = useState(null); // 'add' | 'import' | 'fields' | 'pipes' | 'dups'
+  const [merging, setMerging] = useState(null); // { keys, primary }: the merge dialog
   const [picked, setPicked] = useState(() => new Set());
   const [autos, setAutos] = useState([]);
   const [kit, setKit] = useState(null); // the CRM style: words, columns, filters, value field
@@ -135,6 +138,7 @@ export default function Contacts() {
       <button className="btn ghost" onClick={() => setModal('fields')}><SlidersHorizontal size={16} /> Custom fields</button>
       <button className="btn ghost" onClick={exportCsv} disabled={!rows.length || exporting}><Icon name="download" size={16} /> {exporting ? 'Exporting…' : 'Export'}</button>
       <button className="btn ghost" onClick={() => setModal('import')}><Upload size={16} /> Import CSV</button>
+      <button className="btn ghost" onClick={() => setModal('dups')} title="Find the same person added more than once and merge them"><GitMerge size={16} /> Duplicates</button>
       <button className="btn primary" onClick={() => setModal('add')}><UserPlus size={16} /> Add contact</button>
     </>}>
       <AskHive kit={kit} L={L} />
@@ -185,6 +189,7 @@ export default function Contacts() {
                       {pipe && <select value="" onChange={(e) => e.target.value && bulk('stage', e.target.value)}><option value="">Move to stage…</option>{pipe.stages.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}</select>}
                       <button className="btn ghost sm" onClick={() => bulk('addTag')}>Add tag</button>
                       <button className="btn ghost sm" onClick={() => bulk('removeTag')}>Remove tag</button>
+                      {picked.size >= 2 && picked.size <= 20 && <button className="btn ghost sm" onClick={() => setMerging({ keys: [...picked] })}><GitMerge size={14} /> Merge</button>}
                       <button className="link-btn" onClick={() => setPicked(new Set())}>Clear</button>
                     </div>
                   )}
@@ -214,7 +219,9 @@ export default function Contacts() {
           )}
         </>
       )}
-      {key && list && <ContactPanel key={key} ckey={key} pipes={pipes} fields={fields} onClose={() => nav('/contacts')} onChanged={load} onEditFields={() => setModal('fields')} />}
+      {key && list && <ContactPanel key={key} ckey={key} pipes={pipes} fields={fields} onClose={() => nav('/contacts')} onChanged={load} onEditFields={() => setModal('fields')} onMerge={(keys) => setMerging({ keys, primary: key })} />}
+      {modal === 'dups' && <DuplicatesModal onClose={() => setModal(null)} onMerge={(g) => setMerging({ keys: g.keys, primary: g.primary })} onOpen={(k) => { setModal(null); open(k); }} tick={merging} />}
+      {merging && <MergeModal keys={merging.keys} primary={merging.primary} onClose={() => setMerging(null)} onDone={(k) => { setMerging(null); setPicked(new Set()); load(); if (key) open(k); }} />}
       {modal === 'add' && <AddContact onClose={() => setModal(null)} onDone={(k) => { setModal(null); load().then(() => open(k)); }} />}
       {modal === 'import' && <ImportContacts fields={fields} onClose={() => setModal(null)} onDone={load} />}
       {modal === 'fields' && <FieldsEditor fields={fields} onClose={() => setModal(null)} onSaved={(f) => { setFields(f); setModal(null); toast('Custom fields saved'); }} />}
@@ -312,8 +319,9 @@ const TL = {
   bump: [PackagePlus, '#16a34a'], upsell: [TrendingUp, '#16a34a'], downsell: [TrendingDown, '#16a34a'], crosssell: [PackagePlus, '#16a34a'],
   email: [Mail, '#8b5cf6'], whatsapp: [MessageCircle, '#22c55e'], call: [PhoneCall, '#0f766e'], note: [StickyNote, '#a16207'], meeting: [CalendarDays, '#0369a1'], stage: [ArrowRightLeft, '#64748b'], file: [Paperclip, '#7c3aed'],
 };
-function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields }) {
+function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields, onMerge }) {
   const [c, setC] = useState(null);
+  const [mergeWith, setMergeWith] = useState(false);
   const [tab, setTab] = useState('timeline');
   const [err, setErr] = useState('');
   const [booking, setBooking] = useState(false);
@@ -349,7 +357,8 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields })
               {c.phone && <div><Phone size={15} /><a href={`tel:${c.phone}`}>{c.phone}</a><button className="icon-btn xs" title="Copy phone" onClick={() => copy(c.phone)}><Copy size={13} /></button></div>}
               {!c.email && !c.phone && <div className="muted">No email or phone yet — add them under Details.</div>}
             </div>
-            <div className="cp-quick"><button className="btn ghost sm" onClick={() => setBooking(true)}><CalendarPlus size={15} /> Book a call</button></div>
+            <div className="cp-quick"><button className="btn ghost sm" onClick={() => setBooking(true)}><CalendarPlus size={15} /> Book a call</button>{onMerge && <button className="btn ghost sm" onClick={() => setMergeWith(true)} title="The same person added twice? Merge them into this contact"><GitMerge size={15} /> Merge with…</button>}</div>
+            {mergeWith && <MergeWith c={c} ckey={ckey} onClose={() => setMergeWith(false)} onPick={(keys) => { setMergeWith(false); onMerge([ckey, ...keys]); }} />}
             {booking && <BookCall c={c} onClose={() => setBooking(false)} onDone={() => { setBooking(false); load(); onChanged?.(); }} />}
             <div className="cp-stats">
               <div><small>Lifetime value</small><b>{inr(c.ltv)}</b></div>
@@ -894,6 +903,131 @@ function StageStrip({ pipe, filterQs, tick, onOpen }) {
 
 // Book a call for this contact from the CRM: one of your calendars, a free time, and it's booked — the same booking
 // as on your booking page (confirmation email + invite to them, the CRM stage and booking automations follow)
+// ---------- duplicates and merging ----------
+const who2 = (c) => [c.email, c.phone].filter(Boolean).join(' · ') || c.key;
+// likely duplicates (same number, same email, similar name in the same city), each group with why
+function DuplicatesModal({ onClose, onMerge, onOpen, tick }) {
+  const [groups, setGroups] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => { api('/contacts/duplicates').then((r) => setGroups(r.groups)).catch((e) => setErr(e.message)); }, [tick]);
+  return (
+    <Modal title="Duplicate contacts" onClose={onClose} width={860}>
+      <div className="m-body cm-body">
+        {err ? <p className="err">{err}</p> : !groups ? <div className="skeleton" /> : !groups.length ? (
+          <Empty icon="users" title="No duplicates found" text="Nobody shares a phone number or email with another contact, and no two names in the same city look alike." />
+        ) : <>
+          <p className="hint">{groups.length} group{groups.length > 1 ? 's' : ''} that look like the same person. Merging moves orders, timeline, chats and automations to the one you keep.</p>
+          {groups.map((g) => <DupGroup key={g.id} g={g} onMerge={onMerge} onOpen={onOpen} />)}
+        </>}
+      </div>
+    </Modal>
+  );
+}
+function DupGroup({ g, onMerge, onOpen }) {
+  const [primary, setPrimary] = useState(g.suggested);
+  const [on, setOn] = useState(() => new Set(g.contacts.map((c) => c.key)));
+  const keys = g.contacts.map((c) => c.key).filter((k) => on.has(k) || k === primary);
+  const flip = (k) => setOn((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  return (
+    <section className="cm-group">
+      <div className="cm-why">{g.reasons.map((r) => <span key={r} className="cm-reason">{r}</span>)}</div>
+      <table className="tbl cm-tbl">
+        <thead><tr><th className="ck" title="Include in the merge">In</th><th>Keep</th><th>Contact</th><th className="r">Orders</th><th className="r">Value</th><th>Last seen</th></tr></thead>
+        <tbody>{g.contacts.map((c) => (
+          <tr key={c.key} className={c.key === primary ? 'cm-keep' : on.has(c.key) ? '' : 'cm-off'}>
+            <td className="ck"><input type="checkbox" checked={on.has(c.key) || c.key === primary} disabled={c.key === primary} onChange={() => flip(c.key)} aria-label={`Include ${label(c)}`} /></td>
+            <td><input type="radio" name={`keep-${g.id}`} checked={c.key === primary} onChange={() => setPrimary(c.key)} aria-label={`Keep ${label(c)}`} /></td>
+            <td><button className="link-btn cm-who" onClick={() => onOpen(c.key)}><b>{c.name || '—'}</b><small className="sub-t">{who2(c)}{c.city ? ` · ${c.city}` : ''}</small></button>{c.waOptOut && <span className="pill warn">WhatsApp opt-out</span>}{c.unsubscribed && <span className="pill warn">unsubscribed</span>}</td>
+            <td className="r">{c.orders || <span className="muted">—</span>}</td>
+            <td className="r">{c.ltv ? inr(c.ltv) : <span className="muted">—</span>}</td>
+            <td>{c.lastSeen ? ago(c.lastSeen) : '—'}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+      <div className="cm-act"><button className="btn primary sm" disabled={keys.length < 2} onClick={() => onMerge({ keys, primary })}><GitMerge size={14} /> Merge {keys.length}…</button></div>
+    </section>
+  );
+}
+
+// "Merge with…" on a contact: their likely duplicates first, or search for anyone
+function MergeWith({ c, ckey, onClose, onPick }) {
+  const [sugg, setSugg] = useState(null);
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState([]);
+  const [sel, setSel] = useState(() => new Set());
+  useEffect(() => { api(`/contacts/duplicates?key=${encodeURIComponent(ckey)}`).then((r) => setSugg((r.groups[0]?.contacts || []).filter((x) => x.key !== ckey))).catch(() => setSugg([])); }, [ckey]);
+  useEffect(() => {
+    const s = q.trim();
+    if (s.length < 2) { setFound([]); return undefined; }
+    const t = setTimeout(() => api(`/contacts?q=${encodeURIComponent(s)}&limit=8`).then((r) => setFound((r.contacts || []).filter((x) => x.key !== ckey))).catch(() => {}), 250);
+    return () => clearTimeout(t);
+  }, [q, ckey]);
+  const flip = (k) => setSel((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else if (n.size < 19) n.add(k); return n; });
+  const row = (x) => (
+    <label key={x.key} className={`cm-pick ${sel.has(x.key) ? 'on' : ''}`}>
+      <input type="checkbox" checked={sel.has(x.key)} onChange={() => flip(x.key)} />
+      <span className="who-av" style={avStyle(x)}>{initial(x)}</span>
+      <span><b>{x.name || '—'}</b><small className="sub-t">{who2(x)}{x.orders ? ` · ${x.orders} order${x.orders > 1 ? 's' : ''}` : ''}</small></span>
+    </label>
+  );
+  const shown = new Set((sugg || []).map((x) => x.key));
+  return (
+    <Modal title={`Merge with ${label(c)}`} onClose={onClose} width={560}>
+      <div className="m-body cm-body">
+        <h4 className="cm-h">Looks like the same person</h4>
+        {!sugg ? <div className="skeleton" /> : sugg.length ? sugg.map(row) : <p className="muted sm">No likely duplicates — search below.</p>}
+        <h4 className="cm-h">Or find a contact</h4>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, email or phone" />
+        <div className="cm-found">{found.filter((x) => !shown.has(x.key)).map(row)}</div>
+        <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!sel.size} onClick={() => onPick([...sel])}>Next: choose what to keep</button></div>
+      </div>
+    </Modal>
+  );
+}
+
+// pick the contact to keep, see what the merged contact will have, then merge
+function MergeModal({ keys, primary: first, onClose, onDone }) {
+  const [primary, setPrimary] = useState(first || keys[0]);
+  const [pv, setPv] = useState(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setErr(''); api('/contacts/merge', 'POST', { keys, primary, dryRun: true }).then(setPv).catch((e) => setErr(e.message)); }, [primary, keys.join('|')]);
+  const go = async () => {
+    setBusy(true);
+    try { const r = await api('/contacts/merge', 'POST', { keys, primary }); toast(`Merged ${r.merged.length + 1} contacts`); onDone(r.key); } catch (e) { toast(e.message); setBusy(false); }
+  };
+  const k = pv?.kept;
+  return (
+    <Modal title={`Merge ${keys.length} contacts`} onClose={onClose} width={720}>
+      <div className="m-body cm-body">
+        {err && <p className="err">{err}</p>}
+        {!pv && !err ? <div className="skeleton" /> : pv && <>
+          <h4 className="cm-h">Keep</h4>
+          <div className="cm-cards">{pv.contacts.map((c) => (
+            <label key={c.key} className={`cm-card ${c.key === primary ? 'on' : ''}`}>
+              <input type="radio" name="cm-primary" checked={c.key === primary} onChange={() => setPrimary(c.key)} />
+              <span className="who-av" style={avStyle(c)}>{initial(c)}</span>
+              <span className="cm-card-t"><b>{c.name || '—'}</b><small className="sub-t">{who2(c)}</small><small className="muted">{c.orders ? `${c.orders} order${c.orders > 1 ? 's' : ''} · ${inr(c.ltv)}` : c.type}</small></span>
+            </label>
+          ))}</div>
+          <h4 className="cm-h">The merged contact</h4>
+          <dl className="cm-kept">
+            <dt>Name</dt><dd>{k.name || '—'}</dd>
+            <dt>Email</dt><dd>{k.email || '—'}{pv.key !== pv.primary && <small className="muted"> — filed under this email, since orders are tracked by email</small>}</dd>
+            <dt>Phone</dt><dd>{k.phone || '—'}</dd>
+            <dt>Orders</dt><dd>{k.orders} · {inr(k.ltv)}</dd>
+            {Object.keys(k.stages || {}).length > 0 && <><dt>Stage</dt><dd>{Object.entries(k.stages).map(([p, s]) => `${s}${Object.keys(k.stages).length > 1 ? ` (${p})` : ''}`).join(' · ')}</dd></>}
+            <dt>Tags</dt><dd>{k.tags.length ? k.tags.map((t) => <span key={t} className="tag">{t}</span>) : '—'}</dd>
+            <dt>Messages</dt><dd>{k.waOptOut || k.unsubscribed ? <span className="pill warn">{[k.waOptOut && 'opted out of WhatsApp', k.unsubscribed && 'unsubscribed from emails'].filter(Boolean).join(' · ')}</span> : k.optIn ? <span className="pill ok">opted in</span> : <span className="muted">no marketing consent on record</span>}</dd>
+          </dl>
+          <p className="hint cm-note">Details come from the contact you keep; blanks are filled from the others. Tags, notes, timeline, orders, bookings, chats and automations all move to it, and an opt-out on any copy stays. The other {keys.length - 1} contact{keys.length > 2 ? 's are' : ' is'} removed — this can’t be undone.</p>
+        </>}
+        <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!pv || busy} onClick={go}><GitMerge size={15} /> {busy ? 'Merging…' : 'Merge'}</button></div>
+      </div>
+    </Modal>
+  );
+}
+
 function BookCall({ c, onClose, onDone }) {
   const [cals, setCals] = useState(null);
   const [cal, setCal] = useState('');

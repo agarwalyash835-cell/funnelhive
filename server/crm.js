@@ -100,6 +100,9 @@ function buildContacts(userId, onlyKey, name = funnelNames(userId)) {
   }
   return { contacts: m, funnelName: name };
 }
+// these contacts (by key) as the CRM builds them, and one as the list shows it (contacts-merge.js)
+export const contactsByKey = (userId, keys) => buildContacts(userId, keys).contacts;
+export const contactItem = (c, pipelines) => listItem(c, pipelines);
 const listItem = (c, pipelines) => ({
   key: c.key, email: c.email, name: c.name, phone: c.phone, type: c.type, orders: c.orders, ltv: c.ltv, funnels: [...c.funnels].filter(Boolean),
   source: c.source, firstSeen: c.firstSeen, lastSeen: c.lastSeen, fields: c.fields, custom: c.meta?.custom || {}, tags: c.meta?.tags || [], unsubscribed: !!c.meta?.unsubscribed, ...(c.meta?.waOptOut ? { waOptOut: true } : {}),

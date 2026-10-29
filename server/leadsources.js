@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import { T, uid, contactKey } from './db.js';
 import { ensureMeta, logActivity, metaFor } from './crm.js';
+import { findContact } from './contacts-merge.js';
 import { fire } from './automations.js';
 import { notify } from './notify.js';
 import { aiEnabled, aiJson } from './ai.js';
@@ -66,7 +67,8 @@ export function ingest(userId, lead) {
     T.leadEvents.insert({ id: evId, userId, at: Date.now(), source, name, summary, status: 'no-contact', test: !!lead.test });
     return { skipped: 'no phone or email in the enquiry' };
   }
-  const key = contactKey(email, phone);
+  // the same person already in the CRM (same email, or the same number however it's written) gets the enquiry
+  const key = findContact(userId, { email, phone }) || contactKey(email, phone);
   const known = !!metaFor(userId, key) || T.leads.exists({ userId, ckey: key }) || T.orders.exists({ userId, ckey: key });
   const m = ensureMeta(userId, key);
   if (!known) Object.assign(m, { manual: true, source: `lead:${source}`, name: m.name || name, email: m.email || email, phone: m.phone || phone, at: m.at || Date.now() });

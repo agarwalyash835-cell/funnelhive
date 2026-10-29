@@ -26,6 +26,7 @@ import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, pop
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm, ensureMeta } from './crm.js';
+import { registerContactsMerge } from './contacts-merge.js';
 import { orderPage } from './orderlist.js';
 import { initMessaging, registerChannels, sendEmail, whatsappStatus } from './messaging.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, registerRazorpaySettings } from './razorpay.js';
@@ -967,6 +968,7 @@ app.get('/api/funnels/:id/analytics', auth, (req, res) => {
 });
 
 // ---------- CRM ----------
+registerContactsMerge(app, { auth, rateLimit, isTest }); // before /api/contacts/:key, which would take /duplicates
 registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
