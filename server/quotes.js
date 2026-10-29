@@ -55,10 +55,10 @@ export function cleanQuote(b = {}, cur = {}) {
   // the facts this industry's clients expect up top (property, event date, travellers…) and the page's accent colour
   if ('details' in b || !cur.id) out.details = (Array.isArray(b.details) ? b.details : []).slice(0, 12).map((d) => ({ label: clip(d?.label, 40), value: clip(d?.value, 160) })).filter((d) => d.label && d.value);
   if ('accent' in b || !cur.id) out.accent = hexOk(b.accent) ? String(b.accent).toLowerCase() : cur.accent || '';
-  // the seller changed the lines: ticked add-ons that are no longer add-ons are dropped
-  if (out.items) out.selected = (cur.selected || []).filter((n) => out.items[n]?.optional);
   if ('design' in b || !cur.id) out.design = QUOTE_DESIGNS.includes(b.design) ? b.design : cur.design || 'classic';
   if ('items' in b || !cur.id) out.items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((i) => ({ name: clip(i?.name, 200), detail: clip(i?.detail, 1000), qty: Math.max(1, Math.min(10000, Math.round(Number(i?.qty) || 1))), price: Math.max(0, Math.min(10000000, r2(Number(i?.price) || 0))) , ...(i?.optional ? { optional: true } : {}) })).filter((i) => i.name);
+  // the seller changed the lines: ticked add-ons that are no longer add-ons are dropped (after out.items is set)
+  if (out.items) out.selected = (cur.selected || []).filter((n) => out.items[n]?.optional);
   if ('currency' in b || !cur.id) out.currency = ISO.includes(b.currency) ? b.currency : cur.currency || 'INR';
   if ('deposit' in b || !cur.id) out.deposit = Math.max(0, Math.min(100, Math.round(Number(b.deposit) || 0)));
   if ('validDays' in b) out.validUntil = Number(b.validDays) > 0 ? Date.now() + Math.min(365, Number(b.validDays)) * DAY : null;
