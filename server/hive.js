@@ -279,7 +279,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Created the “${r.name}” pipeline`,
   },
   {
-    name: 'setup_crm', description: 'Switch the CRM to fit a kind of business (its words, fields, pipeline, board). Ready-made styles: general (coach/creator), realestate, clinic, consultant, education, fitness, finance, interior, events, travel, auto, professional (CA/lawyer), recruitment, homeservices (solar/installers), hospitality, store (D2C / online store), abroad (study abroad / immigration), wellness (astrology / healing), saas, ngo. For any other business pass a description and a custom CRM is designed. Never deletes contacts or fields.',
+    name: 'setup_crm', description: 'Switch the CRM to fit a kind of business (its words, fields, pipeline, board). Ready-made styles: general (coach/creator), realestate, clinic, consultant, education, fitness, finance, interior, events, travel, auto, professional (CA/lawyer), recruitment, homeservices (solar/installers), hospitality, store (D2C / online store), manufacturer (factory / maker selling to dealers), retailer (shop / showroom), distributor (trader / wholesaler), abroad (study abroad / immigration), wellness (astrology / healing), saas, ngo. For any other business pass a description and a custom CRM is designed. Never deletes contacts or fields.',
     schema: S({ style: str('A ready-made style id, or "custom"'), description: str('For custom: the business and how it sells') }, ['style']),
     run: async (ctx, a) => {
       let body = { id: a.style };
@@ -391,7 +391,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
   },
   {
     name: 'create_calendar',
-    description: 'Create a NEW call type people book online (its own booking link), e.g. "Site visit", "Free trial class", "Test drive". template = an industry id to start from its ready-made call type (realestate, clinic, consultant, education, fitness, finance, interior, events, travel, auto, professional, recruitment, homeservices, hospitality, abroad, wellness, saas, ngo, general — the seller’s own industry when it fits); anything else given overrides it: name, duration (min), hours {mon:[["10:00","18:00"]], …, sun:[]}, location ("" = online / phone), description, price (0 = free) and currency, questions [{label, type: text|long|phone|select, required, options}]. Use configure_calendar to change an existing one.',
+    description: 'Create a NEW call type people book online (its own booking link), e.g. "Site visit", "Free trial class", "Test drive". template = an industry id to start from its ready-made call type (realestate, clinic, consultant, education, fitness, finance, interior, events, travel, auto, professional, recruitment, homeservices, hospitality, manufacturer, retailer, distributor, abroad, wellness, saas, ngo, general — the seller’s own industry when it fits); anything else given overrides it: name, duration (min), hours {mon:[["10:00","18:00"]], …, sun:[]}, location ("" = online / phone), description, price (0 = free) and currency, questions [{label, type: text|long|phone|select, required, options}]. Use configure_calendar to change an existing one.',
     schema: S({ template: str('Industry id to start from (optional)'), name: str('Call name'), duration: num('Minutes'), hours: obj('Weekly hours by day'), location: str('Where it happens; empty for online'), description: str('Line for the booking page'), price: num('Price per booking, 0 = free'), currency: str('INR, USD, EUR, GBP, AUD, CAD, SGD or AED'), questions: arr('Booking form questions [{label, type, required, options}]') }),
     run: async (ctx, a) => {
       const { template, ...over } = a;
@@ -512,6 +512,42 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     schema: S({ broadcastId: str('From draft_broadcast'), at: str('Optional ISO date-time to schedule') }, ['broadcastId']),
     run: async (ctx, a) => { const r = await ctx.call('POST', `/broadcasts/${a.broadcastId}/send`, a.at ? { at: Date.parse(a.at) } : {}); return { ok: true, status: r.status, at: r.scheduledAt ? new Date(r.scheduledAt).toISOString() : null }; },
     summary: (r) => (r.at && Date.parse(r.at) > Date.now() + 60000 ? `Scheduled the broadcast for ${r.at}` : 'Sending the broadcast now'),
+  },
+
+  // ---------- Tally (the add-on: TallyPrime on the seller's PC, mirrored by the connector — tally.js) ----------
+  {
+    name: 'tally_overview', description: 'The seller’s Tally books at a glance (Tally add-on): money to receive and to pay (and how much is overdue), this month’s sales / purchases / receipts, stock value, who owes most, the latest vouchers, whether their Tally PC is online.',
+    schema: S({}),
+    run: async (ctx) => {
+      const d = await ctx.call('GET', '/tally/summary');
+      if (!d.company) return { connected: false, note: 'No Tally company synced yet — the seller connects their PC on the Tally page.' };
+      const amt = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
+      return { company: d.company.name, pcOnline: d.agents.some((a) => a.status === 'ONLINE' && a.tally_status === 'ONLINE'), toReceive: amt(d.receivable.total), overdueToReceive: amt(d.receivable.overdue), toPay: amt(d.payable.total), thisMonth: Object.fromEntries(Object.entries(d.month).map(([k, v]) => [k, `${v.count} · ${amt(v.amount)}`])), stockValue: amt(d.stock.value), outOfStock: d.stock.low, topDebtors: d.topDebtors.map((x) => `${x.name}: ${amt(x.amount)}`), latest: d.recent.slice(0, 5).map((v) => `${v.voucher_date} ${v.voucher_type} ${v.voucher_number || ''} ${v.party_name || ''} ${amt(v.amount)}`) };
+    },
+    summary: (r) => (r.company ? `Read the Tally books of ${r.company}` : 'No Tally company yet'),
+  },
+  {
+    name: 'find_tally', description: 'Search the Tally books: kind = ledgers (parties and accounts with balances), vouchers (filter voucher_type: Sales, Purchase, Receipt, Payment…), outstandings (bills; bill_type RECEIVABLE = owed to the seller, PAYABLE = they owe; open=true for unpaid only), stock (items, quantity and value). search = a name, number or text.',
+    schema: S({ kind: { type: 'string', enum: ['ledgers', 'vouchers', 'outstandings', 'stock'] }, search: str('Name / number / text (optional)'), voucher_type: str('For vouchers (optional)'), bill_type: str('For outstandings: RECEIVABLE or PAYABLE (optional)'), open: bool('Outstandings: unpaid only') }, ['kind']),
+    run: async (ctx, a) => {
+      const qs = new URLSearchParams(Object.entries({ search: a.search, voucher_type: a.voucher_type, bill_type: a.bill_type, open: a.open ? '1' : '', limit: 25 }).filter(([, v]) => v));
+      const d = await ctx.call('GET', `/tally/${a.kind}?${qs}`);
+      const pick = { ledgers: (x) => ({ id: x.id, name: x.name, group: x.ledger_group || x.parent, balance: x.closing_balance, phone: x.phone, email: x.email }), vouchers: (x) => ({ id: x.id, date: x.voucher_date, type: x.voucher_type, number: x.voucher_number, party: x.party_name, amount: x.amount, status: x.status }), outstandings: (x) => ({ id: x.id, party: x.party_name, bill: x.bill_number, due: x.due_date, pending: x.pending_amount, status: x.status, owedTo: x.bill_type === 'PAYABLE' ? 'supplier' : 'seller', daysLate: x.days_overdue }), stock: (x) => ({ id: x.id, name: x.name, inStock: x.closing_balance, unit: x.base_units, value: x.closing_value, sells: x.last_sale_rate }) }[a.kind];
+      return { total: d.total, items: d.items.map(pick) };
+    },
+    summary: (r) => `Found ${r.total} in Tally`,
+  },
+  {
+    name: 'tally_change', description: 'Save something in the seller’s TallyPrime (runs on their PC; waits for the seller’s Confirm). type: CREATE_VOUCHER (payload: voucher_type Sales/Purchase/Credit Note/Debit Note/Journal/Contra, party_name — or debit_ledger + credit_ledger for Journal/Contra —, offset_ledger, amount or items [{stock_item_name, quantity, rate, godown_name}], date YYYY-MM-DD, reference_number, narration, bill_number, due_date), CREATE_RECEIPT / CREATE_PAYMENT (party_name, offset_ledger = the cash or bank ledger, amount, date, bill_number it settles), CREATE_LEDGER (name, parent = a Tally group like Sundry Debtors, email, phone, address, state, pincode), CREATE_STOCK_ITEM (name, base_units, parent), CREATE_STOCK_JOURNAL (stock_item_name, quantity, unit, source_godown, dest_godown — a godown transfer). Use names exactly as find_tally shows them; never invent ledgers.',
+    schema: S({ type: { type: 'string', enum: ['CREATE_VOUCHER', 'CREATE_RECEIPT', 'CREATE_PAYMENT', 'CREATE_LEDGER', 'CREATE_STOCK_ITEM', 'CREATE_STOCK_JOURNAL'] }, payload: obj('The details for that type') }, ['type', 'payload']),
+    run: async (ctx, a) => { const c = await ctx.call('POST', '/tally/commands', { type: a.type, payload: a.payload }); return { sent: true, status: c.status, note: 'Sent to the seller’s Tally PC — it saves within seconds; the Activity tab on the Tally page shows the result.' }; },
+    summary: () => 'Sent the change to Tally',
+  },
+  {
+    name: 'remind_tally_bill', description: 'Send a payment reminder (WhatsApp and / or email) for an unpaid bill owed to the seller — the bill id from find_tally outstandings. Waits for the seller’s Confirm.',
+    schema: S({ billId: str('Outstanding bill id'), channel: { type: 'string', enum: ['both', 'whatsapp', 'email'] } }, ['billId']),
+    run: async (ctx, a) => ctx.call('POST', `/tally/outstandings/${a.billId}/remind`, { channel: a.channel || 'both' }),
+    summary: (r) => `Reminder: ${Object.entries(r).map(([k, v]) => `${k} ${v}`).join(', ')}`,
   },
 
   // ---------- agency & account ----------
@@ -774,6 +810,8 @@ const NEEDS_OK = {
   invite_team_member: (a) => `Give ${a.email} ${a.role} access to ${a.funnelIds?.length ? `${a.funnelIds.length} of your funnels only` : 'your account'}`,
   connect_webhook: (a) => (a.url ? `Send every new lead, order and booking (with contact details) to ${String(a.url).slice(0, 80)}` : null),
   set_tracking: (a) => `Install tracking on ${a.funnelId ? 'this funnel' : 'all your funnels'}: ${[a.fbPixel && `Meta Pixel ${a.fbPixel}`, a.ga4 && `GA4 ${a.ga4}`, a.googleAdsId && `Google Ads ${a.googleAdsId}`].filter(Boolean).join(', ') || 'remove ids'}`,
+  tally_change: (a) => { const p = a.payload || {}; return `Save in Tally: ${({ CREATE_VOUCHER: `${p.voucher_type || 'Sales'} voucher`, CREATE_RECEIPT: 'receipt', CREATE_PAYMENT: 'payment', CREATE_LEDGER: `ledger “${p.name}”`, CREATE_STOCK_ITEM: `stock item “${p.name}”`, CREATE_STOCK_JOURNAL: `move ${p.quantity} ${p.unit || ''} of ${p.stock_item_name} from ${p.source_godown} to ${p.dest_godown}` })[a.type] || a.type}${p.party_name ? ` · ${p.party_name}` : ''}${p.amount ? ` · ₹${Number(p.amount).toLocaleString('en-IN')}` : ''}`; },
+  remind_tally_bill: (a) => `Send a payment reminder for this bill (${a.channel || 'WhatsApp and email'})`,
   update_business: (a) => `Change business settings (${Object.keys(a).join(', ') || 'none'})`,
   create_automation: (a) => (webhookIn(a.steps) ? `Create automation “${a.name}” — it sends contact data to a webhook` : a.activate ? `Create automation “${a.name}” and switch it on` : null),
   // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
@@ -828,6 +866,7 @@ export const TOOL_GROUPS = {
   ads: { about: 'Meta / Google ads (the seller’s connected accounts), ad reports, ad images, tracking pixels', tools: ['find_app_actions', 'run_app_action', 'ads_report', 'generate_image', 'set_tracking'], re: /\b(ads?|advert\w*|meta|facebook|instagram|google|campaigns?|roas|cpa|cpl|pixel|ga4|tracking|creatives?|reels?)\b/i },
   school: { about: 'courses, quizzes, the members community', tools: ['school_overview', 'create_course', 'add_quiz', 'get_course', 'create_space', 'post_to_community'], re: /\b(courses?|school|lessons?|modules?|quiz\w*|community|members? area|students?|certificates?)\b/i },
   website: { about: 'business websites, custom domains, images', tools: ['create_website', 'connect_domain', 'check_domain', 'generate_image'], re: /\b(website|site|about( us)?|home ?page|domains?|dns|cname|images?|photos?|pictures?)\b/i },
+  tally: { about: 'the Tally books (add-on): money owed both ways, vouchers, ledgers, stock, payment reminders, saving vouchers / ledgers into TallyPrime', tools: ['tally_overview', 'find_tally', 'tally_change', 'remind_tally_bill'], re: /\b(tally|ledgers?|vouchers?|outstanding|receivables?|payables?|debtors?|creditors?|udhaar|dues?|stock|godowns?|inventory|purchase|receipts?)\b/i },
   account: { about: 'business settings, team members, agency clients, tracking, webhooks', tools: ['update_business', 'list_team', 'invite_team_member', 'list_clients', 'copy_funnel_to_client', 'set_tracking', 'connect_webhook'], re: /\b(team|invite|staff|employees?|clients?|agency|business (name|settings)|time ?zone|consent|settings)\b/i },
 };
 const groupOf = Object.fromEntries(Object.entries(TOOL_GROUPS).flatMap(([g, x]) => x.tools.map((n) => [n, g])));

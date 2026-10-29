@@ -111,6 +111,30 @@ test('sync: companies, ledgers, stock, vouchers with lines / bills / stock lines
   assert.equal((await api('/tally/outstandings?bill_type=PAYABLE', 'GET', null, T)).data.items[0].party_name, 'Steel Supplier');
 });
 
+test('customer and supplier ledgers with a phone or email become CRM contacts (never banks or sales accounts)', async () => {
+  const c = (await api(`/contacts/${encodeURIComponent('gupta@hw.in')}`, 'GET', null, T)).data;
+  assert.equal(c.name, 'Gupta Hardware');
+  assert.ok((c.tags || []).includes('tally-customer'), JSON.stringify(c.tags));
+  assert.match(JSON.stringify(c.timeline), /Linked to the Tally ledger Gupta Hardware/);
+  const all = (await api('/contacts', 'GET', null, T)).data;
+  const list = Array.isArray(all) ? all : all.contacts || all.items || [];
+  assert.ok(!list.some((x) => /Sales Account|Cash/.test(x.name || '')), 'only parties');
+});
+
+test('payment reminders: settings, a reminder for a bill owed to you (never for one you owe or one that’s paid)', async () => {
+  const s = (await api('/tally/settings', 'GET', null, T)).data;
+  assert.deepEqual([s.contacts, s.reminders.on, s.reminders.channel], [true, false, 'both'], 'automatic reminders start off');
+  const saved = (await api('/tally/settings', 'PUT', { reminders: { on: true, afterDays: 3, everyDays: 0, channel: 'email' }, payNote: 'UPI: sharma@okhdfc' }, T)).data;
+  assert.deepEqual([saved.reminders.on, saved.reminders.afterDays, saved.reminders.everyDays, saved.payNote], [true, 3, 1, 'UPI: sharma@okhdfc'], 'every day at most');
+  const bills = (await api('/tally/outstandings', 'GET', null, T)).data.items;
+  const owed = bills.find((b) => b.bill_type === 'RECEIVABLE'), owing = bills.find((b) => b.bill_type === 'PAYABLE');
+  assert.match((await api(`/tally/outstandings/${owing.id}/remind`, 'POST', {}, T)).data.error, /money owed to you/);
+  const r = (await api(`/tally/outstandings/${owed.id}/remind`, 'POST', { channel: 'both' }, T)).data;
+  assert.equal(r.email, 'not-configured', 'reported as it is — no email provider on this test server');
+  assert.ok(['off', 'no-phone'].includes(r.whatsapp), JSON.stringify(r));
+  assert.equal((await api('/tally/settings', 'PUT', { reminders: { on: false } }, T)).data.reminders.on, false);
+});
+
 test('reconcile: a ledger deleted in Tally leaves the list; multi-batch runs use the watermark; empty exports change nothing', async () => {
   const first = await agent('/sync/ledgers', 'POST', { company_guid: COMPANY.tally_guid, reconcile: false, records: [{ tally_guid: 'l-1', name: 'Gupta Hardware', parent: 'Sundry Debtors' }, { tally_guid: 'l-2', name: 'Sales Account' }] });
   await agent('/sync/ledgers', 'POST', { company_guid: COMPANY.tally_guid, reconcile: true, reconcile_before: first.data.reconcile_before, records: [{ tally_guid: 'l-3', name: 'Cash', parent: 'Cash-in-Hand' }] });

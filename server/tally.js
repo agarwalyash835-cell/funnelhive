@@ -630,6 +630,38 @@ export const INSTALLER = 'funnelhive-tally-connector-setup.exe';
 const installerFile = () => path.join(dir, 'downloads', INSTALLER);
 export const downloadUrl = (origin) => tallySettings().download_url || (fs.existsSync(installerFile()) ? `${origin}/downloads/${INSTALLER}` : null);
 
+// ---------- admin ----------
+// one seller: the switch, their PCs, companies, the last change and sync
+export function adminSeller(u) {
+  return {
+    on: tallyOn(u), agents: T.tagents.all({ userId: u.id }).map(publicAgent), companies: companiesOf(u.id).map((c) => ({ id: c.id, name: c.name, last_synced_at: c.syncedAt })),
+    lastCommand: (() => { const c = T.tcommands.find({ userId: u.id }, { order: 'at', desc: true }); return c ? publicCommand(c) : null; })(),
+  };
+}
+// every connected PC on the platform, newest first, with its seller
+export function adminOverview() {
+  const agents = T.tagents.all({}, { order: 'lastSeenAt', desc: true, limit: 300 }).filter((a) => a.status !== 'DISABLED');
+  const users = new Map();
+  return {
+    settings: tallySettings(),
+    sellers: q("SELECT COUNT(*) AS n FROM users WHERE json_extract(data, '$.addons.tally') = 1").get().n,
+    agents: agents.map((a) => { const u = users.get(a.userId) || T.users.get(a.userId); users.set(a.userId, u); return { ...publicAgent(a), seller: u ? { id: u.id, email: u.email, business: u.settings?.businessName || u.name } : null }; }),
+    failed24h: T.tcommands.count({ status: 'FAILED', at: { gte: Date.now() - DAY } }),
+  };
+}
+// what an admin may change (Admin → Plan & settings → Tally); the rest keeps its defaults
+export function cleanTallySettings(b, cur = {}) {
+  const out = { ...cur };
+  if (b.download_url != null) {
+    const v = clip(b.download_url, 500);
+    if (v && !/^https:\/\/\S+$/.test(v)) fail(400, 'The download link must start with https://');
+    out.download_url = v;
+  }
+  if (b.minimum_agent_version != null) { const v = clip(b.minimum_agent_version, 20); if (v && !/^\d+\.\d+\.\d+$/.test(v)) fail(400, 'Version looks like 1.1.0'); out.minimum_agent_version = v || DEFAULTS.minimum_agent_version; }
+  if (b.force_update_agent_version != null) out.force_update_agent_version = !!b.force_update_agent_version;
+  return out;
+}
+
 // ---------- jobs: connectors that stopped calling in are offline; old commands expire ----------
 export function tallyJob(now = Date.now()) {
   const timeout = tallySettings().heartbeat_timeout_seconds * 1000;

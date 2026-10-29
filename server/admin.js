@@ -26,6 +26,7 @@ import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { embed, embedReady, embedModel, visionModel } from './waknow.js';
 import { checkSarvamKey, sarvamReady } from './sarvam.js';
 import { metaSignupView, saveMetaSignup } from './meta-signup.js';
+import { adminSeller, adminOverview, cleanTallySettings } from './tally.js';
 
 const startedAt = Date.now();
 const audit = (req, userId, action, detail = '') => T.audit.insert({ id: uid(), actorId: req.impersonator || req.user.id, actor: req.user.email, userId, action, detail: String(detail).slice(0, 500), at: Date.now() });
@@ -129,7 +130,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (!u) return;
     const since = Date.now() - 30 * DAY;
     res.json({
-      ...row(u), billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(u.agencyMaxClients ? { agencyClients: u.agencyMaxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
+      ...row(u), tally: adminSeller(u), billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(u.agencyMaxClients ? { agencyClients: u.agencyMaxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
       counts: {
         funnels: T.funnels.count({ userId: u.id }), published: q("SELECT COUNT(*) AS n FROM funnels WHERE userId = ? AND json_extract(data, '$.published') = 1").get(u.id).n,
         contacts: T.crm.count({ userId: u.id }), leads: T.leads.count({ userId: u.id }), automations: T.automations.count({ userId: u.id }), domains: T.domains.count({ userId: u.id }),
@@ -316,6 +317,11 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       changes.push('email sending');
     }
     // Better Stack heartbeats: { app?: url | '', backup?: url | '' } — each is pinged once before it's saved ('' removes it)
+    // the Tally connector: where its installer is downloaded from, and the oldest version allowed to connect
+    if (b.tally) {
+      try { patch.tally = cleanTallySettings(b.tally, platform().tally || {}); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+      changes.push('Tally connector');
+    }
     if (b.monitor) {
       const next = { ...platform().monitor };
       for (const kind of Object.keys(HEARTBEATS)) {
@@ -377,6 +383,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     audit(req, null, 'recovery key shown');
     res.json({ key: recoveryKey(dataDir), env: 'ENCRYPTION_KEY' });
   }));
+
+  app.get('/api/admin/tally', ...A, (req, res) => res.json(adminOverview()));
 
   // ---------- invoices, audit, backups ----------
   app.get('/api/admin/invoices', ...A, (req, res) => res.json(T.invoices.all({}, { order: 'at', desc: true, limit: 2000 })));

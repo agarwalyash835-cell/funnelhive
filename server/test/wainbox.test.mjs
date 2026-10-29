@@ -406,7 +406,7 @@ test('WhatsApp inbox triggers start automations', async () => {
 
 test('industry chatbots and AI agent presets: every industry gets three, written for it', async () => {
   const d = (await api('/waflows', 'GET', null, T)).data;
-  assert.equal(d.industries.length, 20);
+  assert.equal(d.industries.length, 23);
   // three each, plus a WhatsApp form chatbot where one fits (real estate, clinics)
   assert.ok(d.industries.every((i) => i.templates.length === (['realestate', 'clinic'].includes(i.id) ? 4 : 3) && i.name && i.icon));
   assert.equal(d.industry, 'general');
@@ -444,7 +444,7 @@ test('industry chatbots and AI agent presets: every industry gets three, written
   assert.match((await api(`/waflows/${auto.id}`, 'PUT', { active: true }, T)).data.error, /\[brackets\]: \[Model 1\]/);
 
   const ag = (await api('/wa-agent', 'GET', null, T)).data;
-  assert.equal(ag.presets.length, 20);
+  assert.equal(ag.presets.length, 23);
   const p = (await api('/wa-agent/preset/clinic', 'GET', null, T)).data;
   assert.equal(p.name, 'Meera');
   assert.ok(p.faqs.length >= 5);

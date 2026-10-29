@@ -73,6 +73,9 @@ import { notify, money, registerNotifications, unreadCount } from './notify.js';
 import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, hit as countHit } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 import { registerTally } from './tally.js';
+import './tally-crm.js'; // Tally customer / supplier ledgers → CRM contacts
+import { registerTallyReminders } from './tally-remind.js';
+import { registerTallyOcr } from './tally-ocr.js';
 import { registerWaInbox } from './wainbox.js';
 import { registerShopify } from './shopify.js';
 import { registerDashKit } from './dashkit.js';
@@ -101,6 +104,7 @@ const ALLOWED = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim())
 app.use(cors({ origin: (origin, cb) => cb(null, !origin || ALLOWED.includes(origin)) }));
 app.use('/api/uploads', express.json({ limit: '8mb' }));
 app.use('/api/v1/agent/tally', express.json({ limit: '16mb' })); // the Tally connector uploads up to 5,000 vouchers at a time
+app.use('/api/tally/invoice-read', express.json({ limit: '12mb' })); // an invoice photo to read into a voucher
 app.use('/api/razorpay/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/stripe/webhook', express.raw({ type: '*/*', limit: '1mb' }));
@@ -963,6 +967,8 @@ registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerTally(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl });
+registerTallyReminders(app, { auth, wrap, rateLimit, isTest });
+registerTallyOcr(app, { auth, wrap, rateLimit, isTest, credits });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
 registerShopify(app, { auth, wrap, rateLimit, isTest });
 registerDashKit(app, { auth });

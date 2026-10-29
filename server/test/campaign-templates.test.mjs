@@ -33,10 +33,10 @@ before(async () => {
 });
 after(async () => { await srv.stop(); fake.close(); });
 
-test('the library: 20 industries, 7 occasions each, every template passes the rules', async () => {
+test('the library: 23 industries, 7 occasions each, every template passes the rules', async () => {
   const { byIndustry, errors } = await catalog({ fresh: true });
   assert.deepEqual(errors, []);
-  assert.equal(Object.keys(byIndustry).length, 20);
+  assert.equal(Object.keys(byIndustry).length, 23);
   for (const [ind, list] of Object.entries(byIndustry)) assert.equal(list.length, 7, ind);
   const all = Object.values(byIndustry).flat();
   assert.equal(new Set(all.map((t) => t.whatsapp.name)).size, all.length, 'WhatsApp names are unique');

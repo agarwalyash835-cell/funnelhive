@@ -62,6 +62,7 @@ export default function Tally() {
       actions={<div className="row">
         {s.companies?.length > 1 && <select value={s.companyId || ''} onChange={(e) => pick(e.target.value)} aria-label="Company">{s.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
         <button className="btn ghost" onClick={syncNow} disabled={!online} title={online ? 'Fetch the latest from Tally now' : 'Your PC is offline'}><Icon name="refund" size={14} /> Sync now</button>
+        <button className="btn ghost" onClick={() => setForm('settings')} title="Tally settings" aria-label="Tally settings"><Icon name="settings" size={14} /></button>
         <NewMenu onPick={setForm} disabled={!online} />
       </div>}>
       <PcBar agent={agent} online={online} onConnect={() => setConnect(true)} />
@@ -81,6 +82,7 @@ export default function Tally() {
       {form === 'ledger' && <LedgerForm s={s} onClose={() => setForm(null)} onDone={changed} />}
       {form === 'stock' && <StockItemForm onClose={() => setForm(null)} onDone={changed} />}
       {form === 'transfer' && <TransferForm onClose={() => setForm(null)} onDone={changed} />}
+      {form === 'settings' && <TallySettings onClose={() => setForm(null)} />}
       {form?.kind && <Detail kind={form.kind} id={form.row.id} online={online} onClose={() => setForm(null)} onDone={changed} onOpen={(kind, row) => setForm({ kind, row })} />}
     </Layout>
   );
@@ -198,12 +200,56 @@ function List({ kind, rev, onOpen, voucherTypes }) {
       </div>}>
       {!d ? <div className="skeleton" /> : kind === 'vouchers' ? <VoucherTable rows={d.items} onOpen={onOpen} /> : !d.items.length ? <p className="muted sm pad">Nothing matches.</p> : (
         <div className="tbl-wrap"><table className="tbl">
-          <thead><tr>{c.head.map((h, i) => <th key={h} className={i >= c.head.length - 2 && kind !== 'outstandings' ? 'r' : ''}>{h}</th>)}</tr></thead>
-          <tbody>{d.items.map((r) => <tr key={r.id} className="click" onClick={() => onOpen(r)}>{c.row(r).map((cell, i) => <td key={i} className={i >= c.head.length - 2 && kind !== 'outstandings' ? 'r' : ''}>{cell}</td>)}</tr>)}</tbody>
+          <thead><tr>{c.head.map((h, i) => <th key={h} className={i >= c.head.length - 2 && kind !== 'outstandings' ? 'r' : ''}>{h}</th>)}{kind === 'outstandings' && <th />}</tr></thead>
+          <tbody>{d.items.map((r) => <tr key={r.id} className="click" onClick={() => onOpen(r)}>{c.row(r).map((cell, i) => <td key={i} className={i >= c.head.length - 2 && kind !== 'outstandings' ? 'r' : ''}>{cell}</td>)}{kind === 'outstandings' && <td className="r nowrap">{r.bill_type !== 'PAYABLE' && ['PENDING', 'PARTIAL', 'OVERDUE'].includes(r.status) && <RemindButton bill={r} />}</td>}</tr>)}</tbody>
         </table></div>
       )}
       {d && d.total > 50 && <div className="row tl-pager"><button className="btn ghost sm" disabled={!q.offset} onClick={() => set({ offset: Math.max(0, q.offset - 50) })}>Previous</button><small className="muted">{q.offset + 1}–{Math.min(q.offset + 50, d.total)} of {d.total.toLocaleString('en-IN')}</small><button className="btn ghost sm" disabled={q.offset + 50 >= d.total} onClick={() => set({ offset: q.offset + 50 })}>Next</button></div>}
     </Panel>
+  );
+}
+
+// a payment reminder for one bill: WhatsApp and / or email, whichever the party has
+const REMIND_SAID = { sent: 'sent', off: 'WhatsApp isn’t connected', 'no-phone': 'no phone number', 'no-email': 'no email', 'not-configured': 'email isn’t set up', 'opted-out': 'they opted out of WhatsApp', failed: 'couldn’t send' };
+function RemindButton({ bill }) {
+  const [busy, setBusy] = useState(false);
+  const [last, setLast] = useState(bill.lastReminderAt || null);
+  const go = async (e) => {
+    e.stopPropagation();
+    setBusy(true);
+    try {
+      const r = await api(`/tally/outstandings/${bill.id}/remind`, 'POST', { channel: 'both' });
+      const parts = Object.entries(r).map(([ch, st]) => `${ch === 'whatsapp' ? 'WhatsApp' : 'Email'}: ${REMIND_SAID[st] || st}`);
+      toast(parts.join(' · '));
+      if (Object.values(r).includes('sent')) setLast(Date.now());
+    } catch (err) { toast(err.message); }
+    setBusy(false);
+  };
+  return <button className="btn ghost sm" disabled={busy} onClick={go} title={last ? `Last reminded ${ago(last)}` : 'Send a payment reminder'}><Icon name="bell" size={14} /> {busy ? 'Sending…' : last ? 'Remind again' : 'Remind'}</button>;
+}
+
+// what the Tally add-on does around the books: customers into the CRM, payment reminders, how customers pay
+function TallySettings({ onClose }) {
+  const [v, setV] = useState(null);
+  useEffect(() => { api('/tally/settings').then(setV).catch((e) => { toast(e.message); onClose(); }); }, []);
+  if (!v) return <Modal title="Tally settings" onClose={onClose} width={560}><div className="m-body"><div className="skeleton" /></div></Modal>;
+  const r = v.reminders, setR = (p) => setV({ ...v, reminders: { ...r, ...p } });
+  const save = async () => { try { await api('/tally/settings', 'PUT', v); toast('Saved'); onClose(); } catch (e) { toast(e.message); } };
+  return (
+    <Modal title="Tally settings" onClose={onClose} width={560}>
+      <div className="m-body tl-form">
+        <label className="tog"><input type="checkbox" checked={v.contacts} onChange={(e) => setV({ ...v, contacts: e.target.checked })} /><span />Add customers and suppliers from Tally to my CRM <small className="muted">· ledgers in Sundry Debtors / Creditors with a phone or email</small></label>
+        <label className="tog"><input type="checkbox" checked={r.on} onChange={(e) => setR({ on: e.target.checked })} /><span />Remind customers about overdue bills automatically</label>
+        {r.on && <div className="form2">
+          <label>Start after (days past due)<input type="number" min="0" max="90" value={r.afterDays} onChange={(e) => setR({ afterDays: e.target.value })} /></label>
+          <label>Then every (days)<input type="number" min="1" max="60" value={r.everyDays} onChange={(e) => setR({ everyDays: e.target.value })} /></label>
+          <label className="full">Send by<select value={r.channel} onChange={(e) => setR({ channel: e.target.value })}><option value="both">WhatsApp and email</option><option value="whatsapp">WhatsApp</option><option value="email">Email</option></select></label>
+        </div>}
+        <label>How customers pay you <small className="muted">· added to reminder emails</small><textarea rows={3} value={v.payNote} onChange={(e) => setV({ ...v, payNote: e.target.value })} placeholder={'UPI: yourname@okhdfc\nBank: HDFC Bank, A/c 50200012345678, IFSC HDFC0001234'} /></label>
+        <p className="hint">WhatsApp reminders use the “Payment reminders” template — create it under Settings → WhatsApp → Create my message templates, and Meta approves it in a few minutes.</p>
+        <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save}>Save</button></div>
+      </div>
+    </Modal>
   );
 }
 
@@ -325,19 +371,45 @@ const useRun = (onDone, onClose) => {
 
 // a voucher: party-based (Sales, Purchase, Receipt, Payment, Credit / Debit Note) or two ledgers (Journal, Contra);
 // Sales / Purchase can list items instead of an amount
+// a phone photo, made small enough to send (longest side 2000 px, JPEG)
+const photoData = (file) => new Promise((resolve, reject) => {
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    const k = Math.min(1, 2000 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    resolve(c.toDataURL('image/jpeg', 0.85));
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file isn’t a photo we can read')); };
+  img.src = url;
+});
+
 function VoucherForm({ s, onClose, onDone }) {
   const names = useNames(['ledgers', 'stock', 'godowns']);
+  const [read, setRead] = useState(null); // what the bill photo gave: { reading } | the draft
+  const fileRef = useRef(null);
   const [v, setV] = useState({ voucher_type: 'Sales', date: today(), party_name: '', offset_ledger: '', debit_ledger: '', credit_ledger: '', amount: '', reference_number: '', narration: '', bill_number: '', due_date: '', items: [] });
   const [busy, go] = useRun(onDone, onClose);
   const set = (p) => setV({ ...v, ...p });
+  // read a bill photo into the form: party, number, dates, items (the seller checks before saving)
+  const readBill = async (file) => {
+    if (!file) return;
+    setRead({ reading: true });
+    try {
+      const d = await api('/tally/invoice-read', 'POST', { image: await photoData(file), voucher_type: ['Sales', 'Purchase', 'Credit Note', 'Debit Note'].includes(v.voucher_type) ? v.voucher_type : 'Purchase' });
+      setV({ ...v, voucher_type: d.voucher_type, date: d.date || v.date, party_name: d.party_name || '', reference_number: d.reference_number || '', bill_number: d.reference_number || '', due_date: d.due_date || '', narration: d.narration || '', amount: d.items.length ? '' : (d.grand_total || ''), items: d.items.filter((i) => i.quantity).map((i) => ({ stock_item_name: i.stock_item_name, quantity: i.quantity, rate: i.rate ?? '', matched: i.matched })), source: 'INVOICE' });
+      setRead(d);
+    } catch (e) { toast(e.message); setRead(null); }
+  };
   const twoLedgers = ['Journal', 'Contra'].includes(v.voucher_type);
   const withItems = ['Sales', 'Purchase'].includes(v.voucher_type);
   const itemTotal = v.items.reduce((t, i) => t + (Number(i.quantity) || 0) * (Number(i.rate) || 0), 0);
   const setItem = (k, p) => set({ items: v.items.map((i, j) => (j === k ? { ...i, ...p } : i)) });
   const offsetHint = { Sales: 'Sales account (e.g. Sales Account)', Purchase: 'Purchase account (e.g. Purchase Account)', Receipt: 'Cash or bank it came into', Payment: 'Cash or bank it was paid from', 'Credit Note': 'Sales account', 'Debit Note': 'Purchase account' }[v.voucher_type];
   const submit = () => {
-    const items = v.items.filter((i) => i.stock_item_name && Number(i.quantity) > 0).map((i) => ({ ...i, quantity: Number(i.quantity), rate: Number(i.rate) || 0 }));
-    const p = { voucher_type: v.voucher_type, date: v.date, narration: v.narration || undefined, reference_number: v.reference_number || undefined };
+    const items = v.items.filter((i) => i.stock_item_name && Number(i.quantity) > 0).map(({ matched, ...i }) => ({ ...i, quantity: Number(i.quantity), rate: Number(i.rate) || 0 }));
+    const p = { voucher_type: v.voucher_type, date: v.date, narration: v.narration || undefined, reference_number: v.reference_number || undefined, ...(v.source ? { voucher_source: v.source } : {}) };
     if (twoLedgers) Object.assign(p, { debit_ledger: v.debit_ledger, credit_ledger: v.credit_ledger, amount: Number(v.amount) });
     else Object.assign(p, { party_name: v.party_name, offset_ledger: v.offset_ledger || undefined, ...(items.length ? { items } : { amount: Number(v.amount) }), ...(v.bill_number ? { bill_number: v.bill_number, bill_type: ['Receipt', 'Payment', 'Credit Note', 'Debit Note'].includes(v.voucher_type) ? 'Agst Ref' : 'New Ref' } : {}), ...(v.due_date ? { due_date: v.due_date } : {}) });
     go(v.voucher_type === 'Receipt' ? 'CREATE_RECEIPT' : v.voucher_type === 'Payment' ? 'CREATE_PAYMENT' : 'CREATE_VOUCHER', p, `${v.voucher_type} voucher`);
@@ -345,6 +417,12 @@ function VoucherForm({ s, onClose, onDone }) {
   return (
     <FormModal title="New voucher" onClose={onClose} busy={busy} onSubmit={submit}>
       <Datalist id="tl-ledgers" items={names.ledgers} /><Datalist id="tl-stock" items={names.stock} /><Datalist id="tl-godowns" items={names.godowns} />
+      <div className="tl-read">
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => readBill(e.target.files?.[0])} />
+        <button type="button" className="btn ghost sm" disabled={read?.reading} onClick={() => fileRef.current?.click()}><Icon name="image" size={14} /> {read?.reading ? 'Reading the bill…' : 'Read a bill photo'}</button>
+        {read && !read.reading && <small className="muted">Read from the photo — check everything before saving.{!read.party_matched && read.party_read ? ` “${read.party_read}” isn’t a ledger in Tally yet: pick one or create it first.` : ''}{read.items.some((i) => !i.matched) ? ' Some items aren’t stock items in Tally yet.' : ''}{read.tax_total ? ` Tax on the bill: ₹${read.tax_total.toLocaleString('en-IN')} — add the tax ledgers in TallyPrime.` : ''}</small>}
+        {read?.duplicateOf && <small className="bad-t">This bill looks entered already: {read.duplicateOf.voucher_type} {read.duplicateOf.voucher_number || ''} on {read.duplicateOf.voucher_date}.</small>}
+      </div>
       <div className="seg tl-vt" role="radiogroup" aria-label="Voucher type">{s.voucherTypes.map((t) => <button key={t} type="button" role="radio" aria-checked={v.voucher_type === t} className={v.voucher_type === t ? 'on' : ''} onClick={() => set({ voucher_type: t, items: [] })}>{t}</button>)}</div>
       <div className="form2">
         <label>Date<input type="date" value={v.date} onChange={(e) => set({ date: e.target.value })} required /></label>
@@ -360,7 +438,7 @@ function VoucherForm({ s, onClose, onDone }) {
       {withItems && <div className="tl-items">
         {v.items.map((i, k) => (
           <div className="tl-item" key={k}>
-            <input list="tl-stock" value={i.stock_item_name} onChange={(e) => setItem(k, { stock_item_name: e.target.value })} placeholder="Item" aria-label="Item" />
+            <input list="tl-stock" value={i.stock_item_name} onChange={(e) => setItem(k, { stock_item_name: e.target.value, matched: true })} placeholder="Item" aria-label="Item" className={i.matched === false ? 'tl-unmatched' : ''} title={i.matched === false ? 'Not a stock item in Tally yet' : undefined} />
             <input type="number" min="0" step="any" value={i.quantity} onChange={(e) => setItem(k, { quantity: e.target.value })} placeholder="Qty" aria-label="Quantity" />
             <input type="number" min="0" step="any" value={i.rate} onChange={(e) => setItem(k, { rate: e.target.value })} placeholder="Rate" aria-label="Rate" />
             <input list="tl-godowns" value={i.godown_name || ''} onChange={(e) => setItem(k, { godown_name: e.target.value })} placeholder="Godown" aria-label="Godown" />

@@ -35,7 +35,7 @@ after(async () => { await srv.stop(); model.close(); });
 
 test('every industry has a ready-made call type; your own comes first with what it does in your CRM', async () => {
   let d = (await api('/calendars/templates', 'GET', null, T)).data;
-  assert.equal(d.templates.length, 19);
+  assert.equal(d.templates.length, 22);
   assert.equal(d.templates[0].id, 'general', 'no CRM style yet: the coach & creator one first');
   assert.equal(d.templates[0].name, 'Discovery call');
   for (const x of d.templates) {

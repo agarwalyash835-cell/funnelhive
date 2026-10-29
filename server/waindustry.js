@@ -116,6 +116,27 @@ export const INDUSTRY = {
     qualify: [['What would you like to book?', ['A room', 'A table', 'An event / party']], ['How many guests?', ['1–2', '3–5', '6–15', '15+']], ['Your dates (and any special request)?', 'dates'], 'booking-enquiry'],
     agent: { name: 'Ira', role: 'guest relations', knowledge: 'Property: [name, address, Maps link]\nRooms: [type — rate — inclusions]\nRestaurant: [cuisine, hours, menu link]\nPolicies: [check-in/out, ID, pets, cancellation]\nEvents: [capacity, packages]', faqs: [['Is breakfast included?', '[Details]'], ['What are check-in and check-out times?', '[Times]'], ['Do you allow pets?', '[Policy]'], ['Is parking available?', '[Details]'], ['What’s the cancellation policy?', '[Policy]']], handoff: 'Confirming availability and bookings, group rates, payments and complaints.' },
   },
+  manufacturer: {
+    keys: ['rate', 'price list', 'quotation', 'moq', 'dealership', 'sample'],
+    menu: [['Products & price list', 'Our range: [product — size / grade — price per unit]. Full price list: [link]. MOQ: [minimum order].'], ['Dealership enquiry', 'We appoint dealers in [states / cities]. Margin: [x%], credit: [days]. Share your shop name and city and our sales team will call.'], ['Delivery & dispatch', 'Dispatch in [x–y] days from [factory city] by [transport]. Freight: [paid by / included above ₹].']],
+    book: ['Factory visit', 'a visit', 'Which day would you like to visit our factory?'],
+    qualify: [['You are a…', ['Dealer / distributor', 'Retailer', 'Factory / OEM']], ['What do you need?', ['[Product 1]', '[Product 2]', '[Product 3]', 'Custom / OEM order', 'Price list only']], ['Quantity needed and delivery city?', 'requirement'], 'b2b-enquiry'],
+    agent: { name: 'Rohan', role: 'sales desk', knowledge: 'Company: [name, factory city, since]\nProducts: [product — grades / sizes — price per unit]\nMOQ: [quantity]\nDealers: [margin, credit days, areas open]\nDispatch: [days, transport, freight terms]\nCertifications: [ISI / BIS / ISO]\nPayment: [advance %, credit for dealers]', faqs: [['What is the minimum order?', '[MOQ and price slabs]'], ['Do you give samples?', '[Free / paid, how long]'], ['Can we become a dealer in our city?', '[Areas open, what we need]']], handoff: 'Custom specifications, prices below the list, credit terms, and complaints about a delivered order go to the sales manager.' },
+  },
+  retailer: {
+    keys: ['price', 'stock', 'available', 'offer', 'delivery', 'shop'],
+    menu: [['What’s in stock', 'We have [categories / brands] in stock. New arrivals: [link / photos]. Ask for any product and we’ll check.'], ['Offers', 'This week: [offer]. [Festival / season sale details].'], ['Shop timings & location', 'Open [days, hours] at [address] — [Maps link]. Home delivery in [areas] above [₹].']],
+    book: ['Store appointment', 'a visit', 'Which day would you like to visit the store?'],
+    qualify: [['What are you looking for?', ['[Category 1]', '[Category 2]', 'Something else']], ['Your budget?', ['Under ₹[x]', '₹[x]–[y]', 'Above ₹[y]', 'Not sure yet']], ['Any brand, size or model in mind?', 'need'], 'shopper'],
+    agent: { name: 'Pooja', role: 'store assistant', knowledge: 'Store: [name, address, Maps link, hours]\nCategories & brands: [list]\nPrice range: [examples]\nOffers: [current offers]\nHome delivery: [areas, minimum bill, charges]\nPayment: [UPI, cards, EMI]\nExchange / returns: [policy]', faqs: [['Is this available in stock?', '[We check and reply / share photos]'], ['Do you deliver at home?', '[Areas, charges]'], ['Do you have EMI?', '[Cards / Bajaj Finserv / none]']], handoff: 'Price bargaining beyond the listed offers, product complaints and warranty claims go to the store owner.' },
+  },
+  distributor: {
+    keys: ['rate', 'rate list', 'order', 'stock', 'scheme', 'payment'],
+    menu: [['Rate list & schemes', 'Today’s rate list: [link / PDF]. Current schemes: [scheme details]. Rates may change with market prices.'], ['Place an order', 'Send the product, quantity and your shop name here — we confirm stock and dispatch the same day for orders before [time].'], ['Payment & credit', 'Pay by [UPI / NEFT — bank details]. Credit: [days] for regular accounts. Send the UTR here after paying.']],
+    book: ['Sales visit', 'a visit', 'Which day should our salesperson visit your shop?'],
+    qualify: [['You are a…', ['Retailer', 'Sub-dealer', 'Contractor / institution']], ['Which products?', ['[Product 1]', '[Product 2]', '[Product 3]', 'Full range']], ['Your shop name, area and the quantity you need?', 'order'], 'trade-enquiry'],
+    agent: { name: 'Vikas', role: 'order desk', knowledge: 'Business: [name, godown address, areas served]\nBrands / products: [list]\nRates: [rate list link — changes with market]\nSchemes: [current schemes]\nOrders: [cut-off time, delivery days by area]\nPayment: [UPI / NEFT details, credit days]\nMinimum order: [₹ or quantity]', faqs: [['What is today’s rate?', '[Rate list link]'], ['When will my order reach?', '[Delivery days by area]'], ['Can I get credit?', '[Credit terms for regular accounts]']], handoff: 'Rate negotiation, credit limit changes, payment disputes and damaged-goods claims go to the owner.' },
+  },
   store: {
     keys: ['order', 'price', 'cod', 'delivery', 'stock'],
     menu: [['Shop & offers', 'Shop our bestsellers: [store link]. Offer: [code / discount].'], ['Delivery & COD', 'We deliver across [India] in [x–y] days. COD: [available / ₹ charge]. Free shipping above [₹].'], ['Returns & exchange', '[x]-day easy returns: [how to request].']],

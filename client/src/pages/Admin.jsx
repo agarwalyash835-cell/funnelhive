@@ -267,6 +267,12 @@ function SellerModal({ id, onClose, onChange }) {
           <div className="row"><input type="number" min="1" max="365" value={days} onChange={(e) => setDays(e.target.value)} style={{ width: 80 }} /><button className="btn ghost sm" onClick={() => act('extend_trial', { days }, `Trial extended by ${days} days`)}>Extend trial</button></div>
           <div className="row"><input type="number" min="0" placeholder="Plan default" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 120 }} /><button className="btn ghost sm" onClick={() => act('set_credits', { limit }, 'AI credit limit saved')}>Set AI credits</button></div>
           <div className="row"><input type="number" min="0" placeholder={`Funnels (${u.limits.funnels})`} value={lim.funnels} onChange={(e) => setLim({ ...lim, funnels: e.target.value })} style={{ width: 130 }} /><input type="number" min="0" placeholder={`Storage MB (${u.limits.storageMB})`} value={lim.storageMB} onChange={(e) => setLim({ ...lim, storageMB: e.target.value })} style={{ width: 150 }} /><input type="number" min="1" placeholder={`Client accounts (${u.limits.agencyClients})`} value={lim.agencyClients} onChange={(e) => setLim({ ...lim, agencyClients: e.target.value })} style={{ width: 170 }} /><button className="btn ghost sm" onClick={() => act('set_limits', lim, 'Limits saved')}>Set limits</button></div>
+          <div className="row tl-admin">
+            <b>Tally add-on</b>
+            {u.tally?.on ? <span className="pill ok">on</span> : <span className="pill">off</span>}
+            <small className="muted">{u.tally?.agents?.length ? u.tally.agents.map((a) => `${a.machine_name} (${a.status === 'ONLINE' ? 'online' : a.status.toLowerCase()})`).join(', ') : 'no PC connected'}{u.tally?.companies?.length ? ` · ${u.tally.companies.map((c) => c.name).join(', ')}` : ''}</small>
+            {u.tally?.on ? <button className="btn ghost sm danger" onClick={async () => (await confirmDialog({ title: 'Turn Tally off for this seller?', text: 'Their Tally page and connector stop working. Their synced data is kept for when it’s turned on again.', confirm: 'Turn off', danger: true })) && act('tally_off', {}, 'Tally turned off')}>Turn off</button> : <button className="btn ghost sm" onClick={() => act('tally_on', {}, 'Tally turned on — the seller sees it in their menu')}>Turn on</button>}
+          </div>
           <div className="row">
             {u.access.status === 'comped' ? <button className="btn ghost sm" onClick={() => act('uncomp')}>End free access</button> : <button className="btn ghost sm" onClick={async () => { const note = await promptDialog({ title: 'Give free access', text: 'Reason for free access (e.g. partner, beta tester)?', label: 'Reason', confirm: 'Give free access' }); if (note !== null) act('comp', { note }, 'Free access granted'); }}>Give free access</button>}
             {u.access.status === 'suspended' ? <button className="btn ghost sm" onClick={() => act('unsuspend')}>Unsuspend</button> : <button className="btn ghost sm danger" onClick={async () => { const note = await promptDialog({ title: 'Suspend seller', text: 'Reason for suspending (pages go offline and the seller is signed out)?', label: 'Reason', confirm: 'Suspend', danger: true }); if (note !== null) act('suspend', { note }, 'Seller suspended'); }}>Suspend</button>}
@@ -501,6 +507,25 @@ function MonitorPanel({ m, save }) {
   );
 }
 
+// Tally: every connected PC on the platform, and the connector's download link / oldest version allowed
+function TallyAdminPanel({ tally, save }) {
+  const [d, setD] = useState(null);
+  const [v, setV] = useState({ download_url: tally?.download_url || '', minimum_agent_version: tally?.minimum_agent_version || '1.0.0', force_update_agent_version: !!tally?.force_update_agent_version });
+  useEffect(() => { api('/admin/tally').then(setD).catch(() => setD({ agents: [], sellers: 0 })); }, []);
+  return (
+    <Panel title="Tally connector">
+      <p className="muted sm">Sellers with the Tally add-on (switch it on per seller in Sellers) install the FunnelHive Tally Connector on the PC that runs TallyPrime. {d ? `${d.sellers} seller${d.sellers === 1 ? '' : 's'} with Tally · ${d.agents.length} PC${d.agents.length === 1 ? '' : 's'} connected${d.failed24h ? ` · ${d.failed24h} changes Tally refused in the last day` : ''}` : ''}</p>
+      {d?.agents?.length > 0 && <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Seller</th><th>PC</th><th>Status</th><th>Version</th><th>Last seen</th></tr></thead><tbody>{d.agents.map((a) => <tr key={a.id}><td>{a.seller?.business || '—'}<small className="sub-t">{a.seller?.email}</small></td><td>{a.machine_name}<small className="sub-t">{a.active_company_name || ''}</small></td><td><span className={`pill ${a.status === 'ONLINE' && a.tally_status === 'ONLINE' ? 'ok' : a.status === 'ONLINE' ? 'warn' : ''}`}>{a.status === 'ONLINE' ? (a.tally_status === 'ONLINE' ? 'online' : a.tally_status.replace(/_/g, ' ').toLowerCase()) : a.status.toLowerCase()}</span>{a.last_sync_error && <small className="sub-t bad-t">{a.last_sync_error}</small>}</td><td className="mono">{a.app_version}</td><td className="muted">{a.last_seen_at ? ago(a.last_seen_at) : '—'}</td></tr>)}</tbody></table></div>}
+      <div className="form2">
+        <label className="full">Installer link <small className="muted">· optional — empty uses the one published on this server</small><input value={v.download_url} onChange={(e) => setV({ ...v, download_url: e.target.value.trim() })} placeholder="https://…/funnelhive-tally-connector-setup.exe" /></label>
+        <label>Oldest connector version allowed<input value={v.minimum_agent_version} onChange={(e) => setV({ ...v, minimum_agent_version: e.target.value.trim() })} placeholder="1.1.0" /></label>
+        <label className="tog" style={{ alignSelf: 'end' }}><input type="checkbox" checked={v.force_update_agent_version} onChange={(e) => setV({ ...v, force_update_agent_version: e.target.checked })} /><span />Make older connectors update before they work</label>
+      </div>
+      <button className="btn primary" onClick={() => save({ tally: v })}>Save</button>
+    </Panel>
+  );
+}
+
 // the WhatsApp AI agent's document search: an OpenRouter key for embeddings (sellers never see the service or model)
 function EmbedPanel({ m, save }) {
   const [v, setV] = useState({ key: '', model: m.model || 'nvidia/nemotron-3.5-embed-8b:free', vision: m.vision || 'nvidia/nemotron-3.5-super-vl:free' });
@@ -619,6 +644,7 @@ function PlatformSettings() {
       <StoragePanel s={s.storage} save={save} />
       <StoragePanel s={s.videoStorage} save={save} field="videoStorage" />
       {s.monitor && <MonitorPanel m={s.monitor} save={save} />}
+      <TallyAdminPanel tally={s.tally} save={save} />
 
       <Panel title="Razorpay (collects subscriptions)">
         <p className="muted sm">Your own Razorpay account. Sellers connect theirs separately for their customers’ payments.</p>

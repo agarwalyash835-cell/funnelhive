@@ -63,6 +63,18 @@ export const INDUSTRY_PROMPTS = {
     chips: ['Direct room booking with an offer', 'Weekend getaway package', 'Restaurant table booking and menu', 'Banquet hall enquiry for events'],
     examples: ['Homestay in Coorg — direct booking 10% off', 'Boutique hotel in Rishikesh near the ghats', 'Café with a weekend brunch in Bandra', 'Resort weekend package near Lonavala', 'Banquet hall for weddings in Indore', 'Cloud kitchen biryani delivery in Hyderabad'],
   },
+  manufacturer: {
+    chips: ['Dealer enquiry page with a price list download', 'Request a quotation for bulk orders', 'Become a distributor in your city', 'Product catalogue with a sample request'],
+    examples: ['PVC pipes and fittings manufacturer in Rajkot looking for dealers', 'Steel almirahs for offices and hostels, bulk orders', 'Ayurvedic oils — private label manufacturing', 'Corrugated boxes for e-commerce sellers in Delhi NCR', 'Solar water heaters — distributors wanted in Maharashtra', 'Cotton fabric mill — sample swatches for garment exporters'],
+  },
+  retailer: {
+    chips: ['Festival sale page with a store visit booking', 'New arrivals with WhatsApp ordering', 'Exchange offer for old appliances', 'Bridal or wedding shopping appointment'],
+    examples: ['Electronics showroom in Indore — Diwali exchange offer', 'Saree shop in Surat with home delivery', 'Furniture store in Pune — sofa sets with free installation', 'Mobile shop with easy EMI in Lucknow', 'Jewellery showroom — wedding collection appointments', 'Kids’ clothing store opening offer in Bhopal'],
+  },
+  distributor: {
+    chips: ['Rate list download for retailers', 'Retailer sign-up with the first-order scheme', 'Bulk order enquiry for institutions', 'Monthly scheme page for dealers'],
+    examples: ['FMCG distributor in Nagpur — retailer sign-up with a scheme', 'Cement and steel trader for contractors in Hyderabad', 'Pharma distributor for chemists in Kolkata', 'Electrical goods wholesaler — daily rate list', 'Tiles and sanitaryware dealer for builders', 'Stationery wholesaler for schools and offices'],
+  },
   store: {
     chips: ['Product launch page with Cash on Delivery', 'Combo offer with an order bump', 'Festive sale page for Diwali', 'Free sample with shipping fee'],
     examples: ['Homemade mango pickles delivered across India', 'Handloom cotton sarees from Bengal', 'Cold-pressed hair oil with COD', 'Organic millet snacks for kids', 'Silver jewellery for everyday wear', 'Ayurvedic skincare combo for acne'],
