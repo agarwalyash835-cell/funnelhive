@@ -5,6 +5,7 @@ import { Layout, Panel, Icon, Empty, Modal, inr, num, ago, downloadCSV, toast, c
 import { t, tx } from '../appI18n';
 import '../cod.css';
 import { Gstr1Panel, GstDocsModal } from '../gstDocs';
+import { STAGE, useShipping, CourierShipModal, ShipmentCard, BulkShipModal } from './Shipping';
 
 const STATUS = { refunded: ['Refunded', 'bad'], partially_refunded: ['Part refunded', 'warn'], cod: ['COD · unpaid', 'warn'], cancelled: ['Cancelled', 'bad'] };
 const PLAN = { active: ['', 'ok'], authenticated: ['starting', ''], created: ['starting', ''], pending: ['payment due', 'warn'], halted: ['payment failed', 'bad'], cancelled: ['cancelled', 'bad'], completed: ['paid in full', 'ok'], expired: ['ended', ''], demo: ['demo', ''] };
@@ -23,7 +24,7 @@ const RANGES = [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], 
 // Cash on Delivery confirmation (server/cod.js)
 const CODST = { pending: ['COD · awaiting reply', ''], confirmed: ['COD · confirmed', 'ok'], unconfirmed: ['COD · no reply', 'warn'], cancelled: ['COD · cancelled by buyer', 'bad'] };
 const VIA = { whatsapp: 'WhatsApp', whatsapp_buttons: 'WhatsApp buttons', email: 'email', none: 'not sent — no WhatsApp or email available' };
-const FILTERS = [['all', 'All orders'], ['paid', 'Paid'], ['cod', 'COD to collect'], ['cod_pending', 'COD · awaiting reply'], ['cod_confirmed', 'COD · confirmed'], ['cod_unconfirmed', 'COD · no reply'], ['cod_cancelled', 'COD · cancelled by buyer'], ['rto', 'Returned (RTO)'], ['ship', 'To ship'], ['refunded', 'Refunded'], ['plan', 'Memberships & instalments'], ['test', 'Test orders']];
+const FILTERS = [['all', 'All orders'], ['paid', 'Paid'], ['cod', 'COD to collect'], ['cod_pending', 'COD · awaiting reply'], ['cod_confirmed', 'COD · confirmed'], ['cod_unconfirmed', 'COD · no reply'], ['cod_cancelled', 'COD · cancelled by buyer'], ['rto', 'Returned (RTO)'], ['ship', 'To ship'], ['in_transit', 'Shipped · on the way'], ['ndr', 'Delivery failed (NDR)'], ['refunded', 'Refunded'], ['plan', 'Memberships & instalments'], ['test', 'Test orders']];
 const PAGE = 100;
 
 export default function Orders() {
@@ -36,6 +37,13 @@ export default function Orders() {
   const [open, setOpen] = useState(null);
   const [refund, setRefund] = useState(null);
   const [ship, setShip] = useState(null);
+  // a connected courier (Settings → Shipping): ship from here, one order or several
+  const shipCfg = useShipping();
+  const srOn = !!shipCfg?.shiprocket?.connected;
+  const [courier, setCourier] = useState(null);
+  const [sel, setSel] = useState([]);
+  const [bulk, setBulk] = useState(false);
+  const canCourier = (o) => srOn && o.fulfilment?.status === 'pending' && !o.shipment?.awb && !['cancelled', 'refunded'].includes(o.status) && !!o.address;
   const [gstr1, setGstr1] = useState(false); // GSTR-1 for a month (checkout sales, plus counter bills)
   // the server filters, searches, pages and totals (server/orderlist.js); "Show more" fetches the next page
   const [orders, setOrders] = useState([]);
@@ -137,6 +145,7 @@ export default function Orders() {
   const actions = (o) => (
     <div className="row end" onClick={(e) => e.stopPropagation()}>
       {(o.invoices || []).map((i) => <a key={i.id} className="icon-btn" title={`${i.type === 'credit' ? t('Credit note') : t('Invoice')} ${i.number}`} href={i.url} target="_blank" rel="noreferrer"><Icon name="receipt" size={15} /></a>)}
+      {canCourier(o) && <button className="btn soft sm" title={t('Book a courier with Shiprocket')} onClick={() => setCourier(o)}>{t('Ship')}</button>}
       {o.fulfilment && !['cancelled', 'refunded'].includes(o.status) && <button className="icon-btn" title={t('Shipping')} onClick={() => setShip(o)}><Icon name="box" size={15} /></button>}
       {o.plan?.subId && ['active', 'pending', 'halted', 'authenticated'].includes(o.plan.status) && !o.plan.cancelAtEnd && <button className="icon-btn" title={o.plan.type === 'recurring' ? t('Cancel membership (at the end of the paid period)') : t('Stop the remaining instalments')} onClick={() => planCancel(o)}><Icon name="x" size={15} /></button>}
       {o.status === 'cod' && <button className="btn soft sm" title={t('Cash collected — issue the invoice and deliver')} onClick={() => codAct(o, 'paid')}>{t('Paid')}</button>}
@@ -173,13 +182,16 @@ export default function Orders() {
             <button className={tab === 'abandoned' ? 'on' : ''} onClick={() => setTab('abandoned')}>{t('Abandoned ({n})', { n: num(abandonedTotal) })}</button>
           </div>} actions={<div className="search"><Icon name="search" size={16} /><input placeholder={t('Search name, email, tag, campaign…')} value={q} onChange={(e) => setQ(e.target.value)} /></div>}>
             {tab === 'orders' ? (!orders.length ? <Empty icon="cart" title={filtered ? t('No orders match') : t('No orders yet')} text={filtered ? t('Try another period, funnel or status.') : t('Orders from your checkouts and one-click upsells land here.')} /> : (
-              <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>{t('Order')}</th><th>{t('Customer')}</th><th>{t('Funnel')}</th><th>{t('Items')}</th><th className="r">{t('Total')}</th><th>{t('Source')}</th><th className="r">{t('Date')}</th><th /></tr></thead>
+              <div className="tbl-wrap">
+              {sel.length > 0 && <div className="or-bulk"><b>{t('{n} selected', { n: sel.length })}</b><button className="btn primary sm" onClick={() => setBulk(true)}>{t('Ship with Shiprocket')}</button><button className="link-btn" onClick={() => setSel([])}>{t('Clear')}</button></div>}
+              <table className="tbl">
+                <thead><tr>{srOn && <th className="or-pick"><input type="checkbox" aria-label={t('Select all to ship')} checked={sel.length > 0 && orders.filter(canCourier).every((o) => sel.includes(o.id))} onChange={(e) => setSel(e.target.checked ? orders.filter(canCourier).map((o) => o.id).slice(0, 50) : [])} /></th>}<th>{t('Order')}</th><th>{t('Customer')}</th><th>{t('Funnel')}</th><th>{t('Items')}</th><th className="r">{t('Total')}</th><th>{t('Source')}</th><th className="r">{t('Date')}</th><th /></tr></thead>
                 <tbody>{orders.map((o) => (
                   <tr key={o.id} className="click" onClick={() => setOpen(o)}>
+                    {srOn && <td className="or-pick" onClick={(e) => e.stopPropagation()}>{canCourier(o) && <input type="checkbox" aria-label={t('Select to ship')} checked={sel.includes(o.id)} onChange={(e) => setSel(e.target.checked ? [...sel, o.id].slice(0, 50) : sel.filter((x) => x !== o.id))} />}</td>}
                     <td className="mono">#{o.id}{STATUS[o.status] && <span className={`pill ${STATUS[o.status][1]}`}>{t(STATUS[o.status][0])}</span>}{CODST[o.codStatus] && (o.status === 'cod' || o.codStatus === 'cancelled') && <span className={`pill cod-st ${CODST[o.codStatus][1]}`}>{t(CODST[o.codStatus][0])}</span>}{o.rtoAt || o.cancelReason === 'returned' ? <span className="pill bad cod-st">RTO</span> : null}{(o.tags || []).map((t) => <span key={t} className="pill or-tag">{t}</span>)}</td>
                     <td><b>{o.name || '—'}</b><small className="sub-t">{o.email}</small>{o.address && <small className="sub-t addr" title={addrText(o.address)}>📍 {o.address.city} {o.address.pincode}</small>}</td><td>{o.funnel}</td>
-                    <td className="items">{o.fulfilment && SHIP[o.fulfilment.status] && <span className={`pill ${SHIP[o.fulfilment.status][1]}`} title={[o.fulfilment.courier, o.fulfilment.tracking].filter(Boolean).join(' · ')}>{t(SHIP[o.fulfilment.status][0])}</span>}{o.items.map((i, k) => <span key={k} className={`it k-${i.kind} ${i.refunded ? 'refunded' : ''}`} title={`${i.name} · ${money(i.price, o)}${i.refunded ? ` · ${t('refunded')}` : ''}`}>{i.productId && '📦 '}{i.kind === 'main' ? i.name : i.kind}</span>)}{o.coupon && <span className="it">🏷 {o.coupon}</span>}{o.plan && <span className={`pill ${PLAN[o.plan.status]?.[1] || ''}`}>🔁 {planLabel(o.plan, o)}{PLAN[o.plan.status]?.[0] ? ` · ${t(PLAN[o.plan.status][0])}` : ''}{o.plan.cancelAtEnd ? ` · ${t('ending')}` : ''}</span>}
+                    <td className="items">{o.fulfilment && (STAGE[o.fulfilment.stage] || SHIP[o.fulfilment.status]) && <span className={`pill ${(STAGE[o.fulfilment.stage] || SHIP[o.fulfilment.status])[1]}`} title={[o.fulfilment.courier, o.fulfilment.tracking].filter(Boolean).join(' · ')}>{t((STAGE[o.fulfilment.stage] || SHIP[o.fulfilment.status])[0])}</span>}{o.items.map((i, k) => <span key={k} className={`it k-${i.kind} ${i.refunded ? 'refunded' : ''}`} title={`${i.name} · ${money(i.price, o)}${i.refunded ? ` · ${t('refunded')}` : ''}`}>{i.productId && '📦 '}{i.kind === 'main' ? i.name : i.kind}</span>)}{o.coupon && <span className="it">🏷 {o.coupon}</span>}{o.plan && <span className={`pill ${PLAN[o.plan.status]?.[1] || ''}`}>🔁 {planLabel(o.plan, o)}{PLAN[o.plan.status]?.[0] ? ` · ${t(PLAN[o.plan.status][0])}` : ''}{o.plan.cancelAtEnd ? ` · ${t('ending')}` : ''}</span>}
                       {o.undelivered && <span className="it warn" title={t('Products are delivered only after a real payment (Razorpay or Stripe)')}>{t('not delivered')}</span>}{o.note && <span className="it" title={o.note}>📝 {t('note')}</span>}</td>
                     <td className="r strong">{money(o.total, o)}{o.currency && o.currency !== 'INR' && <small className="sub-t" title={t('Counted in your revenue at this rate')}>≈ {inr(o.total * (o.fx || 1))}</small>}{o.refunded > 0 && <small className="sub-t">{t('{amount} refunded', { amount: money(o.refunded, o) })}</small>}{payPill(o)}</td>
                     <td><span className="src">{o.attr?.utm_source || o.source}</span>{campaignOf(o) && <small className="sub-t" title={[o.attr?.utm_medium, o.attr?.utm_term].filter(Boolean).join(' · ')}>{campaignOf(o)}</small>}</td>
@@ -211,6 +223,8 @@ export default function Orders() {
       {open && <OrderDetail o={open} actions={actions(open)} onClose={() => setOpen(null)} onSaved={load} />}
       {gstr1 && <Modal title="GSTR-1" onClose={() => setGstr1(false)} width={760}><div className="m-body"><Gstr1Panel title="Your GST return for a month" /></div></Modal>}
       {ship && <ShipModal o={ship} onClose={() => setShip(null)} onDone={() => { setShip(null); load(); }} />}
+      {courier && <CourierShipModal o={courier} onClose={() => setCourier(null)} onDone={() => { setCourier(null); load(); }} />}
+      {bulk && <BulkShipModal ids={sel} onClose={() => setBulk(false)} onDone={() => { setBulk(false); setSel([]); load(); }} />}
       {refund && <RefundModal o={refund} onClose={() => setRefund(null)} onDone={() => { setRefund(null); load(); }} />}
     </Layout>
   );
@@ -256,6 +270,7 @@ function OrderDetail({ o, actions, onClose, onSaved }) {
           </section>
         </div>
         {o.paymentMethod === 'cod' && <CodBox o={o} onSaved={onSaved} />}
+        <ShipmentCard o={o} onSaved={onSaved} />
         <section>
           <h4>Items</h4>
           <table className="od-items"><tbody>

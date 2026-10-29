@@ -1,0 +1,30 @@
+/* Courier integration: Settings → Shipping, ship-with-courier dialog, shipment card, bulk ship (pages/Shipping.jsx) */
+.ship-set { display: grid; gap: 10px; }
+.ship-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; }
+.ship-row .fld { flex: 1 1 220px; }
+.ship-pkg { align-items: center; font-size: 14px; }
+.ship-pkg input { width: 72px; display: inline-block; margin-right: 2px; }
+.ship-hook { display: grid; gap: 6px; border: 1px dashed var(--line, #e5e7eb); border-radius: 10px; padding: 10px 12px; }
+.ship-hook code { flex: 1 1 260px; font-size: 12px; word-break: break-all; padding: 6px 8px; background: var(--soft, #f4f5f8); border-radius: 6px; }
+.ship-err { color: #b42318; font-size: 13px; margin: 0; }
+.ship-warn { color: #b45309; font-size: 13px; margin: 4px 0; }
+
+.ship-modal { display: grid; gap: 10px; }
+.ship-couriers { display: grid; gap: 6px; max-height: 340px; overflow: auto; }
+.ship-courier { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+.ship-courier.on { border-color: var(--brand, #4f46e5); box-shadow: 0 0 0 1px var(--brand, #4f46e5) inset; }
+.ship-courier > span { flex: 1; display: grid; gap: 2px; }
+.ship-courier .pill { margin-left: 6px; }
+
+.ship-card { border: 1px solid var(--line, #e5e7eb); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.ship-card h4 .pill { margin-left: 6px; }
+.ship-card .row { flex-wrap: wrap; gap: 6px; }
+.ship-tl { list-style: none; margin: 4px 0 0; padding: 0 0 0 14px; border-left: 2px solid var(--line, #e5e7eb); display: grid; gap: 6px; }
+.ship-tl li { position: relative; display: grid; font-size: 13px; }
+.ship-tl li::before { content: ''; position: absolute; left: -19px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--line, #cbd5e1); }
+.ship-tl li:first-child::before { background: var(--brand, #4f46e5); }
+
+.ship-bulk { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; max-height: 320px; overflow: auto; font-size: 13px; }
+.ship-bulk li.bad { color: #b42318; }
+.or-pick { width: 28px; }
+.or-bulk { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; }

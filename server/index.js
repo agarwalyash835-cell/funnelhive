@@ -62,6 +62,7 @@ import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
 import { registerFulfilment, cleanAddress } from './fulfilment.js';
 import { registerCod, codCheckoutError, shipError, codPlaced } from './cod.js';
+import { registerShipping } from './shipping.js';
 import { registerBroadcasts } from './broadcasts.js';
 import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows, customPerms, memberRole } from './team.js';
 import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan, needsAfa, AFA_NOTE } from './plans.js';
@@ -1250,6 +1251,7 @@ registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteA
 registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
 registerFulfilment(app, { auth, appUrl });
 registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret: SECRET });
+registerShipping(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerNotifications(app, { auth });
 
 // Templates ship with a placeholder WhatsApp number. On live pages it becomes the seller's
