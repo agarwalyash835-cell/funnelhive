@@ -980,7 +980,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
       done.push({ name: c.name, ok: true, summary, pending: p.id });
       emit({ type: 'tool', status: 'confirm', id: c.call_id, name: c.name, summary, pending: p.id });
       seen.set(sig, { n: 1, ok: true, summary });
-      return { out: { waitingForUser: true, note: 'NOT done yet: the seller must press Confirm under your reply. Tell them in one line what will happen and ask them to confirm. Do not call this tool again for it.' }, ok: true, summary: null };
+      return { out: { waitingForUser: true, note: 'NOT done yet: a card with Confirm / Cancel shows under your reply and turns into the result once the seller presses it. Say in one line what it will do (“This adds the godown Test Shelf.”) — don’t write that it’s waiting, don’t tell them to press Confirm, and don’t claim it’s done (your text stays on screen after they confirm). Do not call this tool again for it.' }, ok: true, summary: null };
     }
     let out, ok = true, summary;
     try {

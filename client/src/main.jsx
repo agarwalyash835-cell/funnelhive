@@ -12,6 +12,7 @@ import './quote-designs.css';
 import './page-variants.css';
 import './page-premium.css';
 import './app-products.css';
+import './app-refresh.css';
 import './glass.css';
 
 const named = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })));

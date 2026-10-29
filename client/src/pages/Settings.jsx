@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { Layout, Panel, Icon, toast, confirmDialog, promptDialog } from '../ui';
 import { t } from '../appI18n';
@@ -27,6 +27,7 @@ const couponRulesText = (c, funnels) => {
 };
 
 export default function Settings() {
+  const wrap = useRef(null); // the sections, for the jump bar
   const [s, setS] = useState(null);
   const [me, setMe] = useState(null);
   const [coupons, setCoupons] = useState([]);
@@ -53,7 +54,8 @@ export default function Settings() {
 
   return (
     <Layout title={t('Settings')} subtitle={t('Payments, tracking, integrations and discounts.')}>
-      <div className="settings">
+      <SectionNav of={wrap} rev={s} />
+      <div className="settings" ref={wrap}>
         <Panel title={t('Business profile')}>
           <div className="form2">
             <label>{t('Business name')}<input value={s.businessName} onChange={(e) => set({ businessName: e.target.value })} placeholder={t('e.g. Sharma Yoga Studio')} /></label>
@@ -351,5 +353,20 @@ function InvoicingPanel({ s, setS }) {
         </>
       )}
     </Panel>
+  );
+}
+
+// a long page of sections: chips that jump to each one (read from the panel headings, so new sections join by themselves)
+function SectionNav({ of, rev }) {
+  const [secs, setSecs] = useState([]);
+  useEffect(() => {
+    const t = setTimeout(() => setSecs([...(of.current?.querySelectorAll(':scope > .panel > .panel-h h3, :scope > * > .panel > .panel-h h3') || [])].map((h) => ({ el: h.closest('.panel'), name: h.textContent.trim() })).filter((x) => x.name)), 300);
+    return () => clearTimeout(t);
+  }, [of, rev]);
+  if (secs.length < 4) return null;
+  return (
+    <nav className="set-nav" aria-label="Settings sections">
+      {secs.map((x) => <button key={x.name} type="button" onClick={() => x.el.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{x.name}</button>)}
+    </nav>
   );
 }

@@ -1,0 +1,98 @@
+/* =====================================================================
+   APP REFRESH — the shared controls across every dashboard page: dropdowns, inputs, tables, tabs, segmented
+   switches, menus, modals, toggles, code blocks. Scoped to the app's own containers (.app, .m-scrim), so sellers'
+   funnel pages, buyer pages and the editor canvas are untouched. Loaded before glass.css so the glass look still wins.
+   ===================================================================== */
+
+/* ---------- dropdowns: one chevron, a soft hover, the honey focus ring ---------- */
+.app select:not([multiple]):not([size]), .m-scrim select:not([multiple]):not([size]) {
+  -webkit-appearance: none; appearance: none; cursor: pointer; padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716c' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center; background-size: 12px;
+  transition: border-color .15s, box-shadow .15s, background-color .15s;
+}
+.app select:not([multiple]):not([size]):hover, .m-scrim select:not([multiple]):not([size]):hover { border-color: #d6d3d1; background-color: var(--c-surface-2, #faf9f7); }
+.app select option { color: var(--c-ink); background: var(--c-surface); }
+
+/* ---------- inputs ---------- */
+.app input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):hover,
+.app textarea:hover, .m-scrim input:not([type=checkbox]):not([type=radio]):hover, .m-scrim textarea:hover { border-color: #d6d3d1; }
+.app input::placeholder, .app textarea::placeholder, .m-scrim input::placeholder, .m-scrim textarea::placeholder { color: #a8a29e; }
+.app input:focus, .app textarea:focus, .app select:focus, .m-scrim input:focus, .m-scrim textarea:focus, .m-scrim select:focus { border-color: var(--c-accent-2, #d97706); box-shadow: 0 0 0 3px rgba(245, 165, 36, .22); }
+
+/* ---------- tables: a calmer head, a honey hover with an edge, coloured status ---------- */
+.app .tbl th { background: linear-gradient(180deg, var(--c-surface-2, #faf9f7), var(--c-surface)); font-size: 11px; letter-spacing: .07em; border-bottom: 1px solid var(--c-line); }
+.app .tbl tbody tr { transition: background .15s; }
+.app .tbl tbody tr:hover { background: linear-gradient(90deg, rgba(245, 165, 36, .07), transparent 75%); }
+.app .tbl tbody tr:hover td:first-child { box-shadow: inset 2px 0 0 var(--c-honey, #f5a524); }
+.app .tbl-wrap { scrollbar-width: thin; }
+
+/* ---------- segmented switches and tab bars ---------- */
+.app .seg { box-shadow: inset 0 1px 2px rgba(28, 25, 23, .06); }
+.app .seg button { transition: color .15s, background .15s, box-shadow .15s; }
+.app .seg button:not(.on):hover { color: var(--c-ink); background: rgba(255, 255, 255, .55); }
+.app .seg button.on { box-shadow: 0 1px 2px rgba(28, 25, 23, .08), 0 0 0 1px rgba(28, 25, 23, .04), 0 4px 10px -6px rgba(180, 83, 9, .35); }
+.app .tabs button { transition: color .15s, border-color .2s; }
+.app .tabs button:not(.on):hover { color: var(--c-ink-2); }
+.app .tabs button.on { border-bottom-color: var(--c-honey, #f5a524); }
+
+/* ---------- buttons: a little lift, a press ---------- */
+.app .btn { transition: transform .12s, box-shadow .15s, background .15s, border-color .15s, color .15s; }
+.app .btn:not(:disabled):active { transform: translateY(1px) scale(.99); }
+.app .btn.primary:not(:disabled):hover { box-shadow: 0 6px 16px -8px rgba(28, 25, 23, .55); }
+.app .btn.ghost:not(:disabled):hover { border-color: #d6d3d1; }
+
+/* ---------- toggles: honey when on ---------- */
+.app .tog input:checked + span, .m-scrim .tog input:checked + span { background: linear-gradient(90deg, var(--c-honey, #f5a524), var(--c-accent-2, #d97706)); box-shadow: 0 0 0 3px rgba(245, 165, 36, .18); }
+
+/* ---------- menus and pop-overs: rounder, softer, eased in ---------- */
+.app [role=menu], .app .me-menu, .app .tl-menu {
+  border-radius: 14px; border: 1px solid rgba(28, 25, 23, .08);
+  box-shadow: 0 1px 2px rgba(28, 25, 23, .05), 0 18px 40px -16px rgba(28, 25, 23, .35);
+  animation: rf-pop .16s var(--ease-out, ease) both; transform-origin: top right;
+}
+.app [role=menu] button:hover, .app [role=menu] a:hover { background: linear-gradient(90deg, rgba(245, 165, 36, .1), var(--c-line-2)); }
+@keyframes rf-pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+
+/* ---------- modals: a blurred backdrop, a gentle rise ---------- */
+.m-scrim { backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%); animation: rf-fade .18s ease both; }
+.m-scrim .m-box { animation: rf-rise .22s var(--ease-out, cubic-bezier(.2, .8, .2, 1)) both; box-shadow: 0 1px 0 rgba(255, 255, 255, .6) inset, 0 30px 70px -28px rgba(28, 25, 23, .55); }
+@keyframes rf-fade { from { opacity: 0; } }
+@keyframes rf-rise { from { opacity: 0; transform: translateY(10px) scale(.985); } }
+
+/* ---------- panels: a quiet heading rule ---------- */
+.app .panel-h h3 { letter-spacing: -.01em; }
+
+/* ---------- code: dark, readable, scrolls instead of spilling ---------- */
+.app pre { max-width: 100%; overflow-x: auto; border-radius: 12px; background: #1c1917; color: #f5f2ec; padding: 14px 16px; font-size: 12.5px; line-height: 1.6; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); }
+.app pre code { background: none; color: inherit; padding: 0; }
+
+/* ---------- thin scrollbars inside the app ---------- */
+.app * { scrollbar-width: thin; scrollbar-color: #d6d3d1 transparent; }
+
+/* ---------- phones: a table that isn't in a scroll wrapper scrolls by itself instead of being cut off ---------- */
+@media (max-width: 720px) {
+  .app table:not(.tbl-wrap table) { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .app .hive-wa { max-width: 100%; overflow-wrap: anywhere; }
+  .app .hive-wa .form2 { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) { .app [role=menu], .app .me-menu, .app .tl-menu, .m-scrim, .m-scrim .m-box { animation: none; } }
+
+/* ---------- Settings: jump to a section ---------- */
+.app .set-nav { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; overflow-x: auto; padding: 8px 2px 10px; margin: -4px 0 10px; background: linear-gradient(180deg, var(--c-bg) 75%, transparent); scrollbar-width: none; }
+.app .set-nav::-webkit-scrollbar { display: none; }
+.app .set-nav button { flex: none; height: 30px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--c-line); background: var(--c-surface); font: inherit; font-size: 12.5px; font-weight: 600; color: var(--c-ink-2); cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
+.app .set-nav button:hover { border-color: var(--c-honey, #f5a524); color: var(--c-ink); background: linear-gradient(90deg, rgba(245, 165, 36, .1), var(--c-surface)); }
+.app .settings > .panel { scroll-margin-top: 56px; }
+
+/* ---------- Quotes: the strip above the list ---------- */
+.app .q-strip { margin-bottom: 14px; }
+
+/* ---------- Orders: the filters as a soft toolbar ---------- */
+.app .or-filters { width: fit-content; max-width: 100%; padding: 8px; border: 1px solid var(--c-line); border-radius: 14px; background: linear-gradient(180deg, var(--c-surface), var(--c-surface-2, #faf9f7)); box-shadow: var(--sh-1); }
+.app .or-filters select { border-radius: 99px; height: 34px; min-width: 140px; background-color: var(--c-surface-2, #faf9f7); font-weight: 600; }
+
+/* ---------- fix: CRM figure tiles — the general .kpi padding (app-polish.css) hid the number under the icon ---------- */
+.app .kpi.crm-kpi { padding-left: 62px; }
+@media (max-width: 640px) { .app .kpi.crm-kpi { padding-left: 16px; padding-top: 56px; } }

@@ -29,6 +29,8 @@ export default function Quotes() {
           <button className="btn primary" onClick={() => setPicking(true)}>Write your first quote</button>
         </Empty>
       ) : (
+        <>
+        <QuoteStrip list={list} open={open} />
         <Panel title={`${list.length} quote${list.length === 1 ? '' : 's'}${open.length ? ` · ${open.length} awaiting payment` : ''}`} pad={false}>
           <div className="tbl-wrap"><table className="tbl">
             <thead><tr><th>Quote</th><th>Client</th><th className="r">Total</th><th className="r">Paid</th><th>Status</th><th>Created</th><th /></tr></thead>
@@ -52,6 +54,7 @@ export default function Quotes() {
             ))}</tbody>
           </table></div>
         </Panel>
+        </>
       )}
       {picking && <TemplatePicker onClose={() => setPicking(false)} onPick={(t) => { setPicking(false); setEdit(t ? fromTemplate(t) : blank()); }} onDraft={(d) => { setPicking(false); setEdit({ ...blank(), ...d, client: { ...blank().client, ...d.client }, validUntil: undefined }); toast('Drafted — check the prices, then save'); }} />}
       {edit && <QuoteEditor q={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}
@@ -181,4 +184,17 @@ function TemplatePicker({ onClose, onPick, onDraft }) {
       </div>
     </Modal>
   );
+}
+
+// the quotes at a glance — amounts in ₹ (quotes in other currencies count, but aren't added in)
+function QuoteStrip({ list, open }) {
+  const inr = (arr, f) => arr.filter((q) => (q.currency || 'INR') === 'INR').reduce((t, q) => t + (Number(f(q)) || 0), 0);
+  const sent = list.filter((q) => q.status !== 'draft'), won = list.filter((q) => ['paid', 'accepted', 'deposit_paid'].includes(q.status));
+  const tiles = [
+    ['Quoted', fmtMoney(inr(sent, (q) => q.total), 'INR'), `${sent.length} sent · ${list.length - sent.length} draft`, 'receipt', ''],
+    ['Awaiting payment', fmtMoney(inr(open, (q) => q.total - (q.paid || 0)), 'INR'), `${open.length} quote${open.length === 1 ? '' : 's'}`, 'clock', open.length ? 'warn' : ''],
+    ['Collected', fmtMoney(inr(list, (q) => q.paid), 'INR'), `${won.length} won`, 'wallet', ''],
+    ['Win rate', sent.length ? `${Math.round((100 * won.length) / sent.length)}%` : '—', 'of quotes sent', 'chart', ''],
+  ];
+  return <div className="kpis q-strip">{tiles.map(([l, v, f, ic, tone]) => <div key={l} className={`kpi ${tone}`}><span className="kpi-l"><span className="kpi-ic"><Icon name={ic} size={14} /></span>{l}</span><b className="kpi-v">{v}</b><div className="kpi-f"><small>{f}</small></div></div>)}</div>;
 }
