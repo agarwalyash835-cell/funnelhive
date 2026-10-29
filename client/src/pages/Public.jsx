@@ -144,6 +144,13 @@ export default function Public() {
   const source = useMemo(() => trafficSource(qs), []);
   const attr = useMemo(() => captureAttr(qs), []);
   const visitor = useMemo(visitorId, []);
+  // affiliates: a ?ref= visit gets a signed click token from the server, kept here (last click wins) and sent with checkout
+  useEffect(() => {
+    const ref = qs.get('ref');
+    if (!ref || !/^[A-Za-z0-9]{3,20}$/.test(ref)) return;
+    fetch(`/api/public/${slug}/aff${preview}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref }) })
+      .then((r) => r.json()).then((d) => { if (d?.token) store.set(sk('ff_aff'), JSON.stringify({ t: d.token, until: Date.now() + (d.days || 30) * 864e5 })); }).catch(() => {});
+  }, [slug]);
 
   useEffect(() => {
     if (embedded) return;
@@ -367,7 +374,8 @@ export default function Public() {
       onCheckout: async (data) => {
         const id = eventId('ic');
         track('InitiateCheckout', { value: data.total, currency: 'INR' }, id);
-        const body = { ...data, stepId: step.id, source, visitor, attr, tk: ids(), eventId: id };
+        let aff; try { const a = JSON.parse(store.get(sk('ff_aff')) || 'null'); if (a && a.until > Date.now()) aff = a.t; } catch {}
+        const body = { ...data, stepId: step.id, source, visitor, attr, tk: ids(), eventId: id, ...(aff ? { aff } : {}) };
         const r = data.method === 'cod' ? await post(`${base}/cod${preview}`, body) : await charge(body);
         if (!r.orderId) return { error: r.error || tr(f.theme?.lang, 'Payment could not be completed — please try again') };
         store.set(key, r.orderId, sessionStorage);

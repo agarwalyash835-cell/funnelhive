@@ -76,7 +76,7 @@ export const AREAS = [
   { key: 'funnels', label: 'Funnels, templates & pages', desc: 'Build, edit and publish funnels and their pages, saved sections, templates', levels: ALL3, re: /^\/api\/(funnels|templates|saved)(\/|$)/ },
   { key: 'ai', label: 'Hive AI', desc: 'Chat with Hive and use the AI writing / image tools (Hive still only does what the role allows)', levels: ['none', 'edit'], re: /^\/api\/(hive\/(chat|threads)|ai)(\/|$)/ },
   { key: 'crm', label: 'CRM contacts & pipelines', desc: 'Contacts, notes, tags, deals and pipeline stages, CRM fields and kits', levels: ALL3, re: /^\/api\/(contacts|pipelines|crm)(\/|$)/ },
-  { key: 'orders', label: 'Orders, refunds & shipping', desc: 'Orders, refunds, shipping / COD, payment plans and sales invoices', levels: ALL3, re: /^\/api\/(orders|sales-invoices)(\/|$)/ },
+  { key: 'orders', label: 'Orders, refunds & shipping', desc: 'Orders, refunds, shipping / COD, payment plans, sales invoices and affiliates', levels: ALL3, re: /^\/api\/(orders|sales-invoices|affiliates)(\/|$)/ },
   { key: 'products', label: 'Products & courses (School)', desc: 'Products, files, buyer access, coupons, and the School: courses, community, students', levels: ALL3, re: /^\/api\/(products|coupons|access-admin|school)(\/|$)/ },
   { key: 'bookings', label: 'Bookings & calendars', desc: 'Booking pages, call types and booked calls', levels: ALL3, re: /^\/api\/(bookings|calendars)(\/|$)/ },
   { key: 'webinars', label: 'Webinars', desc: 'Webinars, sign-ups and reminders', levels: ALL3, re: /^\/api\/webinars(\/|$)/ },

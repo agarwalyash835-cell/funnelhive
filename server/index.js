@@ -90,6 +90,7 @@ import { registerTalk } from './talk.js';
 import { registerAiBuild } from './aibuild.js';
 import { registerMetaSignup } from './meta-signup.js';
 import { registerWaKnowledge } from './waknow.js';
+import { registerAffiliates, attributeOrder } from './affiliates.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
@@ -1251,6 +1252,7 @@ registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
 registerFulfilment(app, { auth, appUrl });
 registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret: SECRET });
 registerNotifications(app, { auth });
+registerAffiliates(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl, pub, isPreview });
 
 // Templates ship with a placeholder WhatsApp number. On live pages it becomes the seller's
 // "Support WhatsApp" from Settings; with none set, the button is hidden instead of linking nowhere.
@@ -1646,6 +1648,7 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
         order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...(payment?.pm ? { stripePm: payment.pm } : {}), ...((payment?.currency || funnelIso(f)) !== 'INR' ? { currency: payment?.currency || funnelIso(f), fx: fxRate(payment?.currency || funnelIso(f)) } : {}) });
         recoverAbandoned(f, buyer);
       }
+      attributeOrder(f, order, buyer); // affiliates.js: the referring affiliate's commission (never throws)
     });
     const updated = order.items.length > items.length;
     const first = order.items.length - items.length;
@@ -1684,7 +1687,7 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
 const ownerOf = (f) => T.users.get(f.userId);
 const buyerOf = (req, b = req.body) => {
   const attr = cleanAttr(b.attr), gst = cleanBuyerGst(b.gst), address = cleanAddress(b.address);
-  return { ...(address && !address.error ? { address } : {}), ...(address?.error ? { addressError: address.error } : {}), email: String(b.email || '').trim().slice(0, 200), name: String(b.name || '').slice(0, 120), phone: String(b.phone || '').slice(0, 40), source: String(b.source || 'direct').slice(0, 40), visitor: visitorOf(req), tk: cleanTk(b.tk, req), ...(attr ? { attr } : {}), ...(gst && !gst.error ? { gst } : {}), ...(gst?.error ? { gstError: gst.error } : {}) };
+  return { ...(address && !address.error ? { address } : {}), ...(address?.error ? { addressError: address.error } : {}), email: String(b.email || '').trim().slice(0, 200), name: String(b.name || '').slice(0, 120), phone: String(b.phone || '').slice(0, 40), source: String(b.source || 'direct').slice(0, 40), visitor: visitorOf(req), tk: cleanTk(b.tk, req), ...(attr ? { attr } : {}), ...(b.aff ? { aff: String(b.aff).slice(0, 80) } : {}), ...(gst && !gst.error ? { gst } : {}), ...(gst?.error ? { gstError: gst.error } : {}) };
 };
 
 // Demo / preview checkout (no payment provider). Refused once real payments are connected,
