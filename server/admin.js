@@ -130,7 +130,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (!u) return;
     const since = Date.now() - 30 * DAY;
     res.json({
-      ...row(u), tally: adminSeller(u), billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(u.agencyMaxClients ? { agencyClients: u.agencyMaxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
+      ...row(u), tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(u.agencyMaxClients ? { agencyClients: u.agencyMaxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
       counts: {
         funnels: T.funnels.count({ userId: u.id }), published: q("SELECT COUNT(*) AS n FROM funnels WHERE userId = ? AND json_extract(data, '$.published') = 1").get(u.id).n,
         contacts: T.crm.count({ userId: u.id }), leads: T.leads.count({ userId: u.id }), automations: T.automations.count({ userId: u.id }), domains: T.domains.count({ userId: u.id }),
@@ -172,6 +172,9 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       // call; the synced data is kept for when it's switched on again
       case 'tally_on': T.users.update(u.id, (x) => { x.addons = { ...x.addons, tally: true }; }); break;
       case 'tally_off': T.users.update(u.id, (x) => { x.addons = { ...x.addons, tally: false }; }); break;
+      // the Inventory add-on (inventory.js): stock kept in FunnelHive; off hides it, the stock records are kept
+      case 'inventory_on': T.users.update(u.id, (x) => { x.addons = { ...x.addons, inventory: true }; }); break;
+      case 'inventory_off': T.users.update(u.id, (x) => { x.addons = { ...x.addons, inventory: false }; }); break;
       case 'make_admin': T.users.update(u.id, (x) => { x.role = 'admin'; }); break;
       case 'remove_admin': if (u.id === req.user.id) return res.status(400).json({ error: 'You can’t remove your own admin access' }); T.users.update(u.id, (x) => { delete x.role; }); break;
       case 'verify_email': T.users.update(u.id, (x) => { x.emailVerified = true; }); break;

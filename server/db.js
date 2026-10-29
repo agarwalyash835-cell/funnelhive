@@ -167,6 +167,13 @@ const SCHEMA = {
   tunits: { cols: { userId: 0, companyId: 0, guid: (r) => r.tally_guid || null, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false), syncedAt: 0 }, index: [['companyId', 'guid'], ['companyId', 'lname'], ['companyId', 'active']] },
   tgodowns: { cols: { userId: 0, companyId: 0, guid: (r) => r.tally_guid || null, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false), syncedAt: 0 }, index: [['companyId', 'guid'], ['companyId', 'lname'], ['companyId', 'active']] },
   tstock: { cols: { userId: 0, companyId: 0, guid: (r) => r.tally_guid || null, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false), syncedAt: 0 }, index: [['companyId', 'guid'], ['companyId', 'lname'], ['companyId', 'active']] },
+  // ---- inventory (the add-on: stock kept in FunnelHive itself — inventory-core.js) ----
+  // items and godowns by lower-case name; every change in stock is a move (+in / −out), so a balance is a sum of moves
+  iitems: { cols: { userId: 0, lname: (r) => lower(r.name), sku: (r) => (r.sku ? lower(r.sku) : null), barcode: (r) => r.barcode || null, active: (r) => bool(r.active !== false), at: 0 }, index: [['userId', 'lname'], ['userId', 'sku'], ['userId', 'barcode'], ['userId', 'active']] },
+  igodowns: { cols: { userId: 0, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false) }, index: [['userId', 'lname']] },
+  imoves: { cols: { userId: 0, itemId: 0, godownId: 0, kind: 0, day: 0, at: 0 }, index: [['userId', 'at'], ['itemId', 'godownId'], ['userId', 'itemId', 'day'], ['userId', 'kind', 'day']] },
+  // ---- inventory phase 2 tables go here ----
+  // ---- inventory-pro (industry) tables go here ----
   // ---- school: the members area (students, courses, community) ----
   students: { cols: { userId: 0, ckey: 0, at: 0 }, unique: [['userId', 'ckey']], index: [['userId', 'at']] }, // a seller's student: one per email
   ssessions: { cols: { studentId: 0, hash: 0, expiresAt: 0 }, unique: [['hash']], index: [['studentId'], ['expiresAt']] }, // signed-in student devices

@@ -16,6 +16,9 @@ import { TRIGGERS, VARIABLES } from './automations.js';
 import { offerStep } from './actions.js';
 import { EVENTS } from './api.js';
 import { websiteSteps } from './website.js';
+import * as insightTools from './hive-tally-insights.js';
+import * as inventoryTools from './hive-inventory.js';
+import * as proTools from './hive-inventory-pro.js';
 
 const MAX_MODEL_CALLS = 16, RESULT_MAX = 40000; // a full 21-section page with all props is ~25k characters
 
@@ -793,6 +796,8 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     run: async (ctx, a) => { const f = await ctx.call('POST', `/funnels/${a.funnelId}/duplicate`); return { ok: true, id: f.id, name: f.name }; },
     summary: (r) => `Made a copy: “${r.name}”`,
   },
+  // stock insights on Tally, and the Inventory add-on (each module keeps its own tools)
+  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS,
 ];
 const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -826,6 +831,7 @@ const NEEDS_OK = {
   // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
   run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${String(a.slug || '').startsWith('GOOGLEADS') ? 'Google Ads' : 'Meta Ads'} account: ${String(a.slug || '').replace(/^(METAADS|GOOGLEADS)_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
+  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK,
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
@@ -875,7 +881,9 @@ export const TOOL_GROUPS = {
   ads: { about: 'Meta / Google ads (the seller’s connected accounts), ad reports, ad images, tracking pixels', tools: ['find_app_actions', 'run_app_action', 'ads_report', 'generate_image', 'set_tracking'], re: /\b(ads?|advert\w*|meta|facebook|instagram|google|campaigns?|roas|cpa|cpl|pixel|ga4|tracking|creatives?|reels?)\b/i },
   school: { about: 'courses, quizzes, the members community', tools: ['school_overview', 'create_course', 'add_quiz', 'get_course', 'create_space', 'post_to_community'], re: /\b(courses?|school|lessons?|modules?|quiz\w*|community|members? area|students?|certificates?)\b/i },
   website: { about: 'business websites, custom domains, images', tools: ['create_website', 'connect_domain', 'check_domain', 'generate_image'], re: /\b(website|site|about( us)?|home ?page|domains?|dns|cname|images?|photos?|pictures?)\b/i },
-  tally: { about: 'the Tally books (add-on): money owed both ways, vouchers, ledgers, stock, payment reminders, saving vouchers / ledgers into TallyPrime', tools: ['tally_overview', 'find_tally', 'tally_change', 'remind_tally_bill'], re: /\b(tally|ledgers?|vouchers?|outstanding|receivables?|payables?|debtors?|creditors?|udhaar|dues?|stock|godowns?|inventory|purchase|receipts?)\b/i },
+  tally: { about: 'the Tally books (add-on): money owed both ways, vouchers, ledgers, stock, payment reminders, saving vouchers / ledgers into TallyPrime', tools: ['tally_overview', 'find_tally', 'tally_change', 'remind_tally_bill', ...insightTools.TOOLS.map((t) => t.name)], re: /\b(tally|ledgers?|vouchers?|outstanding|receivables?|payables?|debtors?|creditors?|udhaar|dues?|stock|godowns?|inventory|purchase|receipts?)\b/i },
+  inventory: { about: 'the Inventory add-on: items, godowns, stock in / out, low stock, stock from bill photos', tools: inventoryTools.TOOLS.map((t) => t.name), re: /(inventory|stock|godowns?|warehouse|items?|sku|barcode|reorder|restock)/i },
+  inventory_pro: { about: 'inventory for the seller’s industry: bills of materials and production, batches and expiry, salesman routes and schemes, variants and counter billing, rate lists and credit limits', tools: proTools.TOOLS.map((t) => t.name), re: /(bom|bill of materials?|production|raw materials?|batch(es)?|expiry|routes?|beat|schemes?|variants?|sizes?|colou?rs?|counter|rate lists?|credit limits?)/i },
   account: { about: 'business settings, team members, agency clients, tracking, webhooks', tools: ['update_business', 'list_team', 'invite_team_member', 'list_clients', 'copy_funnel_to_client', 'set_tracking', 'connect_webhook'], re: /\b(team|invite|staff|employees?|clients?|agency|business (name|settings)|time ?zone|consent|settings)\b/i },
 };
 const groupOf = Object.fromEntries(Object.entries(TOOL_GROUPS).flatMap(([g, x]) => x.tools.map((n) => [n, g])));

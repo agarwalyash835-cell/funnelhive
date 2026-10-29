@@ -73,6 +73,9 @@ import { notify, money, registerNotifications, unreadCount } from './notify.js';
 import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, hit as countHit } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
 import { registerTally } from './tally.js';
+import { registerTallyInsights } from './tally-insights.js';
+import { registerInventory } from './inventory.js';
+import { registerInventoryPro } from './inventory-pro.js';
 import './tally-crm.js'; // Tally customer / supplier ledgers → CRM contacts
 import { registerTallyReminders } from './tally-remind.js';
 import { registerTallyOcr } from './tally-ocr.js';
@@ -472,6 +475,7 @@ app.get('/api/me', auth, (req, res) => {
       unread: unreadCount(req.user.id), // notifications (the bell)
       industry: s.crmKit?.id || null, // the menu starts from the business's industry (its CRM kit)
       tally: !!req.user.addons?.tally, // the Tally add-on (tally.js): its page joins the menu
+      inventory: !!req.user.addons?.inventory, // the Inventory add-on (inventory.js): its page joins the menu
       prefs: (req.actor || req.user).settings?.navPrefs?.[req.user.id] || null, // this person's own layout here
       clientMenu: (req.user.agencyId && T.users.get(req.user.agencyId)?.settings?.clientMenu) || null, // its agency's default
     },
@@ -967,6 +971,9 @@ registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerTally(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl });
+registerTallyInsights(app, { auth, wrap, rateLimit, isTest, appUrl });
+registerInventory(app, { auth, wrap, rateLimit, isTest, appUrl });
+registerInventoryPro(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerTallyReminders(app, { auth, wrap, rateLimit, isTest });
 registerTallyOcr(app, { auth, wrap, rateLimit, isTest, credits });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
