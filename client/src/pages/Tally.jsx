@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtDate } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, confirmDialog, inr, ago } from '../ui';
+import '../tally-insights.css';
 
 const TABS = [['overview', 'Overview'], ['ledgers', 'Ledgers'], ['vouchers', 'Vouchers'], ['outstandings', 'Bills'], ['stock', 'Stock'], ['activity', 'Activity']];
 const VSTATUS = { POSTED: ['Posted', 'ok'], DUE: ['Overdue', 'bad'], CANCELLED: ['Cancelled', ''], OPTIONAL: ['Optional', 'info'] };
@@ -73,7 +74,7 @@ export default function Tally() {
           {tab === 'ledgers' && <List kind="ledgers" rev={rev} onOpen={(row) => setForm({ kind: 'ledgers', row })} />}
           {tab === 'vouchers' && <List kind="vouchers" rev={rev} onOpen={(row) => setForm({ kind: 'vouchers', row })} voucherTypes={s.voucherTypes} />}
           {tab === 'outstandings' && <List kind="outstandings" rev={rev} onOpen={(row) => row.voucherId && setForm({ kind: 'vouchers', row: { id: row.voucherId } })} />}
-          {tab === 'stock' && <List kind="stock" rev={rev} onOpen={(row) => setForm({ kind: 'stock', row })} />}
+          {tab === 'stock' && <><StockInsights rev={rev} onOpen={(row) => setForm({ kind: 'stock', row })} /><List kind="stock" rev={rev} onOpen={(row) => setForm({ kind: 'stock', row })} /></>}
           {tab === 'activity' && <Activity rev={rev} />}
         </>
       )}
@@ -275,6 +276,82 @@ function List({ kind, rev, onOpen, voucherTypes }) {
       {d && d.total > 50 && <div className="row tl-pager"><button className="btn ghost sm" disabled={!q.offset} onClick={() => set({ offset: Math.max(0, q.offset - 50) })}>Previous</button><small className="muted">{q.offset + 1}–{Math.min(q.offset + 50, d.total)} of {d.total.toLocaleString('en-IN')}</small><button className="btn ghost sm" disabled={q.offset + 50 >= d.total} onClick={() => set({ offset: q.offset + 50 })}>Next</button></div>}
     </Panel>
     </>
+  );
+}
+
+// stock insights above the stock list (server/tally-insights.js): what to reorder and how much, dead / fast / slow
+// stock, and purchase-order drafts per supplier the seller copies or opens in WhatsApp themselves
+const qtyU = (n, unit) => `${Number(n || 0).toLocaleString('en-IN')}${unit ? ` ${unit}` : ''}`;
+const daysPill = (x, lead) => (x.daysLeft == null ? '—' : x.stock <= 0 ? <span className="pill bad">Out of stock</span> : <span className={`pill ${x.daysLeft <= lead ? 'bad' : x.daysLeft <= 30 ? 'warn' : 'info'}`}>{x.daysLeft.toLocaleString('en-IN')} {x.daysLeft === 1 ? 'day' : 'days'}</span>);
+function StockInsights({ rev, onOpen }) {
+  const [d, setD] = useState(null);
+  const [po, setPo] = useState(null);
+  const [view, setView] = useState('reorder');
+  useEffect(() => {
+    api('/tally/insights').then(setD).catch((e) => setD({ error: e.message }));
+    api('/tally/insights/purchase-orders').then(setPo).catch(() => setPo({ orders: [] }));
+  }, [rev]);
+  if (!d) return <div className="skeleton ti-skel" />;
+  if (d.error) return null; // the list below still works
+  const n = (c, one, many) => `${c.toLocaleString('en-IN')} ${c === 1 ? one : many}`;
+  const cards = [
+    ['reorder', 'Reorder now', d.counts.reorder.toLocaleString('en-IN'), d.counts.reorder ? `run out within ${d.leadDays} days` : 'nothing running out', 'bell', d.counts.reorder ? 'bad' : 'in'],
+    ['orders', 'Purchase orders', po ? (po.orders?.length || 0).toLocaleString('en-IN') : '…', 'drafts by supplier', 'cart', 'out'],
+    ['dead', 'Dead stock', money(d.deadValue), d.counts.dead ? `${n(d.counts.dead, 'item', 'items')} · no sale in 90 days` : 'everything is selling', 'clock', d.counts.dead ? 'out' : 'in'],
+    ['fast', 'Fast movers', d.counts.fast.toLocaleString('en-IN'), 'top sellers, last 90 days', 'chart', 'in'],
+    ['slow', 'Slow movers', money(d.slowValue), d.counts.slow ? `${n(d.counts.slow, 'item', 'items')} · ${d.slowDays}+ days of stock` : 'no overstock', 'layers'],
+  ];
+  const item = (x) => <div className="tl-who"><span className="tl-av sm box" aria-hidden="true"><Icon name="box" size={14} /></span><div><b>{x.name}</b>{x.group && <small className="sub-t">{x.group}</small>}</div></div>;
+  const supplier = (x) => (x.supplier ? <>{x.supplier}{x.lastRate != null && <small className="sub-t">last {inr(x.lastRate)}{x.lastPurchased ? ` · ${fmtDate(x.lastPurchased)}` : ''}</small>}</> : <small className="muted">Not bought in Tally yet</small>);
+  const TABLES = {
+    reorder: { rows: d.reorder, empty: ['check', 'Nothing to reorder right now', `No item runs out within ${d.leadDays} days at the speed it’s selling.`], head: ['Item', 'In stock', 'Sells a day', 'Lasts', 'Order', 'Last supplier'], row: (x) => [item(x), <span className={x.stock <= 0 ? 'bad-t' : ''}>{qtyU(x.stock, x.unit)}</span>, x.perDay.toLocaleString('en-IN'), daysPill(x, d.leadDays), <b className="ti-qty">{qtyU(x.reorderQty, x.unit)}</b>, supplier(x)] },
+    dead: { rows: d.dead, empty: ['check', 'No dead stock', 'Every item in stock sold at least once in the last 90 days.'], head: ['Item', 'In stock', 'Money stuck', 'Last bought'], row: (x) => [item(x), qtyU(x.stock, x.unit), <b className="ti-stuck">{money(x.value)}</b>, supplier(x)] },
+    fast: { rows: d.fast, empty: ['chart', 'No sales in the last 90 days', 'Fast movers show up once Sales vouchers with items sync from Tally.'], head: ['Item', 'Sold (30 days)', 'Sold (90 days)', 'Sells a day', 'Lasts'], row: (x) => [item(x), qtyU(x.sold30, x.unit), qtyU(x.sold90, x.unit), x.perDay.toLocaleString('en-IN'), daysPill(x, d.leadDays)] },
+    slow: { rows: d.slow, empty: ['check', 'No slow movers', `Nothing holds more than ${d.slowDays} days of stock at its current speed.`], head: ['Item', 'In stock', 'Sells a day', 'Lasts', 'Value'], row: (x) => [item(x), qtyU(x.stock, x.unit), x.perDay.toLocaleString('en-IN'), daysPill(x, d.leadDays), money(x.value)] },
+  };
+  const t = TABLES[view];
+  return (
+    <section className="ti" aria-label="Stock insights">
+      <div className="tl-strip ti-cards" role="tablist">{cards.map(([k, label, value, sub, icon, tone]) => (
+        <button key={k} type="button" role="tab" aria-selected={view === k} className={`tl-stat ti-card ${tone || ''} ${view === k ? 'on' : ''}`} onClick={() => setView(k)}>
+          <span className="tl-stat-ic"><Icon name={icon} size={14} /></span>
+          <div><small>{label}</small><b>{value}</b><em>{sub}</em></div>
+        </button>
+      ))}</div>
+      {view === 'orders' ? <PurchaseOrders po={po} lead={d.leadDays + d.safetyDays} /> : (
+        <Panel pad={false} title={`${cards.find((c) => c[0] === view)[1]}${t.rows.length ? ` · ${t.rows.length.toLocaleString('en-IN')}` : ''}`} actions={<small className="muted">From sales in Tally up to {fmtDate(d.asOf)} · orders cover {d.leadDays} days’ delivery + {d.safetyDays} days’ cushion</small>}>
+          {!t.rows.length ? <Empty icon={t.empty[0]} title={t.empty[1]} text={t.empty[2]} /> : (
+            <div className="tbl-wrap tl-tbl ti-tbl"><table className="tbl">
+              <thead><tr>{t.head.map((h, i) => <th key={h} className={i && i < t.head.length - (view === 'reorder' || view === 'dead' ? 1 : 0) ? 'r' : ''}>{h}</th>)}</tr></thead>
+              <tbody>{t.rows.map((x) => <tr key={x.id} className="click" onClick={() => onOpen(x)}>{t.row(x).map((cell, i) => <td key={i} className={i && i < t.head.length - (view === 'reorder' || view === 'dead' ? 1 : 0) ? 'r' : ''}>{cell}</td>)}</tr>)}</tbody>
+            </table></div>
+          )}
+        </Panel>
+      )}
+    </section>
+  );
+}
+// one draft per supplier: the items, a ready message, Copy and Open in WhatsApp (nothing is sent from here)
+function PurchaseOrders({ po, lead }) {
+  if (!po) return <div className="skeleton ti-skel" />;
+  if (!po.orders?.length) return <Panel><Empty icon="check" title="No purchase orders needed" text={`Nothing runs out within the next ${lead} days at the speed it’s selling.`} /></Panel>;
+  const copy = (o) => navigator.clipboard?.writeText(o.message).then(() => toast(`Order for ${o.supplier || 'the supplier'} copied — paste it in WhatsApp or email`), () => toast('Couldn’t copy — select the text instead'));
+  return (
+    <div className="ti-pos">{po.orders.map((o) => (
+      <article key={o.supplier || '-'} className="ti-po">
+        <header>
+          <span className="tl-av" aria-hidden="true">{o.supplier ? initials(o.supplier) : '?'}</span>
+          <div><b>{o.supplier || 'No supplier on record'}</b><small className="muted">{o.items.length} {o.items.length === 1 ? 'item' : 'items'}{o.approxTotal ? ` · about ${inr(o.approxTotal)} at last rates` : ''}{o.urgent ? ` · ${o.urgent} urgent` : ''}</small></div>
+        </header>
+        <ul className="ti-po-items">{o.items.map((i) => <li key={i.id}><span>{i.name}{i.urgent && <em className="pill bad">urgent</em>}</span><b>{qtyU(i.qty, i.unit)}</b><small className="muted">{i.lastRate != null ? `@ ${inr(i.lastRate)}` : 'no rate yet'}</small></li>)}</ul>
+        <pre className="ti-po-msg">{o.message}</pre>
+        <footer>
+          <button type="button" className="btn ghost sm" onClick={() => copy(o)}><Icon name="copy" size={14} /> Copy</button>
+          {o.whatsapp ? <a className="btn sm ti-wa" href={o.whatsapp} target="_blank" rel="noopener noreferrer"><Icon name="chat" size={14} /> Open in WhatsApp</a>
+            : <small className="muted">{o.supplier ? 'No mobile number on this supplier’s ledger in Tally — copy the message instead.' : 'Pick a supplier for these, then copy the message.'}</small>}
+        </footer>
+      </article>
+    ))}</div>
   );
 }
 
