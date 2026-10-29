@@ -1,0 +1,20 @@
+/* Cash on Delivery controls: Settings panel, Orders statuses, checkout PIN code messages */
+.cod-set { display: grid; gap: 10px; }
+.cod-set h4 { margin: 10px 0 0; font-size: 14px; }
+.cod-set textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 13px; }
+.cod-set input[type='number'] { width: 90px; display: inline-block; margin: 0 6px; }
+.cod-row { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+.cod-full, .cod-csv { display: grid; gap: 4px; }
+.cod-seg { justify-self: start; }
+
+.pill.cod-st { margin-left: 6px; }
+.cod-box { border: 1px solid var(--line, #e5e7eb); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.cod-box .row { flex-wrap: wrap; gap: 6px; }
+.cod-risk { font-size: 13px; }
+.cod-risk.bad { color: #b42318; }
+
+.co-pin-msg { font-size: 13px; margin: 2px 0 6px; }
+.co-pin-msg.bad { color: #b42318; }
+.co-pin-msg.warn { color: #b45309; }
+.co-pin-msg.hint { opacity: 0.7; }
+.paym .pm.off { opacity: 0.45; pointer-events: none; }

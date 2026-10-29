@@ -995,6 +995,21 @@ function Checkout({ p, ctx }) {
   const ships = p.shipping === 'address';
   const [addr, setAddr] = useState({ line1: '', line2: '', city: '', state: '', pincode: '' });
   const [method, setMethod] = useState('online');
+  // the seller's PIN code rules, checked as soon as 6 digits are typed: { valid, deliverable, cod, state, message }
+  const [pin, setPin] = useState(null);
+  const [stateGuess, setStateGuess] = useState(false);
+  useEffect(() => {
+    if (!ships || !ctx.live || !ctx.onPincode || !/^[1-9][0-9]{5}$/.test(addr.pincode)) { setPin(null); return; }
+    let on = true;
+    ctx.onPincode(addr.pincode).then((r) => {
+      if (!on || !r || r.error) return;
+      setPin(r);
+      if (r.state && !addr.state) { setAddr((a) => (a.state ? a : { ...a, state: r.state })); setStateGuess(true); }
+      if (!r.cod) setMethod('online');
+    });
+    return () => { on = false; };
+  }, [addr.pincode]);
+  const noCodHere = !!pin && pin.valid && !pin.cod;
   const shipFee = ships ? Number(p.shippingFee) || 0 : 0, codFee = p.cod && method === 'cod' ? Number(p.codFee) || 0 : 0;
   // business buyers can ask for a GST invoice with their GSTIN (when the seller issues GST invoices)
   const [biz, setBiz] = useState(false);
@@ -1051,8 +1066,12 @@ function Checkout({ p, ctx }) {
               <input required aria-label={tr(ctx.lang, 'House / flat, street')} placeholder={tr(ctx.lang, 'House / flat, street')} value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} />
               <input aria-label={tr(ctx.lang, 'Area, landmark (optional)')} placeholder={tr(ctx.lang, 'Area, landmark (optional)')} value={addr.line2} onChange={(e) => setAddr({ ...addr, line2: e.target.value })} />
               <div className="three"><input required aria-label={tr(ctx.lang, 'City')} placeholder={tr(ctx.lang, 'City')} value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} />
-                <select value={addr.state} onChange={(e) => setAddr({ ...addr, state: e.target.value })}><option value="">{tr(ctx.lang, 'State')}</option>{IN_STATES.map((s) => <option key={s}>{s}</option>)}</select>
+                <select value={addr.state} onChange={(e) => { setStateGuess(false); setAddr({ ...addr, state: e.target.value }); }}><option value="">{tr(ctx.lang, 'State')}</option>{IN_STATES.map((s) => <option key={s}>{s}</option>)}</select>
                 <input required inputMode="numeric" pattern="[1-9][0-9]{5}" maxLength={6} aria-label={tr(ctx.lang, 'PIN code')} placeholder={tr(ctx.lang, 'PIN code')} value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, '') })} /></div>
+              {pin && !pin.valid && <p className="co-pin-msg bad" role="alert">{tr(ctx.lang, pin.message)}</p>}
+              {pin && pin.valid && !pin.deliverable && <p className="co-pin-msg bad" role="alert">{tr(ctx.lang, 'We don’t deliver to this PIN code yet')}</p>}
+              {pin && pin.deliverable && !pin.cod && p.cod && <p className="co-pin-msg warn">{tr(ctx.lang, 'Cash on Delivery isn’t available here — please pay online')}</p>}
+              {stateGuess && addr.state && <p className="co-pin-msg hint">{tr(ctx.lang, 'State suggested from the PIN code — change it if it’s wrong')}</p>}
             </div>
           )}
           <div className="co-step"><span className="co-n">2</span> <E ctx={ctx} k="step2" v={p.step2} keep /></div>
@@ -1065,7 +1084,7 @@ function Checkout({ p, ctx }) {
           {p.cod && !instal && !per ? (
             <div className="paym two-way">
               <label className={`pm ${method === 'online' ? 'on' : ''}`}><input type="radio" name="pm" checked={method === 'online'} onChange={() => setMethod('online')} /><b>{tr(ctx.lang, 'Pay online')}</b><small>{tr(ctx.lang, 'UPI · cards · netbanking')}</small></label>
-              <label className={`pm ${method === 'cod' ? 'on' : ''}`}><input type="radio" name="pm" checked={method === 'cod'} onChange={() => setMethod('cod')} /><b>{tr(ctx.lang, 'Cash on Delivery')}</b><small>{Number(p.codFee) > 0 ? `+${money(p.currency, Number(p.codFee))}` : tr(ctx.lang, 'Pay when it arrives')}</small></label>
+              <label className={`pm ${method === 'cod' ? 'on' : ''} ${noCodHere ? 'off' : ''}`}><input type="radio" name="pm" checked={method === 'cod'} disabled={noCodHere} onChange={() => setMethod('cod')} /><b>{tr(ctx.lang, 'Cash on Delivery')}</b><small>{Number(p.codFee) > 0 ? `+${money(p.currency, Number(p.codFee))}` : tr(ctx.lang, 'Pay when it arrives')}</small></label>
             </div>
           ) : (
             <div className="paym">{(p.currency && p.currency !== '₹' ? ['Card', 'Apple Pay', 'Google Pay'] : ['UPI', 'Card', 'NetBanking', 'Wallet']).map((m) => (
@@ -1080,7 +1099,7 @@ function Checkout({ p, ctx }) {
           )}
           {canSave && !ctx.editable && <label className="co-savecard" style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, margin: '4px 0' }}><input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} />{tr(ctx.lang, 'Save my card for faster checkout next time')}</label>}
           {payErr && <p className="c-err" role="alert">{payErr}</p>}
-          {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy}>{busy ? tr(ctx.lang, 'Processing…') : method === 'cod' && p.cod && !instal && !per ? tr(ctx.lang, 'Place order · pay {amount} on delivery', { amount: money(p.currency, total) }) : per ? tr(ctx.lang, 'Subscribe · {amount}/{per}', { amount: money(p.currency, today), per: tr(ctx.lang, per) }) : `${payLabel(p.buttonText) || tr(ctx.lang, 'Pay Securely')} · ${money(p.currency, total)}${instal ? tr(ctx.lang, ' today') : ''}`}</Btn>}
+          {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy || (!!pin && pin.valid && !pin.deliverable)}>{busy ? tr(ctx.lang, 'Processing…') : method === 'cod' && p.cod && !instal && !per ? tr(ctx.lang, 'Place order · pay {amount} on delivery', { amount: money(p.currency, total) }) : per ? tr(ctx.lang, 'Subscribe · {amount}/{per}', { amount: money(p.currency, today), per: tr(ctx.lang, per) }) : `${payLabel(p.buttonText) || tr(ctx.lang, 'Pay Securely')} · ${money(p.currency, total)}${instal ? tr(ctx.lang, ' today') : ''}`}</Btn>}
           {p.secureText && <E ctx={ctx} k="secureText" v={p.secureText} as="p" className="secure" />}
           {ctx.privacy && !ctx.editable && <p className="fconsent">{tr(ctx.lang, 'By paying you agree to the')} <a href={ctx.privacy.terms} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Terms')}</a>, <a href={ctx.privacy.terms.replace(/terms$/, 'refund')} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Refund Policy')}</a> {tr(ctx.lang, 'and')} <a href={ctx.privacy.policy} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Privacy Policy')}</a>.</p>}
         </form>

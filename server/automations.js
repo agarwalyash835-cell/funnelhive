@@ -25,6 +25,8 @@ export const TRIGGERS = {
   booking: 'Someone books a call',
   booking_cancelled: 'Someone cancels a booked call',
   shipped: 'An order is shipped (courier + tracking)',
+  cod_confirmed: 'A buyer confirms their Cash on Delivery order',
+  cod_cancelled: 'A buyer cancels their Cash on Delivery order',
   renewal: 'A membership renews / an instalment is paid',
   payment_failed: 'A membership or instalment payment fails',
   webinar_registered: 'Someone registers for a webinar',

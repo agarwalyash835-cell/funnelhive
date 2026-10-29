@@ -61,6 +61,7 @@ import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
 import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
 import { registerFulfilment, cleanAddress } from './fulfilment.js';
+import { registerCod, codCheckoutError, shipError, codPlaced } from './cod.js';
 import { registerBroadcasts } from './broadcasts.js';
 import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows, customPerms, memberRole } from './team.js';
 import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan, needsAfa, AFA_NOTE } from './plans.js';
@@ -1242,6 +1243,7 @@ registerReports(app, { auth });
 registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signFor: sign });
 registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
 registerFulfilment(app, { auth, appUrl });
+registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret: SECRET });
 registerNotifications(app, { auth });
 
 // Templates ship with a placeholder WhatsApp number. On live pages it becomes the seller's
@@ -1656,6 +1658,7 @@ app.post('/api/public/:slug/order', (req, res) => {
   const buyer = buyerOf(req);
   if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
   if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
+  if (shipError(ownerOf(f), charge, buyer)) return res.status(400).json({ error: shipError(ownerOf(f), charge, buyer), code: 'pincode' });
   if (waPhoneError(f, charge, buyer, req.body.orderId)) return res.status(400).json({ error: waPhoneError(f, charge, buyer, req.body.orderId) });
   if (!preview && req.body.orderId && twiceError(T.orders.get(req.body.orderId), f, charge)) return res.status(409).json({ error: twiceError(T.orders.get(req.body.orderId), f, charge) });
   delete buyer.tk; // nothing is reported to ad platforms from the server for unpaid demo orders
@@ -1677,8 +1680,13 @@ app.post('/api/public/:slug/cod', codLimiter, (req, res) => {
   if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
   if (!/^\d{10}$/.test(String(buyer.phone).replace(/\D/g, '').replace(/^91(?=\d{10}$)/, ''))) return res.status(400).json({ error: 'Please enter your 10-digit mobile number — the courier will call before delivery' });
   if (waPhoneError(f, charge, buyer)) return res.status(400).json({ error: waPhoneError(f, charge, buyer) });
+  // the seller's COD rules (cod.js): PIN codes, a maximum order value, the number's earlier COD orders
+  const risk = codCheckoutError(ownerOf(f), charge, buyer);
+  if (risk) return res.status(400).json(risk);
   if (isPreview(req)) return res.json(recordOrder(f, charge, buyer, { preview: true }));
-  res.json({ provider: 'cod', ...recordOrder(f, charge, buyer, { cod: true, base: appUrl(req) }) });
+  const out = recordOrder(f, charge, buyer, { cod: true, base: appUrl(req) });
+  codPlaced(ownerOf(f), out.orderId, appUrl(req)); // the buyer is asked to confirm (when the seller turned that on)
+  res.json({ provider: 'cod', ...out });
 });
 
 // ---------- Razorpay ----------
@@ -1719,6 +1727,7 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
   const buyer = buyerOf(req);
   if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
   if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
+  if (shipError(owner, charge, buyer)) return res.status(400).json({ error: shipError(owner, charge, buyer), code: 'pincode' });
   const prev = req.body.orderId && T.orders.get(req.body.orderId);
   const waErr = waPhoneError(f, charge, buyer, prev && prev.funnelId === f.id ? prev.id : null);
   if (waErr) return res.status(400).json({ error: waErr });

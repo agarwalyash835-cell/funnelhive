@@ -9,9 +9,13 @@ const ST = `IFNULL(${J('status')}, '')`;
 // testOrder (db.js) in SQL: paid with test keys, or placed while no payment provider was connected
 const TEST = `(IFNULL(${J('mode')} = 'test', 0) OR (IFNULL(${J('provider')}, '') IN ('', 0) AND NOT IFNULL(x.demo, 0) AND IFNULL(${J('paymentMethod')}, '') <> 'cod' AND IFNULL(x.total, 0) > 0 AND ${ST} NOT IN ('cod', 'cancelled')))`;
 const REAL = `(NOT ${TEST} AND ${ST} NOT IN ('cod', 'cancelled'))`; // real money came in
+const RTO = `(${J('rtoAt')} IS NOT NULL OR ${J('cancelReason')} = 'returned')`;
 const STATUS = {
   paid: `(${REAL} AND ${ST} <> 'refunded')`, cod: `${ST} = 'cod'`,
   ship: `(${J('fulfilment.status')} = 'pending' AND ${ST} NOT IN ('cancelled', 'refunded'))`,
+  // Cash on Delivery confirmation (cod.js) and returned to origin
+  cod_pending: `(${ST} = 'cod' AND ${J('codStatus')} = 'pending')`, cod_confirmed: `(${ST} = 'cod' AND ${J('codStatus')} = 'confirmed')`,
+  cod_unconfirmed: `(${ST} = 'cod' AND ${J('codStatus')} = 'unconfirmed')`, cod_cancelled: `${J('codStatus')} = 'cancelled'`, rto: RTO,
   refunded: `${ST} IN ('refunded', 'partially_refunded')`, plan: `IFNULL(json_type(x.data, '$.plan'), 'null') NOT IN ('null', 'false')`, test: TEST,
 };
 // the funnel's name as the page shows it: live funnels by id, a deleted one by the name its orders carry
@@ -59,12 +63,13 @@ export function orderPage(userId, names, opts = {}) {
     if (!opts.cursor) {
       const k = q(`WITH ${FN} SELECT COUNT(*) AS n, TOTAL(CASE WHEN ${st} THEN 1 END) AS shown, TOTAL(CASE WHEN ${REAL} THEN 1 END) AS paid,
         TOTAL(CASE WHEN ${REAL} THEN IFNULL(x.total, 0) * ${FX} END) AS revenue, TOTAL(CASE WHEN NOT ${TEST} THEN IFNULL(${J('refunded')}, 0) * ${FX} END) AS refunded,
-        TOTAL(CASE WHEN ${ST} = 'cod' THEN IFNULL(x.total, 0) * ${FX} END) AS codDue, TOTAL(CASE WHEN ${TEST} THEN 1 END) AS tests
+        TOTAL(CASE WHEN ${ST} = 'cod' THEN IFNULL(x.total, 0) * ${FX} END) AS codDue, TOTAL(CASE WHEN ${TEST} THEN 1 END) AS tests,
+        TOTAL(CASE WHEN ${RTO} THEN 1 END) AS rto, TOTAL(CASE WHEN ${STATUS.cod_unconfirmed} THEN 1 END) AS codUnconfirmed
         FROM orders x LEFT JOIN fn ON fn.fid = x.funnelId WHERE ${where}`).get({ ...base, ...a });
       const toShip = q(`SELECT COUNT(*) AS n FROM orders x WHERE x.userId = $uid AND ${STATUS.ship}`).get({ uid: userId }).n;
       const funnels = q(`WITH ${FN} SELECT DISTINCT ${FUNNEL} AS f FROM orders x LEFT JOIN fn ON fn.fid = x.funnelId WHERE x.userId = $uid`).all(base).map((r) => r.f).sort();
       // revenue: paid orders after refunds (a refund already comes off total), COD once collected, never test orders
-      out.kpis = { revenue: k.revenue, paid: k.paid, aov: k.paid ? k.revenue / k.paid : 0, refunded: k.refunded, codDue: k.codDue, tests: k.tests, orders: k.n, toShip };
+      out.kpis = { revenue: k.revenue, paid: k.paid, aov: k.paid ? k.revenue / k.paid : 0, refunded: k.refunded, codDue: k.codDue, tests: k.tests, orders: k.n, toShip, rto: k.rto, codUnconfirmed: k.codUnconfirmed };
       Object.assign(out, { total: k.shown, funnels });
     }
   }
