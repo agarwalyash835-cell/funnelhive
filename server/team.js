@@ -77,6 +77,7 @@ export const AREAS = [
   { key: 'broadcasts', label: 'Campaigns', desc: 'WhatsApp and email campaigns to a segment of your list, and AI calling campaigns', levels: ALL3, re: /^\/api\/(broadcasts|voice|campaign-templates)(\/|$)/, viewPost: /^\/api\/(broadcasts|voice)\/audience$/ },
   { key: 'files', label: 'Vault files', desc: 'Private files and folders, and sharing them', levels: ALL3, re: /^\/api\/vault(\/(files|folders|shares)(\/|$)|$)/ },
   { key: 'secrets', label: 'Vault passwords & notes', desc: 'Saved passwords and secure notes (view = can reveal them)', levels: ALL3, re: /^\/api\/vault\/secrets(\/|$)/, viewPost: /^\/api\/vault\/secrets\/[^/]+\/reveal$/ },
+  { key: 'tally', label: 'Tally', desc: 'The Tally mirror (ledgers, vouchers, outstanding bills, stock) and changes sent to TallyPrime', levels: ALL3, re: /^\/api\/tally(\/|$)/ },
   { key: 'ads', label: 'Ads & ad spend', desc: 'Ad spend (Meta sync, CSV), conversions sent to ad platforms', levels: ALL3, re: /^\/api\/(adspend|conversions|gads)(\/|$)/ },
   { key: 'settings', label: 'Settings & integrations', desc: 'Business settings, payments and channels, domains, webhooks, apps, privacy', levels: ALL3, re: /^\/api\/(settings|lead-sources|webhooks|v1\/hooks|channels|domains|demo|privacy|integrations|google)(\/|$)/ },
   { key: 'team', label: 'Team management', desc: 'Invite and remove people, edit roles (never billing or deleting the account)', levels: ALL3, re: /^\/api\/team\/(members|invite|roles)(\/|$)/ },

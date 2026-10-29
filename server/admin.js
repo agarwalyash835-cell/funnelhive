@@ -167,6 +167,10 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         if (mc) o.agencyClients = mc;
         detail = Object.keys(o).length ? JSON.stringify(o) : 'plan default'; break;
       }
+      // the Tally add-on (tally.js): the seller's Tally menu, connector and mirror. Off stops the connector at its next
+      // call; the synced data is kept for when it's switched on again
+      case 'tally_on': T.users.update(u.id, (x) => { x.addons = { ...x.addons, tally: true }; }); break;
+      case 'tally_off': T.users.update(u.id, (x) => { x.addons = { ...x.addons, tally: false }; }); break;
       case 'make_admin': T.users.update(u.id, (x) => { x.role = 'admin'; }); break;
       case 'remove_admin': if (u.id === req.user.id) return res.status(400).json({ error: 'You can’t remove your own admin access' }); T.users.update(u.id, (x) => { delete x.role; }); break;
       case 'verify_email': T.users.update(u.id, (x) => { x.emailVerified = true; }); break;

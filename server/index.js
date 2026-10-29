@@ -72,6 +72,7 @@ import { registerWebinars, registrationFor, previewSession } from './webinars.js
 import { notify, money, registerNotifications, unreadCount } from './notify.js';
 import { checkoutPhone, phoneTail, ordersByPhone, onShutdown, realSetInterval, hit as countHit } from './db.js';
 import { registerHiveWhatsApp, waEvent, sellerAlert, waRequired, waPhoneOk } from './hive-wa.js';
+import { registerTally } from './tally.js';
 import { registerWaInbox } from './wainbox.js';
 import { registerShopify } from './shopify.js';
 import { registerDashKit } from './dashkit.js';
@@ -99,6 +100,7 @@ app.use(securityHeaders);
 const ALLOWED = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 app.use(cors({ origin: (origin, cb) => cb(null, !origin || ALLOWED.includes(origin)) }));
 app.use('/api/uploads', express.json({ limit: '8mb' }));
+app.use('/api/v1/agent/tally', express.json({ limit: '16mb' })); // the Tally connector uploads up to 5,000 vouchers at a time
 app.use('/api/razorpay/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 app.use('/api/stripe/webhook', express.raw({ type: '*/*', limit: '1mb' }));
@@ -959,6 +961,7 @@ app.get('/api/funnels/:id/analytics', auth, (req, res) => {
 registerCrm(app, { auth, rateLimit, isTest, onEvent: fireAutomation });
 registerChannels(app, { auth, wrap, rateLimit, isTest });
 registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUrl });
+registerTally(app, { auth, wrap, rateLimit, isTest, secret: SECRET, appUrl });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
 registerShopify(app, { auth, wrap, rateLimit, isTest });
 registerDashKit(app, { auth });

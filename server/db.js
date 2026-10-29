@@ -153,6 +153,20 @@ const SCHEMA = {
   audit: { cols: { actorId: 0, userId: 0, at: 0 }, index: [['at'], ['userId', 'at']] },
   sessions: { cols: { userId: 0, expiresAt: 0 }, index: [['userId', 'expiresAt'], ['expiresAt']] }, // signed-in devices (security.js)
   platform: { cols: {} },
+  // Tally (tally.js): connected PCs, one-time connect codes, the queued writes, sync history, and the mirror of each
+  // company — masters keyed by Tally guid or lower-case name, vouchers by guid / type+number / our import remote id
+  tagents: { cols: { userId: 0, tokenHash: 0, fingerprint: 0, status: 0, lastSeenAt: 0 }, unique: [['tokenHash']], index: [['userId'], ['status', 'lastSeenAt']] },
+  tcodes: { cols: { userId: 0, hash: 0, expiresAt: 0 }, unique: [['hash']], index: [['userId'], ['expiresAt']] },
+  tcommands: { cols: { userId: 0, agentId: 0, status: 0, command_type: 0, priority: 0, at: 0, expiresAt: 0 }, index: [['agentId', 'status', 'priority', 'at'], ['userId', 'at'], ['status', 'expiresAt'], ['agentId', 'command_type', 'status']] },
+  truns: { cols: { userId: 0, agentId: 0, at: 0 }, index: [['userId', 'at'], ['at']] },
+  tcompanies: { cols: { userId: 0, agentId: 0, guid: (c) => c.tally_guid || null, at: 0 }, index: [['userId', 'guid'], ['agentId', 'guid']] },
+  tledgers: { cols: { userId: 0, companyId: 0, guid: (r) => r.tally_guid || null, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false), syncedAt: 0 }, index: [['companyId', 'guid'], ['companyId', 'lname'], ['companyId', 'active']] },
+  tvouchers: { cols: { userId: 0, companyId: 0, guid: (r) => r.tally_guid || null, remoteId: 0, vtype: (r) => r.voucher_type || null, vnum: (r) => r.voucher_number || null, status: 0, active: (r) => bool(r.active !== false), syncedAt: 0, at: 0 }, index: [['companyId', 'guid'], ['userId', 'guid'], ['remoteId'], ['companyId', 'vtype', 'vnum'], ['companyId', 'vnum'], ['companyId', 'status'], ['companyId', 'active']] },
+  tbills: { cols: { companyId: 0, voucherId: 0, bname: 0, btype: 0 }, index: [['companyId', 'bname', 'btype'], ['voucherId']] }, // bill allocations: which voucher raised a bill
+  touts: { cols: { userId: 0, companyId: 0, okey: 0, voucherId: 0, status: 0, active: (r) => bool(r.active !== false), syncedAt: 0 }, unique: [['companyId', 'okey']], index: [['companyId', 'active'], ['voucherId'], ['userId', 'status']] }, // outstanding bills, receivable and payable
+  tunits: { cols: { userId: 0, companyId: 0, guid: (r) => r.tally_guid || null, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false), syncedAt: 0 }, index: [['companyId', 'guid'], ['companyId', 'lname'], ['companyId', 'active']] },
+  tgodowns: { cols: { userId: 0, companyId: 0, guid: (r) => r.tally_guid || null, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false), syncedAt: 0 }, index: [['companyId', 'guid'], ['companyId', 'lname'], ['companyId', 'active']] },
+  tstock: { cols: { userId: 0, companyId: 0, guid: (r) => r.tally_guid || null, lname: (r) => lower(r.name), active: (r) => bool(r.active !== false), syncedAt: 0 }, index: [['companyId', 'guid'], ['companyId', 'lname'], ['companyId', 'active']] },
   // ---- school: the members area (students, courses, community) ----
   students: { cols: { userId: 0, ckey: 0, at: 0 }, unique: [['userId', 'ckey']], index: [['userId', 'at']] }, // a seller's student: one per email
   ssessions: { cols: { studentId: 0, hash: 0, expiresAt: 0 }, unique: [['hash']], index: [['studentId'], ['expiresAt']] }, // signed-in student devices
