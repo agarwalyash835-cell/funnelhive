@@ -42,6 +42,7 @@ const BookingManage = lazy(() => import('./pages/BookingManage'));
 const MeetPage = lazy(() => import('./pages/MeetPage'));
 const Quotes = lazy(() => import('./pages/Quotes'));
 const Tally = lazy(() => import('./pages/Tally'));
+const Counter = lazy(() => import('./pages/Counter'));
 const Inventory = lazy(() => import('./pages/Inventory'));
 const Affiliates = lazy(() => import('./pages/Affiliates'));
 const AffiliatePortal = lazy(() => import('./pages/AffiliatePortal'));
@@ -157,6 +158,7 @@ const app = onDomain ? (
         <Route path="/inventory" element={P(Inventory)} />
         <Route path="/affiliates" element={P(Affiliates)} />
         <Route path="/affiliate/:pslug" element={L(AffiliatePortal)} />
+        <Route path="/counter" element={P(Counter)} />
         <Route path="/vault" element={P(Vault)} />
         <Route path="/q/:id" element={L(QuotePublic)} />
         <Route path="/webinars" element={P(Webinars)} />

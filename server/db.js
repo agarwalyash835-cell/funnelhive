@@ -182,7 +182,8 @@ const SCHEMA = {
   ischemes: { cols: { userId: 0, itemId: 0, at: 0 }, index: [['userId', 'itemId']] },
   iratelists: { cols: { userId: 0, lname: (r) => lower(r.name), at: 0 }, index: [['userId', 'lname']] },
   icredit: { cols: { userId: 0, lparty: 0, at: 0 }, unique: [['userId', 'lparty']] },
-  ibills: { cols: { userId: 0, lparty: 0, at: 0 }, index: [['userId', 'at'], ['userId', 'lparty', 'at']] },
+  // clientId: the id a phone gave a bill it made (counter mode, maybe offline) — a repeat of the same sale finds it
+  ibills: { cols: { userId: 0, lparty: 0, at: 0, clientId: (r) => r.clientId || null }, unique: [['userId', 'clientId']], index: [['userId', 'at'], ['userId', 'lparty', 'at']] },
   // credit notes: returns against a counter bill (CN-0001…), linked to it; day = the IST day the refund was made
   icnotes: { cols: { userId: 0, billId: 0, lparty: 0, day: 0, at: 0 }, index: [['userId', 'at'], ['userId', 'day'], ['billId'], ['userId', 'lparty']] },
   // ---- school: the members area (students, courses, community) ----

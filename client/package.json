@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && vite build --ssr src/entry-server.jsx --outDir dist-ssr"
+    "build": "vite build && vite build --ssr src/entry-server.jsx --outDir dist-ssr",
+    "test": "node --test test/"
   },
   "dependencies": {
     "@sentry/browser": "^11.8.0",
