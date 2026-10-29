@@ -555,7 +555,8 @@ function applyGst(company, type, p) {
   const tax = round2(lines.reduce((s, l) => s + (l.taxable * l.pct) / 100, 0));
   if (!(tax > 0)) return;
   const interstate = p.interstate === true || p.interstate === 'true';
-  const outward = ['sales', 'debit note'].includes(vt);
+  // the tax side: a credit note (sales return) reverses Output tax, a debit note (purchase return) Input tax
+  const outward = ['sales', 'credit note'].includes(vt);
   const taxLedgers = T.tledgers.all({ companyId: company.id, active: 1 }).filter((l) => lname(l.ledger_group || l.parent) === 'duties & taxes');
   const pick = (re) => { const all = taxLedgers.filter((l) => re.test(l.name)); return (all.find((l) => (outward ? /output/i : /input/i).test(l.name)) || all.find((l) => !(outward ? /input/i : /output/i).test(l.name)))?.name; }; // never Input tax on a sale
   const want = interstate ? [['IGST', /igst|integrated/i, tax]] : [['CGST', /cgst|central/i, round2(tax / 2)], ['SGST', /sgst|utgst|state/i, round2(tax - round2(tax / 2))]];

@@ -47,6 +47,8 @@ export function allows(role, method, path, perms) {
   if (!BUILT_IN.has(role)) return !!perms && customAllows(perms, method, path);
   if (OWNER_ONLY.test(path)) return ['/api/team/members', '/api/team/roles'].includes(path) && method === 'GET' && role === 'admin';
   if (role === 'admin') return true;
+  // the Tally books and Inventory: admins, or a custom role given the Tally area (the built-in presets say none)
+  if (/^\/api\/(tally|inventory)(\/|$)/.test(path)) return false;
   // the approved WhatsApp templates (names and wording only), for those who build automations and broadcasts
   if (path === '/api/channels/whatsapp/hive/templates/approved') return method === 'GET' && role === 'marketer';
   if (SECRET.test(path)) return false;

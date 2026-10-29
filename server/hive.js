@@ -1283,12 +1283,15 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     const u = t && T.users.get(t.userId);
     if (!u) return null;
     if (Date.now() - (t.lastUsedAt || 0) > 60000) { t.lastUsedAt = Date.now(); T.mcptokens.put(t); }
-    return u;
+    // a token a team member made acts as them, with their role (never with the owner's full rights)
+    const actor = t.by ? T.users.get(t.by) : null;
+    if (t.by && !actor) return null;
+    return { user: u, actor };
   };
   const mcpLimiter = rateLimit({ windowMs: 60000, max: isTest ? 5000 : 120, key: (req) => String(req.headers.authorization || req.ip).slice(-24) });
   app.get('/mcp', (req, res) => res.status(405).set('Allow', 'POST').json({ error: 'Use POST (MCP Streamable HTTP)' }));
   app.post('/mcp', mcpLimiter, async (req, res) => {
-    const user = mcpUser(req);
+    const { user, actor } = mcpUser(req) || {};
     if (!user) return res.status(401).set('WWW-Authenticate', 'Bearer').json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32001, message: 'Unauthorized — create a token in FunnelHive → Settings → Hive AI · MCP access' } });
     const handle = async (m) => {
       const reply = (result) => ({ jsonrpc: '2.0', id: m.id, result });
@@ -1303,7 +1306,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
           const t = byName[m.params?.name];
           if (!t) return fail(-32602, `Unknown tool: ${m.params?.name}`);
           try {
-            const out = await runTool(ctxFor(user, appUrl(req)), t.name, m.params?.arguments || {});
+            const out = await runTool(ctxFor(user, appUrl(req), actor), t.name, m.params?.arguments || {});
             return reply({ content: [{ type: 'text', text: JSON.stringify(out, null, 1) }], structuredContent: Array.isArray(out) ? { items: out } : out });
           } catch (e) { return reply({ content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true }); }
         }

@@ -181,9 +181,16 @@ export function transfer(userId, b) {
 }
 
 // undo: a move (both halves of a transfer) goes, unless that would leave a godown below zero
+// a counter bill's or credit note's moves go with it (cancel the bill / it stays), a production run's all together
+const docOf = (table, userId, id) => q(`SELECT json_extract(data, '$.number') AS n FROM ${table} WHERE userId = ? AND EXISTS (SELECT 1 FROM json_each(json_extract(data, '$.moveIds')) WHERE value = ?) LIMIT 1`).get(userId, id)?.n;
 export function undoMove(userId, id) {
   const m = own('imoves', userId, id, 'entry');
-  const set = m.pair ? T.imoves.all({ userId, itemId: m.itemId }).filter((x) => x.pair === m.pair) : [m];
+  const bill = docOf('ibills', userId, m.id), note = !bill && docOf('icnotes', userId, m.id);
+  if (bill) fail(409, `This is part of counter bill ${bill} — cancel the bill instead`);
+  if (note) fail(409, `This is part of credit note ${note} — a return can’t be undone line by line`);
+  const run = ['PRODUCE', 'CONSUME'].includes(m.kind) && m.ref;
+  const set = m.pair ? T.imoves.all({ userId, itemId: m.itemId }).filter((x) => x.pair === m.pair)
+    : run ? T.imoves.all({ userId }).filter((x) => x.ref === run && ['PRODUCE', 'CONSUME'].includes(x.kind)) : [m];
   for (const x of set) if (x.qty > 0 && stockOf(x.itemId, x.godownId) - x.qty < -0.0005) fail(409, 'Undoing this would leave less than zero in stock — undo the later sales first');
   tx(() => { for (const x of set) T.imoves.del(x.id); });
   return { ok: true, removed: set.length };
