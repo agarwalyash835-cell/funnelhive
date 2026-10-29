@@ -74,3 +74,47 @@ test('a step the seller keeps open, and a thank-you page after a sign-up opened 
   // a pass is only good for its own funnel
   assert.equal((await api(`/public/${f.slug}/step/${steps.find((s) => s.type === 'upsell').id}?p=${encodeURIComponent(lead.pass)}`)).status, 403);
 });
+
+test('Cash on Delivery: upsells and the order confirmation open, what they paid for waits until the cash is collected', async () => {
+  const C = (await api('/templates/yoga/use', 'POST', {}, T)).data;
+  const steps = structuredClone(C.steps);
+  const co = steps.find((s) => s.type === 'checkout');
+  co.blocks = co.blocks.map((b) => (b.type === 'checkout' ? { ...b, props: { ...b.props, cod: true } } : b));
+  const ty = steps.find((s) => s.type === 'thankyou');
+  ty.blocks = [
+    { id: 'conf', type: 'thankyou', props: { headline: 'Order confirmed', body: 'See you soon.', steps: [{ text: 'Join the group: https://chat.whatsapp.com/secretgroup' }, { text: 'Save our number' }] } },
+    { id: 'vid', type: 'video', props: { url: 'https://youtu.be/secretlesson' } },
+    { id: 'txt', type: 'text', props: { text: 'Your download: https://drive.example/secret-file' } },
+    ...ty.blocks.filter((b) => b.type === 'crosssell'),
+  ];
+  await api(`/funnels/${C.id}`, 'PUT', { steps, published: true }, T);
+  const order = await api(`/public/${C.slug}/cod`, 'POST', { stepId: co.id, email: 'cod@x.dev', name: 'Cod Buyer', phone: '9876543210', address: ADDR });
+  assert.equal(order.status, 200, JSON.stringify(order.data));
+  const open = (id, oid = order.data.orderId) => api(`/public/${C.slug}/step/${id}?o=${oid}`);
+
+  const up = steps.find((s) => s.type === 'upsell');
+  assert.ok((await open(up.id)).data.blocks.length, 'the upsell offer opens for a COD order');
+  const page = await open(ty.id);
+  assert.equal(page.status, 200);
+  assert.ok(!/secretgroup|secretlesson|secret-file/.test(JSON.stringify(page.data)), 'no paid content before the cash is collected');
+  assert.equal(page.data.awaitingPayment, true);
+  const conf = page.data.blocks.find((b) => b.id === 'conf');
+  assert.equal(conf.props.headline, 'Order confirmed', 'the order confirmation still shows');
+  assert.match(conf.props.steps[0].text, /access once your payment is received/);
+  assert.ok(conf.props.steps.some((s) => s.text === 'Save our number'));
+
+  // the seller marks it paid: everything opens
+  assert.equal((await api(`/orders/${order.data.orderId}/cod`, 'POST', { action: 'paid' }, T)).status, 200);
+  const paid = await open(ty.id);
+  assert.match(JSON.stringify(paid.data), /secretgroup[\s\S]*secretlesson[\s\S]*secret-file/);
+  assert.equal(paid.data.awaitingPayment, undefined);
+
+  // a seller can say the page holds nothing paid
+  const order2 = (await api(`/public/${C.slug}/cod`, 'POST', { stepId: co.id, email: 'cod2@x.dev', name: 'Cod Two', phone: '9876543211', address: ADDR })).data;
+  assert.ok(!/secretlesson/.test(JSON.stringify((await open(ty.id, order2.orderId)).data)));
+  const s2 = structuredClone((await api(`/funnels/${C.id}`, 'GET', null, T)).data.steps);
+  s2.find((s) => s.id === ty.id).codFull = 'yes';
+  await api(`/funnels/${C.id}`, 'PUT', { steps: s2 }, T);
+  assert.equal((await api(`/funnels/${C.id}`, 'GET', null, T)).data.steps.find((s) => s.id === ty.id).codFull, true);
+  assert.match(JSON.stringify((await open(ty.id, order2.orderId)).data), /secretlesson/);
+});
