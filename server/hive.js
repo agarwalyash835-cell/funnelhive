@@ -19,6 +19,7 @@ import { websiteSteps } from './website.js';
 import * as insightTools from './hive-tally-insights.js';
 import * as inventoryTools from './hive-inventory.js';
 import * as proTools from './hive-inventory-pro.js';
+import * as contactTools from './hive-contacts.js';
 
 const MAX_MODEL_CALLS = 16, RESULT_MAX = 40000; // a full 21-section page with all props is ~25k characters
 
@@ -797,7 +798,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Made a copy: “${r.name}”`,
   },
   // stock insights on Tally, and the Inventory add-on (each module keeps its own tools)
-  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS,
+  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS,
 ];
 const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -831,7 +832,7 @@ const NEEDS_OK = {
   // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
   run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${String(a.slug || '').startsWith('GOOGLEADS') ? 'Google Ads' : 'Meta Ads'} account: ${String(a.slug || '').replace(/^(METAADS|GOOGLEADS)_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
-  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK,
+  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK,
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
@@ -873,7 +874,7 @@ const CORE_TOOLS = ['list_funnels', 'get_funnel', 'create_funnel', 'list_templat
 export const TOOL_GROUPS = {
   sections: { about: 'add new sections to a page (hero, testimonials, FAQ, pricing, video, forms, timers…)', tools: ['add_section'], re: /\b(sections?|add|insert|block|testimonials?|faq|pricing|hero|video|form|countdown|timer|gallery|banner|logos?|reviews?|guarantee|bonus|page|design|layout)\b/i },
   selling: { about: 'checkout, prices, products, coupons, order bumps, payment plans, A/B tests', tools: ['configure_checkout', 'list_products', 'create_product', 'create_coupon', 'list_coupons', 'split_test'], re: /\b(checkout|prices?|pricing|pay(ment)?s?|products?|coupons?|discount|bump|upsell|downsell|emi|instal+ments?|cod|cash on delivery|subscriptions?|membership|sell|a\/b|split|variant|razorpay|stripe|upi)\b|[₹$€£]/i },
-  crm: { about: 'contacts, leads, CRM fields and pipelines, tags', tools: ['find_contacts', 'update_contact', 'tag_contacts', 'list_pipelines', 'list_crm_fields', 'create_pipeline', 'setup_crm'], re: /\b(crm|contacts?|leads?|pipelines?|stages?|tags?|customers?|prospects?|fields?|deals?|patients?|students?|buyers?)\b/i },
+  crm: { about: 'contacts, leads, CRM fields and pipelines, tags', tools: ['find_contacts', 'update_contact', 'tag_contacts', 'find_duplicate_contacts', 'merge_contacts', 'list_pipelines', 'list_crm_fields', 'create_pipeline', 'setup_crm'], re: /\b(crm|contacts?|leads?|pipelines?|stages?|tags?|customers?|prospects?|fields?|deals?|patients?|students?|buyers?)\b/i },
   automations: { about: 'automations: follow-up email / WhatsApp sequences, reminders, webhooks', tools: ['list_automations', 'create_automation', 'update_automation', 'list_pipelines', 'connect_webhook'], re: /\b(automat\w*|follow[- ]?ups?|whats ?app|emails?|sequences?|remind\w*|webhooks?|nurture|drip|trigger\w*|workflows?)\b/i },
   broadcasts: { about: 'broadcasts: one-off emails / WhatsApp to a list', tools: ['draft_broadcast', 'send_broadcast', 'find_contacts'], re: /\b(broadcasts?|blast|newsletter|announce\w*|send (it )?to (all|my|everyone|the list))\b/i },
   calls: { about: 'booking calendars, booked calls, webinars', tools: ['create_calendar', 'configure_calendar', 'list_bookings', 'configure_webinar'], re: /\b(book\w*|calls?|calendar|appointments?|slots?|webinars?|meetings?|demos?|sessions?|consultations?|site visits?|zoom|google meet)\b/i },

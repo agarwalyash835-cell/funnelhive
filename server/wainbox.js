@@ -10,7 +10,7 @@
 // hand-over; a fresh ad tap → that ad's chatbot; the flow waiting for this answer; a keyword flow; the AI agent on this chat; a new contact's welcome
 // flow; the AI agent for new chats; the default flow; else the seller is notified.
 import { T, q, uid, hit, JOBS } from './db.js';
-import { onWaInbox, waSession, waLive, waApproved, waMedia, waUpload, waNumber, waOptedOut, waTemplateParam, waSetOptOut } from './hive-wa.js';
+import { onWaInbox, waSession, waLive, waApproved, waMedia, waUpload, waNumber, waOptedOut, waTemplateParam, waSetOptOut, waContact } from './hive-wa.js';
 import { INDUSTRY, industryOf } from './waindustry.js';
 import { hasKnowledge, searchKnowledge, knowledgeBlock, customerProfile, rememberFacts, refreshMemory, learnFromChat, pdfPages, pageLabel } from './waknow.js';
 import { vaultBytes } from './vault.js';
@@ -1235,7 +1235,8 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
     if (!num) return res.status(400).json({ error: 'Enter the WhatsApp number with the country code' });
     if (!clip(b.template, 120)) return res.status(400).json({ error: 'Choose an approved template — WhatsApp only allows templates to start a chat' });
     if (waOptedOut(req.user.id, num)) return res.status(400).json({ error: 'This number opted out of your WhatsApp messages' });
-    const conv = convFor(req.user.id, num, T.waconvs.find({ userId: req.user.id, num })?.ckey || (num.length === 12 && num.startsWith('91') ? `phone:${num.slice(2)}` : `phone:+${num}`), b.name);
+    // the contact who already has this number (an email contact too), as an inbound message finds it — else one is added
+    const conv = convFor(req.user.id, num, T.waconvs.find({ userId: req.user.id, num })?.ckey || waContact(req.user.id, num, b.name), b.name);
     const params = arr(b.params).map(waTemplateParam);
     const msg = addMsg(conv, { dir: 'out', by: 'team', author: actor(req).name || '', type: 'template', text: clip(b.preview, 4096) || `Template: ${clip(b.template, 120)}`, status: 'sending' });
     try {

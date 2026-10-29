@@ -92,7 +92,7 @@ export function waOptedOut(userId, phone) {
     .some((r) => [r.p, r.o, String(r.key).startsWith('phone:') ? r.key.slice(6) : ''].some((x) => x && phoneTail(x) === t));
 }
 // the contact with this number: the seller's own record, a buyer, a lead, a booking… (null when nobody has it)
-function contactByPhone(userId, phone) {
+export function contactByPhone(userId, phone) {
   const t = phoneTail(phone);
   if (t.length < 8) return null;
   const like = `%${t.slice(-4)}`;
