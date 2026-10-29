@@ -1,0 +1,59 @@
+/* Inventory → tools for the seller's industry (pages/InventoryPro.jsx). Reuses the Tally page's tl-strip / tl-tbl / seg
+   look; only what's new lives here. Honey / amber brand. */
+.ip { margin-top: 22px; display: grid; gap: 14px; }
+.ip-head h2 { font-size: 17px; font-weight: 720; letter-spacing: -.01em; margin: 0; }
+.ip-head p { margin: 2px 0 0; }
+.ip .tl-tabs { margin: 0; }
+.ip .tl-tabs button { display: inline-flex; align-items: center; gap: 6px; }
+.ip-yours { color: var(--c-honey, #f5a524); font-size: 9px; margin-left: 2px; }
+.ip .tl-strip { margin-bottom: 0; }
+.ip .panel .tl-strip { margin: 12px 0; }
+.ip-none { padding: 14px 20px; margin: 0; }
+.ip-pad { padding: 12px 20px 0; }
+
+.ip-card { border: 1px solid var(--c-line, #e7e5e4); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: linear-gradient(180deg, rgba(245, 165, 36, .035), transparent 60%); }
+.ip-card:last-child { margin-bottom: 0; }
+.ip-card-h { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; }
+.ip-card-h small { grid-column: 1; overflow: hidden; text-overflow: ellipsis; }
+.ip-card-h .row { grid-column: 2; grid-row: 1 / span 2; }
+
+.ip-plan { flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.ip-plan input, .ip-plan select { min-width: 0; flex: 1 1 160px; max-width: 320px; }
+.ip-plan input[type="number"] { flex: 0 1 110px; }
+.ip-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 20px; }
+.ip-inline > input, .ip-inline > select { flex: 1 1 140px; min-width: 0; max-width: 260px; }
+.ip-inline > input[type="number"], .ip-inline > input[type="date"] { flex: 0 1 120px; }
+.ip-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+
+.ip-form { display: grid; gap: 10px; }
+.ip-form label { display: grid; gap: 4px; }
+.ip-line { display: grid; grid-template-columns: 1fr 120px auto; gap: 8px; align-items: center; }
+.ip-foot { margin-top: 6px; gap: 8px; }
+.ip-foot .grow, .ip-plan .grow { flex: 1; }
+
+.ip-short td { background: linear-gradient(90deg, rgba(220, 38, 38, .06), transparent 70%); }
+.ip-off td { opacity: .55; }
+.ip-zero { color: var(--c-muted); background: rgba(220, 38, 38, .04); }
+.ip-grid td.r, .ip-grid th.r { text-align: center; font-variant-numeric: tabular-nums; }
+.ip-qty { width: 90px; text-align: right; }
+.ip-sugg { margin: 10px 0 0; }
+
+.ip-counter { display: grid; gap: 4px; margin-bottom: 8px; }
+.ip-billopts { padding: 12px 0 0; }
+.ip-credit { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; background: #fdf6e3; color: #92400e; }
+.ip-credit.bad { background: #fde4e1; color: #b91c1c; font-weight: 600; }
+.ip-total { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, #fdf0d5, #fdf6e3); box-shadow: inset 0 0 0 1px rgba(180, 83, 9, .14); }
+.ip-total span { flex: 1 1 220px; font-size: 12.5px; color: #78350f; }
+.ip-total b { font-size: 22px; font-weight: 780; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+.ip-bar { display: block; height: 4px; border-radius: 4px; background: var(--c-line-2, #f0eeeb); margin-top: 4px; overflow: hidden; }
+.ip-bar > i { display: block; height: 100%; background: linear-gradient(90deg, #16a34a, #4ade80); }
+.ip-bar > i.warn { background: linear-gradient(90deg, #f59e0b, #f97316); }
+.ip-bar > i.bad { background: linear-gradient(90deg, #dc2626, #f97316); }
+
+@media (max-width: 640px) {
+  .ip-inline { padding: 12px; }
+  .ip-inline > input, .ip-inline > select { max-width: none; }
+  .ip-line { grid-template-columns: 1fr 90px auto; }
+  .ip-total b { font-size: 19px; }
+}
