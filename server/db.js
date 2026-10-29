@@ -180,6 +180,8 @@ const SCHEMA = {
   iratelists: { cols: { userId: 0, lname: (r) => lower(r.name), at: 0 }, index: [['userId', 'lname']] },
   icredit: { cols: { userId: 0, lparty: 0, at: 0 }, unique: [['userId', 'lparty']] },
   ibills: { cols: { userId: 0, lparty: 0, at: 0 }, index: [['userId', 'at'], ['userId', 'lparty', 'at']] },
+  // credit notes: returns against a counter bill (CN-0001…), linked to it; day = the IST day the refund was made
+  icnotes: { cols: { userId: 0, billId: 0, lparty: 0, day: 0, at: 0 }, index: [['userId', 'at'], ['userId', 'day'], ['billId'], ['userId', 'lparty']] },
   // ---- school: the members area (students, courses, community) ----
   students: { cols: { userId: 0, ckey: 0, at: 0 }, unique: [['userId', 'ckey']], index: [['userId', 'at']] }, // a seller's student: one per email
   ssessions: { cols: { studentId: 0, hash: 0, expiresAt: 0 }, unique: [['hash']], index: [['studentId'], ['expiresAt']] }, // signed-in student devices

@@ -44,6 +44,9 @@
 .ip-credit.bad { background: #fde4e1; color: #b91c1c; font-weight: 600; }
 .ip-total { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, #fdf0d5, #fdf6e3); box-shadow: inset 0 0 0 1px rgba(180, 83, 9, .14); }
 .ip-total span { flex: 1 1 220px; font-size: 12.5px; color: #78350f; }
+.ip-cns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-top: 2px; }
+.ip-cn { border: 0; padding: 1px 6px; border-radius: 6px; background: rgba(220, 38, 38, .07); color: #b91c1c; font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.5; cursor: pointer; }
+.ip-cn:hover { background: rgba(220, 38, 38, .14); }
 .ip-total b { font-size: 22px; font-weight: 780; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 
 .ip-bar { display: block; height: 4px; border-radius: 4px; background: var(--c-line-2, #f0eeeb); margin-top: 4px; overflow: hidden; }
