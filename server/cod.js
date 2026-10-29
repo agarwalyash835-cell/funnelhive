@@ -213,6 +213,10 @@ function orderPage(o, k, note = '') {
 <div class="row"><form method="post" action="/cod/${esc(o.id)}/${esc(k)}/confirm"><button class="ok" type="submit">Confirm order</button></form><form method="post" action="/cod/${esc(o.id)}/${esc(k)}/cancel"><button class="no" type="submit">Cancel order</button></form></div>`);
 }
 
+// shipping.js: ask the connected courier about a PIN code at checkout (when the seller turned that on) → { deliverable, cod } | null
+let courierCheck = null;
+export function usePincodeCourier(fn) { courierCheck = fn; }
+
 export function registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret }) {
   SECRET = secret;
   onWaReply(onReply);
@@ -233,9 +237,16 @@ export function registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret 
   });
 
   // checkout: what a PIN code means here (delivery, COD, the state it's probably in)
-  app.get('/api/public/:slug/pincode', pinLimiter, (req, res) => {
+  app.get('/api/public/:slug/pincode', pinLimiter, async (req, res) => {
     const f = pub(req, res); if (!f) return;
-    res.set('Cache-Control', 'no-store').json(pincodeInfo(T.users.get(f.userId), req.query.pin));
+    const u = T.users.get(f.userId), info = pincodeInfo(u, req.query.pin);
+    // a connected courier that can't reach this PIN code (or can't take cash there) narrows it further
+    if (info.valid && info.deliverable && courierCheck) {
+      const c = await Promise.race([courierCheck(u, String(req.query.pin).replace(/\D/g, '')).catch(() => null), new Promise((r) => setTimeout(() => r(null), 5000).unref())]);
+      if (c && !c.deliverable) Object.assign(info, { deliverable: false, cod: false, message: 'We don’t deliver to this PIN code yet' });
+      else if (c && info.cod && !c.cod) Object.assign(info, { cod: false, message: 'Cash on Delivery isn’t available here — please pay online' });
+    }
+    res.set('Cache-Control', 'no-store').json(info);
   });
 
   // the seller's settings

@@ -13,6 +13,8 @@ const RTO = `(${J('rtoAt')} IS NOT NULL OR ${J('cancelReason')} = 'returned')`;
 const STATUS = {
   paid: `(${REAL} AND ${ST} <> 'refunded')`, cod: `${ST} = 'cod'`,
   ship: `(${J('fulfilment.status')} = 'pending' AND ${ST} NOT IN ('cancelled', 'refunded'))`,
+  // courier shipments (shipping.js): on the way, and failed delivery attempts (NDR)
+  in_transit: `(${J('fulfilment.status')} = 'shipped' AND ${ST} NOT IN ('cancelled', 'refunded'))`, ndr: `${J('shipment.stage')} = 'ndr'`,
   // Cash on Delivery confirmation (cod.js) and returned to origin
   cod_pending: `(${ST} = 'cod' AND ${J('codStatus')} = 'pending')`, cod_confirmed: `(${ST} = 'cod' AND ${J('codStatus')} = 'confirmed')`,
   cod_unconfirmed: `(${ST} = 'cod' AND ${J('codStatus')} = 'unconfirmed')`, cod_cancelled: `${J('codStatus')} = 'cancelled'`, rto: RTO,
