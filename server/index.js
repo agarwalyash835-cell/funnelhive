@@ -1515,7 +1515,10 @@ const checkoutPrice = (f, stepId) => {
   const b = step && allBlocks(step).find((x) => x.type === 'checkout');
   return b ? Number(b.props.price) || 0 : null;
 };
-app.post('/api/public/:slug/coupon', (req, res) => {
+// trying codes one after another (guessing a seller's coupons): ~20 checks a minute per network and funnel, tests
+// too. Checkout applies its coupon itself, so a real buyer is never stopped from paying by this.
+const couponLimiter = rateLimit({ windowMs: 60000, max: 20, key: (req) => `${req.ip}:${req.params.slug}`, message: 'Too many codes tried — please wait a minute and try again.' });
+app.post('/api/public/:slug/coupon', couponLimiter, (req, res) => {
   const f = pub(req, res);
   if (!f) return;
   const r = couponFor(f, req.body.code, { email: req.body.email, subtotal: checkoutPrice(f, req.body.stepId) });

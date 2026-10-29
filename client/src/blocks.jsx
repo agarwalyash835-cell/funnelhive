@@ -1029,7 +1029,7 @@ function Checkout({ p, ctx }) {
     if (!ctx.live || !code) return;
     setCErr('');
     const r = await ctx.onCoupon?.(code, f.email);
-    if (r?.valid) setCoupon(r); else { setCoupon(null); setCErr(r?.reason || 'That code isn’t valid'); }
+    if (r?.valid) setCoupon(r); else { setCoupon(null); setCErr(r?.reason || r?.error || 'That code isn’t valid'); }
   };
   return (
     <Sec type="checkout">
