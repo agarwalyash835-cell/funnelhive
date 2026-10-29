@@ -92,3 +92,12 @@ test('stock entries of a counter bill or a production run can’t be undone one 
   assert.equal(undo.removed, 3, 'both components and the finished goods');
   assert.deepEqual([(await inv(`/items/${soap.id}`)).data.item.stock, (await inv(`/items/${box.id}`)).data.item.stock], [9, 0]);
 });
+
+test('an agency’s API key can’t invite into, hand over or delete a client account', async () => {
+  const ag = (await register(api)).token;
+  const c = (await api('/agency/clients', 'POST', { business: 'Client Co' }, ag)).data;
+  const { token } = (await api('/keys', 'POST', { name: 'Script', scope: 'full' }, ag)).data;
+  assert.equal((await api(`/agency/clients/${c.id}/invite`, 'POST', { email: 'taker@ops.test' }, token)).status, 404);
+  assert.equal((await api(`/agency/clients/${c.id}`, 'DELETE', { confirm: 'DELETE' }, token)).status, 404);
+  assert.equal((await api('/agency', 'GET', null, ag)).data.clients.length, 1, 'still there');
+});
