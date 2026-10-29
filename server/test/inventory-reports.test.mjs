@@ -289,6 +289,6 @@ test('Hive: report tools read through the API and never wait for Confirm', async
   assert.deepEqual((await tool.inventory_stock_speed.run(ctx(A), { search: 'bolt' })).items.map((x) => x.reorderQty), [34]);
   // wired into Hive: in the registry, the confirm list and the inventory tool group
   const hive = (await import('node:fs')).readFileSync(new URL('../hive.js', import.meta.url), 'utf8');
-  assert.match(hive, /\.\.\.proTools\.TOOLS, \.\.\.reportTools\.TOOLS/);
+  assert.match(hive, /\.\.\.reportTools\.TOOLS[,\]]/, 'the report tools are in the tool list');
   assert.match(hive, /inventory: \{[^\n]*tools: \[\.\.\.inventoryTools\.TOOLS, \.\.\.reportTools\.TOOLS\]/);
 });

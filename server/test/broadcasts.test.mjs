@@ -100,7 +100,9 @@ test('a draft can’t be sent until email is set up; then it goes out personalis
   assert.ok(c.timeline.some((t) => t.title === 'Broadcast sent: Happy Diwali Asha 🪔'));
   // unsubscribing leaves them out of the next broadcast
   const unsub = /Unsubscribe: (http:\/\/app\.example\.test\/u\/\S+)/.exec(sent.find((m) => m.includes('Happy Diwali Gone')))[1].replace('http://app.example.test', srv.base);
-  await fetch(unsub);
+  assert.equal((await fetch(unsub)).status, 200, 'opening the link only shows the confirm page (link scanners)');
+  assert.equal((await api('/broadcasts/audience', 'POST', { channel: 'email', segment: {} }, T)).data.left.unsubscribed, 0);
+  await fetch(unsub, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' });
   const a2 = (await api('/broadcasts/audience', 'POST', { channel: 'email', segment: {} }, T)).data;
   assert.equal(a2.reach, 3);
   assert.equal(a2.left.unsubscribed, 1);
