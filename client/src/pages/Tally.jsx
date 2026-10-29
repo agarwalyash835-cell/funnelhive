@@ -142,8 +142,8 @@ function Overview({ rev, onOpen, go }) {
   return (
     <>
       <div className="kpis tl-kpis">
-        {kpi('To receive', money(d.receivable.total), d.receivable.overdue ? `${money(d.receivable.overdue)} overdue · ${n(d.receivable.overdueBills, 'bill', 'bills')}` : n(d.receivable.bills, 'open bill', 'open bills'), () => go('outstandings'))}
-        {kpi('To pay', money(d.payable.total), d.payable.overdue ? `${money(d.payable.overdue)} overdue` : n(d.payable.bills, 'open bill', 'open bills'), () => go('outstandings'))}
+        {kpi('To receive', money(d.receivable.total), `${d.receivable.overdue ? `${money(d.receivable.overdue)} overdue · ${n(d.receivable.overdueBills, 'bill', 'bills')}` : n(d.receivable.bills, 'open bill', 'open bills')}${d.receivable.advances ? ` · after ${money(d.receivable.advances)} advance` : ''}`, () => go('outstandings'))}
+        {kpi('To pay', money(d.payable.total), `${d.payable.overdue ? `${money(d.payable.overdue)} overdue` : n(d.payable.bills, 'open bill', 'open bills')}${d.payable.advances ? ` · after ${money(d.payable.advances)} advance` : ''}`, () => go('outstandings'))}
         {kpi('Sales this month', money(m('Sales').amount), n(m('Sales').count, 'voucher', 'vouchers'), () => go('vouchers'))}
         {kpi('Purchases this month', money(m('Purchase').amount), n(m('Purchase').count, 'voucher', 'vouchers'), () => go('vouchers'))}
         {kpi('Received this month', money(m('Receipt').amount), `${money(m('Payment').amount)} paid out`, () => go('vouchers'))}
@@ -179,7 +179,9 @@ function VoucherTable({ rows, onOpen, compact }) {
 // a searchable, paged list of one kind of record
 const COLS = {
   ledgers: { search: 'Search ledgers, email or phone', head: ['Ledger', 'Group', 'Contact', 'Balance'], row: (r) => [<><b>{r.name}</b>{r.address && <small className="sub-t">{r.address}</small>}</>, r.ledger_group || r.parent || '—', <>{r.phone || ''}{r.email && <small className="sub-t">{r.email}</small>}</>, drcr(r.closing_balance)] },
-  outstandings: { search: 'Search party or bill number', head: ['Party', 'Bill', 'Due', 'Pending', 'Status'], row: (r) => [<><b>{r.party_name}</b><small className="sub-t">{r.bill_type === 'PAYABLE' ? 'You pay' : 'You receive'}</small></>, <span className="mono">{r.bill_number || '—'}</span>, <>{r.due_date ? fmtDate(r.due_date) : '—'}{r.days_overdue > 0 && <small className="sub-t">{r.days_overdue} days late</small>}</>, money(r.pending_amount), <span className={`pill ${BSTATUS[r.status]?.[1] || ''}`}>{BSTATUS[r.status]?.[0] || r.status}</span>] },
+  outstandings: { search: 'Search party or bill number', head: ['Party', 'Bill', 'Due', 'Pending', 'Status'], row: (r) => r.advance
+    ? [<><b>{r.party_name}</b><small className="sub-t">{r.bill_type === 'PAYABLE' ? 'Advance from them — comes off what they owe' : 'Advance you paid — comes off what you owe'}</small></>, <span className="mono">{r.bill_number || '—'}</span>, '—', money(r.pending_amount), <span className="pill info">Advance</span>]
+    : [<><b>{r.party_name}</b><small className="sub-t">{r.bill_type === 'PAYABLE' ? 'You pay' : 'You receive'}</small></>, <span className="mono">{r.bill_number || '—'}</span>, <>{r.due_date ? fmtDate(r.due_date) : '—'}{r.days_overdue > 0 && <small className="sub-t">{r.days_overdue} days late</small>}</>, money(r.pending_amount), <span className={`pill ${BSTATUS[r.status]?.[1] || ''}`}>{BSTATUS[r.status]?.[0] || r.status}</span>] },
   stock: { search: 'Search stock items', head: ['Item', 'Group', 'In stock', 'Value', 'Rates'], row: (r) => [<b>{r.name}</b>, r.parent || '—', <span className={Number(r.closing_balance) <= 0 ? 'bad-t' : ''}>{r.closing_balance ?? '—'} {r.base_units || ''}</span>, money(r.closing_value), <small className="muted">{r.last_sale_rate ? `sells ${inr(r.last_sale_rate)}` : ''}{r.last_purchase_rate ? ` · buys ${inr(r.last_purchase_rate)}` : ''}</small>] },
 };
 function List({ kind, rev, onOpen, voucherTypes }) {

@@ -221,6 +221,27 @@ test('writes: queued for the PC; pre-checks for the books and stock; the result 
   assert.equal((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Receipt', offset_ledger: 'Cash', items: undefined, amount: 100 })).data.payload.taxes, undefined, 'no GST on a receipt');
 });
 
+test('a receipt for more than its bill settles the next bills oldest first, the rest On Account; a customer’s credit is an advance', async () => {
+  const post = (type, payload) => api('/tally/commands', 'POST', { type, payload }, T);
+  await agent('/sync/outstandings', 'POST', { company_guid: COMPANY.tally_guid, records: [
+    { party_name: 'Kumar Steel', bill_number: 'K-2', bill_date: '2026-08-15', due_date: '2026-09-15', amount: -3500, pending_amount: -3500, bill_type: 'RECEIVABLE', status: 'OVERDUE' },
+    { party_name: 'Kumar Steel', bill_number: 'K-1', bill_date: '2026-08-01', due_date: '2026-09-01', amount: -1000, pending_amount: -1000, bill_type: 'RECEIVABLE', status: 'OVERDUE' },
+    { party_name: 'Kumar Steel', bill_number: 'K-3', bill_date: '2026-08-20', due_date: '2026-10-01', amount: -600, pending_amount: -600, bill_type: 'RECEIVABLE', status: 'OVERDUE' },
+  ] });
+  const receipt = (amount) => post('CREATE_RECEIPT', { party_name: 'Kumar Steel', offset_ledger: 'Cash', amount, date: today, bill_number: 'K-2' }).then((r) => r.data.payload?.bills);
+  assert.deepEqual(await receipt(5000), [{ name: 'K-2', type: 'Agst Ref', amount: 3500 }, { name: 'K-1', type: 'Agst Ref', amount: 1000 }, { name: 'K-3', type: 'Agst Ref', amount: 500 }], '₹5,000 against a ₹3,500 bill (seen live)');
+  assert.deepEqual(await receipt(6000), [{ name: 'K-2', type: 'Agst Ref', amount: 3500 }, { name: 'K-1', type: 'Agst Ref', amount: 1000 }, { name: 'K-3', type: 'Agst Ref', amount: 600 }, { name: '', type: 'On Account', amount: 900 }]);
+  assert.equal(await receipt(2000), undefined, 'within the bill: just that bill');
+
+  // Tally lists a customer's overpayment under Bills Payable: an advance that comes off what they owe, not money we owe
+  const before = (await api('/tally/summary', 'GET', null, T)).data;
+  await agent('/sync/outstandings', 'POST', { company_guid: COMPANY.tally_guid, records: [{ party_name: 'Gupta Hardware', bill_number: 'INV-8', bill_date: '2026-08-12', due_date: '2026-08-12', amount: 1500, pending_amount: 1500, bill_type: 'PAYABLE', status: 'OVERDUE' }] });
+  const after = (await api('/tally/summary', 'GET', null, T)).data;
+  assert.deepEqual([after.receivable.total, after.receivable.advances, after.payable.total], [before.receivable.total - 1500, 1500, before.payable.total]);
+  const row = (await api('/tally/outstandings?search=INV-8', 'GET', null, T)).data.items[0];
+  assert.equal(row.advance, true);
+});
+
 test('the PC must be online with the company open; a disconnected PC stops working', async () => {
   await agent('/heartbeat', 'POST', { agent_id: agentId, tally_status: 'COMPANY_NOT_LOADED', company_guid: null });
   assert.match((await api('/tally/commands', 'POST', { type: 'CREATE_LEDGER', payload: { name: 'X' } }, T)).data.error, /offline — open TallyPrime/);

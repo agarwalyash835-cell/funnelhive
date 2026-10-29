@@ -597,7 +597,7 @@ export function queueCommand(userId, type, payload = {}, { by = 'user', byId = n
   }
   if (WRITE_RE.test(type)) {
     precheck(userId, company, type, p);
-    if (company) { resolveOffset(company, type, p); applyGst(company, type, p); }
+    if (company) { resolveOffset(company, type, p); applyGst(company, type, p); splitAgainstBills(company, type, p); }
     // connectors before 1.1.2 ignore the tax lines and would save the voucher without GST
     if (p.taxes?.length && semverLt(agent.app_version, '1.1.2')) fail(409, 'Update the FunnelHive Tally Connector on your PC to save GST vouchers — download the latest from the Tally page and install it over the old one');
     if (company && !p.company_guid) Object.assign(p, { company_guid: company.tally_guid, company_name: company.name });
@@ -642,7 +642,8 @@ export function list(userId, kind, query = {}) {
   const sqlWhere = where.join(' AND ');
   const total = q(`SELECT COUNT(*) AS n FROM ${L.table} WHERE ${sqlWhere}`).get(...args).n;
   const items = q(`SELECT data FROM ${L.table} WHERE ${sqlWhere} ORDER BY ${L.order} LIMIT ${limit} OFFSET ${offset}`).all(...args).map((r) => JSON.parse(r.data));
-  return { items: items.map((x) => (kind === 'vouchers' ? { ...x, lines: undefined, items: undefined, bills: undefined, line_count: (x.lines || []).length, item_count: (x.items || []).length } : x)), total, company: { id: company.id, name: company.name } };
+  const groups = kind === 'outstandings' && partyGroups(company.id);
+  return { items: items.map((x) => (kind === 'vouchers' ? { ...x, lines: undefined, items: undefined, bills: undefined, line_count: (x.lines || []).length, item_count: (x.items || []).length } : groups && isAdvance(x, groups) ? { ...x, advance: true } : x)), total, company: { id: company.id, name: company.name } };
 }
 export function detail(userId, kind, id) {
   const L = LISTS[kind];
@@ -657,6 +658,34 @@ export function detail(userId, kind, id) {
   return row;
 }
 // the dashboard: money owed both ways, this month's activity, stock value, who owes most, recent vouchers
+// a receipt / payment for more than the bill it names (seen live: ₹5,000 against a ₹3,500 bill left the customer with a
+// ₹1,500 "bill payable") → that bill, then the party's other open bills oldest first, and the rest On Account
+function splitAgainstBills(company, type, p) {
+  const vt = lname(p.voucher_type) || (type === 'CREATE_RECEIPT' ? 'receipt' : type === 'CREATE_PAYMENT' ? 'payment' : '');
+  const amount = num(p.amount);
+  if (!VOUCHER_CREATE.has(type) || !['receipt', 'payment'].includes(vt) || !p.bill_number || !(amount > 0) || p.bills?.length || /new ref|advance|on account/i.test(p.bill_type || '')) return;
+  const side = vt === 'receipt' ? 'RECEIVABLE' : 'PAYABLE';
+  const open = T.touts.all({ companyId: company.id, active: 1 }).filter((o) => o.bill_type === side && lname(o.party_name) === lname(p.party_name) && ['PENDING', 'PARTIAL', 'OVERDUE'].includes(o.status) && Number(o.pending_amount) > 0);
+  const named = open.find((o) => lname(o.bill_number) === lname(p.bill_number));
+  if (!named || amount <= Number(named.pending_amount) + 0.005) return;
+  const day = String(p.date || '').slice(0, 10);
+  const rest = open.filter((o) => o !== named && o.bill_number && (!day || !o.bill_date || o.bill_date <= day)).sort((a, b) => String(a.due_date || a.bill_date).localeCompare(String(b.due_date || b.bill_date)));
+  let left = amount;
+  const bills = [];
+  for (const o of [named, ...rest]) {
+    if (left <= 0.005) break;
+    const take = round2(Math.min(left, Number(o.pending_amount)));
+    bills.push({ name: o.bill_number, type: 'Agst Ref', amount: take });
+    left = round2(left - take);
+  }
+  if (left > 0.005) bills.push({ name: '', type: 'On Account', amount: left });
+  p.bills = bills;
+}
+
+// a bill on the other side from its party's group is an advance, not a debt: a customer who paid more than billed
+// (Tally lists it under Bills Payable), or money paid to a supplier ahead of their bill
+const partyGroups = (companyId) => new Map(T.tledgers.all({ companyId, active: 1 }).map((l) => [lname(l.name), lname(l.ledger_group || l.parent)]));
+const isAdvance = (o, groups) => groups.get(lname(o.party_name)) === (o.bill_type === 'PAYABLE' ? 'sundry debtors' : 'sundry creditors');
 export function summary(userId) {
   const company = selectedCompany(userId);
   const agents = T.tagents.all({ userId }).filter((a) => a.status !== 'DISABLED').map(publicAgent);
@@ -664,16 +693,21 @@ export function summary(userId) {
   if (!company) return base;
   const outs = T.touts.all({ companyId: company.id, active: 1 }).filter((o) => o.status !== 'PAID' && o.status !== 'CANCELLED');
   const sum = (arr, f = (x) => x.pending_amount) => Math.round(arr.reduce((s, x) => s + (Number(f(x)) || 0), 0) * 100) / 100;
-  const rec = outs.filter((o) => o.bill_type !== 'PAYABLE'), pay = outs.filter((o) => o.bill_type === 'PAYABLE');
+  const groups = partyGroups(company.id), adv = outs.filter((o) => isAdvance(o, groups));
+  const rec = outs.filter((o) => o.bill_type !== 'PAYABLE' && !isAdvance(o, groups)), pay = outs.filter((o) => o.bill_type === 'PAYABLE' && !isAdvance(o, groups));
+  // customers' credits come off what they owe, advances paid to suppliers off what we owe them
+  const credits = adv.filter((o) => o.bill_type === 'PAYABLE'), paidAhead = adv.filter((o) => o.bill_type !== 'PAYABLE');
+  const net = (a, b) => Math.max(0, Math.round((a - b) * 100) / 100);
   const month = istDay(new Date()).slice(0, 8);
   const monthRows = q("SELECT json_extract(data, '$.voucher_type') AS t, COUNT(*) AS n, SUM(json_extract(data, '$.amount')) AS v FROM tvouchers WHERE companyId = ? AND active = 1 AND json_extract(data, '$.is_cancelled') = 0 AND json_extract(data, '$.voucher_date') >= ? GROUP BY t").all(company.id, `${month}01`);
   const byType = Object.fromEntries(monthRows.map((r) => [r.t || 'Other', { count: r.n, amount: Math.round((r.v || 0) * 100) / 100 }]));
   const debtors = new Map();
   for (const o of rec) debtors.set(o.party_name, (debtors.get(o.party_name) || 0) + (Number(o.pending_amount) || 0));
+  for (const o of credits) if (debtors.has(o.party_name)) debtors.set(o.party_name, Math.max(0, debtors.get(o.party_name) - (Number(o.pending_amount) || 0)));
   return {
     ...base,
-    receivable: { total: sum(rec), overdue: sum(rec.filter((o) => o.status === 'OVERDUE')), bills: rec.length, overdueBills: rec.filter((o) => o.status === 'OVERDUE').length },
-    payable: { total: sum(pay), overdue: sum(pay.filter((o) => o.status === 'OVERDUE')), bills: pay.length },
+    receivable: { total: net(sum(rec), sum(credits)), overdue: net(sum(rec.filter((o) => o.status === 'OVERDUE')), sum(credits)), bills: rec.length, overdueBills: rec.filter((o) => o.status === 'OVERDUE').length, advances: sum(credits) },
+    payable: { total: net(sum(pay), sum(paidAhead)), overdue: net(sum(pay.filter((o) => o.status === 'OVERDUE')), sum(paidAhead)), bills: pay.length, advances: sum(paidAhead) },
     month: byType,
     stock: { items: T.tstock.count({ companyId: company.id, active: 1 }), value: sum(T.tstock.all({ companyId: company.id, active: 1 }), (s) => s.closing_value), low: T.tstock.all({ companyId: company.id, active: 1 }).filter((s) => s.closing_balance != null && Number(s.closing_balance) <= 0).length },
     counts: { ledgers: T.tledgers.count({ companyId: company.id, active: 1 }), vouchers: T.tvouchers.count({ companyId: company.id, active: 1 }) },
