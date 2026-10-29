@@ -79,6 +79,7 @@ import { registerTallyInsights } from './tally-insights.js';
 import { registerInventory } from './inventory.js';
 import { registerInventoryPro } from './inventory-pro.js';
 import { registerInventoryReports } from './inventory-reports.js';
+import { registerGstReturns } from './gst-returns.js';
 import './tally-crm.js'; // Tally customer / supplier ledgers → CRM contacts
 import { registerTallyReminders } from './tally-remind.js';
 import { registerTallyOcr } from './tally-ocr.js';
@@ -979,6 +980,7 @@ registerTallyInsights(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerInventory(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerInventoryPro(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerInventoryReports(app, { auth, wrap, rateLimit, isTest, appUrl });
+registerGstReturns(app, { auth, rateLimit, isTest });
 registerTallyReminders(app, { auth, wrap, rateLimit, isTest });
 registerTallyOcr(app, { auth, wrap, rateLimit, isTest, credits });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
@@ -1028,7 +1030,7 @@ app.get('/api/orders', auth, (req, res) => {
   const baseOf = (fid) => (bases[fid] ??= linkBase(fid, process.env.APP_URL || appUrl(req)));
   // the invoices of the orders on this page only
   const ids = (out.orders || []).map((o) => o.id);
-  for (let i = 0; i < ids.length; i += 500) for (const inv of T.sinvoices.all({ orderId: ids.slice(i, i + 500) }, { order: 'at' })) if (inv.userId === req.user.id) (invoices[inv.orderId] ||= []).push({ id: inv.id, number: inv.number, type: inv.type, total: inv.total, url: invoiceUrl(baseOf(inv.funnelId), inv) });
+  for (let i = 0; i < ids.length; i += 500) for (const inv of T.sinvoices.all({ orderId: ids.slice(i, i + 500) }, { order: 'at' })) if (inv.userId === req.user.id) (invoices[inv.orderId] ||= []).push({ id: inv.id, number: inv.number, type: inv.type, total: inv.total, url: invoiceUrl(baseOf(inv.funnelId), inv), gstin: inv.billedTo?.gstin || '', registered: !!inv.registered, test: !!inv.test, irn: inv.irn?.irn || null });
   if (out.orders) out.orders = out.orders.map((o) => ({ ...o, invoices: invoices[o.id] || [] }));
   if (out.abandoned) out.abandoned = out.abandoned.map((a) => { const f = byId[a.funnelId], st = f.steps?.find((x) => x.id === a.stepId); return { ...a, link: f.published ? funnelUrl(f, process.env.APP_URL || appUrl(req), st?.slug) : null }; });
   res.json({ payments: !!rzpCreds(req.user), ...out });
