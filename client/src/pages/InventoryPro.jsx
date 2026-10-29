@@ -222,22 +222,25 @@ function VariantTab({ items, onChange }) {
 
 // ---------- retailers: quick counter billing ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// a credit note prints in the same view: its lines are what came back, its total the refund
+const MODE = { cash: 'Refunded in cash', credit: 'Credited to the account' };
 function printBill(b, me) {
   const w = window.open('', '_blank', 'width=420,height=640');
   if (!w) return toast('Allow pop-ups to print the bill');
-  const biz = me?.settings?.businessName || me?.name || '';
+  const biz = me?.settings?.businessName || me?.name || '', cn = !!b.bill_number;
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(b.number)}</title><style>
     body{font:13px/1.45 system-ui,sans-serif;color:#111;margin:0;padding:18px;max-width:380px} h1{font-size:16px;margin:0} .m{color:#555;font-size:12px}
     table{width:100%;border-collapse:collapse;margin:10px 0} th,td{padding:4px 2px;text-align:left;vertical-align:top} th{border-bottom:1px solid #111;font-size:11px;text-transform:uppercase}
     .r{text-align:right;white-space:nowrap} tfoot td{border-top:1px dashed #888} .t td{font-weight:700;font-size:15px;border-top:1px solid #111}
     @media print{@page{size:80mm auto;margin:4mm} body{padding:0} button{display:none}}</style></head><body>
-    <h1>${esc(biz)}</h1><div class="m">Bill ${esc(b.number)} · ${esc(b.day)}${b.party_name ? ` · ${esc(b.party_name)}` : ''}${b.credit ? ' · On credit' : ''}</div>
-    <table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>
-    ${b.lines.map((l) => `<tr><td>${esc(l.name)}${l.hsn ? `<div class="m">HSN ${esc(l.hsn)}</div>` : ''}${l.scheme ? `<div class="m">${esc(l.scheme.name)}${l.free_qty ? ` — ${l.free_qty} free` : ''}</div>` : ''}</td><td class="r">${l.qty}</td><td class="r">${rs(l.rate)}</td><td class="r">${rs(l.gross - l.discount)}<div class="m">+${l.gst_percent}% GST</div></td></tr>`).join('')}
+    <h1>${esc(biz)}</h1><div class="m">${cn ? `Credit note ${esc(b.number)} · against bill ${esc(b.bill_number)} (${esc(b.bill_day)})` : `Bill ${esc(b.number)}`} · ${esc(b.day)}${b.party_name ? ` · ${esc(b.party_name)}` : ''}${b.credit && !cn ? ' · On credit' : ''}</div>${cn && b.reason ? `<div class="m">Reason: ${esc(b.reason)}</div>` : ''}
+    <table><thead><tr><th>${cn ? 'Returned' : 'Item'}</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>
+    ${b.lines.map((l) => `<tr><td>${esc(l.name)}${l.hsn ? `<div class="m">HSN ${esc(l.hsn)}</div>` : ''}${l.scheme ? `<div class="m">${esc(l.scheme.name)}${l.free_qty ? ` — ${l.free_qty} free` : ''}</div>` : ''}${l.returned_qty ? `<div class="m">${l.returned_qty} returned</div>` : ''}</td><td class="r">${l.qty}</td><td class="r">${rs(l.rate)}</td><td class="r">${rs(l.taxable)}<div class="m">+${l.gst_percent}% GST</div></td></tr>`).join('')}
     </tbody><tfoot><tr><td colspan="3">Taxable</td><td class="r">${rs(b.taxable)}</td></tr>${b.discount ? `<tr><td colspan="3">Scheme discount</td><td class="r">−${rs(b.discount)}</td></tr>` : ''}
     <tr><td colspan="3">GST</td><td class="r">${rs(b.gst)}</td></tr>${b.round_off ? `<tr><td colspan="3">Round off</td><td class="r">${rs(b.round_off)}</td></tr>` : ''}
-    <tr class="t"><td colspan="3">Total</td><td class="r">${rs(b.total)}</td></tr></tfoot></table>
-    <p class="m">Thank you! Visit again.</p><button onclick="print()">Print</button><script>setTimeout(()=>print(),200)</script></body></html>`);
+    <tr class="t"><td colspan="3">${cn ? 'Refund' : 'Total'}</td><td class="r">${rs(b.total)}</td></tr>
+    ${!cn && b.returned ? `<tr><td colspan="3">Returned (${b.returns.map((n) => esc(n.number)).join(', ')})</td><td class="r">−${rs(b.returned)}</td></tr><tr class="t"><td colspan="3">Net</td><td class="r">${rs(b.net_total)}</td></tr>` : ''}</tfoot></table>
+    <p class="m">${cn ? esc(MODE[b.refund_mode] || '') : 'Thank you! Visit again.'}</p><button onclick="print()">Print</button><script>setTimeout(()=>print(),200)</script></body></html>`);
   w.document.close();
 }
 function CounterTab({ me, items, onChange }) {
@@ -249,7 +252,9 @@ function CounterTab({ me, items, onChange }) {
   const [lists, setLists] = useState([]);
   const [bills, setBills] = useState([]);
   const [busy, setBusy] = useState(false);
-  const loadBills = () => api(`${P}/bills?limit=20`).then(setBills).catch(fail);
+  const [ret, setRet] = useState(null);
+  const [today, setToday] = useState(null);
+  const loadBills = () => { api(`${P}/bills?limit=20`).then(setBills).catch(fail); api(`${P}/counter/day`).then(setToday).catch(() => {}); };
   useEffect(() => { loadBills(); api(`${P}/ratelists`).then(setLists).catch(() => {}); }, []);
   const body = { ...o, ratelistId: o.ratelistId || undefined, lines: lines.map((l) => ({ itemId: l.itemId, qty: Number(l.qty) })) };
   useEffect(() => {
@@ -280,7 +285,10 @@ function CounterTab({ me, items, onChange }) {
     if (what === 'cancel' && !(await confirmDialog({ title: `Cancel bill ${b.number}?`, text: 'Its items go back into stock.', confirm: 'Cancel bill', danger: true }))) return;
     try { await api(`${P}/bills/${b.id}/${what}`, 'POST', {}); loadBills(); if (what === 'cancel') onChange(); } catch (e) { fail(e); }
   };
+  const openNote = async (id) => { try { printBill(await api(`${P}/credit-notes/${id}`), me); } catch (e) { fail(e); } };
+  const left = (b) => b.lines.reduce((s, l) => s + l.qty + (l.free_qty || 0) - (l.returned_qty || 0), 0) > 0.0005;
   return (<>
+    {today && (today.bills > 0 || today.credit_notes > 0) && <Strip items={[['Today’s bills', inr(today.gross), `${today.bills} ${today.bills === 1 ? 'bill' : 'bills'}`, 'receipt'], ['Returns', inr(today.returns), today.credit_notes ? `${today.credit_notes} credit ${today.credit_notes === 1 ? 'note' : 'notes'}` : 'none today', 'refund', today.returns ? 'bad' : ''], ['Net sales', inr(today.net), today.cash_refunds ? `${inr(today.cash_refunds)} refunded in cash` : 'bills less returns', 'wallet', 'in']]} />}
     <Panel title="Counter bill">
       <div className="ip-counter">
         <form className="row ip-plan" onSubmit={scanned}><input autoFocus value={scan} onChange={(e) => setScan(e.target.value)} placeholder="Scan barcode or type SKU, then Enter" aria-label="Barcode or SKU" /><button className="btn ghost sm">Add</button></form>
@@ -307,11 +315,58 @@ function CounterTab({ me, items, onChange }) {
       </>}
     </Panel>
     <Panel title="Recent bills" pad={false}>
-      <Table head={['Bill', 'Party', 'Total', 'Status', '']} empty="No counter bills yet." rows={bills.map((b) => <tr key={b.id} className={b.cancelled ? 'ip-off' : ''}><td><b className="mono">{b.number}</b><small className="sub-t">{b.day}</small></td><td>{b.party_name || '—'}</td><td className="r">{inr(b.total)}</td>
-        <td>{b.cancelled ? <span className="pill">Cancelled</span> : b.credit && !b.paid ? <span className="pill warn">Credit · unpaid</span> : <span className="pill ok">Paid</span>}</td>
-        <td className="r nowrap"><button className="btn ghost sm" onClick={() => printBill(b, me)}>Print</button>{!b.cancelled && b.credit && !b.paid && <button className="btn ghost sm" onClick={() => act(b, 'paid')}>Mark paid</button>}{!b.cancelled && <button className="btn ghost sm" onClick={() => act(b, 'cancel')}>Cancel</button>}</td></tr>)} />
+      <Table head={['Bill', 'Party', 'Total', 'Status', '']} empty="No counter bills yet." rows={bills.map((b) => <tr key={b.id} className={b.cancelled ? 'ip-off' : ''}><td><b className="mono">{b.number}</b><small className="sub-t">{b.day}</small></td><td>{b.party_name || '—'}</td>
+        <td className="r">{b.returned ? <><s className="muted">{inr(b.total)}</s> {inr(b.net_total)}</> : inr(b.total)}{b.returns?.length > 0 && <small className="sub-t ip-cns">{b.returns.map((n) => <button key={n.id} className="ip-cn" onClick={() => openNote(n.id)} title={`Print credit note ${n.number}`}>{n.number} −{inr(n.total)}</button>)}</small>}</td>
+        <td>{b.cancelled ? <span className="pill">Cancelled</span> : b.credit && !b.paid ? <span className="pill warn">Credit · unpaid</span> : <span className="pill ok">Paid</span>}{!b.cancelled && b.returns?.length > 0 && <span className={`pill ${left(b) ? 'info' : ''}`}>{left(b) ? 'Part returned' : 'Returned'}</span>}</td>
+        <td className="r nowrap"><button className="btn ghost sm" onClick={() => printBill(b, me)}>Print</button>{!b.cancelled && left(b) && <button className="btn ghost sm" onClick={() => setRet(b)}><Icon name="refund" size={13} /> Return</button>}{!b.cancelled && b.credit && !b.paid && <button className="btn ghost sm" onClick={() => act(b, 'paid')}>Mark paid</button>}{!b.cancelled && !b.returns?.length && <button className="btn ghost sm" onClick={() => act(b, 'cancel')}>Cancel</button>}</td></tr>)} />
     </Panel>
+    {ret && <ReturnForm bill={ret} me={me} onClose={() => setRet(null)} onSaved={() => { setRet(null); loadBills(); onChange(); }} />}
   </>);
+}
+
+// a return against a bill: pieces per line (free pieces count too), the refund priced by the server as you type
+function ReturnForm({ bill, me, onClose, onSaved }) {
+  const owed = bill.credit && !bill.paid;
+  const [qty, setQty] = useState(() => bill.lines.map(() => ''));
+  const [o, setO] = useState({ reason: '', refund_mode: owed ? 'credit' : 'cash' });
+  const [pre, setPre] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const body = { ...o, lines: qty.map((q, i) => ({ line: i, qty: Number(q) })).filter((l) => l.qty > 0) };
+  useEffect(() => {
+    if (!body.lines.length) { setPre(null); return; }
+    const t = setTimeout(() => api(`${P}/bills/${bill.id}/return/preview`, 'POST', body).then(setPre).catch((e) => { setPre(null); fail(e); }), 250);
+    return () => clearTimeout(t);
+  }, [JSON.stringify(body)]);
+  const save = async (e) => {
+    e.preventDefault(); setBusy(true);
+    try { const n = await api(`${P}/bills/${bill.id}/return`, 'POST', body); toast(`Credit note ${n.number} — ${inr(n.total)} ${n.refund_mode === 'cash' ? 'to refund in cash' : `credited to ${n.party_name}`}`); printBill(n, me); onSaved(); } catch (e2) { fail(e2); }
+    setBusy(false);
+  };
+  return (
+    <Modal title={`Return on bill ${bill.number}`} onClose={onClose}>
+      <form onSubmit={save} className="ip-form">
+        <div className="tbl-wrap tl-tbl"><table className="tbl">
+          <thead><tr><th>Item</th><th className="r">Sold</th><th className="r">Back</th><th className="r">Refund</th></tr></thead>
+          <tbody>{bill.lines.map((l, i) => {
+            const sold = l.qty + (l.free_qty || 0), can = Math.round((sold - (l.returned_qty || 0)) * 1000) / 1000, p = pre?.lines.find((x) => x.line === i);
+            return (
+              <tr key={i} className={can <= 0 ? 'ip-off' : ''}><td>{l.name}{l.free_qty ? <small className="sub-t">{qn(l.qty)} + {qn(l.free_qty)} free · {l.scheme?.name}</small> : null}{l.returned_qty ? <small className="sub-t">{qn(l.returned_qty)} already returned</small> : null}</td>
+                <td className="r">{qn(sold)} {l.unit}</td>
+                <td className="r"><input className="ip-qty" type="number" min="0" max={can} step="any" value={qty[i]} disabled={can <= 0} placeholder={can > 0 ? `up to ${qn(can)}` : '—'} onChange={(e) => setQty(qty.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Pieces of ${l.name} returned`} /></td>
+                <td className="r">{p ? rs(p.amount) : ''}</td></tr>
+            );
+          })}</tbody>
+        </table></div>
+        <div className="ip-inline ip-billopts">
+          <input placeholder="Reason (optional) — e.g. size exchange" value={o.reason} onChange={(e) => setO({ ...o, reason: e.target.value })} aria-label="Reason" />
+          {!owed && bill.party_name && <select value={o.refund_mode} onChange={(e) => setO({ ...o, refund_mode: e.target.value })} aria-label="Refund as"><option value="cash">Refund in cash</option><option value="credit">Credit to {bill.party_name}’s account</option></select>}
+        </div>
+        {owed && <p className="sm ip-credit"><Icon name="wallet" size={13} /> On credit and unpaid — the refund comes off what {bill.party_name} owes.</p>}
+        <div className="ip-total"><span>{pre ? <>Taxable {rs(pre.taxable)} · GST {rs(pre.gst)}{pre.round_off ? ` · round off ${rs(pre.round_off)}` : ''}{pre.lines.some((l) => l.taxable === 0) ? ' · a free piece kept by the scheme refunds ₹0' : ''}</> : 'Enter the pieces that came back.'}</span><b>{inr(pre?.total || 0)}</b>
+          <button className="btn primary" disabled={busy || !pre}><Icon name="refund" size={14} /> Save & print credit note</button></div>
+      </form>
+    </Modal>
+  );
 }
 
 // ---------- traders: rate lists ----------

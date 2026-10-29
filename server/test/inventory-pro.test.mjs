@@ -250,7 +250,7 @@ test('Hive tools: produce, expiring, counter bill by name, credit limit — writ
   const { TOOLS, OK } = await import('../hive-inventory-pro.js');
   const tool = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
   const ctx = { call: async (method, path, body) => { const r = await api(path, method, body, S); if (r.status >= 400) throw new Error(r.data.error); return r.data; } };
-  assert.deepEqual(Object.keys(OK).sort(), ['inventory_counter_bill', 'inventory_make_variants', 'inventory_produce', 'inventory_set_bom', 'inventory_set_credit_limit', 'inventory_set_scheme']);
+  assert.deepEqual(Object.keys(OK).sort(), ['inventory_counter_bill', 'inventory_counter_return', 'inventory_make_variants', 'inventory_produce', 'inventory_set_bom', 'inventory_set_credit_limit', 'inventory_set_scheme']);
   assert.match(OK.inventory_counter_bill({ lines: [{ item: 'shirt M blue', qty: 2 }] }), /2 × shirt M blue/);
 
   const need = await tool.inventory_production.run(ctx, { item: 'chair', qty: 10 });
@@ -319,4 +319,119 @@ test('Hive end-to-end gaps: bill of materials, scheme, variants, counter sales; 
   const after_ = await tool.inventory_counter_bills.run(ctx, {});
   assert.equal(after_.count, before_.count + 1);
   assert.ok(after_.bills.some((b) => b.total === '₹1,364'), '₹1,299 + 5% GST, rounded');
+});
+
+// returns against a counter bill: a credit note (CN-…) linked to the bill; stock back as RETURN_IN to where it left from;
+// the bill's net, a credit party's outstanding and the day's net counter sales all go down
+test('returns: part return with GST, never more than sold, scheme rule, stock back, credit outstanding, day’s net', async () => {
+  const d0 = (await api(`${P}/counter/day`, 'GET', null, S)).data;
+  const kurta = item('Return Kurta L', { sale_rate: 1299, gst_percent: 5 });
+  stockIn(kurta, 5);
+  const b = (await api(`${P}/bills`, 'POST', { lines: [{ itemId: kurta.id, qty: 3 }] }, S)).data;
+  assert.deepEqual([b.taxable, b.gst, b.total, b.net_total, b.returns.length], [3897, 194.85, 4092, 4092, 0]);
+
+  // 1 of 3 back: ₹1,299 + 5% = ₹1,363.95 → the bill's balance goes ₹4,092 → ₹2,728, so the note is ₹1,364
+  const pre = (await api(`${P}/bills/${b.id}/return/preview`, 'POST', { lines: [{ line: 0, qty: 1 }] }, S)).data;
+  assert.deepEqual([pre.total, pre.refund_mode], [1364, 'cash']);
+  assert.equal(stockOf(kurta.id), 2, 'a preview saves nothing');
+  const cn = await api(`${P}/bills/${b.id}/return`, 'POST', { lines: [{ line: 0, qty: 1 }], reason: 'size exchange' }, S);
+  assert.equal(cn.status, 200, JSON.stringify(cn.data));
+  assert.match(cn.data.number, /^CN-\d{4}$/);
+  assert.deepEqual([cn.data.bill_number, cn.data.taxable, cn.data.gst, cn.data.total, cn.data.round_off, cn.data.reason], [b.number, 1299, 64.95, 1364, 0.05, 'size exchange']);
+  assert.equal(stockOf(kurta.id), 3);
+  const back = cn.data.moveIds.map((id) => T.imoves.get(id));
+  assert.deepEqual(back.map((m) => [m.kind, m.qty, m.rate, m.ref]), [['RETURN_IN', 1, 1299, cn.data.number]]);
+  const v = (await api(`${P}/bills/${b.id}`, 'GET', null, S)).data;
+  assert.deepEqual([v.lines[0].returned_qty, v.returned, v.net_total, v.returns[0].number], [1, 1364, 2728, cn.data.number]);
+
+  // never more than was sold less what came back; nothing changes when refused
+  const over = await api(`${P}/bills/${b.id}/return`, 'POST', { lines: [{ item: 'return kurta l', qty: 3 }] }, S);
+  assert.equal(over.status, 409);
+  assert.match(over.data.error, /Only 2 pcs of Return Kurta L left to return/);
+  assert.equal(stockOf(kurta.id), 3);
+  assert.equal((await api(`${P}/bills/${b.id}/return`, 'POST', { lines: [{ item: 'pen', qty: 1 }] }, S)).status, 400, 'not on this bill');
+  assert.equal((await api(`${P}/bills/${b.id}/return`, 'POST', { lines: [] }, S)).status, 400);
+  const rest = (await api(`${P}/bills/${b.id}/return`, 'POST', { lines: [{ item: 'return kurta l', qty: 2 }] }, S)).data;
+  assert.equal(rest.total, 2728, 'the notes add up to the bill exactly');
+  assert.equal((await api(`${P}/bills/${b.id}`, 'GET', null, S)).data.net_total, 0);
+  assert.equal(stockOf(kurta.id), 5);
+  assert.equal((await api(`${P}/bills/${b.id}/cancel`, 'POST', {}, S)).status, 409, 'a bill with returns isn’t cancelled');
+
+  // buy 10 get 1: 20 sold + 2 free from batch RS1. 1 back → they keep 21 = 20 paid + 1 free: ₹0. 2 more back → they
+  // keep 19 = 18 paid + 1 free: ₹60 + 18% = ₹70.80 → ₹71. Free pieces still return to stock.
+  const soap = item('Return Soap', { sale_rate: 30, gst_percent: 18 });
+  await api(`${P}/schemes`, 'POST', { itemId: soap.id, kind: 'FREE', buy: 10, free: 1 }, S);
+  stockIn(soap, 30, { batch: 'RS1', expiry: day(100) });
+  const sb = (await api(`${P}/bills`, 'POST', { lines: [{ itemId: soap.id, qty: 20 }] }, S)).data;
+  assert.deepEqual([sb.lines[0].free_qty, sb.total, sb.lines[0].scheme.buy], [2, 708, 10]);
+  const c1 = (await api(`${P}/bills/${sb.id}/return`, 'POST', { lines: [{ itemId: soap.id, qty: 1 }] }, S)).data;
+  assert.deepEqual([c1.total, c1.lines[0].taxable], [0, 0]);
+  assert.deepEqual(c1.moveIds.map((id) => { const m = T.imoves.get(id); return [m.qty, m.rate, m.batch]; }), [[1, 0, 'RS1']], 'back into the batch it left from');
+  const c2 = (await api(`${P}/bills/${sb.id}/return`, 'POST', { lines: [{ itemId: soap.id, qty: 2 }] }, S)).data;
+  assert.deepEqual([c2.taxable, c2.gst, c2.total], [60, 10.8, 71]);
+  const c3 = (await api(`${P}/bills/${sb.id}/return`, 'POST', { lines: [{ itemId: soap.id, qty: 19 }] }, S)).data;
+  assert.equal(c1.total + c2.total + c3.total, 708);
+  assert.equal(stockOf(soap.id), 30);
+  assert.equal((await api(`${P}/bills/${sb.id}/return`, 'POST', { lines: [{ itemId: soap.id, qty: 1 }] }, S)).status, 409);
+
+  // a credit bill: the return comes off what the party owes (no cash refund on an unpaid bill); Tally off, so what
+  // they owe comes from credit counter bills here
+  T.users.update(sellerId, (u) => { u.addons = { ...u.addons, tally: false }; });
+  const cap = item('Return Cap', { sale_rate: 200, gst_percent: 12 });
+  stockIn(cap, 10);
+  await api(`${P}/credit`, 'PUT', { party_name: 'Mehta Stores', limit: 50000 }, S);
+  const cb = (await api(`${P}/bills`, 'POST', { party_name: 'Mehta Stores', credit: true, lines: [{ itemId: cap.id, qty: 5 }] }, S)).data;
+  assert.equal((await api(`${P}/credit?party=mehta stores`, 'GET', null, S)).data.outstanding, 1120);
+  assert.equal((await api(`${P}/bills/${cb.id}/return`, 'POST', { lines: [{ itemId: cap.id, qty: 2 }], refund_mode: 'cash' }, S)).status, 400);
+  const cc = (await api(`${P}/bills/${cb.id}/return`, 'POST', { lines: [{ itemId: cap.id, qty: 2 }] }, S)).data;
+  assert.deepEqual([cc.total, cc.refund_mode, cc.applies_to], [448, 'credit', 'bill']);
+  assert.equal((await api(`${P}/credit?party=mehta stores`, 'GET', null, S)).data.outstanding, 672);
+  assert.equal((await api(`${P}/credit/check`, 'POST', { party_name: 'Mehta Stores', amount: 100 }, S)).data.after, 772, 'the credit-limit check sees it');
+  assert.equal((await api(`${P}/credit-notes?party=Mehta Stores`, 'GET', null, S)).data[0].number, cc.number);
+  await api(`${P}/bills/${cb.id}/paid`, 'POST', {}, S);
+  assert.equal((await api(`${P}/credit?party=mehta stores`, 'GET', null, S)).data.outstanding, 0);
+  T.users.update(sellerId, (u) => { u.addons = { ...u.addons, tally: true }; });
+
+  // a cancelled bill takes no returns
+  const x = (await api(`${P}/bills`, 'POST', { lines: [{ itemId: cap.id, qty: 1 }] }, S)).data;
+  await api(`${P}/bills/${x.id}/cancel`, 'POST', {}, S);
+  const no = await api(`${P}/bills/${x.id}/return`, 'POST', { lines: [{ itemId: cap.id, qty: 1 }] }, S);
+  assert.equal(no.status, 409);
+  assert.match(no.data.error, /cancelled/);
+
+  // the day: gross = today's live bills, returns = today's credit notes, net = the difference
+  const d1 = (await api(`${P}/counter/day`, 'GET', null, S)).data;
+  assert.equal(d1.gross - d0.gross, 4092 + 708 + 1120);
+  assert.equal(d1.returns - d0.returns, 1364 + 2728 + 0 + 71 + 637 + 448);
+  assert.equal(d1.net, d1.gross - d1.returns);
+  assert.equal(d1.credit_notes - d0.credit_notes, 6);
+  assert.equal((await api(`${P}/credit-notes?day=${day()}`, 'GET', null, S)).data.length, d1.credit_notes);
+});
+
+test('Hive: take back a piece by name (finds the latest bill with it), the day’s summary shows gross, returns and net', async () => {
+  const { TOOLS, OK } = await import('../hive-inventory-pro.js');
+  const tool = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  const ctx = { call: async (method, path, body) => { const r = await api(path, method, body, S); if (r.status >= 400) throw new Error(r.data.error); return r.data; } };
+  assert.match(OK.inventory_counter_return({ lines: [{ item: 'linen kurta m beige', qty: 1 }] }), /Take back 1 × linen kurta m beige on the latest bill/);
+
+  const before = await tool.inventory_counter_bills.run(ctx, {});
+  const sold = await tool.inventory_counter_bill.run(ctx, { lines: [{ item: 'linen kurta m beige', qty: 1 }] });
+  const kid = T.iitems.find({ userId: sellerId, lname: 'linen kurta m beige' }).id, stock = stockOf(kid);
+  const r = await tool.inventory_counter_return.run(ctx, { lines: [{ item: 'linen kurta m beige', qty: 1 }], reason: 'exchanged for L' });
+  assert.equal(r.bill, sold.bill);
+  assert.match(r.picked, new RegExp(`used ${sold.bill}`));
+  assert.deepEqual([r.refund, r.refundMode, r.billNow], ['₹1,364', 'cash', '₹0']);
+  assert.match(r.creditNote, /^CN-/);
+  assert.equal(stockOf(kid), stock + 1);
+  await assert.rejects(tool.inventory_counter_return.run(ctx, { bill: sold.bill, lines: [{ item: 'linen kurta m beige', qty: 1 }] }), /Only 0/);
+  await assert.rejects(tool.inventory_counter_return.run(ctx, { bill: 'CB-0001', lines: [{ item: 'shirt m blue', qty: 1 }] }), /cancelled/);
+
+  const after = await tool.inventory_counter_bills.run(ctx, {});
+  const n = (s) => Number(String(s).replace(/[₹,]/g, ''));
+  assert.equal(n(after.gross) - n(before.gross), 1364);
+  assert.equal(n(after.returns) - n(before.returns), 1364);
+  assert.equal(after.net, before.net, 'sold and taken back the same day: net unchanged');
+  assert.ok(after.creditNotes.some((c) => c.number === r.creditNote && c.bill === sold.bill && c.reason === 'exchanged for L'));
+  assert.ok(after.bills.some((b) => b.number === sold.bill && b.net === '₹0'));
+  assert.match(tool.inventory_counter_bills.summary(after), /returns = /);
 });

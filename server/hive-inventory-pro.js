@@ -72,16 +72,48 @@ export const TOOLS = [
     summary: (r) => `Made ${r.made.length} variants of ${r.item}${r.skipped.length ? ` (${r.skipped.length} already there)` : ''}`,
   },
   {
-    name: 'inventory_counter_bills', description: 'Counter bills (Inventory add-on): the bills made at the counter on a day (default today, IST) or for a party — numbers, totals, cash / credit, paid, cancelled — and the day’s total sales. Use it for “today’s counter sales”.',
+    name: 'inventory_counter_bills', description: 'Counter bills (Inventory add-on): the bills made at the counter on a day (default today, IST) or for a party — numbers, totals, cash / credit, paid, cancelled, returns — and the day’s sales: gross (bills), returns (credit notes made that day) and net. Use it for “today’s counter sales” and report the NET as the day’s sales.',
     schema: S({ day: str('YYYY-MM-DD (optional — today)'), party: str('Party name (optional)') }),
     run: async (ctx, a) => {
       const ist = (t) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(t));
       const day = /^\d{4}-\d{2}-\d{2}$/.test(a.day || '') ? a.day : ist(Date.now());
       const bills = (await ctx.call('GET', `${P}/bills?${qs({ party: a.party, limit: 200 })}`)).filter((b) => a.party || (b.day || ist(b.at)) === day);
       const live = bills.filter((b) => !b.cancelled);
-      return { day: a.party ? undefined : day, count: live.length, total: amt(live.reduce((s, b) => s + (Number(b.total) || 0), 0)), onCredit: amt(live.filter((b) => b.credit && !b.paid).reduce((s, b) => s + (Number(b.total) || 0), 0)), cancelled: bills.length - live.length, bills: bills.slice(0, 50).map((b) => ({ number: b.number, party: b.party_name || 'Walk-in', total: amt(b.total), credit: !!b.credit, paid: !!b.paid, cancelled: !!b.cancelled })) };
+      const notes = a.party ? await ctx.call('GET', `${P}/credit-notes?${qs({ party: a.party })}`) : (await ctx.call('GET', `${P}/counter/day?${qs({ day })}`)).notes;
+      const gross = live.reduce((s, b) => s + (Number(b.total) || 0), 0), returns = notes.reduce((s, n) => s + (Number(n.total) || 0), 0);
+      return { day: a.party ? undefined : day, count: live.length, total: amt(gross), gross: amt(gross), returns: amt(returns), net: amt(gross - returns), onCredit: amt(live.filter((b) => b.credit && !b.paid).reduce((s, b) => s + (Number(b.net_total ?? b.total) || 0), 0)), cancelled: bills.length - live.length,
+        bills: bills.slice(0, 50).map((b) => ({ number: b.number, party: b.party_name || 'Walk-in', total: amt(b.total), ...(b.returned ? { returned: amt(b.returned), net: amt(b.net_total) } : {}), credit: !!b.credit, paid: !!b.paid, cancelled: !!b.cancelled })),
+        creditNotes: notes.slice(0, 50).map((n) => ({ number: n.number, bill: n.bill_number, party: n.party_name || 'Walk-in', refund: amt(n.total), mode: n.refund_mode, items: n.lines.map((l) => `${l.qty} × ${l.name}`).join(', '), reason: n.reason || undefined })) };
     },
-    summary: (r) => `${r.count} counter bills, ${r.total}`,
+    summary: (r) => `${r.count} counter bills, ${r.gross}${r.creditNotes.length ? ` − ${r.returns} returns = ${r.net}` : ''}`,
+  },
+  {
+    name: 'inventory_counter_return', description: 'Take back items sold on a counter bill (Inventory add-on; waits for the seller’s Confirm): makes a credit note (CN-…) against the bill — the pieces go back into stock, the refund is their share of the bill incl. GST (schemes respected: a return that breaks “buy 10 get 1” reclaims the free piece’s value), the bill and the day’s sales go down, and on an unpaid credit bill it comes off what the party owes. Give the bill number if the seller knows it; otherwise the latest bill with those items is used — tell the seller which bill it picked. For an exchange: this return, then a new inventory_counter_bill.',
+    schema: S({ bill: str('Bill number, e.g. CB-0012 (optional)'), lines: { type: 'array', description: 'What came back', items: S({ item: str('Item name as the seller says it, a barcode or a SKU'), qty: num('Pieces returned') }, ['item', 'qty']) }, reason: str('Why (optional, e.g. size exchange)'), refund_mode: { type: 'string', enum: ['cash', 'credit'], description: 'cash, or credit to the party’s account (optional — unpaid credit bills always take credit)' } }, ['lines']),
+    run: async (ctx, a) => {
+      const lines = [];
+      for (const l of a.lines || []) lines.push({ itemId: (await ctx.call('GET', `${P}/rate?${qs({ item: l.item })}`)).item.id, qty: Number(l.qty), name: l.item });
+      if (!lines.length) throw new Error('Which items came back?');
+      const all = await ctx.call('GET', `${P}/bills?limit=200`);
+      let bill, picked = false;
+      if (a.bill) {
+        const d = String(a.bill).match(/\d+/)?.[0], want = d ? `CB-${d.padStart(4, '0')}` : String(a.bill).toUpperCase();
+        bill = all.find((b) => b.number === want || b.number === String(a.bill).trim().toUpperCase());
+        if (!bill) throw new Error(`No counter bill ${a.bill} among the last 200 bills`);
+      } else {
+        // the latest live bill that still has every item, in that quantity, left to return
+        const left = (b, id) => b.lines.filter((x) => x.itemId === id).reduce((s, x) => s + x.qty + (x.free_qty || 0) - (x.returned_qty || 0), 0);
+        bill = all.find((b) => !b.cancelled && lines.every((l) => left(b, l.itemId) >= l.qty - 0.0005));
+        if (!bill) throw new Error(`No recent bill has ${lines.map((l) => `${l.qty} × ${l.name}`).join(', ')} left to return — ask the seller for the bill number`);
+        picked = true;
+      }
+      const n = await ctx.call('POST', `${P}/bills/${bill.id}/return`, { lines: lines.map(({ itemId, qty }) => ({ itemId, qty })), reason: a.reason, refund_mode: a.refund_mode, source: 'HIVE' });
+      const after = await ctx.call('GET', `${P}/bills/${bill.id}`);
+      return { creditNote: n.number, bill: bill.number, billDay: bill.day, ...(picked ? { picked: `No bill number given — used ${bill.number} (${bill.day}${bill.party_name ? `, ${bill.party_name}` : ''}), the latest bill with ${lines.map((l) => l.name).join(', ')}` } : {}),
+        lines: n.lines.map((l) => `${l.qty} × ${l.name}: ${amt(l.amount)}`), refund: amt(n.total), refundMode: n.refund_mode === 'credit' ? (n.applies_to === 'bill' ? `off ${n.party_name}’s unpaid bill` : `credit to ${n.party_name}’s account`) : 'cash',
+        billNow: amt(after.net_total), note: 'Stock is back. The seller can print the credit note from Inventory → Counter bill.' };
+    },
+    summary: (r) => `${r.creditNote} on ${r.bill}: refund ${r.refund}`,
   },
   {
     name: 'inventory_produce', description: 'Record production (Inventory add-on; waits for the seller’s Confirm): makes qty of a finished item from its bill of materials — takes the components out of stock and puts the finished item in, all or nothing. If anything is short nothing changes and the shortfall per component comes back.',
@@ -162,5 +194,6 @@ export const OK = {
   inventory_set_bom: (a) => `Set the bill of materials: 1 ${a.item} = ${(a.components || []).map((c) => `${c.qty} ${c.item}`).join(' + ')}`,
   inventory_produce: (a) => `Make ${a.qty} ${a.item} — the components come out of stock`,
   inventory_counter_bill: (a) => `Bill ${linesText(a.lines)}${a.party_name ? ` to ${a.party_name}` : ''}${a.credit ? ' on credit' : ''}${a.override ? ' (over their credit limit)' : ''} — stock goes out`,
+  inventory_counter_return: (a) => `Take back ${linesText(a.lines)}${a.bill ? ` on bill ${a.bill}` : ' on the latest bill with it'}${a.refund_mode ? ` — refund as ${a.refund_mode}` : ''} — stock comes back and a credit note is made`,
   inventory_set_credit_limit: (a) => `Set ${a.party}’s credit limit to ${amt(a.limit)}${a.ratelist ? ` on the ${a.ratelist} rate list` : ''}`,
 };

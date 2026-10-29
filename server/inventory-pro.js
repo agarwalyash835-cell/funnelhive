@@ -149,7 +149,8 @@ export function schemeFor(userId, item, qty, rate, day = ymd()) {
       : (qty >= (s.min_qty || 1) ? { free_qty: 0, discount: r2((qty * rate * s.pct) / 100) } : null);
     if (!o) continue;
     const value = o.discount + o.free_qty * rate;
-    if (!best || value > best.value) best = { ...o, value, scheme: { id: s.id, name: s.name, kind: s.kind } };
+    // the terms ride on the bill line, so a later return reprices by the scheme as it was on the day of sale
+    if (!best || value > best.value) best = { ...o, value, scheme: { id: s.id, name: s.name, kind: s.kind, ...(s.kind === 'FREE' ? { buy: s.buy, free: s.free } : { pct: s.pct, min_qty: s.min_qty }) } };
   }
   return best;
 }
@@ -201,8 +202,12 @@ export function outstanding(u, party) {
     const bills = T.touts.all({ companyId: c.id, active: 1 }).filter((o) => o.bill_type === 'RECEIVABLE' && OPEN.includes(o.status) && lower(o.party_name) === lp);
     return { source: 'tally', amount: r2(bills.reduce((s, o) => s + Math.abs(Number(o.pending_amount) || 0), 0)), bills: bills.length };
   }
+  // a credit note refunded as credit comes off its own unpaid bill, or (on a paid / cash bill) off the party's account
   const bills = T.ibills.all({ userId: u.id, lparty: lp }).filter((b) => b.credit && !b.paid && !b.cancelled);
-  return { source: 'bills', amount: r2(bills.reduce((s, b) => s + b.total, 0)), bills: bills.length };
+  const notes = T.icnotes.all({ userId: u.id, lparty: lp }).filter((n) => n.refund_mode === 'credit');
+  const off = (b) => notes.filter((n) => n.applies_to === 'bill' && n.billId === b.id).reduce((s, n) => s + n.total, 0);
+  const account = notes.filter((n) => n.applies_to === 'account').reduce((s, n) => s + n.total, 0);
+  return { source: 'bills', amount: r2(bills.reduce((s, b) => s + b.total - off(b), 0) - account), bills: bills.length };
 }
 export function creditCheck(u, party, amount = 0) {
   const cr = creditOf(u.id, party), out = outstanding(u, party);
@@ -238,7 +243,15 @@ function makeVariants(userId, body) {
 }
 
 // ---------- counter bills (retailers; credit bills feed traders' outstanding) ----------
-const billView = (b) => { const { userId, lparty, ...rest } = b; return rest; };
+const notesOf = (b) => (b.cnIds || []).map((id) => T.icnotes.get(id)).filter(Boolean);
+const noteView = (n) => { const { userId, lparty, ...rest } = n; return rest; };
+// what came back of each line so far (pieces, taxable, GST), from the bill's credit notes
+const backOf = (notes, i) => notes.flatMap((n) => n.lines.filter((x) => x.line === i)).reduce((s, x) => ({ qty: r3(s.qty + x.qty), taxable: r2(s.taxable + x.taxable), gst: r2(s.gst + x.gst) }), { qty: 0, taxable: 0, gst: 0 });
+const billView = (b) => {
+  const { userId, lparty, cnIds, ...rest } = b;
+  const notes = notesOf(b), returned = r2(notes.reduce((s, n) => s + n.total, 0));
+  return { ...rest, lines: rest.lines.map((l, i) => ({ ...l, returned_qty: backOf(notes, i).qty })), returns: notes.map(({ id, number, day, total, refund_mode, reason }) => ({ id, number, day, total, refund_mode, reason })), returned, net_total: r2(b.total - returned) };
+};
 export function priceBill(u, body) {
   const lines = Array.isArray(body.lines) ? body.lines.filter((l) => l && (l.itemId || l.barcode || l.item)) : [];
   if (!lines.length) fail(400, 'Add at least one item to the bill');
@@ -278,6 +291,99 @@ export function saveBill(u, body) {
   }));
 }
 const ownBill = (userId, id) => { const b = T.ibills.get(id); if (!b || b.userId !== userId) fail(404, 'Bill not found'); return b; };
+
+// ---------- returns against a counter bill: credit notes CN-0001… ----------
+// The rule for schemes: what the customer keeps is charged as if they had bought only that, under the scheme on the
+// bill. Buy 10 get 1 free: 11 pieces sold, 1 comes back → they keep 10, which costs 10, so the refund is ₹0 (the free
+// piece is reclaimed by value); 2 come back → they keep 9 for 9, refund 1. Free pieces always go back into stock at ₹0.
+// % off below its minimum quantity goes back to the full rate. A refund is never negative and never more than is
+// still paid on the line, so the credit notes on a fully returned bill add up to exactly its total.
+const pieces = (l) => r3(l.qty + (l.free_qty || 0));
+function chargeFor(l, k) {
+  const s = l.scheme ? { ...(l.scheme.buy || l.scheme.pct ? {} : T.ischemes.get(l.scheme.id) || {}), ...l.scheme } : null; // bills before terms rode on the line: today's terms
+  if (k <= 0) return 0;
+  if (s?.kind === 'FREE' && s.buy > 0 && s.free > 0) { const n = Math.floor(k / (s.buy + s.free)); return r2(l.rate * (n * s.buy + Math.min(k - n * (s.buy + s.free), s.buy))); }
+  if (s?.kind === 'PERCENT' && s.pct > 0) { const g = r2(k * l.rate); return k >= (s.min_qty || 1) ? r2(g - r2((g * s.pct) / 100)) : g; }
+  return r2((l.taxable * Math.min(k, l.qty)) / l.qty); // kept pieces count as paid ones first
+}
+export function priceReturn(u, b, body = {}) {
+  if (b.cancelled) fail(409, `Bill ${b.number} is cancelled — there’s nothing on it to return`);
+  const notes = notesOf(b), want = b.lines.map(() => 0);
+  const asked = Array.isArray(body.lines) ? body.lines.filter((l) => l && (l.line != null || l.itemId || l.item || l.barcode)) : [];
+  for (const r of asked) {
+    const n = r3(pos(r.qty, 'Quantity returned'));
+    const left = (i) => r3(pieces(b.lines[i]) - backOf(notes, i).qty - want[i]);
+    if (r.line != null && r.line !== '') {
+      const i = Number(r.line);
+      if (!Number.isInteger(i) || !b.lines[i]) fail(400, `Bill ${b.number} has no line ${r.line}`);
+      if (n > left(i) + 0.0005) fail(409, `Only ${left(i)} ${b.lines[i].unit} of ${b.lines[i].name} left to return on ${b.number}`.replace('  ', ' '));
+      want[i] = r3(want[i] + n); continue;
+    }
+    const it = r.itemId ? ownItem(u.id, r.itemId) : findItem(u.id, r.barcode || r.item);
+    const idx = b.lines.map((l, i) => (l.itemId === it.id ? i : -1)).filter((i) => i >= 0);
+    if (!idx.length) fail(400, `${it.name} isn’t on bill ${b.number}`);
+    const can = r3(idx.reduce((s, i) => s + left(i), 0));
+    if (n > can + 0.0005) fail(409, `Only ${can} ${it.unit || ''} of ${it.name} left to return on ${b.number} — sold ${r3(idx.reduce((s, i) => s + pieces(b.lines[i]), 0))}`.replace('  ', ' '));
+    let rest = n; // the same item on two lines: fill the first line first
+    for (const i of idx) { const t = r3(Math.min(rest, left(i))); want[i] = r3(want[i] + t); rest = r3(rest - t); }
+  }
+  if (!want.some((n) => n > 0)) fail(400, 'Pick what came back and how many');
+  const mode = body.refund_mode || (b.credit && !b.paid ? 'credit' : 'cash');
+  if (!['cash', 'credit'].includes(mode)) fail(400, 'Refund is cash or credit');
+  if (mode === 'cash' && b.credit && !b.paid) fail(400, `Bill ${b.number} is on credit and not paid yet — the return comes off what ${b.party_name} owes (refund as credit)`);
+  if (mode === 'credit' && !b.party_name) fail(400, `Bill ${b.number} has no customer name, so there’s no account to credit — refund in cash`);
+  const lines = [];
+  b.lines.forEach((l, i) => {
+    if (!(want[i] > 0)) return;
+    const back = backOf(notes, i), kept = r3(pieces(l) - back.qty - want[i]);
+    const paid = r2(l.taxable - back.taxable), gstPaid = r2(l.gst - back.gst);
+    const charge = Math.min(paid, chargeFor(l, kept)), gstNow = kept > 0 ? Math.min(gstPaid, r2((charge * l.gst_percent) / 100)) : 0;
+    const taxable = r2(Math.max(0, paid - charge)), gst = r2(Math.max(0, gstPaid - gstNow));
+    lines.push({ line: i, itemId: l.itemId, name: l.name, unit: l.unit, hsn: l.hsn, qty: want[i], rate: r2(taxable / want[i]), taxable, gst_percent: l.gst_percent, gst, amount: r2(taxable + gst) });
+  });
+  // round the bill's remaining balance, not each note, so the notes never drift from the bill's own rounding
+  const before = r2(b.total - b.round_off - notes.reduce((s, n) => s + n.taxable + n.gst, 0)), raw = r2(lines.reduce((s, l) => s + l.amount, 0));
+  const total = Math.round(before) - Math.round(r2(before - raw));
+  return { billId: b.id, bill_number: b.number, bill_day: b.day, day: ymd(), party_name: b.party_name || null, credit: !!b.credit, refund_mode: mode, applies_to: mode === 'credit' ? (b.credit && !b.paid ? 'bill' : 'account') : null,
+    reason: clip(body.reason, 200) || null, lines, taxable: r2(lines.reduce((s, l) => s + l.taxable, 0)), gst: r2(lines.reduce((s, l) => s + l.gst, 0)), round_off: r2(total - raw), total };
+}
+// all or nothing: the credit note, its RETURN_IN moves and the link on the bill
+export function saveReturn(u, billId, body = {}) {
+  return tx(() => {
+    const b = ownBill(u.id, billId), p = priceReturn(u, b, body);
+    const number = `CN-${String(T.icnotes.count({ userId: u.id }) + 1).padStart(4, '0')}`;
+    const src = MOVE_SOURCES.includes(body.source) ? body.source : 'MANUAL';
+    // stock goes back to the godown / batch it left from: the bill's sale moves less what earlier notes put back there
+    const key = (m) => `${m.godownId}|${m.batch || ''}`, room = new Map(), info = new Map();
+    for (const m of (b.moveIds || []).map((id) => T.imoves.get(id)).filter((m) => m && m.userId === u.id)) { const k = `${m.itemId}#${key(m)}`; room.set(k, r3((room.get(k) || 0) - m.qty)); info.set(k, m); }
+    for (const m of notesOf(b).flatMap((n) => n.moveIds || []).map((id) => T.imoves.get(id)).filter(Boolean)) { const k = `${m.itemId}#${key(m)}`; room.set(k, r3((room.get(k) || 0) - m.qty)); }
+    const moveIds = [];
+    for (const l of p.lines) {
+      let left = l.qty;
+      const rate = r2(l.taxable / l.qty);
+      for (const [k, n] of [...room].reverse()) {
+        if (left <= 0) break;
+        if (!k.startsWith(`${l.itemId}#`) || n <= 0.0005) continue;
+        const t = r3(Math.min(left, n)), m = info.get(k);
+        moveIds.push(addMove(u.id, { itemId: l.itemId, godownId: m.godownId, qty: t, kind: 'RETURN_IN', rate, day: p.day, party_name: p.party_name, ref: number, source: src, batch: m.batch, expiry: m.expiry, note: `Return on ${b.number}` }).id);
+        room.set(k, r3(n - t)); left = r3(left - t);
+      }
+      if (left > 0) moveIds.push(addMove(u.id, { itemId: l.itemId, qty: left, kind: 'RETURN_IN', rate, day: p.day, party_name: p.party_name, ref: number, source: src, note: `Return on ${b.number}` }).id);
+    }
+    const n = T.icnotes.insert({ id: uid(), userId: u.id, number, ...p, lparty: p.party_name ? lower(p.party_name) : null, moveIds, at: Date.now() });
+    T.ibills.update(b.id, (x) => { x.cnIds = [...(x.cnIds || []), n.id]; });
+    return noteView(n);
+  });
+}
+// the day's counter sales: bills made that day less the credit notes made that day (IST)
+export function counterDay(userId, day = ymd()) {
+  const d = isDay(day) ? day : ymd();
+  const since = Date.parse(`${d}T00:00:00+05:30`) - 86400000; // bills carry their own day; a day's slack for the clock
+  const bills = [...T.ibills.iter({ userId, at: { gte: since } })].filter((b) => b.day === d), live = bills.filter((b) => !b.cancelled);
+  const notes = T.icnotes.all({ userId, day: d }, { order: 'at' });
+  const gross = r2(live.reduce((s, b) => s + b.total, 0)), returns = r2(notes.reduce((s, n) => s + n.total, 0));
+  return { day: d, bills: live.length, cancelled: bills.length - live.length, gross, returns, credit_notes: notes.length, net: r2(gross - returns), cash_refunds: r2(notes.filter((n) => n.refund_mode === 'cash').reduce((s, n) => s + n.total, 0)), notes: notes.map(noteView) };
+}
 
 // ---------- routes ----------
 export function registerInventoryPro(app, { auth, rateLimit, isTest }) {
@@ -339,8 +445,22 @@ export function registerInventoryPro(app, { auth, rateLimit, isTest }) {
   write('post', '/bills/:id/cancel', (req) => {
     const b = ownBill(uid_(req), req.params.id);
     if (b.cancelled) fail(409, 'This bill is cancelled already');
+    if (b.cnIds?.length) fail(409, `Bill ${b.number} has returns on it — return the rest of it instead of cancelling`);
     return billView(tx(() => { for (const id of b.moveIds || []) { const m = T.imoves.get(id); if (m && m.userId === b.userId) T.imoves.del(id); } return T.ibills.update(b.id, (x) => { x.cancelled = true; x.cancelledAt = Date.now(); }); }));
   });
+
+  // returns: a credit note against a bill (preview prices it without saving), the notes, and a day's net counter sales
+  app.post(`${P}/bills/:id/return/preview`, auth, on, send((req) => priceReturn(req.user, ownBill(uid_(req), req.params.id), req.body || {})));
+  write('post', '/bills/:id/return', (req) => saveReturn(req.user, req.params.id, req.body || {}));
+  get('/credit-notes', (req) => {
+    const w = { userId: uid_(req) }, party = clip(req.query.party, 120);
+    if (isDay(req.query.day)) w.day = req.query.day;
+    if (party) w.lparty = lower(party);
+    if (req.query.billId) w.billId = String(req.query.billId);
+    return T.icnotes.all(w, { order: 'at', desc: true, limit: Math.min(500, Number(req.query.limit) || 100) }).map(noteView);
+  });
+  get('/credit-notes/:id', (req) => { const n = T.icnotes.get(req.params.id); if (!n || n.userId !== uid_(req)) fail(404, 'Credit note not found'); return noteView(n); });
+  get('/counter/day', (req) => counterDay(uid_(req), req.query.day));
 
   // rate lists
   get('/ratelists', (req) => T.iratelists.all({ userId: uid_(req) }, { order: 'lname' }).map(({ userId, ...l }) => l));
