@@ -2,9 +2,11 @@
 // transfers, a CSV of opening stock, bill photos read into a draft, barcode scans. Every balance is a sum of entries,
 // so any entry can be undone from an item's history. Industry tools (phase 3) render below the items.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, confirmDialog, promptDialog, inr } from '../ui';
 import IndustryTools from './InventoryPro';
+import { inventoryPromptsFor } from '../industryPrompts';
 import '../inventory.css';
 
 const KINDS = { PURCHASE: ['Purchase', 'in', 'Stock bought or received'], SALE: ['Sale', 'out', 'Stock sold or sent out'], RETURN_IN: ['Return in', 'in', 'A customer sent it back'], RETURN_OUT: ['Return out', 'out', 'Sent back to the supplier'], ADJUST: ['Adjustment', 'mid', 'A correction: + or − (damaged, counted, found)'], OPENING: ['Opening', 'in', 'What you had when you started'] };
@@ -20,6 +22,7 @@ const canScan = () => typeof window !== 'undefined' && 'BarcodeDetector' in wind
 export default function Inventory() {
   const [on, setOn] = useState(null);
   const [me, setMe] = useState(null);
+  const [industry, setIndustry] = useState(null); // the CRM industry: which ready Hive prompts to show
   const [d, setD] = useState(null); // { items, godowns, summary }
   const [search, setSearch] = useState('');
   const [godownId, setGodownId] = useState('');
@@ -28,7 +31,7 @@ export default function Inventory() {
   const [open, setOpen] = useState(null); // item id in the drawer
   const [rev, setRev] = useState(0);
   const reload = () => setRev((r) => r + 1);
-  useEffect(() => { api('/inventory').then((r) => setOn(r.on)).catch(() => setOn(false)); api('/me').then(setMe).catch(() => {}); }, []);
+  useEffect(() => { api('/inventory').then((r) => setOn(r.on)).catch(() => setOn(false)); api('/me').then(setMe).catch(() => {}); api('/inventory/pro').then((r) => setIndustry(r.industry)).catch(() => {}); }, []);
   useEffect(() => {
     if (!on) return undefined;
     const t = setTimeout(() => api(`/inventory/items?${new URLSearchParams(Object.entries({ search, godownId }).filter(([, v]) => v))}`).then(setD).catch((e) => toast(e.message)), search ? 250 : 0);
@@ -72,10 +75,10 @@ export default function Inventory() {
             <div className="tbl-wrap tl-tbl"><table className="tbl inv-tbl">
               <thead><tr><th>Item</th><th>Category</th><th className="r">In stock{godownId ? ' (this godown)' : ''}</th><th className="r">Reorder at</th><th className="r">Rates</th></tr></thead>
               <tbody>{rows.map((i) => (
-                <tr key={i.id} className={`click ${i.stock <= 0 ? 'inv-out' : i.low ? 'inv-low' : ''}`} onClick={() => setOpen(i.id)}>
+                <tr key={i.id} className={`click ${i.has_variants ? '' : i.stock <= 0 ? 'inv-out' : i.low ? 'inv-low' : ''}`} onClick={() => setOpen(i.id)}>
                   <td><div className="tl-who"><span className="tl-av sm box" aria-hidden="true"><Icon name="box" size={14} /></span><div><b>{i.name}</b><small className="sub-t">{[i.sku, i.barcode, i.hsn && `HSN ${i.hsn}`].filter(Boolean).join(' · ') || i.unit}</small></div></div></td>
                   <td>{i.category ? <span className="tl-chip">{i.category}</span> : <span className="muted">—</span>}</td>
-                  <td className="r"><div className="tl-level"><span className={i.stock <= 0 ? 'bad-t' : ''}>{qtyText(i.stock, i.unit)} {i.stock <= 0 ? <span className="pill bad">Out</span> : i.low ? <span className="pill warn">Low</span> : null}</span><i className={i.stock <= 0 ? 'empty' : ''}><i style={{ width: `${Math.max(0, Math.min(100, (100 * i.stock) / maxQty))}%` }} /></i></div></td>
+                  <td className="r"><div className="tl-level"><span className={i.stock <= 0 && !i.has_variants ? 'bad-t' : ''}>{i.has_variants ? <small className="muted">in its sizes / colours</small> : qtyText(i.stock, i.unit)} {i.has_variants ? null : i.stock <= 0 ? <span className="pill bad">Out</span> : i.low ? <span className="pill warn">Low</span> : null}</span><i className={i.stock <= 0 ? 'empty' : ''}><i style={{ width: `${Math.max(0, Math.min(100, (100 * i.stock) / maxQty))}%` }} /></i></div></td>
                   <td className="r">{i.reorder_level != null ? qtyText(i.reorder_level, i.unit) : <span className="muted">—</span>}</td>
                   <td className="r"><small className="muted">{i.sale_rate != null ? `sells ${inr(i.sale_rate)}` : ''}{i.purchase_rate != null ? `${i.sale_rate != null ? ' · ' : ''}buys ${inr(i.purchase_rate)}` : ''}</small></td>
                 </tr>
@@ -84,7 +87,10 @@ export default function Inventory() {
           )}
         </Panel>
         <Godowns godowns={godowns} onChange={reload} />
-        <p className="hint inv-hive"><Icon name="sparkles" size={14} /> You can also tell Hive: “sold 20 bags of cement to Sharma” or “received 100 TMT bars from Gupta” — it shows the entry and waits for your Confirm.</p>
+        <div className="inv-ask">
+          <p className="hint inv-hive"><Icon name="sparkles" size={14} /> Ask Hive — it shows each entry and waits for your Confirm:</p>
+          <div className="inv-ask-chips">{inventoryPromptsFor(industry).map((p) => <Link key={p} to={`/hive?ask=${encodeURIComponent(p)}`}>{p}</Link>)}</div>
+        </div>
         <IndustryTools me={me} items={all} onChange={reload} />
       </>}
       {open && <ItemDrawer id={open} rev={rev} godowns={godowns} onClose={() => setOpen(null)} onChange={reload} onForm={setForm} />}
@@ -191,7 +197,7 @@ const GodownPick = ({ godowns, value, onChange, label = 'Godown' }) => (
 
 // stock in / out for one item
 function MoveForm({ items, godowns, preset, onClose, onDone }) {
-  const [v, setV] = useState({ kind: preset.move || 'PURCHASE', itemId: preset.itemId || '', qty: '', rate: '', godownId: godowns[0]?.id || '', party_name: '', day: today(), ref: '', note: '', minus: false });
+  const [v, setV] = useState({ kind: preset.move || 'PURCHASE', itemId: preset.itemId || '', qty: '', rate: '', godownId: godowns[0]?.id || '', party_name: '', day: today(), ref: '', note: '', batch: '', expiry: '', minus: false });
   const [busy, setBusy] = useState(false);
   const set = (p) => setV({ ...v, ...p });
   const item = items.find((i) => i.id === v.itemId);
@@ -220,6 +226,7 @@ function MoveForm({ items, godowns, preset, onClose, onDone }) {
           : <label>Rate (₹) <small className="muted">· optional</small><input type="number" min="0" step="any" value={v.rate} onChange={(e) => set({ rate: e.target.value })} /></label>}
         {godowns.length > 1 && <GodownPick godowns={godowns} value={v.godownId} onChange={(godownId) => set({ godownId })} />}
         <label>Date<input type="date" value={v.day} onChange={(e) => set({ day: e.target.value })} required /></label>
+        {['PURCHASE', 'OPENING', 'RETURN_IN'].includes(v.kind) && <><label>Batch <small className="muted">· optional</small><input value={v.batch} onChange={(e) => set({ batch: e.target.value })} placeholder="e.g. PCM24A" /></label><label>Expiry <small className="muted">· optional</small><input type="date" value={v.expiry} onChange={(e) => set({ expiry: e.target.value })} /></label></>}
         {party && <label>{party} <small className="muted">· optional</small><input value={v.party_name} onChange={(e) => set({ party_name: e.target.value })} /></label>}
         {party && <label>Bill number <small className="muted">· optional</small><input value={v.ref} onChange={(e) => set({ ref: e.target.value })} /></label>}
         <label className="full">Note <small className="muted">· optional</small><input value={v.note} onChange={(e) => set({ note: e.target.value })} /></label>

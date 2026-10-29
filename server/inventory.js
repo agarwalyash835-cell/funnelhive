@@ -78,15 +78,18 @@ export function listItems(userId, { search = '', godownId = '', all = false } = 
   const stock = stockMap(userId, godownId || null);
   const s = lname(search);
   const all_ = T.iitems.all(all ? { userId } : { userId, active: 1 });
-  const items = all_.filter((i) => !s || [i.name, i.sku, i.barcode, i.category, i.hsn].some((v) => v && lname(v).includes(s))).map((i) => itemOut(i, stock.get(i.id))).sort((a, b) => a.name.localeCompare(b.name));
+  // a product with sizes / colours holds no stock itself (its variants do): never low or out of stock
+  const parents = new Set(T.iitems.all({ userId, active: 1 }).map((i) => i.parent_id).filter(Boolean));
+  const view = (i) => (parents.has(i.id) ? { ...itemOut(i, stock.get(i.id)), low: false, has_variants: true } : itemOut(i, stock.get(i.id)));
+  const items = all_.filter((i) => !s || [i.name, i.sku, i.barcode, i.category, i.hsn].some((v) => v && lname(v).includes(s))).map(view).sort((a, b) => a.name.localeCompare(b.name));
   // the strip and the godowns count every active item (not just the ones the search shows)
-  const active = all_.filter((i) => i.active !== false), live = active.map((i) => itemOut(i, stock.get(i.id)));
+  const active = all_.filter((i) => i.active !== false), live = active.map(view);
   const bg = byGodownMap(userId);
   const worth = (qtyOf) => r2(active.reduce((t, i) => t + Math.max(0, qtyOf(i.id) || 0) * (Number(i.purchase_rate) || 0), 0));
   return {
     items,
     godowns: godowns.map((g) => { const m = bg.get(g.id) || new Map(); return { id: g.id, name: g.name, items: [...m.values()].filter((n) => n > 0).length, value: worth((id) => m.get(id)) }; }),
-    summary: { value: worth((id) => stock.get(id)), items: live.length, low: live.filter((i) => i.low && i.stock > 0).length, out: live.filter((i) => i.stock <= 0).length },
+    summary: { value: worth((id) => stock.get(id)), items: live.length, low: live.filter((i) => i.low && i.stock > 0).length, out: live.filter((i) => i.stock <= 0 && !i.has_variants).length },
   };
 }
 
@@ -127,7 +130,7 @@ const godownByRef = (userId, ref) => {
 };
 
 // ---------- moves ----------
-const moveBody = (b) => ({ day: /^\d{4}-\d{2}-\d{2}$/.test(b.day || '') ? b.day : ymd(), rate: amount(b.rate, 'Rate'), party_name: clip(b.party_name, 120) || null, ref: clip(b.ref, 60) || null, note: clip(b.note, 300) || null, source: MOVE_SOURCES.includes(b.source) ? b.source : 'MANUAL' });
+const moveBody = (b) => ({ day: /^\d{4}-\d{2}-\d{2}$/.test(b.day || '') ? b.day : ymd(), rate: amount(b.rate, 'Rate'), party_name: clip(b.party_name, 120) || null, ref: clip(b.ref, 60) || null, note: clip(b.note, 300) || null, batch: clip(b.batch, 60) || null, expiry: /^\d{4}-\d{2}-\d{2}$/.test(b.expiry || '') ? b.expiry : null, source: MOVE_SOURCES.includes(b.source) ? b.source : 'MANUAL' });
 export function recordMove(userId, b) {
   const kind = String(b.kind || '');
   if (!ENTRY_KINDS.includes(kind)) fail(400, `Pick what happened: ${ENTRY_KINDS.join(', ')}`);
@@ -157,7 +160,7 @@ export function recordBatch(userId, b) {
   const saved = tx(() => plan.map(({ l, k, item, create }) => {
     const it = item || createItem(userId, { purchase_rate: kind === 'PURCHASE' ? l.rate : undefined, sale_rate: kind === 'SALE' ? l.rate : undefined, ...create });
     try {
-      return addMove(userId, { ...base, rate: amount(l.rate, 'Rate'), note: clip(l.note, 300) || base.note, itemId: it.id, godownId: godown.id, kind, qty: l.qty }, { allowNegative: !!b.force && OUT_KINDS.has(kind) });
+      return addMove(userId, { ...base, rate: amount(l.rate, 'Rate'), note: clip(l.note, 300) || base.note, batch: clip(l.batch, 60) || null, expiry: /^\d{4}-\d{2}-\d{2}$/.test(l.expiry || '') ? l.expiry : null, itemId: it.id, godownId: godown.id, kind, qty: l.qty }, { allowNegative: !!b.force && OUT_KINDS.has(kind) });
     } catch (e) { e.message = `Line ${k + 1} (${it.name}): ${e.message}`; throw e; }
   }));
   const [items, godowns] = lookups(userId);

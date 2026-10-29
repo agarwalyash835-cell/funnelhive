@@ -245,3 +245,15 @@ test('Hive: plain-language entries become stock_entry calls that wait for Confir
   assert.equal((await tool.find_stock.run(ctx, { search: 'tmt' })).total, 2);
   assert.ok((await tool.inventory_overview.run(ctx)).summary.items >= 5);
 });
+
+// seen live: Hive made “Paracetamol 500 strip” next to “Paracetamol 500”, splitting stock and schemes across two items
+test('Hive won’t create a near-twin of an existing item unless the seller says it’s different', async () => {
+  const { TOOLS } = await import('../hive-inventory.js');
+  const tool = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  const ctx = { call: async (method, path, body) => { const r = await api(path, method, body, T); if (r.status >= 400) throw new Error(r.data.error); return r.data; } };
+  await tool.inventory_item.run(ctx, { name: 'Paracetamol 500', unit: 'Strip' });
+  await assert.rejects(tool.inventory_item.run(ctx, { name: 'Paracetamol 500 strip', unit: 'Strip' }), /Similar item already in Inventory: Paracetamol 500/);
+  await assert.rejects(tool.inventory_item.run(ctx, { name: 'paracetamol-500' }), /Similar item/);
+  assert.equal((await tool.inventory_item.run(ctx, { name: 'Paracetamol 500 syrup', unit: 'Bottle', different_item: true })).name, 'Paracetamol 500 syrup');
+  assert.equal((await tool.inventory_item.run(ctx, { name: 'Paracetamol 650', unit: 'Strip' })).name, 'Paracetamol 650', 'a different strength isn’t a twin');
+});

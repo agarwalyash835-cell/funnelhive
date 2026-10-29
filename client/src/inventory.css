@@ -60,3 +60,10 @@
   .inv-drawer { padding: 14px 16px 24px; }
 }
 @media (prefers-reduced-motion: reduce) { .inv-drawer, .inv-drawer-bg { animation: none; } }
+
+/* "Ask Hive" ready prompts for the seller's industry */
+.inv-ask { display: grid; gap: 8px; margin: 4px 0 18px; }
+.inv-ask .inv-hive { margin: 0; }
+.inv-ask-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.inv-ask-chips a { padding: 7px 12px; border-radius: 99px; border: 1px solid var(--c-line); background: var(--c-surface); color: var(--c-ink-2); font-size: 12.5px; line-height: 1.35; text-decoration: none; transition: border-color .15s, background .15s; }
+.inv-ask-chips a:hover { border-color: var(--c-honey, #f5a524); background: linear-gradient(90deg, rgba(245, 165, 36, .1), var(--c-surface)); color: var(--c-ink); }

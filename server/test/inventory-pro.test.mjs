@@ -250,7 +250,7 @@ test('Hive tools: produce, expiring, counter bill by name, credit limit — writ
   const { TOOLS, OK } = await import('../hive-inventory-pro.js');
   const tool = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
   const ctx = { call: async (method, path, body) => { const r = await api(path, method, body, S); if (r.status >= 400) throw new Error(r.data.error); return r.data; } };
-  assert.deepEqual(Object.keys(OK).sort(), ['inventory_counter_bill', 'inventory_produce', 'inventory_set_credit_limit']);
+  assert.deepEqual(Object.keys(OK).sort(), ['inventory_counter_bill', 'inventory_make_variants', 'inventory_produce', 'inventory_set_bom', 'inventory_set_credit_limit', 'inventory_set_scheme']);
   assert.match(OK.inventory_counter_bill({ lines: [{ item: 'shirt M blue', qty: 2 }] }), /2 × shirt M blue/);
 
   const need = await tool.inventory_production.run(ctx, { item: 'chair', qty: 10 });
@@ -275,4 +275,48 @@ test('Hive tools: produce, expiring, counter bill by name, credit limit — writ
   const set = await tool.inventory_set_credit_limit.run(ctx, { party: 'Sharma Builders', limit: 20000, ratelist: 'dealer' });
   assert.equal(set.limit, '₹20,000');
   assert.equal((await tool.inventory_rate.run(ctx, { item: 'basmati', party: 'Sharma Builders' })).rate, '₹1,800');
+});
+
+// found in the end-to-end run of each industry through Hive: there was no tool for a bill of materials, a scheme,
+// sizes / colours or the day's counter sales, batches didn't reach stock, and a product with variants showed "out"
+test('Hive end-to-end gaps: bill of materials, scheme, variants, counter sales; batches on entries; variant parents', async () => {
+  const { TOOLS } = await import('../hive-inventory-pro.js');
+  const tool = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  const ctx = { call: async (method, path, body) => { const r = await api(path, method, body, S); if (r.status >= 400) throw new Error(r.data.error); return r.data; } };
+  const mk = async (b) => (await api('/inventory/items', 'POST', b, S)).data;
+  await mk({ name: 'Plastic Stool', unit: 'Nos', sale_rate: 300, gst_percent: 18 });
+  await mk({ name: 'Granules', unit: 'Kg', purchase_rate: 95 });
+  const legs = await mk({ name: 'Stool Leg', unit: 'Nos', purchase_rate: 10 });
+
+  const bom = await tool.inventory_set_bom.run(ctx, { item: 'plastic stool', components: [{ item: 'Granules', qty: 1.5 }, { item: 'Stool Leg', qty: 4 }] });
+  assert.equal(bom.item, 'Plastic Stool');
+  await api('/inventory/moves/batch', 'POST', { kind: 'PURCHASE', lines: [{ item: 'Granules', qty: 30 }, { item: 'Stool Leg', qty: 40 }] }, S);
+  assert.equal((await tool.inventory_production.run(ctx, { item: 'Plastic Stool', qty: 20 })).canMakeNow, 10, '40 legs ÷ 4');
+  await assert.rejects(tool.inventory_set_bom.run(ctx, { item: 'Nope', components: [] }), /No item “Nope”/);
+
+  const sch = await tool.inventory_set_scheme.run(ctx, { item: 'Plastic Stool', kind: 'FREE', buy: 10, free: 1 });
+  assert.match(sch.scheme, /Buy 10 get 1 free/i);
+
+  // a batch and expiry given on an entry reach the stock and the expiry list
+  await api('/inventory/moves/batch', 'POST', { kind: 'PURCHASE', lines: [{ item: 'Granules', qty: 5, batch: 'G-77', expiry: day(20) }] }, S);
+  assert.ok(T.imoves.all({ itemId: (await api('/inventory/items?search=granules', 'GET', null, S)).data.items[0].id }).some((m) => m.batch === 'G-77' && m.expiry === day(20)));
+  const one = await api('/inventory/moves', 'POST', { kind: 'PURCHASE', itemId: legs.id, qty: 2, batch: 'L-1', expiry: day(40) }, S);
+  assert.deepEqual([T.imoves.get(one.data.id).batch, T.imoves.get(one.data.id).expiry], ['L-1', day(40)]);
+
+  // sizes / colours from the main item; the main item is never "out of stock" — its variants hold the stock
+  await mk({ name: 'Linen Kurta', unit: 'Nos', sale_rate: 1299, gst_percent: 5 });
+  const v = await tool.inventory_make_variants.run(ctx, { item: 'Linen Kurta', sizes: ['M', 'L'], colours: ['Beige'] });
+  assert.deepEqual(v.made.sort(), ['Linen Kurta L Beige', 'Linen Kurta M Beige']);
+  const list = (await api('/inventory/items?search=linen', 'GET', null, S)).data;
+  const main = list.items.find((x) => x.name === 'Linen Kurta');
+  assert.deepEqual([main.has_variants, main.low], [true, false]);
+  assert.ok(!(await api('/inventory/low', 'GET', null, S)).data.items.some((x) => x.name === 'Linen Kurta'));
+
+  // the day's counter sales add up every bill made today, cancelled ones left out
+  await api('/inventory/moves/batch', 'POST', { kind: 'PURCHASE', lines: [{ item: 'Linen Kurta M Beige', qty: 5 }] }, S);
+  const before_ = await tool.inventory_counter_bills.run(ctx, {});
+  await tool.inventory_counter_bill.run(ctx, { lines: [{ item: 'linen kurta m beige', qty: 1 }] });
+  const after_ = await tool.inventory_counter_bills.run(ctx, {});
+  assert.equal(after_.count, before_.count + 1);
+  assert.ok(after_.bills.some((b) => b.total === '₹1,364'), '₹1,299 + 5% GST, rounded');
 });

@@ -35,10 +35,10 @@ export const TOOLS = [
     summary: (r) => (r.item ? `Looked at ${r.item.name}` : `Found ${r.total} items`),
   },
   {
-    name: 'stock_entry', description: 'Record stock in or out in Inventory (waits for the seller’s Confirm). kind: PURCHASE (stock received / bought), SALE (sold / sent out), RETURN_IN (customer returned), RETURN_OUT (returned to supplier), ADJUST (correction: qty + or −). Each line names an existing item exactly as find_stock shows it — never invent items: if one isn’t there, ask the seller whether to create it (inventory_item) first. qty in the item’s unit.',
+    name: 'stock_entry', description: 'Record stock in or out in Inventory (waits for the seller’s Confirm) — only for goods that actually moved, as the seller says. Never use it to “reorder”, plan or top up: what to reorder is a suggestion (or a purchase-order draft), and a purchase is recorded only when the seller says the goods came in, from the party they name (never a customer as supplier). kind: PURCHASE (stock received / bought), SALE (sold / sent out), RETURN_IN (customer returned), RETURN_OUT (returned to supplier), ADJUST (correction: qty + or −). Each line names an existing item exactly as find_stock shows it — never invent items: if one isn’t there, ask the seller whether to create it (inventory_item) first. qty in the item’s unit.',
     schema: S({
       kind: { type: 'string', enum: ['PURCHASE', 'SALE', 'RETURN_IN', 'RETURN_OUT', 'ADJUST'] },
-      lines: arr('The items', S({ item: str('Item name, SKU or barcode'), qty: num('Quantity (ADJUST: negative to reduce)'), rate: num('Rate per unit in ₹ (optional)') }, ['item', 'qty'])),
+      lines: arr('The items', S({ item: str('Item name, SKU or barcode'), qty: num('Quantity (ADJUST: negative to reduce)'), rate: num('Rate per unit in ₹ (optional)'), batch: str('Batch / lot number (optional — when the seller gives one)'), expiry: str('Expiry date YYYY-MM-DD (optional — with the batch)') }, ['item', 'qty'])),
       party_name: str('Customer or supplier (optional)'), godown: str('Godown name (optional — the main godown otherwise)'), day: str('YYYY-MM-DD (optional — today)'), ref: str('Bill / invoice number (optional)'), note: str('Optional'),
       force: bool('SALE / RETURN_OUT only: record even if the books show less stock (the seller said the goods already went out)'),
     }, ['kind', 'lines']),
@@ -55,12 +55,25 @@ export const TOOLS = [
     summary: (r, a) => `Moved ${a.qty} ${a.item} from ${a.from} to ${a.to}`,
   },
   {
-    name: 'inventory_item', description: 'Create an item in Inventory, or change one (pass itemId) — waits for the seller’s Confirm. Only for items the seller asked for or agreed to create.',
+    name: 'inventory_item', description: 'Create an item in Inventory, or change one (pass itemId) — waits for the seller’s Confirm. Only for items the seller asked for or agreed to create. Before creating, look it up with find_stock: if a similar item exists (“Paracetamol 500” vs “Paracetamol 500 strip”), use or change that one instead — create a second only when the seller says it’s a different item (then pass different_item: true).',
     schema: S({
       itemId: str('To change an existing item (optional)'), name: str('Item name'), unit: str('Unit: pcs, kg, bag, box, metre, litre… (optional)'), sku: str('Optional'), barcode: str('Optional'), category: str('Optional'),
       hsn: str('HSN code (optional)'), gst_percent: num('GST % (optional)'), sale_rate: num('₹ (optional)'), purchase_rate: num('₹ (optional)'), reorder_level: num('Low-stock alert at this quantity (optional)'),
+      different_item: bool('Create even though a similar name exists — only when the seller said it’s a different item'),
     }, ['name']),
-    run: async (ctx, { itemId, ...a }) => { const i = itemId ? await ctx.call('PUT', `/inventory/items/${itemId}`, a) : await ctx.call('POST', '/inventory/items', a); return brief(i); },
+    run: async (ctx, { itemId, different_item, ...a }) => {
+      // a near-twin of an existing item (seen live: “Paracetamol 500 strip” next to “Paracetamol 500”) splits stock
+      // and schemes across two items — refuse unless the seller said it's different
+      if (!itemId && !different_item) {
+        const key = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const want = key(a.name), first = want.split(' ')[0];
+        const { items } = await ctx.call('GET', `/inventory/items?search=${encodeURIComponent(first)}&all=1`);
+        const twins = items.filter((x) => { const k = key(x.name); return k === want || k.startsWith(`${want} `) || want.startsWith(`${k} `); });
+        if (twins.length) throw new Error(`Similar item already in Inventory: ${twins.map((x) => `${x.name} (${x.stock} ${x.unit || ''})`.trim()).join(', ')} — use or change it (itemId), or pass different_item: true if the seller says it’s a different item`);
+      }
+      const i = itemId ? await ctx.call('PUT', `/inventory/items/${itemId}`, a) : await ctx.call('POST', '/inventory/items', a);
+      return brief(i);
+    },
     summary: (r, a) => (a.itemId ? `Updated ${r.name}` : `Created item ${r.name}`),
   },
   {

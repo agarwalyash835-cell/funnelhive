@@ -97,3 +97,14 @@ export const INDUSTRY_PROMPTS = {
   },
 };
 export const promptsFor = (id) => INDUSTRY_PROMPTS[id] || INDUSTRY_PROMPTS.general;
+
+// The Inventory page's "Ask Hive" chips, per industry: everyday stock jobs first, then one multi-step request.
+// Ids match crmkits.js; anything else gets 'general'.
+export const INVENTORY_PROMPTS = {
+  general: ['What’s my stock value and what’s running low?', 'Received 100 pieces of an item from a supplier — add it to stock', 'Sold 20 pieces to a customer', 'Move 50 pieces from Main to another godown', 'Which items are low? Draft a purchase order for each one’s last supplier'],
+  manufacturer: ['Add items: Plastic Chair (Nos, sells ₹650, GST 18%), Plastic Granules (Kg, buys ₹95) and Steel Leg Set (Set, buys ₹120)', 'Set the bill of materials: 1 Plastic Chair uses 2.5 kg Plastic Granules and 1 Steel Leg Set', 'Received 500 kg Plastic Granules at ₹95 and 150 Steel Leg Sets at ₹120 from Raj Polymers', 'How many Plastic Chairs can I make right now, and what’s short for 300?', 'Produce 100 Plastic Chairs', 'Sold 40 Plastic Chairs to Mehta Furniture at ₹650, then tell me what raw material to reorder to make another 200'],
+  distributor: ['Add item Paracetamol 500 strip (Strip, sells ₹22, buys ₹15, GST 12%, reorder at 200)', 'Received 1,000 strips of Paracetamol 500 from Cipla Agencies at ₹15, batch PCM24A expiring 15 Dec 2026', 'What expires in the next 60 days?', 'Create a scheme: buy 10 get 1 free on Paracetamol 500', 'Set Sharma Steel Traders’ credit limit to ₹20,000', 'Sharma Steel Traders wants 300 strips of Paracetamol 500 on credit at ₹22 — check their credit limit, apply any scheme, sell from the batch expiring first and make the bill'],
+  retailer: ['Add item Cotton Shirt (Nos, sells ₹899, buys ₹520, GST 5%) in sizes S, M, L and colours Blue, White', 'Received 10 of each Cotton Shirt size and colour from Arvind Mills at ₹520', 'Which shirt sizes and colours are running low?', 'Counter bill: 2 Cotton Shirt M Blue and 1 Cotton Shirt L White, paid in cash', 'A customer returned 1 Cotton Shirt M Blue — take it back, bill 1 Cotton Shirt L Blue instead and tell me today’s counter sales'],
+  store: ['Add item Ayurvedic Hair Oil 200ml (Bottle, sells ₹349, buys ₹140, GST 18%, barcode 8906000000017, reorder at 50)', 'Received 300 bottles of Ayurvedic Hair Oil from Herbal Labs at ₹140 into a new godown Warehouse Jaipur', 'Move 100 bottles of Ayurvedic Hair Oil from Warehouse Jaipur to Main', 'Sold 60 bottles of Ayurvedic Hair Oil to Amazon orders at ₹349', 'What’s my stock value and what’s low? For anything below its reorder level, draft a purchase order for its last supplier'],
+};
+export const inventoryPromptsFor = (id) => INVENTORY_PROMPTS[id] || INVENTORY_PROMPTS.general;
