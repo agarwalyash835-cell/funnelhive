@@ -626,6 +626,31 @@ const LISTS = {
   godowns: { table: 'tgodowns', search: ['name', 'parent'], order: "lower(json_extract(data, '$.name'))", filters: [] },
   stock: { table: 'tstock', search: ['name', 'parent', 'category'], order: "lower(json_extract(data, '$.name'))", filters: ['parent', 'category'] },
 };
+// the strip above each list: the whole company at a glance, not just the page shown
+function listStats(company, kind) {
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  if (kind === 'ledgers') {
+    const all = T.tledgers.all({ companyId: company.id, active: 1 }), g = (l) => lname(l.ledger_group || l.parent);
+    return { total: all.length, customers: all.filter((l) => g(l) === 'sundry debtors').length, suppliers: all.filter((l) => g(l) === 'sundry creditors').length, banks: all.filter((l) => ['bank accounts', 'cash-in-hand', 'bank od a/c'].includes(g(l))).length };
+  }
+  if (kind === 'vouchers') {
+    const month = istDay(new Date()).slice(0, 8);
+    const rows = q("SELECT json_extract(data, '$.voucher_type') AS t, COUNT(*) AS n, SUM(json_extract(data, '$.amount')) AS v FROM tvouchers WHERE companyId = ? AND active = 1 AND json_extract(data, '$.is_cancelled') = 0 AND json_extract(data, '$.voucher_date') >= ? GROUP BY t").all(company.id, `${month}01`);
+    return { month: Object.fromEntries(rows.map((x) => [x.t || 'Other', { count: x.n, amount: r2(Math.abs(x.v || 0)) }])) };
+  }
+  if (kind === 'outstandings') {
+    const groups = partyGroups(company.id), soon = istDay(new Date(Date.now() + 7 * 864e5));
+    const open = T.touts.all({ companyId: company.id, active: 1 }).filter((o) => ['PENDING', 'PARTIAL', 'OVERDUE'].includes(o.status));
+    const bills = open.filter((o) => !isAdvance(o, groups)), sum = (a) => r2(a.reduce((s, o) => s + Math.abs(Number(o.pending_amount) || 0), 0));
+    const overdue = bills.filter((o) => o.status === 'OVERDUE'), dueSoon = bills.filter((o) => o.status !== 'OVERDUE' && o.due_date && o.due_date <= soon);
+    return { open: bills.length, overdue: { count: overdue.length, amount: sum(overdue) }, dueSoon: { count: dueSoon.length, amount: sum(dueSoon) }, advances: { count: open.length - bills.length, amount: sum(open.filter((o) => isAdvance(o, groups))) } };
+  }
+  if (kind === 'stock') {
+    const all = T.tstock.all({ companyId: company.id, active: 1 });
+    return { items: all.length, value: r2(all.reduce((s, x) => s + (Number(x.closing_value) || 0), 0)), out: all.filter((x) => x.closing_balance != null && Number(x.closing_balance) <= 0).length, maxQty: Math.max(0, ...all.map((x) => Number(x.closing_balance) || 0)) };
+  }
+  return undefined;
+}
 export function list(userId, kind, query = {}) {
   const L = LISTS[kind];
   if (!L) fail(404, 'Not found');
@@ -643,7 +668,7 @@ export function list(userId, kind, query = {}) {
   const total = q(`SELECT COUNT(*) AS n FROM ${L.table} WHERE ${sqlWhere}`).get(...args).n;
   const items = q(`SELECT data FROM ${L.table} WHERE ${sqlWhere} ORDER BY ${L.order} LIMIT ${limit} OFFSET ${offset}`).all(...args).map((r) => JSON.parse(r.data));
   const groups = kind === 'outstandings' && partyGroups(company.id);
-  return { items: items.map((x) => (kind === 'vouchers' ? { ...x, lines: undefined, items: undefined, bills: undefined, line_count: (x.lines || []).length, item_count: (x.items || []).length } : groups && isAdvance(x, groups) ? { ...x, advance: true } : x)), total, company: { id: company.id, name: company.name } };
+  return { stats: offset ? undefined : listStats(company, kind), items: items.map((x) => (kind === 'vouchers' ? { ...x, lines: undefined, items: undefined, bills: undefined, line_count: (x.lines || []).length, item_count: (x.items || []).length } : groups && isAdvance(x, groups) ? { ...x, advance: true } : x)), total, company: { id: company.id, name: company.name } };
 }
 export function detail(userId, kind, id) {
   const L = LISTS[kind];

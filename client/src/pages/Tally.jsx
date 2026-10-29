@@ -197,50 +197,84 @@ function Overview({ rev, onOpen, go }) {
 function VoucherTable({ rows, onOpen, compact }) {
   if (!rows?.length) return <p className="muted sm pad">No vouchers yet.</p>;
   return (
-    <div className="tbl-wrap"><table className="tbl">
+    <div className="tbl-wrap tl-tbl"><table className="tbl">
       <thead><tr><th>Date</th><th>Type</th>{!compact && <th>No.</th>}<th>Party</th><th className="r">Amount</th><th>Status</th></tr></thead>
       <tbody>{rows.map((v) => (
         <tr key={v.id} className="click" onClick={() => onOpen(v)}>
-          <td className="nowrap">{v.voucher_date ? fmtDate(v.voucher_date) : '—'}</td><td>{v.voucher_type}{v.source && v.source !== 'TALLY' && <small className="sub-t">from FunnelHive</small>}</td>{!compact && <td className="mono">{v.voucher_number || '—'}</td>}
-          <td>{v.party_name || '—'}</td><td className="r">{money(v.amount)}</td><td><span className={`pill ${VSTATUS[v.status]?.[1] || ''}`}>{VSTATUS[v.status]?.[0] || v.status}</span></td>
+          <td className="nowrap">{v.voucher_date ? fmtDate(v.voucher_date) : '—'}</td><td><span className={`tl-vt-chip tl-${vtone(v.voucher_type)}`}>{v.voucher_type}</span>{v.source && v.source !== 'TALLY' && <small className="sub-t">from FunnelHive</small>}</td>{!compact && <td className="mono">{v.voucher_number || '—'}</td>}
+          <td>{v.party_name || '—'}</td><td className={`r tl-amt ${v.status === 'CANCELLED' ? '' : vtone(v.voucher_type) === 'in' ? 'tl-in-t' : vtone(v.voucher_type) === 'out' ? 'tl-out-t' : ''}`}>{money(v.amount)}</td><td><span className={`pill ${VSTATUS[v.status]?.[1] || ''}`}>{VSTATUS[v.status]?.[0] || v.status}</span></td>
         </tr>
       ))}</tbody>
     </table></div>
   );
 }
 
+// the strip above a list: a few figures for the whole company, each with an icon and a tone
+function Strip({ items }) {
+  return (
+    <div className="tl-strip">{items.filter(Boolean).map(([label, value, sub, icon, tone]) => (
+      <div key={label} className={`tl-stat ${tone || ''}`}>
+        <span className="tl-stat-ic"><Icon name={icon} size={14} /></span>
+        <div><small>{label}</small><b>{value}</b>{sub && <em>{sub}</em>}</div>
+      </div>
+    ))}</div>
+  );
+}
+const initials = (name) => String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+const VTONE = { sales: 'in', receipt: 'in', 'credit note': 'out', purchase: 'out', payment: 'out', 'debit note': 'in', journal: 'mid', contra: 'mid' };
+const vtone = (t) => VTONE[String(t || '').toLowerCase()] || 'mid';
+const STRIPS = {
+  ledgers: (s) => [['Ledgers', s.total.toLocaleString('en-IN'), 'in your books', 'layers'], ['Customers', s.customers.toLocaleString('en-IN'), 'Sundry Debtors', 'users', 'in'], ['Suppliers', s.suppliers.toLocaleString('en-IN'), 'Sundry Creditors', 'cart', 'out'], ['Bank & cash', s.banks.toLocaleString('en-IN'), 'accounts', 'wallet']],
+  vouchers: (s) => { const m = (t) => s.month[t] || { count: 0, amount: 0 }; return [['Sales', money(m('Sales').amount), `${m('Sales').count} this month`, 'chart', 'in'], ['Received', money(m('Receipt').amount), `${m('Receipt').count} this month`, 'download', 'in'], ['Purchases', money(m('Purchase').amount), `${m('Purchase').count} this month`, 'cart', 'out'], ['Paid out', money(m('Payment').amount), `${m('Payment').count} this month`, 'receipt', 'out']]; },
+  outstandings: (s) => [['Overdue', money(s.overdue.amount), `${s.overdue.count} ${s.overdue.count === 1 ? 'bill' : 'bills'}`, 'clock', s.overdue.count ? 'bad' : ''], ['Due in 7 days', money(s.dueSoon.amount), `${s.dueSoon.count} ${s.dueSoon.count === 1 ? 'bill' : 'bills'}`, 'bell', 'out'], ['Open bills', s.open.toLocaleString('en-IN'), 'both ways', 'receipt'], s.advances.count ? ['Advances', money(s.advances.amount), 'come off what’s owed', 'wallet', 'in'] : null],
+  stock: (s) => [['Stock value', money(s.value), 'at closing rates', 'box', 'in'], ['Items', s.items.toLocaleString('en-IN'), 'stock items', 'layers'], ['Out of stock', s.out.toLocaleString('en-IN'), s.out ? 'need restocking' : 'all in stock', 'bell', s.out ? 'bad' : 'in']],
+};
+const EMPTY = { ledgers: ['users', 'No ledgers found', 'Try another name, phone or email — or sync from Tally.'], vouchers: ['receipt', 'No vouchers found', 'Try another search or type. New vouchers from Tally appear here after a sync.'], outstandings: ['check', 'No bills here', 'Nothing matches — or everyone’s paid up.'], stock: ['box', 'No stock items found', 'Try another name, or add an item with New.'] };
+
 // a searchable, paged list of one kind of record
 const COLS = {
-  ledgers: { search: 'Search ledgers, email or phone', head: ['Ledger', 'Group', 'Contact', 'Balance'], row: (r) => [<><b>{r.name}</b>{r.address && <small className="sub-t">{r.address}</small>}</>, r.ledger_group || r.parent || '—', <>{r.phone || ''}{r.email && <small className="sub-t">{r.email}</small>}</>, drcr(r.closing_balance)] },
+  ledgers: { search: 'Search ledgers, email or phone', head: ['Ledger', 'Group', 'Contact', 'Balance'], row: (r) => [<div className="tl-who"><span className="tl-av sm" aria-hidden="true">{initials(r.name)}</span><div><b>{r.name}</b>{r.address && <small className="sub-t">{r.address}</small>}</div></div>, <span className="tl-chip">{r.ledger_group || r.parent || '—'}</span>, <>{r.phone || ''}{r.email && <small className="sub-t">{r.email}</small>}</>, <span className={`tl-amt ${Number(r.closing_balance) < 0 ? 'dr' : Number(r.closing_balance) > 0 ? 'cr' : ''}`}>{drcr(r.closing_balance)}</span>] },
   outstandings: { search: 'Search party or bill number', head: ['Party', 'Bill', 'Due', 'Pending', 'Status'], row: (r) => r.advance
     ? [<><b>{r.party_name}</b><small className="sub-t">{r.bill_type === 'PAYABLE' ? 'Advance from them — comes off what they owe' : 'Advance you paid — comes off what you owe'}</small></>, <span className="mono">{r.bill_number || '—'}</span>, '—', money(r.pending_amount), <span className="pill info">Advance</span>]
-    : [<><b>{r.party_name}</b><small className="sub-t">{r.bill_type === 'PAYABLE' ? 'You pay' : 'You receive'}</small></>, <span className="mono">{r.bill_number || '—'}</span>, <>{r.due_date ? fmtDate(r.due_date) : '—'}{r.days_overdue > 0 && <small className="sub-t">{r.days_overdue} days late</small>}</>, money(r.pending_amount), <span className={`pill ${BSTATUS[r.status]?.[1] || ''}`}>{BSTATUS[r.status]?.[0] || r.status}</span>] },
-  stock: { search: 'Search stock items', head: ['Item', 'Group', 'In stock', 'Value', 'Rates'], row: (r) => [<b>{r.name}</b>, r.parent || '—', <span className={Number(r.closing_balance) <= 0 ? 'bad-t' : ''}>{r.closing_balance ?? '—'} {r.base_units || ''}</span>, money(r.closing_value), <small className="muted">{r.last_sale_rate ? `sells ${inr(r.last_sale_rate)}` : ''}{r.last_purchase_rate ? ` · buys ${inr(r.last_purchase_rate)}` : ''}</small>] },
+    : [<div className="tl-who"><span className={`tl-dir ${r.bill_type === 'PAYABLE' ? 'tl-out' : 'tl-in'}`} aria-hidden="true">{r.bill_type === 'PAYABLE' ? '↑' : '↓'}</span><div><b>{r.party_name}</b><small className="sub-t">{r.bill_type === 'PAYABLE' ? 'You pay' : 'You receive'}</small></div></div>, <span className="mono">{r.bill_number || '—'}</span>, <>{r.due_date ? fmtDate(r.due_date) : '—'}{r.days_overdue > 0 && <small className="sub-t bad-t">{r.days_overdue} days late</small>}</>, <PaidBar pending={r.pending_amount} total={r.amount} />, <span className={`pill ${BSTATUS[r.status]?.[1] || ''}`}>{BSTATUS[r.status]?.[0] || r.status}</span>] },
+  stock: { search: 'Search stock items', head: ['Item', 'Group', 'In stock', 'Value', 'Rates'], row: (r, s) => [<div className="tl-who"><span className="tl-av sm box" aria-hidden="true"><Icon name="box" size={14} /></span><b>{r.name}</b></div>, <span className="tl-chip">{r.parent || '—'}</span>, <div className="tl-level"><span className={Number(r.closing_balance) <= 0 ? 'bad-t' : ''}>{r.closing_balance ?? '—'} {r.base_units || ''}</span>{r.closing_balance != null && s?.maxQty > 0 && <i className={Number(r.closing_balance) <= 0 ? 'empty' : ''}><i style={{ width: `${Math.max(0, Math.min(100, (100 * Number(r.closing_balance)) / s.maxQty))}%` }} /></i>}</div>, money(r.closing_value), <small className="muted">{r.last_sale_rate ? `sells ${inr(r.last_sale_rate)}` : ''}{r.last_purchase_rate ? ` · buys ${inr(r.last_purchase_rate)}` : ''}</small>] },
 };
+// what's left on a bill, with how much of it is paid already
+function PaidBar({ pending, total }) {
+  const p = Math.abs(Number(pending) || 0), t = Math.abs(Number(total) || 0);
+  const paid = t > p ? Math.round((100 * (t - p)) / t) : 0;
+  return <div className="tl-paid"><span>{money(p)}</span>{paid > 0 && <><i><i style={{ width: `${paid}%` }} /></i><small className="sub-t">{paid}% paid of {money(t)}</small></>}</div>;
+}
 function List({ kind, rev, onOpen, voucherTypes }) {
   const [q, setQ] = useState({ search: '', offset: 0, voucher_type: '', bill_type: '', open: kind === 'outstandings' ? '1' : '' });
   const [d, setD] = useState(null);
+  const stats = useRef(null); // the strip keeps its figures while a later page loads
   useEffect(() => {
     const t = setTimeout(() => { const qs = new URLSearchParams(Object.entries({ ...q, limit: 50 }).filter(([, v]) => v !== '' && v != null)); api(`/tally/${kind}?${qs}`).then(setD).catch((e) => toast(e.message)); }, q.search ? 250 : 0);
     return () => clearTimeout(t);
   }, [kind, q, rev]);
   const set = (p) => setQ({ ...q, ...p, offset: 'offset' in p ? p.offset : 0 });
   const c = COLS[kind];
+  if (d?.stats) stats.current = d.stats;
+  const empty = EMPTY[kind];
   return (
+    <>
+    {stats.current && STRIPS[kind] && <Strip items={STRIPS[kind](stats.current)} />}
     <Panel pad={false} title={d ? `${d.total.toLocaleString('en-IN')} ${(kind === 'outstandings' ? 'bills' : kind === 'stock' ? 'items' : kind).replace(/s$/, d.total === 1 ? '' : 's')}` : ' '}
       actions={<div className="row tl-filters">
         <input type="search" value={q.search} onChange={(e) => set({ search: e.target.value })} placeholder={kind === 'vouchers' ? 'Search party, number or narration' : c.search} aria-label="Search" />
         {kind === 'vouchers' && <select value={q.voucher_type} onChange={(e) => set({ voucher_type: e.target.value })} aria-label="Voucher type"><option value="">All types</option>{voucherTypes.map((t) => <option key={t}>{t}</option>)}</select>}
         {kind === 'outstandings' && <><select value={q.bill_type} onChange={(e) => set({ bill_type: e.target.value })} aria-label="Direction"><option value="">Both ways</option><option value="RECEIVABLE">You receive</option><option value="PAYABLE">You pay</option></select><label className="tog sm"><input type="checkbox" checked={q.open === '1'} onChange={(e) => set({ open: e.target.checked ? '1' : '' })} /><span />Open only</label></>}
       </div>}>
-      {!d ? <div className="skeleton" /> : kind === 'vouchers' ? <VoucherTable rows={d.items} onOpen={onOpen} /> : !d.items.length ? <p className="muted sm pad">Nothing matches.</p> : (
-        <div className="tbl-wrap"><table className="tbl">
+      {!d ? <div className="skeleton" /> : !d.items.length ? <Empty icon={empty[0]} title={empty[1]} text={empty[2]} /> : kind === 'vouchers' ? <VoucherTable rows={d.items} onOpen={onOpen} /> : (
+        <div className="tbl-wrap tl-tbl"><table className="tbl">
           <thead><tr>{c.head.map((h, i) => <th key={h} className={i >= c.head.length - 2 && kind !== 'outstandings' ? 'r' : ''}>{h}</th>)}{kind === 'outstandings' && <th />}</tr></thead>
-          <tbody>{d.items.map((r) => <tr key={r.id} className="click" onClick={() => onOpen(r)}>{c.row(r).map((cell, i) => <td key={i} className={i >= c.head.length - 2 && kind !== 'outstandings' ? 'r' : ''}>{cell}</td>)}{kind === 'outstandings' && <td className="r nowrap">{r.bill_type !== 'PAYABLE' && ['PENDING', 'PARTIAL', 'OVERDUE'].includes(r.status) && <RemindButton bill={r} />}</td>}</tr>)}</tbody>
+          <tbody>{d.items.map((r) => <tr key={r.id} className={`click ${r.advance ? 'tl-adv' : ''}`} onClick={() => onOpen(r)}>{c.row(r, stats.current).map((cell, i) => <td key={i} className={i >= c.head.length - 2 && kind !== 'outstandings' ? 'r' : ''}>{cell}</td>)}{kind === 'outstandings' && <td className="r nowrap">{r.bill_type !== 'PAYABLE' && ['PENDING', 'PARTIAL', 'OVERDUE'].includes(r.status) && <RemindButton bill={r} />}</td>}</tr>)}</tbody>
         </table></div>
       )}
       {d && d.total > 50 && <div className="row tl-pager"><button className="btn ghost sm" disabled={!q.offset} onClick={() => set({ offset: Math.max(0, q.offset - 50) })}>Previous</button><small className="muted">{q.offset + 1}–{Math.min(q.offset + 50, d.total)} of {d.total.toLocaleString('en-IN')}</small><button className="btn ghost sm" disabled={q.offset + 50 >= d.total} onClick={() => set({ offset: q.offset + 50 })}>Next</button></div>}
     </Panel>
+    </>
   );
 }
 
@@ -292,23 +326,36 @@ function Activity({ rev }) {
   const [c, setC] = useState(null);
   const [runs, setRuns] = useState(null);
   useEffect(() => { api('/tally/commands').then(setC).catch(() => setC([])); api('/tally/sync-runs').then(setRuns).catch(() => setRuns([])); }, [rev]);
+  const count = (st) => (c || []).filter((x) => st.includes(x.status)).length;
+  const tone = (st) => ({ ok: 'ok', bad: 'bad', warn: 'warn' }[st] || 'info');
   return (
-    <div className="tl-two">
-      <Panel title="Changes sent to Tally" pad={false}>
-        {!c ? <div className="skeleton" /> : !c.length ? <p className="muted sm pad">Nothing sent yet.</p> : (
-          <div className="tbl-wrap"><table className="tbl"><tbody>{c.map((x) => (
-            <tr key={x.id}><td><b>{CNAME[x.command_type] || x.command_type}</b><small className="sub-t">{x.payload?.name || x.payload?.party_name || x.payload?.stock_item_name || ''}{x.payload?.amount ? ` · ${inr(x.payload.amount)}` : ''}</small>{x.error_message && <small className="sub-t bad-t">{x.error_message}</small>}</td><td><span className={`pill ${CSTATUS[x.status]?.[1] || ''}`}>{CSTATUS[x.status]?.[0] || x.status}</span></td><td className="r muted nowrap">{ago(x.at)}</td></tr>
-          ))}</tbody></table></div>
-        )}
-      </Panel>
-      <Panel title="Syncs from your PC" pad={false}>
-        {!runs ? <div className="skeleton" /> : !runs.length ? <p className="muted sm pad">No syncs yet.</p> : (
-          <div className="tbl-wrap"><table className="tbl"><tbody>{runs.slice(0, 30).map((r) => (
-            <tr key={r.id}><td>{r.sync_type.replace(/_/g, ' ').toLowerCase()}<small className="sub-t">{r.records_created || 0} new · {r.records_updated || 0} updated{r.error_message ? ` · ${r.error_message}` : ''}</small></td><td><span className={`pill ${r.status === 'SUCCESS' ? 'ok' : r.status === 'FAILED' ? 'bad' : 'info'}`}>{r.status.toLowerCase()}</span></td><td className="r muted nowrap">{ago(r.at)}</td></tr>
-          ))}</tbody></table></div>
-        )}
-      </Panel>
-    </div>
+    <>
+      {c && <Strip items={[['Saved in Tally', count(['SUCCESS']), 'of the last 50 changes', 'check', 'in'], ['Waiting', count(['PENDING', 'SENT']), 'for your PC', 'clock', count(['PENDING', 'SENT']) ? 'out' : ''], ['Refused', count(['FAILED', 'EXPIRED']), 'see why below', 'x', count(['FAILED', 'EXPIRED']) ? 'bad' : ''], runs && ['Last sync', runs[0] ? ago(runs[0].at) : 'never', runs[0] ? `${runs[0].status.toLowerCase()}` : 'from your PC', 'download']]} />}
+      <div className="tl-two">
+        <Panel title="Changes sent to Tally">
+          {!c ? <div className="skeleton" /> : !c.length ? <Empty icon="send" title="Nothing sent yet" text="Vouchers, ledgers and stock items you create here — or ask Hive to — show up here as they’re saved in TallyPrime." /> : (
+            <ol className="tl-tline">{c.map((x) => (
+              <li key={x.id} className={tone(CSTATUS[x.status]?.[1])}>
+                <div className="tl-tline-h"><b>{CNAME[x.command_type] || x.command_type}</b><span className={`pill ${CSTATUS[x.status]?.[1] || ''}`}>{CSTATUS[x.status]?.[0] || x.status}</span></div>
+                <small className="muted">{x.payload?.name || x.payload?.party_name || x.payload?.stock_item_name || ''}{x.payload?.amount ? ` · ${inr(x.payload.amount)}` : ''} · {ago(x.at)}</small>
+                {x.error_message && <small className="bad-t">{x.error_message}</small>}
+              </li>
+            ))}</ol>
+          )}
+        </Panel>
+        <Panel title="Syncs from your PC">
+          {!runs ? <div className="skeleton" /> : !runs.length ? <Empty icon="download" title="No syncs yet" text="Once the connector runs on your PC, each sync from TallyPrime is listed here." /> : (
+            <ol className="tl-tline">{runs.slice(0, 30).map((r) => (
+              <li key={r.id} className={r.status === 'SUCCESS' ? 'ok' : r.status === 'FAILED' ? 'bad' : 'info'}>
+                <div className="tl-tline-h"><b className="tl-cap">{r.sync_type.replace(/_/g, ' ').toLowerCase()}</b><span className={`pill ${r.status === 'SUCCESS' ? 'ok' : r.status === 'FAILED' ? 'bad' : 'info'}`}>{r.status.toLowerCase()}</span></div>
+                <small className="muted">{r.records_created || 0} new · {r.records_updated || 0} updated · {ago(r.at)}</small>
+                {r.error_message && <small className="bad-t">{r.error_message}</small>}
+              </li>
+            ))}</ol>
+          )}
+        </Panel>
+      </div>
+    </>
   );
 }
 
@@ -337,8 +384,8 @@ function Detail({ kind, id, online, onClose, onDone, onOpen }) {
             {d.reference_number && <div><span>Reference</span><b>{d.reference_number}</b></div>}{d.due_date && <div><span>Due</span><b>{fmtDate(d.due_date)}</b></div>}
           </div>
           {d.narration && <p className="muted sm">{d.narration}</p>}
-          {d.items?.length > 0 && <><h4>Items</h4><div className="tbl-wrap"><table className="tbl"><thead><tr><th>Item</th><th className="r">Qty</th><th className="r">Rate</th><th className="r">Amount</th><th>Godown</th></tr></thead><tbody>{d.items.map((i) => <tr key={i.line_index}><td>{i.stock_item_name}</td><td className="r">{Math.abs(i.billed_qty ?? i.actual_qty ?? 0)}</td><td className="r">{money(i.rate)}</td><td className="r">{money(i.amount)}</td><td>{i.godown_name || '—'}</td></tr>)}</tbody></table></div></>}
-          {d.lines?.length > 0 && <><h4>Accounting</h4><div className="tbl-wrap"><table className="tbl"><thead><tr><th>Ledger</th><th className="r">Debit</th><th className="r">Credit</th></tr></thead><tbody>{d.lines.map((l) => <tr key={l.line_index}><td>{l.ledger_name}{l.bills?.length > 0 && <small className="sub-t">{l.bills.map((b) => `${b.bill_type || 'Bill'} ${b.bill_name}`).join(', ')}</small>}</td><td className="r">{l.debit_amount ? inr(l.debit_amount) : ''}</td><td className="r">{l.credit_amount ? inr(l.credit_amount) : ''}</td></tr>)}</tbody></table></div></>}
+          {d.items?.length > 0 && <><h4>Items</h4><div className="tbl-wrap tl-tbl"><table className="tbl"><thead><tr><th>Item</th><th className="r">Qty</th><th className="r">Rate</th><th className="r">Amount</th><th>Godown</th></tr></thead><tbody>{d.items.map((i) => <tr key={i.line_index}><td>{i.stock_item_name}</td><td className="r">{Math.abs(i.billed_qty ?? i.actual_qty ?? 0)}</td><td className="r">{money(i.rate)}</td><td className="r">{money(i.amount)}</td><td>{i.godown_name || '—'}</td></tr>)}</tbody></table></div></>}
+          {d.lines?.length > 0 && <><h4>Accounting</h4><div className="tbl-wrap tl-tbl"><table className="tbl"><thead><tr><th>Ledger</th><th className="r">Debit</th><th className="r">Credit</th></tr></thead><tbody>{d.lines.map((l) => <tr key={l.line_index}><td>{l.ledger_name}{l.bills?.length > 0 && <small className="sub-t">{l.bills.map((b) => `${b.bill_type || 'Bill'} ${b.bill_name}`).join(', ')}</small>}</td><td className="r">{l.debit_amount ? inr(l.debit_amount) : ''}</td><td className="r">{l.credit_amount ? inr(l.credit_amount) : ''}</td></tr>)}</tbody></table></div></>}
           {d.outstandings?.length > 0 && <><h4>Bills</h4><ul className="tl-rank">{d.outstandings.map((o) => <li key={o.id}><span>{o.bill_number} · due {o.due_date ? fmtDate(o.due_date) : '—'}</span><b>{money(o.pending_amount)} <span className={`pill ${BSTATUS[o.status]?.[1] || ''}`}>{BSTATUS[o.status]?.[0]}</span></b></li>)}</ul></>}
           {d.status !== 'CANCELLED' && <div className="m-foot">
             <button className="btn ghost" disabled={busy || !online} title={offline} onClick={() => run('CANCEL_VOUCHER', ref, 'Cancel voucher', { title: `Cancel ${d.voucher_type} ${d.voucher_number || ''}?`, text: 'Tally keeps it, marked cancelled, with no amounts.', confirm: 'Cancel voucher', danger: true })}>Cancel in Tally</button>
@@ -373,7 +420,7 @@ function Detail({ kind, id, online, onClose, onDone, onOpen }) {
           <div><span>Group</span><b>{d.parent || '—'}</b></div><div><span>Last rates</span><b>{d.last_sale_rate ? `sells ${inr(d.last_sale_rate)}` : '—'}{d.last_purchase_rate ? ` · buys ${inr(d.last_purchase_rate)}` : ''}</b></div>
         </div>
         <h4>Movements</h4>
-        {!d.movements?.length ? <p className="muted sm">No vouchers with this item yet.</p> : <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Date</th><th>Voucher</th><th>Party</th><th className="r">Qty</th><th>Godown</th></tr></thead><tbody>{d.movements.flatMap((v) => v.lines.map((l) => <tr key={`${v.id}${l.line_index}`} className="click" onClick={() => onOpen('vouchers', v)}><td className="nowrap">{fmtDate(v.voucher_date)}</td><td>{v.voucher_type} {v.voucher_number}</td><td>{v.party_name || '—'}</td><td className="r">{l.actual_qty ?? l.billed_qty}</td><td>{l.godown_name || '—'}</td></tr>))}</tbody></table></div>}
+        {!d.movements?.length ? <p className="muted sm">No vouchers with this item yet.</p> : <div className="tbl-wrap tl-tbl"><table className="tbl"><thead><tr><th>Date</th><th>Voucher</th><th>Party</th><th className="r">Qty</th><th>Godown</th></tr></thead><tbody>{d.movements.flatMap((v) => v.lines.map((l) => <tr key={`${v.id}${l.line_index}`} className="click" onClick={() => onOpen('vouchers', v)}><td className="nowrap">{fmtDate(v.voucher_date)}</td><td>{v.voucher_type} {v.voucher_number}</td><td>{v.party_name || '—'}</td><td className="r">{l.actual_qty ?? l.billed_qty}</td><td>{l.godown_name || '—'}</td></tr>))}</tbody></table></div>}
         <div className="m-foot"><button className="btn ghost danger" disabled={busy || !online} title={offline} onClick={() => run('DELETE_STOCK_ITEM', { record_id: d.id, name: d.name }, 'Delete stock item', { title: `Delete ${d.name} from Tally?`, text: 'Tally refuses if any voucher uses it.', confirm: 'Delete', danger: true })}>Delete item</button></div>
       </div>
     </Modal>
