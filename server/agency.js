@@ -72,7 +72,13 @@ function snapshotOf(f) {
 const newIds = (steps) => steps.map((s) => ({ ...s, id: uid(), blocks: s.blocks.map((b) => ({ ...b, id: uid() })), ...(s.ab?.blocks ? { ab: { ...s.ab, blocks: s.ab.blocks.map((b) => ({ ...b, id: uid() })) } } : {}) }));
 // A snapshot into an account: a new funnel (draft), its automations (paused), products with their files
 export function importSnapshot(userId, snap, { createFunnel, withProducts = true, sourceUserId = null }) {
-  if (!snap || snap.kind !== 'funnelhive.snapshot' || !snap.funnel?.steps?.length) throw new Error('That isn’t a FunnelHive funnel file');
+  if (!snap || snap.kind !== 'funnelhive.snapshot' || !Array.isArray(snap.funnel?.steps) || !snap.funnel.steps.length) throw new Error('That isn’t a FunnelHive funnel file');
+  // a hand-edited or damaged file: every page needs a list of sections (one without would break the funnels list
+  // and the live page); sections that aren't sections are dropped
+  const obj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  if (!snap.funnel.steps.every((s) => obj(s) && Array.isArray(s.blocks))) throw new Error('That funnel file is damaged — export it again and retry');
+  const okBlock = (b) => obj(b) && typeof b.type === 'string' && (b.props === undefined || obj(b.props));
+  snap = { ...snap, funnel: { ...snap.funnel, theme: obj(snap.funnel.theme) ? snap.funnel.theme : {}, steps: snap.funnel.steps.map((s, i) => ({ ...s, name: clip(s.name, 80) || `Page ${i + 1}`, slug: typeof s.slug === 'string' && /^[a-z0-9-]{1,60}$/.test(s.slug) ? s.slug : `page-${i + 1}`, blocks: s.blocks.filter(okBlock), ...(s.ab && obj(s.ab) ? { ab: { ...s.ab, blocks: Array.isArray(s.ab.blocks) ? s.ab.blocks.filter(okBlock) : [] } } : {}) })) } };
   const lim = funnelLimitError(T.users.get(userId));
   if (lim) throw Object.assign(new Error(lim), { status: 403 });
   const steps = newIds(structuredClone(snap.funnel.steps)).slice(0, 30);
@@ -205,7 +211,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     res.set('Content-Disposition', `attachment; filename="${f.slug}.funnelhive.json"`).json(snap);
   });
   app.post('/api/funnels/import', auth, (req, res) => {
-    try { const r = importSnapshot(req.user.id, req.body?.snapshot || req.body, { createFunnel }); res.status(201).json({ id: r.funnel.id, name: r.funnel.name, products: r.products, automations: r.automations }); } catch (e) { res.status(400).json({ error: e.message }); }
+    try { const r = importSnapshot(req.user.id, req.body?.snapshot || req.body, { createFunnel }); res.status(201).json({ id: r.funnel.id, name: r.funnel.name, products: r.products, automations: r.automations }); } catch (e) { res.status(e.status || 400).json({ error: e.message, ...(e.status === 403 ? { limit: 'funnels' } : {}) }); }
   });
   // copy to one of my client accounts (or any account where I'm agency / admin)
   app.post('/api/funnels/:id/copy-to', auth, (req, res) => {

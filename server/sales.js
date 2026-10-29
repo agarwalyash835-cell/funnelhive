@@ -117,7 +117,8 @@ export function issueInvoice(owner, order, lines, { paymentId = null, gst = null
 export async function refundOrder(owner, order0, { itemIndexes, reason = '', by = 'seller' } = {}) {
   // claim the items first (re-read inside a transaction): a double click or a second tab can't refund them twice
   // while the first refund is still waiting on Razorpay / Stripe; a claim older than 5 minutes counts as abandoned
-  const want = (itemIndexes?.length ? itemIndexes : order0.items.map((_, i) => i)).map(Number);
+  // each item once: [1, 1] must never refund the same item twice
+  const want = [...new Set((itemIndexes?.length ? itemIndexes : order0.items.map((_, i) => i)).map(Number))];
   let idx = [];
   const order = tx(() => {
     const o = T.orders.get(order0.id) || order0;

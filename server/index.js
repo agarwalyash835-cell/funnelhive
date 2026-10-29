@@ -1568,6 +1568,9 @@ function buildCharge(f, body) {
   const chk = blocks.find((x) => x.type === 'checkout')?.props;
   return { step, items, total: items.reduce((a, i) => a + i.price, 0), discount, usedCoupon, couponObj, ...(plan ? { plan } : {}), needsAddress: !blockId && chk?.shipping === 'address', codAllowed: !blockId && !!chk?.cod };
 }
+// a one-click upsell / downsell taken twice (a double tap, the back button) would charge the saved card or the COD
+// order again: once it's on the order (and not refunded), a second try is refused
+const twiceError = (o, f, charge) => (o && o.funnelId === f.id && charge.items.some((it) => ['upsell', 'downsell'].includes(it.kind) && o.items.some((x) => x.kind === it.kind && x.name === it.name && !x.refunded)) ? 'This is already in your order' : null);
 // a checkout that ships something needs a valid address
 const addressError = (charge, buyer) => (charge.needsAddress && !buyer.address ? (buyer.addressError || 'Please enter your delivery address') : null);
 // while the seller sends WhatsApp through Hive, the checkout asks for a WhatsApp number (the first purchase, not one-click offers)
@@ -1652,6 +1655,7 @@ app.post('/api/public/:slug/order', (req, res) => {
   if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
   if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
   if (waPhoneError(f, charge, buyer, req.body.orderId)) return res.status(400).json({ error: waPhoneError(f, charge, buyer, req.body.orderId) });
+  if (!preview && req.body.orderId && twiceError(T.orders.get(req.body.orderId), f, charge)) return res.status(409).json({ error: twiceError(T.orders.get(req.body.orderId), f, charge) });
   delete buyer.tk; // nothing is reported to ad platforms from the server for unpaid demo orders
   res.json(recordOrder(f, charge, buyer, { orderId: req.body.orderId, preview, base: appUrl(req) }));
 });
@@ -1716,6 +1720,7 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
   const prev = req.body.orderId && T.orders.get(req.body.orderId);
   const waErr = waPhoneError(f, charge, buyer, prev && prev.funnelId === f.id ? prev.id : null);
   if (waErr) return res.status(400).json({ error: waErr });
+  if (twiceError(prev, f, charge)) return res.status(409).json({ error: twiceError(prev, f, charge) });
   // one-click offers after a Cash on Delivery checkout are added to that COD order (paid together on delivery)
   if (prev && prev.funnelId === f.id && prev.status === 'cod') return res.json({ provider: 'cod', ...recordOrder(f, charge, { ...buyer, email: prev.email, name: prev.name, phone: prev.phone }, { orderId: prev.id, cod: true, base: appUrl(req) }) });
   const orderId = prev && prev.funnelId === f.id ? prev.id : undefined;
@@ -1970,8 +1975,9 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
   return indexHtml
     .replace('<title>FunnelHive</title>', '')
     .replace(/<link id="ff-app-font"[^>]*>/, '') // the dashboard's Inter: a live page loads only its theme's fonts (above)
-    .replace('<!--ff-head-->', head)
-    .replace('<!--ff-ssr-->', `${body}<script>window.__FUNNEL__=${json}</script>`);
+    // functions, not strings: a seller's "$$" or "$'" would otherwise be read as a replacement pattern
+    .replace('<!--ff-head-->', () => head)
+    .replace('<!--ff-ssr-->', () => `${body}<script>window.__FUNNEL__=${json}</script>`);
 }
 
 // an API path nobody answered is a JSON 404, never the app's HTML page
