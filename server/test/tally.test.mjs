@@ -218,6 +218,9 @@ test('writes: queued for the PC; pre-checks for the books and stock; the result 
   assert.deepEqual((await post('CREATE_VOUCHER', { ...gstSale, interstate: true })).data.payload.taxes, [{ ledger_name: 'Output IGST', amount: 180 }]);
   assert.deepEqual((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Purchase', gst_percent: 5 })).data.payload.taxes, [{ ledger_name: 'Input CGST', amount: 25 }, { ledger_name: 'Input SGST', amount: 25 }]);
   assert.match((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Purchase', interstate: true })).data.error, /Create Input IGST/);
+  // a credit note (sales return) reverses Output tax; a debit note (purchase return) Input tax
+  assert.deepEqual((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Credit Note', items: undefined, amount: 1000 })).data.payload.taxes, [{ ledger_name: 'Output CGST', amount: 90 }, { ledger_name: 'Output SGST', amount: 90 }]);
+  assert.deepEqual((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Debit Note', items: undefined, amount: 1000 })).data.payload.taxes, [{ ledger_name: 'Input CGST', amount: 90 }, { ledger_name: 'Input SGST', amount: 90 }]);
   assert.equal((await post('CREATE_VOUCHER', { ...gstSale, voucher_type: 'Receipt', offset_ledger: 'Cash', items: undefined, amount: 100 })).data.payload.taxes, undefined, 'no GST on a receipt');
 });
 

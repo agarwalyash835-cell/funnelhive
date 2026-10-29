@@ -117,7 +117,8 @@ const describe = (a) => WHAT.find(([re]) => re.test(`${a.method} ${a.path}`))?.[
 // ---------- routes ----------
 export function registerAgency(app, { auth, secret, createFunnel, deleteAccount, newBilling, signFor }) {
   SECRET = secret;
-  const myClient = (req, res) => { const c = T.users.get(req.params.cid); if (!c || c.agencyId !== (req.actor || req.user).id || req.actor) { res.status(404).json({ error: 'Client account not found' }); return null; } return c; };
+  // the agency owner themselves: not a teammate, not an API key (inviting changes the client's login; deleting is for good)
+  const myClient = (req, res) => { const c = T.users.get(req.params.cid); if (!c || c.agencyId !== (req.actor || req.user).id || req.actor || req.apiKey) { res.status(404).json({ error: 'Client account not found' }); return null; } return c; };
   const reportToken = (cid) => `${cid}.${sig(cid)}`;
   const statsOf = (uid0) => { const now = Date.now(); return totals({ userId: uid0 }, now - 30 * DAY, now); };
 

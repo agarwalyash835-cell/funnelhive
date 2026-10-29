@@ -181,7 +181,7 @@ export const TOOLS = [
     run: async (ctx, a) => {
       if (!a.item) return { lists: (await ctx.call('GET', `${P}/ratelists`)).map((l) => ({ name: l.name, items: Object.keys(l.rates).length })) };
       const r = await ctx.call('GET', `${P}/rate?${qs({ item: a.item, list: a.list, party: a.party })}`);
-      return { item: r.item.name, rate: amt(r.rate), from: r.source === 'list' ? `${r.list.name} list` : `item’s sale rate${r.list ? ` (not on ${r.list.name})` : ''}` };
+      return { item: r.item.name, rate: r.rate == null ? 'no sale rate set' : amt(r.rate), from: r.source === 'list' ? `${r.list.name} list` : `item’s sale rate${r.list ? ` (not on ${r.list.name})` : ''}` };
     },
     summary: (r) => (r.lists ? `${r.lists.length} rate lists` : `${r.item}: ${r.rate}`),
   },

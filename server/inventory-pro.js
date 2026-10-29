@@ -157,8 +157,10 @@ export function schemeFor(userId, item, qty, rate, day = ymd()) {
 // one sale line: rate (pre-GST), scheme, GST from the item
 export function priceLine(userId, item, { qty, rate, schemes = true, day } = {}) {
   const n = r3(pos(qty, `Quantity of ${item.name}`));
-  const rt = r2(rate != null && rate !== '' ? rate : item.sale_rate);
-  if (!(rt >= 0)) fail(400, `Rate of ${item.name} is missing`);
+  // no rate given and none on the item: ask, never bill at ₹0
+  const raw = rate != null && rate !== '' ? rate : item.sale_rate;
+  if (raw == null || raw === '' || !(Number(raw) >= 0)) fail(400, `Rate of ${item.name} is missing — give a rate or set its sale rate`);
+  const rt = r2(raw);
   const sc = schemes ? schemeFor(userId, item, n, rt, day) : null;
   const gross = r2(n * rt), discount = sc?.discount || 0, taxable = r2(gross - discount), gp = Number(item.gst_percent) || 0, gst = r2((taxable * gp) / 100);
   return { itemId: item.id, name: item.name, unit: item.unit || '', hsn: item.hsn || null, qty: n, free_qty: sc?.free_qty || 0, rate: rt, gross, discount, scheme: sc?.scheme || null, taxable, gst_percent: gp, gst, amount: r2(taxable + gst) };
@@ -190,7 +192,7 @@ const creditOf = (userId, party) => (party ? T.icredit.find({ userId, lparty: lo
 export function rateFor(userId, item, { list, party } = {}) {
   const l = list ? ownList(userId, list) : (creditOf(userId, party)?.ratelistId && T.iratelists.get(creditOf(userId, party).ratelistId)) || null;
   if (l && l.rates[item.id] != null) return { rate: l.rates[item.id], source: 'list', list: { id: l.id, name: l.name } };
-  return { rate: Number(item.sale_rate) || 0, source: 'item', list: l ? { id: l.id, name: l.name } : null };
+  return { rate: item.sale_rate != null && item.sale_rate !== '' ? Number(item.sale_rate) : null, source: 'item', list: l ? { id: l.id, name: l.name } : null };
 }
 const OPEN = ['PENDING', 'PARTIAL', 'OVERDUE'];
 // what a party owes: their open receivable bills in the Tally mirror when the seller uses Tally, else their unpaid

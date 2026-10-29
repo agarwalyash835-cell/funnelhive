@@ -21,8 +21,9 @@ export function keyUser(token) {
   if (Date.now() - (k.lastUsedAt || 0) > 60000) T.apikeys.update(k.id, (x) => { x.lastUsedAt = Date.now(); });
   return { user, key: k, role: k.scope === 'read' ? 'viewer' : 'admin' };
 }
-// paths an API key never reaches, whatever its scope
-export const KEY_NEVER = /^\/api\/(vault|keys|hive\/tokens|channels|google\/calendar|privacy$|me\/|auth\/|account|billing|admin|team)/;
+// paths an API key never reaches, whatever its scope. Hive too: its tools run as the owner, so a key would reach
+// the team, billing and the rest through it
+export const KEY_NEVER = /^\/api\/(vault|keys|hive\/|channels|google\/calendar|privacy$|me\/|auth\/|account|billing|admin|team)/;
 
 const view = ({ hash, userId, ...k }) => k;
 const since = (req) => Math.max(0, Number(req.query.since) || 0);
