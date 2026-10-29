@@ -326,7 +326,7 @@ test('STOP opts the contact out: buyer messages, automations and broadcasts skip
   await wait(600);
   assert.equal(sentTo('919700000001').length, 0, 'no receipt to an opted-out number');
   const manual = await api(`/contacts/${k(c.key)}/whatsapp`, 'POST', { text: 'hello?' }, T);
-  assert.equal(manual.status, 502);
+  assert.equal(manual.status, 400, 'refused before any provider is called (Hive or Meta direct alike)');
   assert.match(manual.data.error, /opted out/);
   assert.equal((await api('/broadcasts/audience', 'POST', { channel: 'whatsapp', segment: {} }, T)).data.left.unsubscribed >= 1, true);
   // Meta's own marketing opt-out does the same
