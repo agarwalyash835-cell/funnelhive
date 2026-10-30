@@ -16,7 +16,7 @@ import crypto from 'node:crypto';
 import { T, q, JOBS } from './db.js';
 import { encrypt, decrypt, setChannel, sendEmail } from './messaging.js';
 import { applyFulfilment, markRto } from './fulfilment.js';
-import { codSettings, usePincodeCourier } from './cod.js';
+import { codSettings, usePincodeCourier, codDue } from './cod.js';
 import { notify } from './notify.js';
 import { linkBase } from './products.js';
 import * as shiprocket from './couriers/shiprocket.js';
@@ -108,7 +108,8 @@ function courierOrder(o, c, pkg) {
     ref: o.id, at: o.at, pickup: c.pickup,
     buyer: { first: first || 'Customer', last: rest.join(' '), phone: String(o.phone || '').replace(/\D/g, '').slice(-10), email: o.email || '', address: o.address },
     items: items.map((i) => { const qty = Math.max(1, Number(i.qty) || 1); const prod = i.productId ? T.products.get(i.productId) : null; return { name: clip(i.name, 200) || 'Item', sku: clip(i.sku || prod?.sku || (i.productId ? `P-${i.productId}` : slug(i.name)), 50), qty, price: Math.round((Number(i.price) / qty) * 100) / 100, hsn: prod?.hsn || '' }; }),
-    cod: o.status === 'cod', subTotal, shipping, codFee, discount: Math.max(0, Math.round((subTotal + shipping + codFee - Number(o.total || 0)) * 100) / 100), pkg,
+    // a COD order's advance paid online (cod.js) is taken off as a discount, so the courier collects only what's due
+    cod: o.status === 'cod', subTotal, shipping, codFee, discount: Math.max(0, Math.round((subTotal + shipping + codFee - (o.status === 'cod' ? codDue(o) : Number(o.total || 0))) * 100) / 100), pkg,
   };
 }
 const saveShipment = (id, patch) => T.orders.update(id, (x) => { x.shipment = { ...(x.shipment || {}), ...patch, updatedAt: Date.now() }; });
@@ -188,7 +189,7 @@ export function applyTracking(o0, upd, via) {
     notify(o.userId, { kind: 'order', title: `Shipment ${st === 'lost' ? 'lost or damaged' : 'cancelled'} · #${o.id}`, body: `AWB ${o.shipment.awb} with ${o.shipment.courier || 'the courier'} — check it in Shiprocket.`, link: '/orders', ckey: ck });
   } else if (st === 'out_for_delivery' && cfgOf(u)?.notifyBuyer && o.email) {
     const first = String(o.name || '').split(/\s+/)[0] || 'there', biz = u.settings?.businessName || u.name;
-    sendEmail(u, { to: o.email, subject: 'Your order is out for delivery today 🚚', text: `Hi ${first},\n\nYour order (#${o.id}) is out for delivery with ${o.shipment.courier || 'our courier'}.${order.fulfilment?.trackingUrl ? `\nTrack it here: ${order.fulfilment.trackingUrl}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${Number(o.total).toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
+    sendEmail(u, { to: o.email, subject: 'Your order is out for delivery today 🚚', text: `Hi ${first},\n\nYour order (#${o.id}) is out for delivery with ${o.shipment.courier || 'our courier'}.${order.fulfilment?.trackingUrl ? `\nTrack it here: ${order.fulfilment.trackingUrl}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${codDue(o).toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
   }
   return T.orders.get(o.id);
 }

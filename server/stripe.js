@@ -62,10 +62,12 @@ async function customerFor(c, userId, buyer) {
 
 // one-time payment: returns what the Payment Element needs
 // saveCard: the buyer's consent to keep the card (RBI card-on-file rules; no tick, nothing is saved)
+// what a payment row charges: the whole checkout, or only a COD order's advance (index.js startCodAdvance)
+const payAmount = (pay) => pay.prepaid?.amount ?? pay.charge.total;
 export async function startStripePayment(c, { userId, pay, iso, buyer, description, saveCard = false }) {
   const customer = await customerFor(c, userId, buyer);
   const pi = await stripe(c, 'POST', '/payment_intents', {
-    amount: minor(pay.charge.total, iso), currency: iso.toLowerCase(), customer, description: description.slice(0, 500), receipt_email: buyer.email || undefined,
+    amount: minor(payAmount(pay), iso), currency: iso.toLowerCase(), customer, description: description.slice(0, 500), receipt_email: buyer.email || undefined,
     automatic_payment_methods: { enabled: true }, ...(saveCard ? { setup_future_usage: 'off_session' } : {}), metadata: { payment: pay.id, funnel: pay.funnelId, ...(saveCard ? { saveCard: 'yes' } : {}) },
   }, { idem: `pi-${pay.id}` });
   return { provider: 'stripe', payment: pay.id, publishableKey: c.publishableKey, clientSecret: pi.client_secret, intent: pi.id, customer };
@@ -121,7 +123,7 @@ export async function confirmedIntent(c, pay) {
     pay.stripePm = pi.payment_method;
     T.payments.update(pay.id, (p) => { p.stripePm = pi.payment_method; });
   }
-  return pi.status === 'succeeded' && pi.metadata?.payment === pay.id && pi.amount_received >= minor(pay.charge.total, pay.currency || 'INR') ? pi.id : null;
+  return pi.status === 'succeeded' && pi.metadata?.payment === pay.id && pi.amount_received >= minor(payAmount(pay), pay.currency || 'INR') ? pi.id : null;
 }
 export const stripeRefund = (c, intent, amount, iso, reason) => stripe(c, 'POST', '/refunds', { payment_intent: intent, amount: minor(amount, iso), metadata: { reason: String(reason || '').slice(0, 200) } });
 

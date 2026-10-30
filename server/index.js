@@ -61,7 +61,7 @@ import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
 import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
 import { registerFulfilment, cleanAddress } from './fulfilment.js';
-import { registerCod, codCheckoutError, shipError, codPlaced } from './cod.js';
+import { registerCod, codCheckoutError, shipError, codPlaced, codToken, codSettings, codPrepaidPublic } from './cod.js';
 import { registerShipping } from './shipping.js';
 import { registerBroadcasts } from './broadcasts.js';
 import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows, customPerms, memberRole } from './team.js';
@@ -1358,7 +1358,7 @@ function publicData(f, owner = T.users.get(f.userId), { full = false } = {}) {
   const inv = invoicingOf(owner);
   // tracking: the funnel's own ids where it has them, else the workspace's; stripe: the checkout pays by
   // Stripe (same rule as pay/start), so it offers the "Save my card" tick
-  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f), seller: sellerOf(f, owner, inv) } : {}), steps: productOrigins(resolveWhatsApp(full ? f.steps : f.steps.map((s) => { const need = lockOf(f, s); return need ? { ...s, blocks: [], ...(s.ab ? { ab: { ...s.ab, blocks: [] } } : {}), popups: [], locked: need } : s; }), owner?.settings?.supportWhatsapp, !owner || whatsappStatus(owner).configured), f.userId), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(owner && stripeCreds(owner) && (funnelIso(f) !== 'INR' || !rzpCreds(owner)) ? { stripe: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}) };
+  return { name: f.name, slug: f.slug, theme: f.theme, currency: funnelIso(f), ...(owner ? { privacy: publicPrivacy(owner, '', f), seller: sellerOf(f, owner, inv) } : {}), steps: productOrigins(resolveWhatsApp(full ? f.steps : f.steps.map((s) => { const need = lockOf(f, s); return need ? { ...s, blocks: [], ...(s.ab ? { ab: { ...s.ab, blocks: [] } } : {}), popups: [], locked: need } : s; }), owner?.settings?.supportWhatsapp, !owner || whatsappStatus(owner).configured), f.userId), tracking: trackingFor(owner, f), ...(inv.enabled && inv.gstin ? { gstInvoices: true } : {}), ...(owner && !rzpCreds(owner) && !stripeCreds(owner) ? { testCheckout: true } : {}), ...(owner && stripeCreds(owner) && (funnelIso(f) !== 'INR' || !rzpCreds(owner)) ? { stripe: true } : {}), ...(waRequired(owner) ? { waRequired: true } : {}), ...(owner && funnelIso(f) === 'INR' && (rzpCreds(owner) || stripeCreds(owner)) && codPrepaidPublic(owner) ? { codPrepaid: codPrepaidPublic(owner) } : {}) };
 }
 // the page footer: who sells this, where they are, and their policies (Consumer Protection (E-Commerce) Rules 2020).
 // Same details as the legal pages: the funnel's own business details first, then the workspace's
@@ -1629,7 +1629,9 @@ const waPhoneError = (f, charge, buyer, orderId) => (!orderId && charge.items[0]
 // Records a paid charge: a new order, or more items on the buyer's order (upsells, cross-sells).
 // verified: the money really arrived (Razorpay, or a free order while Razorpay is connected) — only then are
 // products delivered, invoices issued and the sale reported to the ad platforms from the server.
-function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = false, base = '', testMode = false, cod = false } = {}) {
+// prepaid (COD with an advance paid online): { amount, paymentId, provider, mode, at, policy } — the order is still COD,
+// with codDue = total − the advance left to collect
+function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = false, base = '', testMode = false, cod = false, prepaid = null } = {}) {
   const now = Date.now();
   const items = charge.items.map((i) => ({ ...i, at: now, ...(payment ? { paymentId: payment.id } : {}) }));
   let order;
@@ -1645,11 +1647,11 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
       // honoured either way (they paid the discounted price); the count just never passes the limit, so no one else starts
       if (charge.couponObj) T.coupons.update(charge.couponObj.id, (c) => { if (!c.maxUses || (c.uses || 0) < c.maxUses) c.uses = (c.uses || 0) + 1; });
       const ex = orderId && T.orders.get(orderId);
-      if (ex && ex.funnelId === f.id) { order = ex; order.items.push(...items); for (const it of items) it.txn = `${order.id}-${order.items.length}`; order.total += charge.total; T.orders.put(order); }
+      if (ex && ex.funnelId === f.id) { order = ex; order.items.push(...items); for (const it of items) it.txn = `${order.id}-${order.items.length}`; order.total += charge.total; if (order.prepaid) order.codDue = order.total - order.prepaid.amount; T.orders.put(order); }
       else {
         const id = uid();
         for (const it of items) it.txn = `${id}-${items.length}`;
-        order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...(payment?.pm ? { stripePm: payment.pm } : {}), ...((payment?.currency || funnelIso(f)) !== 'INR' ? { currency: payment?.currency || funnelIso(f), fx: fxRate(payment?.currency || funnelIso(f)) } : {}) });
+        order = T.orders.insert({ id, userId: f.userId, funnelId: f.id, email: buyer.email || '', name: buyer.name || '', phone: buyer.phone || '', items, total: charge.total, coupon: charge.usedCoupon, discount: charge.discount, source: buyer.source || 'direct', visitor: buyer.visitor, status: 'paid', at: now, ...(payment ? { provider: payment.provider, mode: payment.mode } : {}), ...(buyer.attr ? { attr: buyer.attr } : {}), ...(buyer.gst ? { gst: buyer.gst } : {}), ...(buyer.address ? { address: buyer.address, fulfilment: { status: 'pending', at: now } } : {}), ...(cod ? { status: 'cod', paymentMethod: 'cod' } : {}), ...(cod && prepaid ? { prepaid, codDue: charge.total - prepaid.amount, mode: prepaid.mode } : {}), ...(charge.plan ? { plan: { ...charge.plan, subId: payment?.subId || null, provider: payment?.provider || null, status: payment?.subId ? 'active' : 'demo', paid: 1, startedAt: now } } : {}), ...(payment?.customer ? { stripeCustomer: payment.customer } : {}), ...(payment?.pm ? { stripePm: payment.pm } : {}), ...((payment?.currency || funnelIso(f)) !== 'INR' ? { currency: payment?.currency || funnelIso(f), fx: fxRate(payment?.currency || funnelIso(f)) } : {}) });
         recoverAbandoned(f, buyer);
       }
       attributeOrder(f, order, buyer); // affiliates.js: the referring affiliate's commission (never throws)
@@ -1718,22 +1720,63 @@ app.post('/api/public/:slug/order', (req, res) => {
 // ---------- Cash on Delivery ----------
 // Works with or without Razorpay. The order is booked unpaid (status "cod") and settled when it's delivered.
 const codLimiter = rateLimit({ windowMs: 3600000, max: isTest ? 1000 : 10, message: 'Too many orders from this network — please try again later.' });
+// everything a COD checkout must pass before an order (or an advance payment) → { charge, buyer } or null (answered)
+function codPrepare(req, res, f) {
+  const charge = buildCharge(f, { ...req.body, method: 'cod' });
+  const fail = (body, status = 400) => { res.status(status).json(body); return null; };
+  if (charge.error) return fail(charge, charge.status);
+  if (!charge.codAllowed) return fail({ error: 'Cash on Delivery isn’t available for this product' });
+  if (charge.plan) return fail({ error: 'Instalments and memberships are paid online' });
+  const buyer = buyerOf(req);
+  if (buyer.gstError) return fail({ error: buyer.gstError });
+  if (addressError(charge, buyer)) return fail({ error: addressError(charge, buyer) });
+  if (!/^\d{10}$/.test(String(buyer.phone).replace(/\D/g, '').replace(/^91(?=\d{10}$)/, ''))) return fail({ error: 'Please enter your 10-digit mobile number — the courier will call before delivery' });
+  if (waPhoneError(f, charge, buyer)) return fail({ error: waPhoneError(f, charge, buyer) });
+  // the seller's COD rules (cod.js): PIN codes, a maximum order value (the full order), the number's earlier COD orders
+  const risk = codCheckoutError(ownerOf(f), charge, buyer);
+  if (risk) return fail(risk);
+  return { charge, buyer };
+}
+// the advance a COD checkout must pay online first (cod.js codToken) → { amount, due, keep } or null — only while the
+// seller has a gateway to take it (₹ checkouts); without one COD stays as it was
+const codAdvanceFor = (owner, total, iso = 'INR') => {
+  const amount = iso === 'INR' && (rzpCreds(owner) || stripeCreds(owner)) ? codToken(owner, total) : 0;
+  return amount ? { amount, due: Math.round((total - amount) * 100) / 100, keep: codSettings(owner).refusal === 'keep' } : null;
+};
+// start the advance payment for a checked COD checkout (funnels and the store): a payment row carrying `prepaid`,
+// for the advance only; finalizePayment records the COD order once it's verified. No payment → no order.
+async function startCodAdvance(req, res, { f, owner, charge, buyer, kind = null, adv }) {
+  if (adv.keep && req.body.acceptAdvance !== true) return res.status(400).json({ error: `Please tick to agree that the ₹${adv.amount} advance is non-refundable if you refuse the delivery`, code: 'prepaid_terms', prepaid: adv });
+  const creds = rzpCreds(owner), sc = stripeCreds(owner), useStripe = !creds;
+  const pay = { id: uid(), ...(kind ? { kind } : {}), userId: f.userId, funnelId: f.id, ...(charge.step ? { stepId: charge.step.id } : {}), buyer, charge: { items: charge.items, total: charge.total, discount: charge.discount, usedCoupon: charge.usedCoupon }, prepaid: { amount: adv.amount, policy: adv.keep ? 'keep' : 'refund' }, mode: (useStripe ? sc : creds).mode, status: 'created', at: Date.now(), base: appUrl(req), ...(useStripe ? { provider: 'stripe', currency: 'INR' } : {}) };
+  const description = `Advance for Cash on Delivery: ${charge.items.filter((i) => !['shipping', 'cod_fee'].includes(i.kind)).map((i) => i.name).join(' + ')}`.slice(0, 250);
+  const name = owner.settings?.businessName || f.name, color = f.theme?.primary || '#6366f1';
+  try {
+    if (useStripe) {
+      const r = await startStripePayment(sc, { userId: f.userId, pay, iso: 'INR', buyer, description });
+      Object.assign(pay, { stripeIntent: r.intent, stripeCustomer: r.customer, rzpOrderId: r.intent });
+      T.payments.insert(pay);
+      return res.json({ ...r, amount: adv.amount, currency: 'INR', name, description, color, prepaid: adv });
+    }
+    const rzp = await rzpCreateOrder(creds, { amount: Math.round(adv.amount * 100), receipt: pay.id, notes: { [kind === 'store' ? 'store' : 'funnel']: f.name.slice(0, 200), payment: pay.id, cod_advance: 'yes' } });
+    pay.rzpOrderId = rzp.id;
+    T.payments.insert(pay);
+    return res.json({ provider: 'razorpay', payment: pay.id, key: creds.keyId, order_id: rzp.id, amount: rzp.amount, currency: rzp.currency || 'INR', name, description, prefill: { name: buyer.name, email: buyer.email, contact: buyer.phone }, color, prepaid: adv });
+  } catch (e) {
+    console.error('COD advance payment failed', e.message);
+    return res.status(502).json({ error: 'Payments are temporarily unavailable — please try again in a minute' });
+  }
+}
 app.post('/api/public/:slug/cod', codLimiter, (req, res) => {
   const f = pub(req, res);
   if (!f) return;
-  const charge = buildCharge(f, { ...req.body, method: 'cod' });
-  if (charge.error) return res.status(charge.status).json(charge);
-  if (!charge.codAllowed) return res.status(400).json({ error: 'Cash on Delivery isn’t available for this product' });
-  if (charge.plan) return res.status(400).json({ error: 'Instalments and memberships are paid online' });
-  const buyer = buyerOf(req);
-  if (buyer.gstError) return res.status(400).json({ error: buyer.gstError });
-  if (addressError(charge, buyer)) return res.status(400).json({ error: addressError(charge, buyer) });
-  if (!/^\d{10}$/.test(String(buyer.phone).replace(/\D/g, '').replace(/^91(?=\d{10}$)/, ''))) return res.status(400).json({ error: 'Please enter your 10-digit mobile number — the courier will call before delivery' });
-  if (waPhoneError(f, charge, buyer)) return res.status(400).json({ error: waPhoneError(f, charge, buyer) });
-  // the seller's COD rules (cod.js): PIN codes, a maximum order value, the number's earlier COD orders
-  const risk = codCheckoutError(ownerOf(f), charge, buyer);
-  if (risk) return res.status(400).json(risk);
+  const p = codPrepare(req, res, f);
+  if (!p) return;
+  const { charge, buyer } = p;
   if (isPreview(req)) return res.json(recordOrder(f, charge, buyer, { preview: true }));
+  // an advance is due first: the checkout pays it through pay/start (method: 'cod')
+  const adv = codAdvanceFor(ownerOf(f), charge.total, funnelIso(f));
+  if (adv) return res.status(400).json({ error: `Pay ₹${adv.amount} now to confirm your Cash on Delivery order`, code: 'prepaid', prepaid: adv });
   const out = recordOrder(f, charge, buyer, { cod: true, base: appUrl(req) });
   codPlaced(ownerOf(f), out.orderId, appUrl(req)); // the buyer is asked to confirm (when the seller turned that on)
   res.json({ provider: 'cod', ...out });
@@ -1752,6 +1795,14 @@ function finalizePayment(pay, paymentId, base) {
     if (!f) return null;
     fresh.status = 'paid'; fresh.paymentId = paymentId; fresh.paidAt = Date.now();
     const charge = { ...fresh.charge, couponObj: fresh.charge.usedCoupon ? T.coupons.find({ userId: f.userId, code: fresh.charge.usedCoupon }) : null };
+    // a COD order's advance: the order is booked as COD (invoiced and delivered when the rest is collected)
+    if (fresh.prepaid) {
+      fresh.result = recordOrder(f, charge, fresh.buyer, { cod: true, base: base || fresh.base, prepaid: { ...fresh.prepaid, paymentId, provider: fresh.provider || 'razorpay', mode: fresh.mode, at: fresh.paidAt } });
+      T.payments.put(fresh);
+      Object.assign(pay, fresh);
+      codPlaced(ownerOf(f), fresh.result.orderId, base || fresh.base);
+      return { provider: 'cod', ...fresh.result };
+    }
     fresh.result = recordOrder(f, charge, fresh.buyer, { orderId: fresh.orderId, payment: { id: paymentId, provider: fresh.provider || 'razorpay', mode: fresh.mode, ...(fresh.plan ? { subId: fresh.stripeSub || fresh.rzpOrderId } : {}), ...(fresh.stripeCustomer ? { customer: fresh.stripeCustomer } : {}), ...(fresh.stripePm ? { pm: fresh.stripePm } : {}) }, verified: true, base: base || fresh.base });
     T.payments.put(fresh);
     Object.assign(pay, fresh);
@@ -1764,6 +1815,17 @@ app.post('/api/public/:slug/pay/start', wrap(async (req, res) => {
   if (!f) return;
   const preview = isPreview(req);
   const owner = ownerOf(f);
+  // Cash on Delivery with an advance to pay online first (cod.js); with nothing to pay ahead it's booked as plain COD
+  if (req.body.method === 'cod' && !req.body.orderId) {
+    const p = codPrepare(req, res, f);
+    if (!p) return;
+    if (preview) return res.json({ provider: 'cod', ...recordOrder(f, p.charge, p.buyer, { preview: true }) });
+    const adv = codAdvanceFor(owner, p.charge.total, funnelIso(f));
+    if (adv) return startCodAdvance(req, res, { f, owner, charge: p.charge, buyer: p.buyer, adv });
+    const out = recordOrder(f, p.charge, p.buyer, { cod: true, base: appUrl(req) });
+    codPlaced(owner, out.orderId, appUrl(req));
+    return res.json({ provider: 'cod', ...out });
+  }
   const creds = rzpCreds(owner);
   const prevCod = !preview && req.body.orderId && T.orders.get(req.body.orderId);
   const onCod = prevCod && prevCod.funnelId === f.id && prevCod.status === 'cod'; // COD works without Razorpay
@@ -2042,7 +2104,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
 }
 
 // the storefront (/s/<handle>): its API, checkout for a whole cart, and its page with title / link-preview tags
-registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml });
+registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance });
 
 // an API path nobody answered is a JSON 404, never the app's HTML page
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));

@@ -137,6 +137,13 @@ export const withCopy = (type, props = {}) => (COPY[type] ? { ...JSON.parse(JSON
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pad = (n) => String(n).padStart(2, '0');
 const money = (c, n) => `${c || '₹'}${Number(n || 0).toLocaleString('en-IN')}`;
+// a COD order's advance paid online (server/cod.js codToken — the server's figure is what's charged)
+export const codAdvance = (cfg, total) => {
+  if (!cfg || cfg.mode === 'off' || total < 2) return 0;
+  let a = cfg.mode === 'flat' ? Number(cfg.value) : Math.max(Number(cfg.min) || 0, Math.ceil((total * Number(cfg.value)) / 100));
+  a = Math.min(Math.round(a), Math.floor(total - 1));
+  return a >= 1 ? a : 0;
+};
 const rich = (s = '') => String(s).split(/\*(.+?)\*/g).map((x, i) => (i % 2 ? <span className="hl" key={i}>{x}</span> : x));
 const initials = (name = '') => name.replace(/^(Dr|Mr|Mrs|Ms|Ar|Pt|CA)\.?\s+/i, '').split(/[\s,]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const avColor = (s = '') => `hsl(${[...s].reduce((h, c) => h + c.charCodeAt(0) * 7, 0) % 360} 65% 52%)`;
@@ -1028,6 +1035,8 @@ function Checkout({ p, ctx }) {
   const today = instal ? Number(p.planPrice) : per ? price : price - discount; // no coupons on memberships (as on the server)
   const total = today + (bump && p.bumpEnabled ? bp : 0) + shipFee + (instal ? 0 : codFee);
   const canSave = ctx.stripe && !instal && !per && !(p.cod && method === 'cod');
+  const adv = p.cod && method === 'cod' && !instal && !per && inr(p.currency) ? codAdvance(ctx.codPrepaid, total) : 0;
+  const [agree, setAgree] = useState(false);
   // RBI: an automatic debit above ₹15,000 needs the buyer's approval each time
   const afa = inr(p.currency) && (instal ? Number(p.planPrice) : per ? price : 0) > 15000;
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -1049,7 +1058,7 @@ function Checkout({ p, ctx }) {
   return (
     <Sec type="checkout">
       <div className="co-grid">
-        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await safely(() => ctx.onCheckout({ ...f, total, withBump: bump, coupon: per ? undefined : coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(instal ? { plan: 'installments' } : {}), ...(canSave && saveCard ? { saveCard: true } : {}) })); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
+        <form className="pc co-form" onSubmit={async (e) => { e.preventDefault(); if (!ctx.live) return; setBusy(true); setPayErr(''); const r = await safely(() => ctx.onCheckout({ ...f, total, withBump: bump, coupon: per ? undefined : coupon?.code, ...(biz && (gst.gstin || gst.company) ? { gst } : {}), ...(ships ? { address: addr } : {}), ...(p.cod && !instal && !per ? { method } : {}), ...(adv ? { acceptAdvance: agree } : {}), ...(instal ? { plan: 'installments' } : {}), ...(canSave && saveCard ? { saveCard: true } : {}) })); if (r?.error) { setPayErr(r.error); if (r.error.includes('remove it')) { setCoupon(null); setCErr(r.error); } } setBusy(false); }}>
           <div className="co-step"><span className="co-n">1</span> <E ctx={ctx} k="step1" v={p.step1} keep /></div>
           {ctx.testCheckout && !ctx.editable && <p className="co-test">{tr(ctx.lang, 'Test checkout — no payment will be taken. The seller hasn’t connected online payments yet.')}</p>}
           <input aria-label={tr(ctx.lang, 'Full name')} placeholder={tr(ctx.lang, 'Full name')} required value={f.name} onChange={set('name')} />
@@ -1091,6 +1100,12 @@ function Checkout({ p, ctx }) {
               <label key={m} className={`pm ${pm === m ? 'on' : ''}`}><input type="radio" name="pm" checked={pm === m} onChange={() => setPm(m)} />{m}</label>
             ))}</div>
           )}
+          {adv > 0 && !ctx.editable && (
+            <div className="co-adv" style={{ fontSize: 14, margin: '6px 0' }}>
+              <p style={{ margin: '0 0 4px' }}><b>{tr(ctx.lang, 'Pay {now} now to confirm, {later} on delivery', { now: money(p.currency, adv), later: money(p.currency, total - adv) })}</b></p>
+              {ctx.codPrepaid?.keep && <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}><input type="checkbox" required checked={agree} onChange={(e) => setAgree(e.target.checked)} /><span>{tr(ctx.lang, '{now} is non-refundable if you refuse the delivery', { now: money(p.currency, adv) })}</span></label>}
+            </div>
+          )}
           {p.bumpEnabled && (
             <label className={`bump ${bump ? 'on' : ''}`}>
               <input type="checkbox" checked={bump} onChange={(e) => setBump(e.target.checked)} />
@@ -1099,7 +1114,7 @@ function Checkout({ p, ctx }) {
           )}
           {canSave && !ctx.editable && <label className="co-savecard" style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, margin: '4px 0' }}><input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} />{tr(ctx.lang, 'Save my card for faster checkout next time')}</label>}
           {payErr && <p className="c-err" role="alert">{payErr}</p>}
-          {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy || (!!pin && pin.valid && !pin.deliverable)}>{busy ? tr(ctx.lang, 'Processing…') : method === 'cod' && p.cod && !instal && !per ? tr(ctx.lang, 'Place order · pay {amount} on delivery', { amount: money(p.currency, total) }) : per ? tr(ctx.lang, 'Subscribe · {amount}/{per}', { amount: money(p.currency, today), per: tr(ctx.lang, per) }) : `${payLabel(p.buttonText) || tr(ctx.lang, 'Pay Securely')} · ${money(p.currency, total)}${instal ? tr(ctx.lang, ' today') : ''}`}</Btn>}
+          {ctx.editable ? <Btn big block ctx={ctx} k="buttonText">{p.buttonText || 'Pay Securely'}</Btn> : <Btn big block type="submit" disabled={busy || (!!pin && pin.valid && !pin.deliverable)}>{busy ? tr(ctx.lang, 'Processing…') : adv ? tr(ctx.lang, 'Pay {now} now · {later} on delivery', { now: money(p.currency, adv), later: money(p.currency, total - adv) }) : method === 'cod' && p.cod && !instal && !per ? tr(ctx.lang, 'Place order · pay {amount} on delivery', { amount: money(p.currency, total) }) : per ? tr(ctx.lang, 'Subscribe · {amount}/{per}', { amount: money(p.currency, today), per: tr(ctx.lang, per) }) : `${payLabel(p.buttonText) || tr(ctx.lang, 'Pay Securely')} · ${money(p.currency, total)}${instal ? tr(ctx.lang, ' today') : ''}`}</Btn>}
           {p.secureText && <E ctx={ctx} k="secureText" v={p.secureText} as="p" className="secure" />}
           {ctx.privacy && !ctx.editable && <p className="fconsent">{tr(ctx.lang, 'By paying you agree to the')} <a href={ctx.privacy.terms} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Terms')}</a>, <a href={ctx.privacy.terms.replace(/terms$/, 'refund')} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Refund Policy')}</a> {tr(ctx.lang, 'and')} <a href={ctx.privacy.policy} target="_blank" rel="noreferrer">{tr(ctx.lang, 'Privacy Policy')}</a>.</p>}
         </form>

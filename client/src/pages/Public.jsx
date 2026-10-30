@@ -283,7 +283,7 @@ export default function Public() {
     const pageHref = (s) => (s ? (onDomain ? `/${s}` : `/f/${slug}/${s}`) : (onDomain ? '/' : `/f/${slug}`));
     return {
       pageHref, goPage: (s) => nav(`${pageHref(s)}${preview}`), stepSlug: step.slug, stepIndex: idx,
-      live: true, preview: !!preview, leadKey, holdPopups: needsConsent && !choice && !preview, onPopupEvent: popupEvent, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, stripe: !!f.stripe, waRequired: !!f.waRequired, delivery, webinar: sessions, privacy: f.privacy || null, seller: f.seller || null, social,
+      live: true, preview: !!preview, leadKey, holdPopups: needsConsent && !choice && !preview, onPopupEvent: popupEvent, lang: f.theme?.lang || 'en', gstInvoices: !!f.gstInvoices, testCheckout: !!f.testCheckout, stripe: !!f.stripe, waRequired: !!f.waRequired, codPrepaid: f.codPrepaid || null, delivery, webinar: sessions, privacy: f.privacy || null, seller: f.seller || null, social,
       onNext: async () => {
         if (blocks.some((b) => b.type === 'optin')) return document.getElementById('optin')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         if (blocks.some((b) => b.type === 'checkout')) return document.querySelector('.co-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -376,7 +376,9 @@ export default function Public() {
         track('InitiateCheckout', { value: data.total, currency: 'INR' }, id);
         let aff; try { const a = JSON.parse(store.get(sk('ff_aff')) || 'null'); if (a && a.until > Date.now()) aff = a.t; } catch {}
         const body = { ...data, stepId: step.id, source, visitor, attr, tk: ids(), eventId: id, ...(aff ? { aff } : {}) };
-        const r = data.method === 'cod' ? await post(`${base}/cod${preview}`, body) : await charge(body);
+        // COD with an advance (f.codPrepaid): the advance is paid online through pay/start, then it's a COD order
+        let r = data.method === 'cod' && !f.codPrepaid ? await post(`${base}/cod${preview}`, body) : await charge(body);
+        if (r.code === 'prepaid') r = await charge(body); // the seller turned the advance on since this page loaded
         if (!r.orderId) return { error: r.error || tr(f.theme?.lang, 'Payment could not be completed — please try again') };
         store.set(key, r.orderId, sessionStorage);
         store.set(sk('ff_email'), data.email, sessionStorage);

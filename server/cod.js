@@ -16,7 +16,7 @@ import { sendEmail } from './messaging.js';
 import { notify, money } from './notify.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { fire as fireAutomation } from './automations.js';
-import { cancelCod, markRto } from './fulfilment.js';
+import { cancelCod, markRto, refundAdvance } from './fulfilment.js';
 
 const HOUR = Number(process.env.COD_HOUR_MS || 3600000); // tests shrink hours
 const TICK = Number(process.env.COD_TICK_MS || 60000);
@@ -25,8 +25,26 @@ const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ---------- settings (user.settings.cod) ----------
-const DEF = { confirm: false, hours: 24, pinMode: 'off', pins: [], noCod: [], maxCod: 0, blockAfter: 0 };
-export const codSettings = (u) => ({ ...DEF, ...(u?.settings?.cod || {}) });
+// prepaid: an optional advance ("token") paid online to book a COD order — off, a flat ₹ amount, or a % of the order
+// (with a ₹ minimum); never more than the order total minus ₹1. refusal: what happens to the advance when the buyer
+// refuses / cancels / it comes back (RTO) — 'refund' it through the gateway, or 'keep' it as a booking fee.
+// skipConfirm: a COD order with its advance paid counts as confirmed (no confirmation message).
+const PREPAID_OFF = { mode: 'off', value: 0, min: 0 };
+const DEF = { confirm: false, hours: 24, pinMode: 'off', pins: [], noCod: [], maxCod: 0, blockAfter: 0, prepaid: PREPAID_OFF, refusal: 'refund', skipConfirm: false };
+export const codSettings = (u) => { const s = { ...DEF, ...(u?.settings?.cod || {}) }; s.prepaid = { ...PREPAID_OFF, ...(s.prepaid || {}) }; return s; };
+
+// the advance for a COD order of this total (₹, whole rupees) — 0 when off or when nothing would be left to collect
+export function codToken(u, total) {
+  const p = codSettings(u).prepaid, t = Number(total) || 0;
+  if (p.mode === 'off' || t < 2) return 0;
+  let a = p.mode === 'flat' ? Number(p.value) : Math.max(Number(p.min) || 0, Math.ceil((t * Number(p.value)) / 100));
+  a = Math.min(Math.round(a), Math.floor(t - 1));
+  return a >= 1 ? a : 0;
+}
+// what's still to collect in cash on a COD order (the whole total, less any advance paid online)
+export const codDue = (o) => Math.max(0, Math.round(((Number(o.total) || 0) - (o.prepaid?.amount || 0)) * 100) / 100);
+// what the buyer's checkout needs to show the advance before they choose COD (null when off)
+export const codPrepaidPublic = (u) => { const s = codSettings(u); return s.prepaid.mode === 'off' ? null : { ...s.prepaid, keep: s.refusal === 'keep' }; };
 
 // PIN code rules, one per word / line: 302001 (one), 302xxx or 302* (a prefix), 302001-302039 (a range)
 export function parsePins(text) {
@@ -96,9 +114,13 @@ const whatOf = (o) => o.items.filter((i) => !['shipping', 'cod_fee'].includes(i.
 
 // a new COD order: awaiting the buyer's answer (only while the seller asks for confirmation)
 export function codPlaced(owner, orderId, base) {
-  if (!codSettings(owner).confirm || !orderId) return;
+  const s = codSettings(owner);
+  if (!orderId) return;
   const o = T.orders.get(orderId);
   if (!o || o.status !== 'cod' || o.demo || o.codStatus) return;
+  // an advance paid online already shows the buyer means it: confirmed without asking (when the seller chose that)
+  if (o.prepaid && s.skipConfirm) { T.orders.update(o.id, (x) => { x.codStatus = 'confirmed'; x.codConfirm = { sends: [], answeredAt: Date.now(), by: 'prepaid' }; }); return; }
+  if (!s.confirm) return;
   T.orders.update(o.id, (x) => { x.codStatus = 'pending'; x.codConfirm = { sends: [] }; });
   sendConfirm(owner, o.id, base).catch((e) => console.error('COD confirmation not sent', e.message));
 }
@@ -110,7 +132,7 @@ export async function sendConfirm(owner0, orderId, base) {
   if (!o || o.status !== 'cod') return null;
   const s = codSettings(owner);
   const link = codLink(base, o.id), n = (o.codConfirm?.sends?.length || 0) + 1;
-  const amount = money(o.total, o.currency || 'INR'), what = whatOf(o), ckey = contactKey(o.email, o.phone);
+  const amount = money(codDue(o), o.currency || 'INR'), what = whatOf(o), ckey = contactKey(o.email, o.phone);
   let via = 'none';
   if (o.phone && waReady(owner, 'cod_confirm')) {
     const r = await waEvent(owner, 'cod_confirm', { to: o.phone, params: [firstName(o), what, amount], link, entityId: `${o.id}-${n}`, ckey });
@@ -206,10 +228,10 @@ function orderPage(o, k, note = '') {
   const biz = T.users.get(o.userId)?.settings?.businessName || '';
   const head = `<p class="muted">${esc(biz)}${biz ? ' · ' : ''}Order #${esc(o.id)}</p>`;
   const what = `<p>${esc(whatOf(o))}</p>`;
-  if (o.codStatus === 'confirmed' && o.status === 'cod') return page('Order confirmed', `${head}<h1>Your order is confirmed ✅</h1>${what}<p class="amt">${esc(money(o.total, o.currency || 'INR'))}</p><p class="muted">Please keep this amount ready — it’s Cash on Delivery. ${esc(note)}</p>`);
+  if (o.codStatus === 'confirmed' && o.status === 'cod') return page('Order confirmed', `${head}<h1>Your order is confirmed ✅</h1>${what}<p class="amt">${esc(money(codDue(o), o.currency || 'INR'))}</p><p class="muted">Please keep this amount ready — it’s Cash on Delivery. ${esc(note)}</p>`);
   if (o.status === 'cancelled') return page('Order cancelled', `${head}<h1>This order is cancelled</h1>${what}<p class="muted">${esc(note)}</p>`);
   if (o.status !== 'cod' || !['pending', 'unconfirmed'].includes(o.codStatus)) return page('Your order', `${head}<h1>Thank you</h1>${what}<p class="muted">Nothing more is needed from you for this order.</p>`);
-  return page('Confirm your order', `${head}<h1>Please confirm your Cash on Delivery order</h1>${what}<p class="amt">${esc(money(o.total, o.currency || 'INR'))}</p><p class="muted">to pay when it arrives${o.address?.city ? ` · delivering to ${esc(o.address.city)} ${esc(o.address.pincode)}` : ''}</p>
+  return page('Confirm your order', `${head}<h1>Please confirm your Cash on Delivery order</h1>${what}<p class="amt">${esc(money(codDue(o), o.currency || 'INR'))}</p><p class="muted">${o.prepaid ? `${esc(money(o.prepaid.amount, o.currency || 'INR'))} paid in advance · ` : ''}to pay when it arrives${o.address?.city ? ` · delivering to ${esc(o.address.city)} ${esc(o.address.pincode)}` : ''}</p>
 <div class="row"><form method="post" action="/cod/${esc(o.id)}/${esc(k)}/confirm"><button class="ok" type="submit">Confirm order</button></form><form method="post" action="/cod/${esc(o.id)}/${esc(k)}/cancel"><button class="no" type="submit">Cancel order</button></form></div>`);
 }
 
@@ -265,6 +287,17 @@ export function registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret 
     }
     if ('maxCod' in b) { const v = Number(b.maxCod || 0); if (!Number.isFinite(v) || v < 0) return res.status(400).json({ error: 'Maximum COD order value must be 0 or more' }); next.maxCod = Math.round(v); }
     if ('blockAfter' in b) { const v = Number(b.blockAfter || 0); if (!Number.isInteger(v) || v < 0 || v > 20) return res.status(400).json({ error: 'Block after: 0 (off) to 20 orders' }); next.blockAfter = v; }
+    if ('prepaid' in b) {
+      const p = b.prepaid || {}, mode = p.mode || 'off';
+      if (!['off', 'flat', 'percent'].includes(mode)) return res.status(400).json({ error: 'Advance: off, flat or percent' });
+      const value = Number(p.value || 0), min = Number(p.min || 0);
+      if (mode === 'flat' && !(Number.isFinite(value) && value >= 1 && value <= 100000)) return res.status(400).json({ error: 'Advance amount: ₹1 to ₹1,00,000' });
+      if (mode === 'percent' && !(Number.isFinite(value) && value > 0 && value < 100)) return res.status(400).json({ error: 'Advance percentage: more than 0 and less than 100' });
+      if (!(Number.isFinite(min) && min >= 0 && min <= 100000)) return res.status(400).json({ error: 'Minimum advance: ₹0 to ₹1,00,000' });
+      next.prepaid = mode === 'off' ? { ...PREPAID_OFF } : { mode, value: mode === 'flat' ? Math.round(value) : Math.round(value * 100) / 100, min: mode === 'percent' ? Math.round(min) : 0 };
+    }
+    if ('refusal' in b) { if (!['refund', 'keep'].includes(b.refusal)) return res.status(400).json({ error: 'If the buyer refuses: refund or keep' }); next.refusal = b.refusal; }
+    if ('skipConfirm' in b) next.skipConfirm = !!b.skipConfirm;
     if (next.pinMode === 'allow' && !next.pins.length) return res.status(400).json({ error: 'Add the PIN codes you deliver to (or choose “All India”)' });
     const u = T.users.update(req.user.id, (x) => { x.settings = { ...(x.settings || {}), cod: next }; });
     res.json(view(u));
@@ -298,6 +331,11 @@ export async function codSellerAction(req, o, appUrl) {
     if (!o.codStatus) T.orders.update(o.id, (x) => { x.codStatus = 'pending'; });
     const r = codAnswer(o.id, a === 'confirm' ? 'confirm' : 'cancel', 'seller');
     return r.ok ? [200, r.order] : [400, { error: `This order is already ${r.already}` }];
+  }
+  if (a === 'refund_advance') { // retry a COD advance refund that failed at the gateway
+    if (o.prepaid?.refund?.status !== 'failed') return [400, { error: 'There’s no failed advance refund on this order' }];
+    const out = await refundAdvance(o.id);
+    return out.prepaid.refund.status === 'done' ? [200, out] : [400, { error: out.prepaid.refund.error }];
   }
   if (a === 'rto') {
     if (o.paymentMethod !== 'cod') return [400, { error: 'Only Cash on Delivery orders are marked RTO here' }];

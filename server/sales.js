@@ -82,7 +82,8 @@ const nextNumber = (userId, prefix, fy) => nextInSeries(userId, prefix, fy);
 
 // lines: [{ index, name, kind, amount, sac?, rate? }] — amounts include GST; sac / rate given (credit notes) win,
 // otherwise the order item's product decides, otherwise the seller's defaults
-export function issueInvoice(owner, order, lines, { paymentId = null, gst = null, type = 'invoice', against = null, at = Date.now(), test = order.mode === 'test' } = {}) {
+// paidSplit (COD with an advance): { advance, onDelivery } — shown on the one invoice for the full value
+export function issueInvoice(owner, order, lines, { paymentId = null, gst = null, type = 'invoice', against = null, at = Date.now(), test = order.mode === 'test', paidSplit = null } = {}) {
   const cfg = invoicingOf(owner);
   if (!cfg.enabled || !lines.length) return null;
   const registered = !!cfg.gstin;
@@ -112,6 +113,7 @@ export function issueInvoice(owner, order, lines, { paymentId = null, gst = null
       billedTo: { name: gst?.company || order.name || '', person: order.name || '', email: order.email || '', phone: order.phone || '', gstin: gst?.gstin || '', state: buyerState, stateCode: STATES[buyerState] || '' },
       seller: { name: cfg.legalName || owner.settings?.businessName || owner.name, gstin: cfg.gstin, address: cfg.address, state: cfg.state, stateCode: STATES[cfg.state] || '', email: cfg.email || owner.email },
       placeOfSupply: pos, ...(exported ? { currency: iso, export: true, lut: !!(registered && cfg.lut), fx: order.fx || null } : {}),
+      ...(paidSplit ? { paidSplit, note: `Paid in advance ₹${paidSplit.advance.toLocaleString('en-IN')} · collected on delivery ₹${paidSplit.onDelivery.toLocaleString('en-IN')}` } : {}),
     });
   });
 }
@@ -134,22 +136,29 @@ export async function refundOrder(owner, order0, { itemIndexes, reason = '', by 
   const release = (list) => T.orders.update(order.id, (o) => { for (const i of list) if (o.items[i]) delete o.items[i].refundingAt; });
   try { return await refundClaimed(owner, order, idx, { reason, by, restock }); } finally { release(idx); }
 }
-async function refundClaimed(owner, order, idx, { reason, by, restock }) {
+// money back on one payment at its gateway → { id } | { error }. Card payments through Stripe (pi_…) are refunded
+// there, everything else through Razorpay. Also refunds a COD order's advance (fulfilment.js).
+export async function providerRefund(owner, order, pid, amount, reason = '') {
+  if (pid.startsWith('pi_')) {
+    const sc = stripeCreds(owner);
+    if (!sc) return { error: 'Stripe isn’t connected, so this payment can’t be refunded from here — refund it in your Stripe dashboard' };
+    try { return { id: (await stripeRefund(sc, pid, amount, order.currency || 'INR', reason)).id }; } catch (e) { return { error: `Stripe couldn’t refund this payment: ${e.message}` }; }
+  }
   const creds = rzpCreds(owner);
+  if (!creds) return { error: 'Razorpay isn’t connected, so this payment can’t be refunded from here — refund it in your Razorpay dashboard' };
+  try { return { id: (await rzpCall(creds, 'POST', `/payments/${pid}/refund`, { amount: Math.round(amount * 100), notes: { order: order.id, reason: String(reason).slice(0, 200) } })).id }; } catch (e) { return { error: `Razorpay couldn’t refund this payment: ${e.message}` }; }
+}
+async function refundClaimed(owner, order, idx, { reason, by, restock }) {
   const groups = new Map(); // payment id → item indexes
   for (const i of idx) { const pid = order.items[i].paymentId || ''; groups.set(pid, [...(groups.get(pid) || []), i]); }
   const done = [], errors = [];
   for (const [pid, list] of groups) {
     const amount = list.reduce((s, i) => s + Number(order.items[i].price || 0), 0);
     let refundId = null;
-    // card payments through Stripe (pi_…) are refunded there
-    if (pid.startsWith('pi_') && amount > 0) {
-      const sc = stripeCreds(owner);
-      if (!sc) { errors.push('Stripe isn’t connected, so this payment can’t be refunded from here — refund it in your Stripe dashboard'); continue; }
-      try { refundId = (await stripeRefund(sc, pid, amount, order.currency || 'INR', reason)).id; } catch (e) { errors.push(`Stripe couldn’t refund this payment: ${e.message}`); continue; }
-    } else if (pid && amount > 0) {
-      if (!creds) { errors.push('Razorpay isn’t connected, so this payment can’t be refunded from here — refund it in your Razorpay dashboard'); continue; }
-      try { refundId = (await rzpCall(creds, 'POST', `/payments/${pid}/refund`, { amount: Math.round(amount * 100), notes: { order: order.id, reason: String(reason).slice(0, 200) } })).id; } catch (e) { errors.push(`Razorpay couldn’t refund this payment: ${e.message}`); continue; }
+    if (pid && amount > 0) {
+      const r = await providerRefund(owner, order, pid, amount, reason);
+      if (r.error) { errors.push(r.error); continue; }
+      refundId = r.id;
     }
     done.push({ pid, list, amount, refundId });
   }
