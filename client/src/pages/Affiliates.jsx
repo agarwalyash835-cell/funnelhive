@@ -145,7 +145,7 @@ function Commissions({ affiliates }) {
               <td><code>{c.orderId.slice(-6).toUpperCase()}</code>{c.test && <span className="aff-pill test">test</span>}</td>
               <td>{c.via === 'coupon' ? 'Coupon' : 'Link'}</td>
               <td className="num">{inr(c.orderTotal)}</td>
-              <td className="num">{inr(c.amount)}{c.refunded > 0 && <small>−{inr(c.refunded)} refunded</small>}{c.clawback > 0 && <small className="bad">{inr(c.clawback)} refunded after payout</small>}</td>
+              <td className="num">{inr(c.amount)}{c.refunded > 0 && <small>−{inr(c.refunded)} refunded</small>}{c.clawback > 0 && <small className={c.clawedBack >= c.clawback ? '' : 'bad'}>{inr(c.clawback)} refunded after payout{c.clawedBack >= c.clawback ? ' — taken back from a later payout' : c.clawedBack > 0 ? ` — ${inr(c.clawedBack)} taken back so far` : ' — comes off the next payout'}</small>}</td>
               <td><span className={`aff-pill ${c.status}`} title={STATUS[c.status][1]}>{STATUS[c.status][0]}</span>{c.status === 'pending' && c.holdUntil && <small>until {fmtDate(c.holdUntil)}</small>}{c.reason && <small>{c.reason}</small>}</td>
             </tr>))}
           </tbody>
@@ -161,7 +161,7 @@ function Payouts({ d, onChange }) {
   useEffect(() => { api('/affiliates/payouts').then((r) => setList(r.payouts)).catch((e) => toast(e.message)); }, [rev]);
   const due = d.affiliates.filter((a) => a.payable > 0);
   const submit = async (force) => {
-    try { const p = await api(`/affiliates/${pay.a.id}/payouts`, 'POST', { reference: pay.reference, note: pay.note, ...(force ? { force: true } : {}) }); toast(`Marked ${inr(p.amount)} paid`); setPay(null); setRev((r) => r + 1); onChange(); } catch (e) {
+    try { const p = await api(`/affiliates/${pay.a.id}/payouts`, 'POST', { reference: pay.reference, note: pay.note, ...(force ? { force: true } : {}) }); toast(`Marked ${inr(p.amount)} paid${p.clawback ? ` (${inr(p.clawback)} taken back for sales refunded after an earlier payout)` : ''}`); setPay(null); setRev((r) => r + 1); onChange(); } catch (e) {
       if (e.data?.belowMinimum && await confirmDialog({ title: 'Below your minimum payout', text: `${e.message}. Pay anyway?`, confirm: 'Pay anyway' })) return submit(true);
       toast(e.message);
     }
@@ -181,7 +181,7 @@ function Payouts({ d, onChange }) {
     <Panel title="Payout history" pad={false} actions={list?.length ? <button className="btn ghost sm" onClick={csv}><Icon name="download" size={14} /> CSV</button> : null}>
       {!list ? null : !list.length ? <p className="muted aff-pad">No payouts yet.</p> :
         <div className="aff-table-wrap"><table className="aff-table"><thead><tr><th>Date</th><th>Affiliate</th><th className="num">Amount</th><th>Paid to</th><th>Reference</th></tr></thead>
-          <tbody>{list.map((p) => <tr key={p.id}><td>{fmtDate(p.at)}</td><td>{p.affiliate}</td><td className="num">{inr(p.amount)}<small>{p.count} sale{p.count > 1 ? 's' : ''}</small></td><td>{p.to || '—'}</td><td><code>{p.reference}</code>{p.note && <small>{p.note}</small>}</td></tr>)}</tbody></table></div>}
+          <tbody>{list.map((p) => <tr key={p.id}><td>{fmtDate(p.at)}</td><td>{p.affiliate}</td><td className="num">{inr(p.amount)}<small>{p.count} sale{p.count > 1 ? 's' : ''}{p.clawback > 0 ? ` · ${inr(p.gross)} less ${inr(p.clawback)} taken back` : ''}</small></td><td>{p.to || '—'}</td><td><code>{p.reference}</code>{p.note && <small>{p.note}</small>}</td></tr>)}</tbody></table></div>}
     </Panel>
     {pay && <Modal title={`Pay ${pay.a.name} ${inr(pay.a.payable)}`} onClose={() => setPay(null)} width={460}>
       <form className="aff-form" onSubmit={(e) => { e.preventDefault(); submit(false); }}>

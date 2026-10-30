@@ -157,6 +157,31 @@ test('COD: earns only once paid; cancelled COD is reversed; payouts mark approve
   assert.match(pl[0].to, /@okaxis$/);
 });
 
+// a sale refunded after its commission was paid out: the next payout takes it back, once
+test('a refund after a payout comes off the next payout (once)', async () => {
+  const paidOut = (await api('/affiliates/commissions?status=paid', 'GET', null, A)).data.commissions.find((c) => c.affiliateId === aff1.id && c.amount === 120);
+  assert.ok(paidOut, 'the COD commission paid in the test before');
+  const ref = await api(`/orders/${paidOut.orderId}/refund`, 'POST', {}, A);
+  assert.equal(ref.status, 200, JSON.stringify(ref.data));
+  assert.equal((await commOf(paidOut.orderId)).clawback, 120, 'shown as a clawback on the paid commission');
+  const t = (await click(fA, aff1.code)).token;
+  const next = await buy(fA, stepA, { aff: t }, 'cod');
+  assert.equal((await api(`/orders/${next}/cod`, 'POST', { action: 'paid' }, A)).status, 200);
+  await wait(2200); await commOf(next); await wait(2200);
+  assert.equal((await commOf(next)).status, 'approved');
+  const p = await api(`/affiliates/${aff1.id}/payouts`, 'POST', { reference: 'UPI-CLAW-1', force: true }, A);
+  assert.equal(p.status, 200, JSON.stringify(p.data));
+  assert.deepEqual([p.data.gross, p.data.clawback, p.data.amount], [120, 120, 0], '₹120 earned less ₹120 refunded after the last payout');
+  assert.equal((await commOf(paidOut.orderId)).clawedBack, 120);
+  // recovered once: the following payout owes nothing back
+  const t2 = (await click(fA, aff1.code)).token;
+  const third = await buy(fA, stepA, { aff: t2 }, 'cod');
+  await api(`/orders/${third}/cod`, 'POST', { action: 'paid' }, A);
+  await wait(2200); await commOf(third); await wait(2200);
+  const p2 = await api(`/affiliates/${aff1.id}/payouts`, 'POST', { reference: 'UPI-CLAW-2', force: true }, A);
+  assert.deepEqual([p2.data.gross, p2.data.clawback, p2.data.amount], [120, 0, 120]);
+});
+
 test('cross-seller isolation', async () => {
   const t = (await click(fA, aff1.code)).token;
   assert.equal((await click(fB, aff1.code)).ok, false, 'seller A’s code does nothing on seller B’s funnel');

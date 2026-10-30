@@ -251,8 +251,10 @@ const statsByAffiliate = (userId) => {
 };
 // approved, real (not test-mode) and not yet paid: what the seller owes
 const payable = (affiliateId) => T.affcomms.all({ affiliateId, status: 'approved' }).filter((c) => !c.test);
+// commissions refunded after they were paid out: what's still to recover from the affiliate's next payout
+const owedBack = (affiliateId) => T.affcomms.all({ affiliateId, status: 'paid' }).filter((c) => !c.test && r2((c.clawback || 0) - (c.clawedBack || 0)) > 0);
 const affView = (a, stats) => ({ id: a.id, name: a.name, email: a.email, phone: a.phone, code: a.code, status: a.status, coupon: a.coupon || null, invited: !!a.invited, payout: a.payoutMask || null, at: a.at, approvedAt: a.approvedAt || null, stats: stats || { sales: 0, awaiting: 0, pending: 0, approved: 0, paid: 0, reversed: 0, clicks: 0 } });
-const commView = (c, names = {}) => ({ id: c.id, orderId: c.orderId, affiliateId: c.affiliateId, affiliate: names[c.affiliateId] || c.code, code: c.code, via: c.via, status: c.status, amount: c.amount, gross: c.gross || 0, refunded: c.refunded || 0, orderTotal: c.orderTotal || 0, at: c.at, paidAt: c.paidAt || null, holdUntil: c.holdUntil || null, approvedAt: c.approvedAt || null, payoutId: c.payoutId || null, paidOutAt: c.paidOutAt || null, reason: c.reason || '', clawback: c.clawback || 0, test: !!c.test });
+const commView = (c, names = {}) => ({ id: c.id, orderId: c.orderId, affiliateId: c.affiliateId, affiliate: names[c.affiliateId] || c.code, code: c.code, via: c.via, status: c.status, amount: c.amount, gross: c.gross || 0, refunded: c.refunded || 0, orderTotal: c.orderTotal || 0, at: c.at, paidAt: c.paidAt || null, holdUntil: c.holdUntil || null, approvedAt: c.approvedAt || null, payoutId: c.payoutId || null, paidOutAt: c.paidOutAt || null, reason: c.reason || '', clawback: c.clawback || 0, clawedBack: c.clawedBack || 0, test: !!c.test });
 const programView = (p) => { const { id, userId, ...x } = p; return x; };
 const linksFor = (prog, code, base) => T.funnels.all({ userId: prog.userId }).filter((f) => f.published && (!prog.funnelIds.length || prog.funnelIds.includes(f.id))).map((f) => ({ funnelId: f.id, funnel: f.name, url: `${funnelUrl(f, base)}?ref=${code}` }));
 const rateText = (r) => (r.type === 'flat' ? `₹${r.value.toLocaleString('en-IN')} per sale` : `${r.value}% of each sale`);
@@ -370,16 +372,21 @@ export function registerAffiliates(app, { auth, wrap, rateLimit, isTest, secret,
     affTick(Date.now(), { affiliateId: a.id });
     const out = tx(() => {
       const due = payable(a.id);
-      const amount = r2(due.reduce((s, c) => s + c.amount, 0));
-      if (!due.length || amount <= 0) return { status: 400, error: 'Nothing approved to pay yet' };
-      if (amount < prog.minPayout && !b.force) return { status: 400, error: `₹${amount.toLocaleString('en-IN')} is below the minimum payout of ₹${prog.minPayout.toLocaleString('en-IN')}`, belowMinimum: true, amount };
+      const gross = r2(due.reduce((s, c) => s + c.amount, 0));
+      if (!due.length || gross <= 0) return { status: 400, error: 'Nothing approved to pay yet' };
+      // refunds after an earlier payout come off this one (as far as it goes; the rest waits for the next)
+      const back = owedBack(a.id);
+      let left = Math.min(gross, r2(back.reduce((s, c) => s + (c.clawback - (c.clawedBack || 0)), 0)));
+      const clawback = left, amount = r2(gross - clawback);
+      if (amount < prog.minPayout && !b.force) return { status: 400, error: `₹${amount.toLocaleString('en-IN')} is below the minimum payout of ₹${prog.minPayout.toLocaleString('en-IN')}${clawback ? ` (₹${gross.toLocaleString('en-IN')} less ₹${clawback.toLocaleString('en-IN')} refunded after an earlier payout)` : ''}`, belowMinimum: true, amount, gross, clawback };
       const m = a.payoutMask;
-      const p = T.affpayouts.insert({ id: uid(), userId: a.userId, affiliateId: a.id, amount, count: due.length, commissionIds: due.map((c) => c.id), reference, note: clip(b.note, 300), method: m?.method || '', to: m ? (m.upi || `${m.account} ${m.ifsc}`) : '', at: Date.now(), by: req.user.id });
+      const p = T.affpayouts.insert({ id: uid(), userId: a.userId, affiliateId: a.id, amount, gross, clawback, clawedFrom: back.map((c) => c.id), count: due.length, commissionIds: due.map((c) => c.id), reference, note: clip(b.note, 300), method: m?.method || '', to: m ? (m.upi || `${m.account} ${m.ifsc}`) : '', at: Date.now(), by: req.user.id });
       for (const c of due) T.affcomms.put({ ...c, status: 'paid', payoutId: p.id, paidOutAt: p.at });
+      for (const c of back) { if (left <= 0) break; const take = Math.min(left, r2(c.clawback - (c.clawedBack || 0))); T.affcomms.put({ ...c, clawedBack: r2((c.clawedBack || 0) + take), clawedIn: [...(c.clawedIn || []), p.id] }); left = r2(left - take); }
       return p;
     });
     if (out.error) { const { status, ...rest } = out; return res.status(status).json(rest); }
-    sendEmail(req.user, { to: a.email, subject: `Commission paid: ₹${out.amount.toLocaleString('en-IN')}`, text: `Hi ${a.name.split(/\s+/)[0]},\n\nWe’ve paid you ₹${out.amount.toLocaleString('en-IN')} for ${out.count} sale${out.count > 1 ? 's' : ''}.\nReference: ${out.reference}\n\nDetails: ${base(req)}/affiliate/${prog.slug}\n\n— ${bizName(req.user)}` }).catch(() => {});
+    sendEmail(req.user, { to: a.email, subject: `Commission paid: ₹${out.amount.toLocaleString('en-IN')}`, text: `Hi ${a.name.split(/\s+/)[0]},\n\nWe’ve paid you ₹${out.amount.toLocaleString('en-IN')} for ${out.count} sale${out.count > 1 ? 's' : ''}.${out.clawback ? ` (₹${out.gross.toLocaleString('en-IN')} earned, less ₹${out.clawback.toLocaleString('en-IN')} for sales refunded after an earlier payout)` : ''}\nReference: ${out.reference}\n\nDetails: ${base(req)}/affiliate/${prog.slug}\n\n— ${bizName(req.user)}` }).catch(() => {});
     res.json(out);
   });
 
