@@ -5,7 +5,7 @@
 .sv-root h1, .sv-root h2, .sv-root h3, .sv-root h4 { font-family: var(--st-font-h); line-height: 1.15; }
 .sv-root a { color: inherit; }
 .sv-root img { display: block; max-width: 100%; }
-.sv-root button { font: inherit; color: inherit; }
+:where(.sv-root) button { font: inherit; color: inherit; }
 .sv-wrap { width: 100%; max-width: 1240px; margin: 0 auto; padding: 16px; box-sizing: border-box; }
 .sv-main { flex: 1; padding-bottom: 96px; }
 @media (min-width: 900px) { .sv-main { padding-bottom: 32px; } }
