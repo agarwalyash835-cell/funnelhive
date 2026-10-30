@@ -22,6 +22,8 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
+// a cart line is { id, qty, size? } — the same product in two sizes is two lines, keyed "<id>|<size>"
+export const lineKey = (x) => (x.size ? `${x.id}|${x.size}` : x.id);
 function useCart(handle) {
   const key = `ff_cart_${handle}`;
   const [cart, setCart] = useState(() => store.get(key));
@@ -29,9 +31,9 @@ function useCart(handle) {
   return {
     cart,
     count: cart.reduce((s, x) => s + x.qty, 0),
-    add: (id, qty = 1) => setCart((c) => (c.some((x) => x.id === id) ? c.map((x) => (x.id === id ? { ...x, qty: Math.min(999, x.qty + qty) } : x)) : [...c, { id, qty }])),
-    setQty: (id, qty) => setCart((c) => (qty < 1 ? c.filter((x) => x.id !== id) : c.map((x) => (x.id === id ? { ...x, qty: Math.min(999, qty) } : x)))),
-    remove: (id) => setCart((c) => c.filter((x) => x.id !== id)),
+    add: (id, qty = 1, size) => setCart((c) => { const k = lineKey({ id, size }); return c.some((x) => lineKey(x) === k) ? c.map((x) => (lineKey(x) === k ? { ...x, qty: Math.min(999, x.qty + qty) } : x)) : [...c, { id, qty, ...(size ? { size } : {}) }]; }),
+    setQty: (k, qty) => setCart((c) => (qty < 1 ? c.filter((x) => lineKey(x) !== k) : c.map((x) => (lineKey(x) === k ? { ...x, qty: Math.min(999, qty) } : x)))),
+    remove: (k) => setCart((c) => c.filter((x) => lineKey(x) !== k)),
     clear: () => setCart([]),
   };
 }
@@ -129,7 +131,7 @@ export default function Store() {
         <Footer />
         {!onCart && !m && <CartBar />}
         <WhatsAppButton product={m ? byId[m[1]]?.title : ''} />
-        {toastMsg && <div className="sv-toast" role="status">{toastMsg} · <Link to={link('/cart')}>{t('viewCart')}</Link></div>}
+        {toastMsg && <div className="sv-toast" role="status">{toastMsg}{toastMsg !== t('pickSize') && <> · <Link to={link('/cart')}>{t('viewCart')}</Link></>}</div>}
       </div>
     </StoreCtx.Provider>
   );
@@ -208,13 +210,13 @@ function Cart({ base, data, cart, home }) {
     <div className="st-cart">
       <section>
         <h2>Your cart</h2>
-        {items.map((x) => { const l = byId[x.id]; return (
-          <div className="st-line" key={x.id}>
+        {items.map((x) => { const l = byId[x.id], k = lineKey(x); return (
+          <div className="st-line" key={k}>
             {l.images[0] ? <img src={l.images[0]} alt="" /> : <span className="st-ph" />}
-            <div className="st-line-info"><b>{l.title}</b><small>{rs(l.price)}{l.kind === 'physical' && l.stock <= 5 ? ` · only ${l.stock} left` : ''}</small>
-              {l.kind === 'physical' ? <div className="st-qty sm"><button onClick={() => cart.setQty(x.id, x.qty - 1)} aria-label="Less">−</button><span>{x.qty}</span><button onClick={() => cart.setQty(x.id, Math.min(l.stock, x.qty + 1))} aria-label="More">+</button></div> : null}
+            <div className="st-line-info"><b>{l.title}</b><small>{x.size ? `Size ${x.size} · ` : ''}{rs(l.price)}{l.kind === 'physical' && l.stock <= 5 ? ` · only ${l.stock} left` : ''}</small>
+              {l.kind === 'physical' ? <div className="st-qty sm"><button onClick={() => cart.setQty(k, x.qty - 1)} aria-label="Less">−</button><span>{x.qty}</span><button onClick={() => cart.setQty(k, Math.min(l.stock, x.qty + 1))} aria-label="More">+</button></div> : null}
             </div>
-            <div className="st-line-end"><b>{rs(l.price * (l.kind === 'digital' ? 1 : x.qty))}</b><button className="st-link" onClick={() => cart.remove(x.id)}>Remove</button></div>
+            <div className="st-line-end"><b>{rs(l.price * (l.kind === 'digital' ? 1 : x.qty))}</b><button className="st-link" onClick={() => cart.remove(k)}>Remove</button></div>
           </div>
         ); })}
         <div className="st-coupon"><input placeholder="Coupon code" value={f.coupon} onChange={(e) => set({ coupon: e.target.value })} /><button type="button" className="st-btn ghost" onClick={() => { setCouponErr(''); setCode(f.coupon.trim()); }}>Apply</button></div>

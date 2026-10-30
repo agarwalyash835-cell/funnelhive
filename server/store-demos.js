@@ -683,7 +683,9 @@ export function demoQuote(handle, body = {}) {
     const l = all.get(String(x?.id || '')), qty = Math.min(999, Math.floor(Number(x?.qty)));
     if (!l) return { status: 400, error: 'Something in your cart is no longer available — please remove it and try again', code: 'unavailable' };
     if (!(qty >= 1)) return { status: 400, error: 'Quantities must be 1 or more' };
-    lines.push({ id: l.id, title: l.title, qty, unitPrice: l.price, amount: l.price * qty });
+    const size = l.sizes ? l.sizes.find((z) => z === x?.size) : '';
+    if (l.sizes && !size) return { status: 400, error: `Choose a size for ${l.title}`, code: 'size', id: l.id };
+    lines.push({ id: l.id, title: size ? `${l.title} (Size ${size})` : l.title, ...(size ? { size } : {}), qty, unitPrice: l.price, amount: l.price * qty });
   }
   if (!lines.length) return { status: 400, error: 'Your cart is empty' };
   if (body.coupon) return { status: 400, error: 'Coupons work in your own store — this is a demo — remove it to continue', coupon: false, code: 'coupon' };

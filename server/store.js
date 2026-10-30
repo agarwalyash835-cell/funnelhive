@@ -153,27 +153,35 @@ const publicListing = (l, r) => ({
 });
 
 // ---------- pricing the cart (server side, from the catalog) ----------
-// body: { cart: [{ id, qty }], coupon, email, method: 'cod' | undefined }
+// body: { cart: [{ id, qty, size? }], coupon, email, method: 'cod' | undefined } — a product with sizes needs one picked
 // → { status, error, code } or a charge { items, total, discount, usedCoupon, couponObj, needsAddress, codAllowed, lines, subtotal, shipping, codFee }
 export function priceCart(store, owner, body, { couponFor, discountFor }) {
   const raw = Array.isArray(body.cart) ? body.cart : [];
   if (!raw.length) return { status: 400, error: 'Your cart is empty' };
   if (raw.length > MAX_LINES) return { status: 400, error: `Up to ${MAX_LINES} different products in one order` };
-  const want = new Map();
+  const want = new Map(); // "<id>|<size>" → { id, size, n }
   for (const x of raw) {
-    const id = clip(x?.id, 60), n = Math.floor(Number(x?.qty));
+    const id = clip(x?.id, 60), n = Math.floor(Number(x?.qty)), size = clip(x?.size, 12);
     if (!id) continue;
     if (!Number.isFinite(n) || n < 1) return { status: 400, error: 'Quantities must be 1 or more' };
-    want.set(id, Math.min(MAX_QTY, (want.get(id) || 0) + n));
+    const k = `${id}|${size}`;
+    want.set(k, { id, size, n: Math.min(MAX_QTY, (want.get(k)?.n || 0) + n) });
   }
-  const lines = [];
-  for (const [id, n] of want) {
+  const lines = [], perListing = new Map();
+  for (const { id, size: picked, n } of want.values()) {
     const l = T.slistings.get(id);
     const r = l && l.userId === store.userId && l.visible !== false ? resolve(l, owner) : null;
     if (!r) return { status: 400, error: 'Something in your cart is no longer available — please remove it and try again', code: 'unavailable', id };
+    // a size must be one the seller lists; a size on a product without sizes is ignored
+    const sizes = l.sizes || [];
+    const size = sizes.length ? sizes.find((z) => z === picked) : '';
+    if (sizes.length && !size) return { status: 400, error: picked ? `Size ${picked} of ${r.title} isn’t available — please pick another` : `Choose a size for ${r.title}`, code: 'size', id };
     const qty = r.digital ? 1 : n; // a digital product is bought once
-    if (r.item && qty > r.stock) return { status: 409, error: r.stock < 1 ? `${r.title} is sold out — please remove it from your cart` : `Only ${Math.floor(r.stock)} of ${r.title} left — please lower the quantity`, code: 'stock', id, left: Math.max(0, Math.floor(r.stock)) };
-    lines.push({ id, title: r.title, qty, unitPrice: r.price, amount: r2(r.price * qty), r });
+    // stock is per product, so two sizes of it count together
+    const all = (perListing.get(id) || 0) + qty;
+    perListing.set(id, all);
+    if (r.item && all > r.stock) return { status: 409, error: r.stock < 1 ? `${r.title} is sold out — please remove it from your cart` : `Only ${Math.floor(r.stock)} of ${r.title} left — please lower the quantity`, code: 'stock', id, left: Math.max(0, Math.floor(r.stock)) };
+    lines.push({ id, title: size ? `${r.title} (Size ${size})` : r.title, ...(size ? { size } : {}), qty, unitPrice: r.price, amount: r2(r.price * qty), r });
   }
   const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
   const f = storeFunnel(store);
@@ -191,7 +199,7 @@ export function priceCart(store, owner, body, { couponFor, discountFor }) {
     const it = l.r;
     const gst = it.item && GST_RATES.includes(Number(it.item.gst_percent)) && it.item.gst_percent !== '' && it.item.gst_percent != null ? Number(it.item.gst_percent) : null;
     return {
-      name: l.qty > 1 ? `${l.title} × ${l.qty}` : l.title, price: r2(l.amount - share), kind: 'store', qty: l.qty, unitPrice: l.unitPrice, listingId: l.id,
+      name: l.qty > 1 ? `${l.title} × ${l.qty}` : l.title, price: r2(l.amount - share), kind: 'store', qty: l.qty, unitPrice: l.unitPrice, listingId: l.id, ...(l.size ? { size: l.size } : {}),
       ...(it.product ? { productId: it.product.id } : {}),
       ...(it.item ? { itemId: it.item.id, ...(it.item.hsn ? { hsn: String(it.item.hsn) } : {}), ...(gst != null ? { gstRate: gst } : {}) } : {}),
     };

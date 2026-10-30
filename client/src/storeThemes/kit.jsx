@@ -59,10 +59,16 @@ export function Price({ l, big }) {
   return <div className={`sv-price${big ? ' big' : ''}`}><b>{rupees(l.price)}</b>{l.mrp ? <s>{rupees(l.mrp)}</s> : null}{off > 0 && <em>{t('off', { n: off })}</em>}</div>;
 }
 export const Stars = ({ r, n }) => <span className="sv-stars" aria-label={`${r} / 5`}><i>★</i>{Number(r).toFixed(1)}{n ? <small>({Number(n).toLocaleString('en-IN')})</small> : null}</span>;
-export function AddButton({ l, qty = 1, className = '' }) {
-  const { cart, t, cartWord, toast } = useStore();
+// a product with sizes needs one picked: on the product page `needSize` asks for it, elsewhere it opens the product
+export function AddButton({ l, qty = 1, className = '', size, needSize }) {
+  const { cart, t, cartWord, toast, navigate, link } = useStore();
   if (l.soldOut) return <button type="button" className={`sv-btn ${className}`} disabled>{t('soldOut')}</button>;
-  return <button type="button" className={`sv-btn ${className}`} onClick={() => { cart.add(l.id, qty); toast(t('added', { c: t(cartWord) })); }}>{t(cartWord === 'bag' ? 'addToBag' : 'addToCart')}</button>;
+  const add = () => {
+    if (l.sizes?.length && !size) { if (needSize) needSize(); else { navigate(link(`/p/${l.id}`)); toast(t('pickSize')); } return; }
+    cart.add(l.id, qty, size);
+    toast(t('added', { c: t(cartWord) }));
+  };
+  return <button type="button" className={`sv-btn ${className}`} onClick={add}>{t(cartWord === 'bag' ? 'addToBag' : 'addToCart')}</button>;
 }
 // grocery's quick add: ADD → − n +
 export function Stepper({ l }) {
@@ -291,7 +297,7 @@ export function Lookbook() {
 }
 export function Bundles() {
   const { listings, cats, t, cart, theme, link, toast, cartWord } = useStore();
-  const b = bundleOf(listings, cats);
+  const b = bundleOf(listings.filter((l) => !l.sizes?.length), cats); // one tap adds all: no size to pick
   if (!b.length) return null;
   const total = b.reduce((x, l) => x + l.price, 0), mrp = b.reduce((x, l) => x + (l.mrp || l.price), 0);
   return (
@@ -398,7 +404,7 @@ export function Assist({ product }) {
 // shop the room: one piece from each of the first four categories, arranged as a collage with numbered pins
 export function Room() {
   const { listings, cats, t, cart, link, toast, cartWord } = useStore();
-  const b = bundleOf(listings.filter((l) => l.images[0]), cats, 4);
+  const b = bundleOf(listings.filter((l) => l.images[0] && !l.sizes?.length), cats, 4);
   if (b.length < 3) return null;
   const total = b.reduce((x, l) => x + l.price, 0);
   return (
@@ -544,6 +550,8 @@ export function ProductPage({ id }) {
   const [d, setD] = useState(null);
   const [img, setImg] = useState(0);
   const [qty, setQty] = useState(1);
+  const [size, setSize] = useState('');
+  const [askSize, setAskSize] = useState(false);
   useEffect(() => { setD(null); setImg(0); setQty(1); getJson(`${base}/p/${id}${qs}`).then(setD); window.scrollTo(0, 0); }, [base, id, qs]);
   const l = byId[id] ? { ...d?.listing, ...byId[id], ...(d?.listing ? { stock: d.listing.stock, soldOut: d.listing.soldOut } : {}) } : d?.listing;
   useEffect(() => { if (l) setMeta(`${l.title} · ${s.name}`, l.description || s.tagline); }, [l?.id, l?.title]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -552,7 +560,7 @@ export function ProductPage({ id }) {
   const related = listings.filter((x) => x.id !== l.id && x.category === l.category).slice(0, 8);
   const pics = l.images.length ? l.images : [''];
   const portrait = theme.id === 'fashion' || !!theme.portrait;
-  const inCart = cart.cart.find((x) => x.id === l.id);
+  const inCart = cart.cart.filter((x) => x.id === l.id).reduce((n, x) => n + x.qty, 0);
   return (
     <div className={`sv-prod prod-${v}`}>
       <nav className="sv-crumbs" aria-label="Breadcrumb"><Link to={link('')}>{t('home')}</Link>{l.category && <><span aria-hidden="true">/</span><button type="button" onClick={() => goCat(l.category)}>{l.category}</button></>}</nav>
@@ -574,13 +582,13 @@ export function ProductPage({ id }) {
           <small className="sv-tax">{t('inclTax')}{l.kind === 'digital' ? ` · ${t('instant')}` : ''}{l.unit ? ` · ${l.unit}` : ''}</small>
           {v === 'tech' && <SpecBadges l={l} />}
           {v === 'soft' && hl.length > 0 && <div className="sv-block"><h3>{t('benefits')}</h3><div className="sv-chips lg">{hl.map((h) => <span key={h}>{h}</span>)}</div></div>}
-          {l.sizes?.length > 0 && <div className="sv-block"><h3>{t('sizes')}</h3><div className="sv-sizes">{l.sizes.map((z) => <span key={z}>{z}</span>)}</div><small className="sv-tax">{t('sizeNote')}</small></div>}
+          {l.sizes?.length > 0 && <div className={`sv-block sv-pick${askSize && !size ? ' need' : ''}`}><h3>{size ? t('sizeOf', { s: size }) : t('pickSize')}</h3><div className="sv-sizes" role="radiogroup" aria-label={t('sizes')}>{l.sizes.map((z) => <button type="button" key={z} role="radio" aria-checked={size === z} className={size === z ? 'on' : ''} onClick={() => { setSize(z); setAskSize(false); }}>{z}</button>)}</div><small className="sv-tax">{t('sizeNote')}</small></div>}
           {l.kind === 'physical' && !l.soldOut && l.stock <= 5 && <p className="sv-low">{t('onlyLeft', { n: l.stock })}</p>}
           <div className="sv-buy">
             {l.kind !== 'digital' && !l.soldOut && <div className="sv-qty"><button type="button" onClick={() => setQty(Math.max(1, qty - 1))} aria-label="−">−</button><span>{qty}</span><button type="button" onClick={() => setQty(Math.min(max, qty + 1))} aria-label="+">+</button></div>}
-            <AddButton l={l} qty={qty} className="big" />
+            <AddButton l={l} qty={qty} className="big" size={size || undefined} needSize={() => setAskSize(true)} />
           </div>
-          {inCart && <Link className="sv-incart" to={link('/cart')}><Icon n="check" size={16} />{t('inCart')} · {inCart.qty} — {t('viewCart')}</Link>}
+          {inCart > 0 && <Link className="sv-incart" to={link('/cart')}><Icon n="check" size={16} />{t('inCart')} · {inCart} — {t('viewCart')}</Link>}
           {theme.assist?.product && <Assist product={l.title} />}
           {s.pincode && l.kind !== 'digital' && <PincodeCheck />}
           <PerkRow />

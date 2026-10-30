@@ -252,6 +252,14 @@
 .sv-sizes { display: flex; flex-wrap: wrap; gap: 6px; }
 .sv-sizes span { min-width: 40px; text-align: center; padding: 8px 10px; border: 1px solid var(--st-line); font-size: 13px; box-sizing: border-box; border-radius: var(--st-radius-sm); }
 .sv-sizes.sm span { min-width: 0; padding: 1px 5px; font-size: 10.5px; color: var(--st-soft); }
+.sv-sizes button { min-width: 44px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--st-line); border-radius: var(--st-radius-sm); background: var(--st-surface); font-size: 14px; font-weight: 600; cursor: pointer; transition: border-color .15s, background .15s; }
+.sv-sizes button:hover { border-color: var(--st-ink); }
+.sv-sizes button.on { background: var(--st-ink); border-color: var(--st-ink); color: var(--st-bg); }
+.sv-pick.need h3 { color: #d93025; }
+.sv-pick.need .sv-sizes { animation: sv-nudge .35s; }
+.sv-pick.need .sv-sizes button { border-color: #d93025; }
+@keyframes sv-nudge { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+@media (prefers-reduced-motion: reduce) { .sv-pick.need .sv-sizes { animation: none; } }
 /* compact (grocery) */
 .card-compact { border: 1px solid var(--st-line); }
 .card-compact .sv-card-img { margin: 6px 6px 0; border-radius: calc(var(--st-radius) - 4px); }
@@ -412,7 +420,7 @@
 .th-fashion .sv-foot-base { border-color: color-mix(in srgb, var(--st-bg) 18%, transparent); }
 .th-fashion .sv-foot .sv-lang button[aria-pressed="true"] { background: var(--st-bg); color: var(--st-ink); }
 .th-fashion .sv-foot .sv-paybadges span, .th-fashion .sv-foot .sv-lang { border-color: color-mix(in srgb, var(--st-bg) 25%, transparent); }
-.th-fashion .sv-sizes span { border-radius: 0; }
+.th-fashion .sv-sizes span, .th-fashion .sv-sizes button { border-radius: 0; }
 .th-fashion .sv-badge.off { background: var(--st-sale); }
 .th-fashion .sv-price em { color: var(--st-accent2); font-weight: 500; }
 .th-fashion .sv-cbar { border-radius: 0; text-transform: uppercase; letter-spacing: .1em; font-size: 13px; background: var(--st-ink); color: var(--st-bg); }

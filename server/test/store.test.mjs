@@ -118,6 +118,20 @@ test('a coupon on a cart: minimum order on the subtotal, discount spread over th
   assert.deepEqual([ok.subtotal, ok.discount, ok.shipping, ok.total, ok.coupon], [680, 68, 50, 662, 'CART10']);
 });
 
+test('sizes: one must be picked from the listed ones; two sizes are two lines sharing the stock', async () => {
+  assert.equal((await api(`/store/listings/${L.mug.id}`, 'PUT', { sizes: ['S', 'M', 'L'] }, A)).status, 200);
+  const none = await pub('/quote', { cart: [{ id: L.mug.id, qty: 1 }] });
+  assert.deepEqual([none.status, none.data.code], [400, 'size']);
+  assert.match(none.data.error, /Choose a size for Clay Mug/);
+  assert.match((await pub('/quote', { cart: [{ id: L.mug.id, qty: 1, size: 'XXL' }] })).data.error, /Size XXL of Clay Mug isn’t available/);
+  const two = await pub('/quote', { cart: [{ id: L.mug.id, qty: 1, size: 'M' }, { id: L.mug.id, qty: 1, size: 'L' }, { id: L.mug.id, qty: 1, size: 'M' }, { id: L.tea.id, qty: 1, size: 'M' }] });
+  assert.equal(two.status, 200, JSON.stringify(two.data));
+  assert.deepEqual(two.data.lines.map((l) => [l.title, l.qty, l.size || '']), [['Clay Mug (Size M)', 2, 'M'], ['Clay Mug (Size L)', 1, 'L'], ['Assam Tea 250g', 1, '']], 'a size on a product without sizes is ignored');
+  const over = await pub('/quote', { cart: [{ id: L.mug.id, qty: 2, size: 'M' }, { id: L.mug.id, qty: 2, size: 'L' }] });
+  assert.deepEqual([over.status, over.data.code], [409, 'stock'], 'both sizes count against the same stock');
+  assert.equal((await api(`/store/listings/${L.mug.id}`, 'PUT', { sizes: [] }, A)).status, 200);
+});
+
 let interOrder;
 test('paying: one order, all items, GST line per item (IGST out of state), stock taken, digital delivered', async () => {
   const r = await payCart({ cart: [{ id: L.tea.id, qty: 2, price: 1 }, { id: L.ebook.id, qty: 1 }], address: KA });

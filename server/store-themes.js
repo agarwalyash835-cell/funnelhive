@@ -76,7 +76,7 @@ export function cleanPolicyPages(b = {}, cur = {}) {
   return out;
 }
 
-// extra listing fields themes show: spec / benefit highlights, sizes (shown, not chosen at checkout), a badge, a byline, diet,
+// extra listing fields themes show: spec / benefit highlights, sizes (the buyer picks one), a badge, a byline, diet,
 // tags (age group, craft, region… — the themes' quick filters) and the maker ("Khatri family, Ajrakhpur")
 export function cleanListingExtras(b, out) {
   if ('highlights' in b) out.highlights = list(b.highlights, 6, 40);
