@@ -30,6 +30,16 @@ const LOOK = {
   grocery: { aspect: '1:1', w: 800, style: 'Bright, clean e-commerce product photo of an everyday Indian grocery item, centred on a plain very light background, soft even light, appetising and fresh' },
   beauty: { aspect: '1:1', w: 800, style: 'Minimal skincare product photography, soft pastel backdrop, gentle shadows, a few fresh botanical props (leaves, flowers, turmeric, saffron) arranged neatly' },
   electronics: { aspect: '1:1', w: 800, style: 'Sleek studio product render of an unbranded consumer gadget on a dark navy gradient background with subtle rim light and reflections' },
+  jewellery: { aspect: '1:1', w: 800, style: 'Luxury Indian jewellery photography on a deep emerald velvet surface, soft spotlight, gold glints, shallow depth of field' },
+  home: { aspect: '1:1', w: 800, style: 'Warm interior photo of the piece in a calm Indian home with lime-plaster walls, terracotta and natural wood tones, soft afternoon light' },
+  bakery: { aspect: '1:1', w: 800, style: 'Appetising Indian bakery and mithai food photography on a cream plate or brass thali, warm light, a few festive props like marigold petals' },
+  pharmacy: { aspect: '1:1', w: 800, style: 'Clean, clinical pharmacy product photo of a generic unbranded item on a white and pale teal background, even soft light' },
+  books: { aspect: '3:4', w: 720, style: 'A single book or stationery item photographed flat on a warm wooden desk with soft window light; book covers are plain, illustrated designs' },
+  toys: { aspect: '1:1', w: 800, style: 'Bright, cheerful toy product photo on a pastel background, soft shadows, child-safe wooden or plush look' },
+  sports: { aspect: '1:1', w: 800, style: 'Dynamic sports gear product photo on a dark charcoal background with a bold neon-yellow accent light' },
+  hardware: { aspect: '1:1', w: 800, style: 'Sharp industrial product photo of building material or tools on a light grey workshop background, crisp even light' },
+  crafts: { aspect: '1:1', w: 800, style: 'Indian handicraft product photo on handwoven fabric with natural light, showing texture and handmade detail' },
+  brand: { aspect: '1:1', w: 800, style: 'Premium D2C cold-coffee brand photo, unbranded bottle or product on a warm cream background with coffee beans and ice, soft shadows' },
 };
 const fallback = (st) => ({ aspect: '1:1', w: 800, style: `Clean e-commerce product photo for an Indian shop called "${st.name}" (${st.tagline}), centred on a soft plain background that suits the shop, natural light` });
 const RULES = 'Photorealistic. No text, words, logos or brand names anywhere in the image, no watermark, no price tags.';

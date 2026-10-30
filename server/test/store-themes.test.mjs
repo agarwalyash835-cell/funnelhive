@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
 import { startServer, register } from './helpers.mjs';
+import { DEMO_THEMES } from '../store-demos.js';
 
 // the page's head is rendered into the built client's index.html — only checked when the client is built
 const built = fs.existsSync(new URL('../../client/dist/index.html', import.meta.url));
@@ -71,14 +72,20 @@ test('theme and theme options are checked and saved, and the public store carrie
 });
 
 test('demo stores: browsable with a priced cart and pictures, checkout refused', async () => {
-  for (const t of ['fashion', 'grocery', 'beauty', 'electronics']) {
+  for (const t of DEMO_THEMES) {
     const r = await api(`/s/demo-${t}`);
     assert.equal(r.status, 200, t);
     assert.equal(r.data.store.demo, true);
     assert.equal(r.data.store.theme, t);
     assert.ok(r.data.listings.length >= 12 && r.data.listings.length <= 24, `${t}: ${r.data.listings.length} products`);
     assert.ok(r.data.listings.every((l) => l.price > 0 && l.title && l.category && l.images[0]));
-    const img = await fetch(`${srv.base}${r.data.listings[0].images[0]}`);
+    // a photo (client/public/demo, served with the built app) when one was made, else the drawn SVG
+    for (const src of [...r.data.listings.map((l) => l.images[0]), r.data.store.themeOptions.heroImage].filter(Boolean)) {
+      if (src.startsWith('/demo/')) assert.ok(fs.existsSync(new URL(`../../client/public${src}`, import.meta.url)), `${t}: missing ${src}`);
+      else assert.match(src, /^\/api\/s\/demo-[a-z]+\/art\/[a-z]+-\d\d\.svg$/);
+    }
+    // the drawn fallback always works
+    const img = await fetch(`${srv.base}/api/s/demo-${t}/art/${r.data.listings[0].id}.svg`);
     assert.equal(img.status, 200);
     assert.match(img.headers.get('content-type'), /image\/svg\+xml/);
     assert.match(await img.text(), /^<svg /);
