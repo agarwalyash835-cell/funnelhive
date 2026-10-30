@@ -22,6 +22,11 @@ Pick the storefront theme that fits:
 - grocery: kirana, fruits and vegetables, dairy, staples, daily essentials, FMCG
 - beauty: skincare, cosmetics, haircare, personal care, wellness
 - electronics: mobiles, gadgets, audio, accessories, appliances
+- toys: toys, games, baby and kids' products
+- sports: sports equipment, fitness, gym, activewear, cricket, cycling, yoga
+- hardware: hardware, tools, building materials, cement, steel, plumbing, electricals, paints
+- crafts: handicrafts, handloom, ethnic crafts by artisans (Ajrakh, Bandhani, Chikankari, Madhubani…), home décor from craft clusters
+- brand: a D2C brand selling one hero product (or a small range around it)
 - classic: anything else
 Language: write everything a buyer reads in the language the owner wrote in — Hindi in Devanagari when they wrote Hindi, Hinglish when they wrote Hinglish, otherwise English. Set "lang" to "hi" for Hindi, else "en".
 Rules:

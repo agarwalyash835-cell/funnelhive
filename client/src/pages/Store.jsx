@@ -58,6 +58,7 @@ export default function Store() {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
   const [sort, setSort] = useState('');
+  const [tag, setTag] = useState(''); // a theme's quick filter (age group, craft…)
   const [toastMsg, setToast] = useState('');
   const cart = useCart(handle);
   const base = `/api/s/${handle}`;
@@ -103,7 +104,7 @@ export default function Store() {
   const link = (p) => `/s/${handle}${p}${qs}`;
   const cats = (s.categories || []).filter((c) => listings.some((l) => l.category === c));
   const ctx = {
-    s, data, theme, opts, lang, t, cart, listings, byId, base, qs, handle, link, cats, q, setQ, cat, setCat, sort, setSort, navigate, setMeta,
+    s, data, theme, opts, lang, t, cart, listings, byId, base, qs, handle, link, cats, q, setQ, cat, setCat, sort, setSort, tag, setTag, navigate, setMeta,
     setLang: (k) => { setLangPick(k); try { localStorage.setItem(langKey(handle), k); } catch {} },
     cartWord: theme.copy.cart, perks: opts.perks || [], cartSum: cartTotal(cart.cart, byId), year: new Date().getFullYear(),
     toast: setToast,

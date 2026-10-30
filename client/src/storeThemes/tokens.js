@@ -9,9 +9,16 @@ export const FONT_PAIRS = {
   soft: { name: 'Soft', heading: 'Cormorant Garamond', body: 'Manrope', hw: '500;600', bw: '400;500;600' },
   tech: { name: 'Tech', heading: 'Space Grotesk', body: 'Inter', hw: '500;700', bw: '400;500;600' },
   elegant: { name: 'Elegant', heading: 'DM Serif Display', body: 'DM Sans', hw: '400', bw: '400;500;700' },
+  athletic: { name: 'Athletic', heading: 'Teko', body: 'Hind', hw: '500;600;700', bw: '400;500;600' },
+  industrial: { name: 'Industrial', heading: 'Rajdhani', body: 'Mukta', hw: '600;700', bw: '400;500;700' },
+  heritage: { name: 'Heritage', heading: 'Rozha One', body: 'Martel Sans', hw: '400', bw: '400;600;700' },
+  bold: { name: 'Bold', heading: 'Poppins', body: 'Poppins', hw: '600;700;800', bw: '400;500' },
 };
-export const HERO_LAYOUTS = { editorial: 'Full-bleed picture', split: 'Text and picture side by side', banner: 'Bold banner', minimal: 'Text only' };
-export const SECTION_NAMES = { hero: 'Hero banner', delivery: 'Delivery strip', offers: 'Offers', categories: 'Categories', new: 'New arrivals', lookbook: 'Lookbook', bundles: 'Routine bundle', compare: 'Compare', grid: 'All products', trust: 'Why buy from us', about: 'About the store' };
+export const HERO_LAYOUTS = { editorial: 'Full-bleed picture', split: 'Text and picture side by side', banner: 'Bold banner', minimal: 'Text only', spotlight: 'One hero product' };
+export const SECTION_NAMES = {
+  hero: 'Hero banner', delivery: 'Delivery strip', offers: 'Offers', categories: 'Categories', new: 'New arrivals', lookbook: 'Lookbook', bundles: 'Routine bundle', compare: 'Compare', grid: 'All products', trust: 'Why buy from us', about: 'About the store',
+  filters: 'Quick filters (age, craft…)', story: 'Meet the makers', quote: 'Bulk quote', benefits: 'Hero product benefits', steps: 'How it works', versus: 'Us vs regular', reviews: 'Customer reviews',
+};
 
 const stack = (f, fallback) => `'${f}', ${fallback}`;
 // the Google Fonts stylesheet for a font pair (display=swap: text shows at once in the fallback font)
@@ -53,7 +60,7 @@ export function themeVars(theme, opts = {}, storeColor) {
     '--st-brand': b, '--st-brand-ink': inkOn(b), '--st-brand-soft': mix(b, k.bg, k.dark ? 0.8 : 0.9),
     '--st-accent2': k.accent2 || b, '--st-bg': k.bg, '--st-surface': k.surface, '--st-ink': k.ink, '--st-soft': k.soft, '--st-line': k.line,
     '--st-sale': k.sale || '#16a34a', '--st-radius': k.radius, '--st-radius-sm': k.radiusSm, '--st-shadow': k.shadow, '--st-gap': k.gap || '16px',
-    '--st-font-h': stack(f.heading, f.heading.includes('Serif') || ['Bodoni Moda', 'Cormorant Garamond'].includes(f.heading) ? 'Georgia, serif' : 'system-ui, sans-serif'),
+    '--st-font-h': stack(f.heading, f.heading.includes('Serif') || ['Bodoni Moda', 'Cormorant Garamond', 'Rozha One'].includes(f.heading) ? 'Georgia, serif' : 'system-ui, sans-serif'),
     '--st-font-b': stack(f.body, 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif'),
     '--st-case': k.upper ? 'uppercase' : 'none', '--st-track': k.upper ? '.14em' : '0',
   };
@@ -72,6 +79,12 @@ export function sectionsOf(theme, opts = {}) {
 export const offPct = (price, mrp) => (mrp > price && price >= 0 ? Math.round((1 - price / mrp) * 100) : 0);
 export const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const ICONS = [
+  // toys, sports, hardware, crafts (first: they're more specific than the general words below)
+  [/baby|toddler|infant/i, '🍼'], [/block|building set|lego/i, '🧱'], [/stem|science|robot/i, '🤖'], [/pretend|role play/i, '🚒'], [/outdoor|active play/i, '🪁'], [/art & craft|crayon/i, '🖍️'], [/board game|puzzle|books & games/i, '🎲'],
+  [/cricket/i, '🏏'], [/football|soccer/i, '⚽'], [/badminton|racket|tennis/i, '🏸'], [/gym|fitness|weights/i, '🏋️'], [/running|marathon/i, '👟'], [/yoga/i, '🧘'], [/cycl|bicycle/i, '🚴'], [/swim/i, '🏊'],
+  [/cement|concrete|sand|brick/i, '🧱'], [/steel|tmt|rebar/i, '🏗️'], [/plumb|pipe|sanitary|bath fitting/i, '🚰'], [/electrical|wire|switch|mcb/i, '⚡'], [/paint/i, '🎨'], [/tool/i, '🛠️'], [/hardware|fastener|screw/i, '🔩'],
+  [/stole|dupatta|shawl/i, '🧣'], [/wall art|painting/i, '🖼️'], [/home d[eé]cor|cushion|textile/i, '🪔'], [/pottery|brass|terracotta|ceramic/i, '🏺'],
+  [/cold brew|coffee/i, '☕'], [/brew gear|mug|tumbler/i, '🥤'],
   [/fruit|veg|sabzi|फल|सब्ज/i, '🥦'], [/dairy|milk|bread|bakery|egg|दूध/i, '🥛'], [/atta|rice|dal|staple|grain|आटा|चावल|दाल/i, '🌾'], [/masala|spice|oil|मसाल|तेल/i, '🌶️'],
   [/snack|namkeen|biscuit|chips|नमकीन/i, '🍪'], [/beverage|drink|tea|chai|coffee|juice|चाय/i, '☕'], [/household|clean|home care|घर/i, '🧽'], [/personal|soap|tooth|bath/i, '🧴'],
   [/mobile|phone|फ़ोन|मोबाइल/i, '📱'], [/audio|ear|head|speaker/i, '🎧'], [/wear|watch|band/i, '⌚'], [/laptop|computer/i, '💻'], [/smart home|plug|bulb|router/i, '💡'], [/access|charger|cable|cover/i, '🔌'],

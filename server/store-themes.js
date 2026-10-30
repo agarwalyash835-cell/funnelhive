@@ -3,18 +3,28 @@
 // must match it (client/test/store-themes.test.mjs checks they do).
 // No imports: the client's tests import this file directly.
 
-export const THEME_IDS = ['classic', 'fashion', 'grocery', 'beauty', 'electronics'];
-export const FONT_IDS = ['modern', 'editorial', 'friendly', 'soft', 'tech', 'elegant'];
-export const HERO_IDS = ['editorial', 'split', 'banner', 'minimal'];
-export const SECTION_IDS = ['hero', 'delivery', 'offers', 'categories', 'new', 'lookbook', 'bundles', 'compare', 'grid', 'trust', 'about'];
-export const PERK_IDS = ['freeDelivery', 'fastDelivery', 'returns7', 'exchange', 'warranty', 'emi', 'authentic', 'crueltyFree', 'fresh', 'handmade'];
+export const THEME_IDS = ['classic', 'fashion', 'grocery', 'beauty', 'electronics',
+  'toys', 'sports', 'hardware', 'crafts', 'brand'];
+export const FONT_IDS = ['modern', 'editorial', 'friendly', 'soft', 'tech', 'elegant',
+  'athletic', 'industrial', 'heritage', 'bold'];
+export const HERO_IDS = ['editorial', 'split', 'banner', 'minimal',
+  'spotlight'];
+export const SECTION_IDS = ['hero', 'delivery', 'offers', 'categories', 'new', 'lookbook', 'bundles', 'compare', 'grid', 'trust', 'about',
+  'filters', 'story', 'quote', 'benefits', 'steps', 'versus', 'reviews'];
+export const PERK_IDS = ['freeDelivery', 'fastDelivery', 'returns7', 'exchange', 'warranty', 'emi', 'authentic', 'crueltyFree', 'fresh', 'handmade',
+  'bis', 'giftWrap', 'heatReady', 'monsoonReady', 'gstInvoice', 'bulkRates', 'handloom', 'subscribe'];
 export const POLICY_KEYS = ['refund', 'shipping', 'terms', 'privacy'];
 
 // a sentence's likely industry, for when the AI names no theme (or one we don't have)
 const HINTS = [
+  ['crafts', /handicraft|handloom|artisan|ajrakh|bandhani|bandhej|chikankari|madhubani|kalamkari|ikat|dhokra|pashmina|हस्तशिल्प|हथकरघा/i],
+  ['hardware', /hardware|\btools?\b|cement|\btmt\b|plumbing|sanitary|building material|construction|\bpaints?\b|electricals|\bpipes?\b|sariya|सरिया|सीमेंट|हार्डवेयर/i],
+  ['toys', /\btoys?\b|kids|children|baby|infant|khilon|खिलौन|बच्च/i],
+  ['sports', /sport|fitness|gym|cricket|football|badminton|yoga|athlet|running|cycling|dumbbell|खेल|फिटनेस/i],
   ['grocery', /kirana|grocer|grocery|ration|atta|dal|masala|vegetable|sabzi|fruit|dairy|doodh|provision|supermarket|किराना|राशन|सब्ज़ी|सब्जी/i],
   ['beauty', /beauty|skin|skincare|cosmetic|makeup|serum|cream|hair ?care|salon|soap|ayurved|सौंदर्य|स्किन/i],
   ['electronics', /electronic|mobile|phone|laptop|gadget|charger|earbud|headphone|speaker|accessor|repair|smart ?watch|मोबाइल/i],
+  ['brand', /\bd2c\b|direct.to.consumer|one product|single product|our (own )?brand|hero product|subscription/i],
   ['fashion', /fashion|cloth|apparel|kurta|kurti|saree|sari|lehenga|dress|tshirt|t-shirt|jeans|ethnic|boutique|footwear|shoe|कपड़|साड़ी|कुर्ता/i],
 ];
 export const guessTheme = (text) => (HINTS.find(([, re]) => re.test(String(text || ''))) || ['classic'])[0];
@@ -39,6 +49,9 @@ export function cleanThemeOptions(b = {}, { lenient = false } = {}) {
   if ('offers' in b) {
     o.offers = (Array.isArray(b.offers) ? b.offers : []).slice(0, 6).map((x) => ({ title: clip(x?.title, 60), note: clip(x?.note, 80), code: clip(x?.code, 20).toUpperCase().replace(/[^A-Z0-9_-]/g, '') })).filter((x) => x.title);
   }
+  // how it works (D2C) and testimonials — the seller's own words; the AI never writes testimonials (store-ai.js)
+  if ('steps' in b) o.steps = (Array.isArray(b.steps) ? b.steps : []).slice(0, 4).map((x) => ({ title: clip(x?.title, 60), note: clip(x?.note, 140) })).filter((x) => x.title);
+  if ('reviews' in b) o.reviews = (Array.isArray(b.reviews) ? b.reviews : []).slice(0, 6).map((x) => ({ name: clip(x?.name, 40), place: clip(x?.place, 40), text: clip(x?.text, 240) })).filter((x) => x.name && x.text);
   if ('lang' in b) o.lang = b.lang === 'hi' ? 'hi' : 'en';
   if ('whatsapp' in b) o.whatsapp = b.whatsapp !== false;
   if ('seo' in b) o.seo = { title: clip(b.seo?.title, 70), description: clip(b.seo?.description, 170) };
@@ -57,10 +70,13 @@ export function cleanPolicyPages(b = {}, cur = {}) {
   return out;
 }
 
-// extra listing fields themes show: spec / benefit highlights, sizes (shown, not chosen at checkout), a badge
+// extra listing fields themes show: spec / benefit highlights, sizes (shown, not chosen at checkout), a badge,
+// tags (age group, craft, region… — the themes' quick filters) and the maker ("Khatri family, Ajrakhpur")
 export function cleanListingExtras(b, out) {
   if ('highlights' in b) out.highlights = list(b.highlights, 6, 40);
   if ('sizes' in b) out.sizes = list(b.sizes, 12, 10);
   if ('badge' in b) out.badge = clip(b.badge, 20);
+  if ('tags' in b) out.tags = list(b.tags, 6, 24);
+  if ('maker' in b) out.maker = clip(b.maker, 80);
   return out;
 }
