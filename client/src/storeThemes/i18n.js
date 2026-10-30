@@ -37,6 +37,17 @@ const en = {
   bulkEnquiry: 'Send a bulk enquiry', bulkEnquiryWa: 'Hi! I’d like a quote for a bulk / institution order. Our list:',
   genericHint: 'Ask our pharmacist whether a generic medicine with the same salt and strength is available.', details: 'Product details',
   veg: 'Vegetarian', nonveg: 'Non-vegetarian', demoWa: 'In your own store, this opens a WhatsApp chat with you.',
+  // toys, sports, hardware, crafts, D2C brand
+  allToys: 'All toys', allGear: 'All gear', allMaterials: 'All materials', allCrafts: 'All crafts', shopRange: 'Shop the range', builtFor: 'Built for Indian conditions',
+  shopByAge: 'Shop by age', shopByCraft: 'Shop by craft', ageChip: '{a} yrs', nProducts: '{n} products', popularTags: 'Popular picks',
+  bis: 'BIS certified', giftWrap: 'Free gift wrap', heatReady: 'Made for 40 °C+ heat', monsoonReady: 'Monsoon-ready', gstInvoice: 'GST invoice', bulkRates: 'Bulk & contractor rates', handloom: 'Handloom mark', subscribe: 'Subscribe & save',
+  giftNote: 'Gift wrap with a handwritten note is free — tell us the message at checkout or on WhatsApp.', safetyNote: 'Safety tested and BIS certified, with non-toxic paints and no small loose parts for under-3s.',
+  sizeGuide: 'Size guide: between two sizes? Pick the larger one, or tell us your usual size on WhatsApp and we’ll help.', bulkNote: 'Buying for a site? Contractors and bulk buyers get special rates — ask for a quote.',
+  handloomNote: 'Handloom: woven by hand on a loom, so small irregularities are the mark of the maker, not a flaw.', handmadeNote: 'Handmade in small batches — colours and patterns vary a little from piece to piece.',
+  subscribeNote: 'Subscribe & save — get it every month at a lower price. Message us on WhatsApp to set it up; pause any time.',
+  bulkTitle: 'Bulk & contractor orders', bulkCta: 'Request a quote on WhatsApp', bulkAsk: 'Hi! I need a bulk quote for: ', bulkQuote: 'Bulk quote',
+  madeBy: 'Made by {m}', makers: 'Meet the makers', makersSub: 'Every piece carries the name of the hands that made it', seeWork: 'See their work', handloomSeal: 'Handloom', bisMark: 'BIS',
+  benefitsTitle: 'Why you’ll love it', howItWorks: 'How it works', versusTitle: '{s} vs the regular kind', ours: 'Ours', regular: 'Regular', reviewsTitle: 'What customers say', seeDetails: 'See details', specSheet: 'Specifications',
 };
 const hi = {
   search: 'खोजें', searchPh: 'प्रोडक्ट खोजें', cart: 'कार्ट', bag: 'बैग', addToCart: 'कार्ट में डालें', addToBag: 'बैग में डालें', add: 'जोड़ें', soldOut: 'स्टॉक ख़त्म',
@@ -74,6 +85,16 @@ const hi = {
   bulkEnquiry: 'थोक ऑर्डर पूछें', bulkEnquiryWa: 'नमस्ते! थोक / संस्थान ऑर्डर के लिए कोटेशन चाहिए। हमारी लिस्ट:',
   genericHint: 'हमारे फ़ार्मासिस्ट से पूछें कि क्या इसी सॉल्ट और स्ट्रेंथ की जेनेरिक दवा उपलब्ध है।', details: 'प्रोडक्ट की जानकारी',
   veg: 'शाकाहारी', nonveg: 'मांसाहारी', demoWa: 'आपके अपने स्टोर में यह आपसे WhatsApp चैट खोलता है।',
+  allToys: 'सभी खिलौने', allGear: 'सारा सामान', allMaterials: 'सारा माल', allCrafts: 'सभी हस्तशिल्प', shopRange: 'पूरी रेंज देखें', builtFor: 'भारतीय मौसम के लिए बना',
+  shopByAge: 'उम्र के हिसाब से', shopByCraft: 'कला के हिसाब से', ageChip: '{a} साल', nProducts: '{n} प्रोडक्ट', popularTags: 'लोकप्रिय',
+  bis: 'BIS प्रमाणित', giftWrap: 'मुफ़्त गिफ़्ट रैप', heatReady: '40 °C+ गर्मी के लिए', monsoonReady: 'मानसून के लिए तैयार', gstInvoice: 'GST बिल', bulkRates: 'थोक और ठेकेदार रेट', handloom: 'हैंडलूम मार्क', subscribe: 'सब्सक्राइब करें, बचाएँ',
+  giftNote: 'हाथ से लिखे नोट के साथ गिफ़्ट रैप मुफ़्त है — चेकआउट या WhatsApp पर संदेश बताएँ।', safetyNote: 'सुरक्षा जाँचा हुआ और BIS प्रमाणित, बिना ज़हरीले रंग, 3 साल से छोटे बच्चों के लिए कोई ढीला छोटा हिस्सा नहीं।',
+  sizeGuide: 'साइज़ गाइड: दो साइज़ के बीच हों तो बड़ा चुनें, या WhatsApp पर अपना साइज़ बताएँ — हम मदद करेंगे।', bulkNote: 'साइट के लिए ख़रीद रहे हैं? ठेकेदारों और थोक ख़रीदारों को ख़ास रेट — कोटेशन माँगें।',
+  handloomNote: 'हैंडलूम: करघे पर हाथ से बुना हुआ, इसलिए छोटे-मोटे फ़र्क़ कारीगर की पहचान हैं, कमी नहीं।', handmadeNote: 'छोटे बैच में हाथ से बना — हर पीस के रंग और डिज़ाइन में थोड़ा फ़र्क़ होता है।',
+  subscribeNote: 'सब्सक्राइब करें और बचाएँ — हर महीने कम दाम पर पाएँ। WhatsApp पर मैसेज करें; कभी भी रोकें।',
+  bulkTitle: 'थोक और ठेकेदार ऑर्डर', bulkCta: 'WhatsApp पर कोटेशन माँगें', bulkAsk: 'नमस्ते! मुझे इनका थोक रेट चाहिए: ', bulkQuote: 'थोक रेट',
+  madeBy: '{m} द्वारा बना', makers: 'कारीगरों से मिलें', makersSub: 'हर पीस पर उसे बनाने वाले हाथों का नाम', seeWork: 'इनका काम देखें', handloomSeal: 'हैंडलूम', bisMark: 'BIS',
+  benefitsTitle: 'आपको क्यों पसंद आएगा', howItWorks: 'कैसे काम करता है', versusTitle: '{s} बनाम आम प्रोडक्ट', ours: 'हमारा', regular: 'आम', reviewsTitle: 'ग्राहक क्या कहते हैं', seeDetails: 'पूरी जानकारी', specSheet: 'स्पेसिफ़िकेशन',
 };
 export const LABELS = { en, hi };
 export const LANGS = [['en', 'EN'], ['hi', 'हिं']];

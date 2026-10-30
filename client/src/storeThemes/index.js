@@ -11,6 +11,8 @@
 //   note (optional)                — a label key shown as a hint on product pages
 //   portrait (optional)            — 3:4 product pictures (fashion always; books)
 //   demo                           — the handle of its live demo store (server/store-demos.js), or null
+//   filters { title, chip?, values } — optional quick filters on listing tags (age group, craft…): the 'filters' section and the grid's tag chips
+//   notes [{ k, perk?, tag?, sizes? }] — optional notes on the product page (label key; shown only with that perk / tag / sizes)
 // Adding an industry: a new file here, register it below, its id in server/store-themes.js THEME_IDS, any new
 // variants in kit.jsx + storeThemes.css (scoped .th-<id>), and a demo catalogue in server/store-demos.js.
 import classic from './classic.js';
@@ -24,6 +26,12 @@ import bakery from './bakery.js';
 import pharmacy from './pharmacy.js';
 import books from './books.js';
 
-export const THEMES = { classic, fashion, grocery, beauty, electronics, jewellery, home, bakery, pharmacy, books };
-export const THEME_LIST = [fashion, grocery, beauty, electronics, jewellery, home, bakery, pharmacy, books, classic];
+import toys from './toys.js';
+import sports from './sports.js';
+import hardware from './hardware.js';
+import crafts from './crafts.js';
+import brand from './brand.js';
+
+export const THEMES = { classic, fashion, grocery, beauty, electronics, jewellery, home, bakery, pharmacy, books, toys, sports, hardware, crafts, brand };
+export const THEME_LIST = [fashion, grocery, beauty, electronics, jewellery, home, bakery, pharmacy, books, toys, sports, hardware, crafts, brand, classic];
 export const themeOf = (id) => THEMES[id] || classic;

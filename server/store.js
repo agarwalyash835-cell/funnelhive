@@ -149,6 +149,7 @@ const publicListing = (l, r) => ({
   ...(r.item ? { unit: r.unit, stock: Math.max(0, Math.floor(r.stock)), soldOut: r.stock < 1 } : {}),
   ...(l.highlights?.length ? { highlights: l.highlights } : {}), ...(l.sizes?.length ? { sizes: l.sizes } : {}), ...(l.badge ? { badge: l.badge } : {}),
   ...(l.byline ? { byline: l.byline } : {}), ...(l.diet ? { diet: l.diet } : {}),
+  ...(l.tags?.length ? { tags: l.tags } : {}), ...(l.maker ? { maker: l.maker } : {}),
 });
 
 // ---------- pricing the cart (server side, from the catalog) ----------
