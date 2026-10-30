@@ -18,10 +18,20 @@ const fail = (res, e) => res.status(502).json({ error: /JSON/.test(e?.message ||
 const FONTS_HELP = 'modern (clean sans-serif), editorial (high-fashion serif), friendly (rounded, reads well in Hindi), soft (light elegant serif with an airy sans), tech (geometric grotesk), elegant (classic serif)';
 export const SETUP_SYSTEM = `You set up an online store for an Indian small business from the owner's short description, and write all of its copy.
 Pick the storefront theme that fits:
-- fashion: clothing, ethnic wear, sarees, footwear, bags, jewellery
+- fashion: clothing, ethnic wear, sarees, footwear, bags
 - grocery: kirana, fruits and vegetables, dairy, staples, daily essentials, FMCG
 - beauty: skincare, cosmetics, haircare, personal care, wellness
 - electronics: mobiles, gadgets, audio, accessories, appliances
+- jewellery: gold, silver, diamond, bridal and artificial jewellery, ornaments
+- home: furniture, home décor, furnishings, lighting, rugs, kitchenware
+- bakery: bakery, cakes, sweets / mithai, chocolates, snacks made in-house, gift hampers
+- pharmacy: chemist, medical store, medicines, health and wellness supplies, surgical items
+- books: books, bookstore, stationery, school supplies, publishers
+- toys: toys, games, baby and kids' products
+- sports: sports equipment, fitness, gym, activewear, cricket, cycling, yoga
+- hardware: hardware, tools, building materials, cement, steel, plumbing, electricals, paints
+- crafts: handicrafts, handloom, ethnic crafts by artisans (Ajrakh, Bandhani, Chikankari, Madhubani…), home décor from craft clusters
+- brand: a D2C brand selling one hero product (or a small range around it)
 - classic: anything else
 Language: write everything a buyer reads in the language the owner wrote in — Hindi in Devanagari when they wrote Hindi, Hinglish when they wrote Hinglish, otherwise English. Set "lang" to "hi" for Hindi, else "en".
 Rules:

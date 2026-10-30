@@ -39,3 +39,13 @@
 .tt-grid.c-compact b { background: var(--st-brand); width: 50%; align-self: flex-end; margin-right: 4px; }
 .tt-grid.c-spec > div { border: 1px solid var(--st-line); }
 .tt-grid.c-spec b { background: var(--st-brand); width: 80%; }
+/* jewellery, home, bakery, pharmacy, books */
+.tt-jewellery .tt-ann, .tt-pharmacy .tt-ann, .tt-books .tt-ann, .tt-home .tt-ann { background: var(--st-brand); }
+.tt-bakery .tt-ann { background: var(--st-accent2); }
+.tt-jewellery .tt-hero.r-split img { background: var(--st-brand); }
+.tt-grid.c-luxe > div, .tt-grid.c-book > div { background: none; box-shadow: none; border-radius: 0; align-items: center; }
+.tt-grid.c-luxe span { outline: 1px solid var(--st-line); outline-offset: -3px; background: var(--st-surface); width: 100%; }
+.tt-grid.c-luxe b { background: var(--st-accent2); }
+.tt-grid.c-clinic > div { border: 1px solid var(--st-line); }
+.tt-grid.c-treat b { background: var(--st-brand); border-radius: 99px; width: 50%; }
+.tt-grid.c-book span { box-shadow: 1px 2px 4px rgba(0,0,0,.25); width: 76%; }
