@@ -25,6 +25,7 @@ import { isDemoHandle, demoStore, demoListings, demoQuote, demoArt } from './sto
 import { waRequired, waPhoneOk } from './hive-wa.js';
 import { notify } from './notify.js';
 import { registerStoreOrders, reviewStats, trackKey, publicReview } from './store-orders.js';
+import { registerStoreFeeds } from './store-feeds.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -220,7 +221,11 @@ export function priceCart(store, owner, body, { couponFor, discountFor }) {
 export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned }) {
   const pvKey = (s) => crypto.createHmac('sha256', secret).update(`store.${s.id}`).digest('base64url').slice(0, 16);
   const storeUrl = (req, s) => `${(process.env.PAGES_URL || appUrl(req)).replace(/\/+$/, '')}/s/${s.handle}`;
-  const sellerView = (req, s) => ({ ...s, url: s.handle ? storeUrl(req, s) : null, previewUrl: s.handle ? `${storeUrl(req, s)}?pv=${pvKey(s)}` : null });
+  const sellerView = (req, s) => ({
+    ...s, url: s.handle ? storeUrl(req, s) : null, previewUrl: s.handle ? `${storeUrl(req, s)}?pv=${pvKey(s)}` : null,
+    // the links the seller pastes into Google Merchant Center / Meta Commerce Manager / Search Console (store-feeds.js)
+    feeds: s.handle ? { google: `${storeUrl(req, s)}/feed/google.xml`, meta: `${storeUrl(req, s)}/feed/meta.csv`, sitemap: `${storeUrl(req, s)}/sitemap.xml` } : null,
+  });
   const ensure = (u) => storeOf(u.id) || T.stores.insert({ id: uid(), userId: u.id, handle: null, enabled: false, name: u.settings?.businessName || '', tagline: '', about: '', color: '#6366f1', logo: '', categories: [], shipping: { fee: 0, freeAbove: 0 }, cod: { enabled: false, fee: 0 }, policies: {}, theme: 'classic', themeOptions: {}, policyPages: {}, at: Date.now() });
   const productsFor = (u) => T.products.all({ userId: u.id }, { order: 'at', desc: true }).map((p) => ({ id: p.id, name: p.name, cover: p.cover || '', hsn: p.hsn || '', gstRate: p.gstRate ?? null }));
   const itemsFor = (u) => (inventoryOn(u) ? T.iitems.all({ userId: u.id, active: 1 }).map((i) => ({ id: i.id, name: i.name, unit: i.unit || '', sale_rate: i.sale_rate ?? null, hsn: i.hsn || '', gst_percent: i.gst_percent ?? null, category: i.category || '', stock: stockOf(i.id) })) : []);
@@ -498,6 +503,9 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     if (!id) return res.status(400).json({ error: NOT_CONFIRMED });
     res.json(tracked(x.s, finalizePayment(x.pay, id, appUrl(req))));
   }));
+
+  // ---- product feeds for Google / Meta and the store's sitemap (store-feeds.js) — before the page route below ----
+  registerStoreFeeds(app, { openStore, catalog, publicStore, storeUrl, appUrl, rateLimit, isTest });
 
   // ---- the page: the app's HTML with the store's title and link-preview tags ----
   if (indexHtml) {

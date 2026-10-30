@@ -106,3 +106,11 @@
 .st-imgs img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; display: block; }
 .st-imgs span button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 10px; border: 0; background: #111; color: #fff; cursor: pointer; line-height: 1; }
 .st-actions { display: flex; gap: 8px; }
+
+/* Store → Sell on Google & Instagram (product feeds) */
+.st-feeds { display: grid; gap: 14px; }
+.st-feed { display: grid; gap: 6px; padding: 14px; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; }
+.st-feed-url { display: flex; gap: 8px; }
+.st-feed-url input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 12.5px; }
+.st-feed ol { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+.st-feeds .hint.warn { color: #b45309; }

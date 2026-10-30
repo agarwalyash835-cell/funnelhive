@@ -308,3 +308,38 @@ test('the buyer’s order page: only with its key, shows where the order is; rev
   // another store's address doesn't open this order
   assert.equal((await api(`/s/demo-grocery/order/${r.orderId}?k=${m[2]}`)).status, 404);
 });
+
+test('product feeds for Google and Meta, and the store sitemap: open stores only, live prices and stock', async () => {
+  assert.equal((await api(`/store/listings/${L.tea.id}`, 'PUT', { images: ['/uploads/x/tea.jpg', 'https://cdn.example.in/tea-2.jpg'], description: 'Strong & malty <b>CTC</b>' }, A)).status, 200);
+  assert.equal((await api(`/store/listings/${L.ebook.id}`, 'PUT', { images: ['/uploads/x/guide.png'] }, A)).status, 200);
+  const seller = (await api('/store', 'GET', null, A)).data.store;
+  assert.match(seller.feeds.google, /\/s\/chai-co\/feed\/google\.xml$/);
+  const get = (p) => fetch(`${srv.base}/s/chai-co${p}`).then(async (r) => ({ status: r.status, type: r.headers.get('content-type'), text: await r.text() }));
+  const g = await get('/feed/google.xml');
+  assert.equal(g.status, 200);
+  assert.match(g.type, /xml/);
+  assert.match(g.text, /<rss version="2.0" xmlns:g="http:\/\/base\.google\.com\/ns\/1\.0">/);
+  const tea = g.text.match(new RegExp(`<item><g:id>${L.tea.id}</g:id>.*?</item>`))?.[0];
+  assert.ok(tea, 'the tea is in the Google feed');
+  assert.match(tea, /<g:description>Strong &amp; malty CTC<\/g:description>/, 'tags stripped, text escaped');
+  assert.match(tea, /<g:price>250\.00 INR<\/g:price><g:sale_price>200\.00 INR<\/g:sale_price>/, 'MRP as price, the selling price as sale price');
+  assert.match(tea, /<g:image_link>https:\/\/app\.example\.in\/uploads\/x\/tea\.jpg<\/g:image_link><g:additional_image_link>https:\/\/cdn\.example\.in\/tea-2\.jpg/);
+  assert.match(tea, /<g:link>https:\/\/app\.example\.in\/s\/chai-co\/p\//);
+  assert.match(tea, /<g:brand>Chai Co<\/g:brand>/);
+  assert.ok(!g.text.includes(L.ebook.id), 'downloads stay out of Google Shopping');
+  assert.ok(!g.text.includes(L.mug.id), 'no picture, not in the feed');
+  const m = await get('/feed/meta.csv');
+  assert.match(m.type, /text\/csv/);
+  const lines = m.text.trim().split('\r\n');
+  assert.equal(lines[0], 'id,title,description,availability,condition,price,sale_price,link,image_link,additional_image_link,brand,product_type');
+  assert.ok(lines.some((x) => x.startsWith(`${L.ebook.id},Tea Brewing Guide,`)), 'downloads are in the Meta catalogue');
+  assert.ok(lines.some((x) => x.startsWith(`${L.tea.id},`) && x.includes(',in stock,new,250.00 INR,200.00 INR,')));
+  const sm = await get('/sitemap.xml');
+  assert.match(sm.text, /<loc>https:\/\/app\.example\.in\/s\/chai-co<\/loc>/);
+  assert.match(sm.text, new RegExp(`<loc>https://app\.example\.in/s/chai-co/p/${L.tea.id}</loc>`));
+  // a closed store and demo stores have none
+  assert.equal((await fetch(`${srv.base}/s/demo-grocery/feed/google.xml`)).status, 404);
+  assert.equal((await api('/store', 'PUT', { enabled: false }, A)).status, 200);
+  assert.equal((await get('/feed/meta.csv')).status, 404);
+  assert.equal((await api('/store', 'PUT', { enabled: true }, A)).status, 200);
+});

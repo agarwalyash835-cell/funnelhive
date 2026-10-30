@@ -96,8 +96,43 @@ export default function StoreSettings() {
             onDelete={async () => { if (!(await confirmDialog({ title: t('Remove from store?'), text: t('The product or stock item itself is kept.') }))) return; await api(`/store/listings/${l.id}`, 'DELETE'); setD({ ...d, listings: d.listings.filter((y) => y.id !== l.id) }); }} />)}</div>
         )}
       </Panel>
+      <Panel title={t('Sell on Google & Instagram')}><StoreFeeds feeds={d.store.feeds} open={!!d.store.enabled} /></Panel>
       <Panel title={t('Reviews')}><StoreReviews /></Panel>
     </Layout>
+  );
+}
+
+// product feeds (server/store-feeds.js): links the seller pastes once; prices, stock and photos then stay in step
+function StoreFeeds({ feeds, open }) {
+  if (!feeds) return <p className="hint">{t('Choose your store address in Store settings first — your product links are made from it.')}</p>;
+  const copy = (u) => navigator.clipboard?.writeText(u).then(() => toast(t('Link copied')), () => toast(u));
+  const row = (label, url, steps) => (
+    <div className="st-feed">
+      <b>{label}</b>
+      <div className="st-feed-url"><input readOnly value={url} onFocus={(e) => e.target.select()} aria-label={label} /><button type="button" className="btn sm" onClick={() => copy(url)}>{t('Copy')}</button></div>
+      <ol className="hint">{steps.map((x) => <li key={x}>{x}</li>)}</ol>
+    </div>
+  );
+  return (
+    <div className="st-feeds">
+      <p className="hint">{t('Your products — names, prices, photos and stock — as links that Google and Meta read every day. Paste each link once; after that your listings stay up to date by themselves. Products need at least one photo to be listed.')}</p>
+      {!open && <p className="hint warn">{t('Your store is closed, so these links show nothing yet. Open your store first.')}</p>}
+      {row(t('Google Shopping (free listings and Shopping ads)'), feeds.google, [
+        t('Create a free account at merchants.google.com and verify your store’s website address.'),
+        t('Go to Products → Add products → Add products from a file → Add a file from a link (scheduled fetch).'),
+        t('Paste this link, set the country to India and the language to English, and choose a daily fetch.'),
+      ])}
+      {row(t('Instagram, Facebook and WhatsApp catalogue (Meta)'), feeds.meta, [
+        t('Open business.facebook.com/commerce → Add catalogue → E-commerce → Upload product info.'),
+        t('Choose Data feed → Use a URL → paste this link, and pick a daily schedule.'),
+        t('Connect the catalogue to your Instagram shop, Facebook page or WhatsApp Business to tag products.'),
+      ])}
+      {row(t('Google search (sitemap)'), feeds.sitemap, [
+        t('In search.google.com/search-console, add your store’s address as a property.'),
+        t('Go to Sitemaps, paste this link and press Submit — Google then finds every product page.'),
+      ])}
+      <p className="hint">{t('Downloads and courses are listed on Meta only — Google Shopping doesn’t allow digital products.')}</p>
+    </div>
   );
 }
 
