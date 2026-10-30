@@ -16,6 +16,7 @@ import crypto from 'node:crypto';
 import { T, q, JOBS } from './db.js';
 import { encrypt, decrypt, setChannel, sendEmail } from './messaging.js';
 import { applyFulfilment, markRto } from './fulfilment.js';
+import { trackUrl } from './store-orders.js';
 import { codSettings, usePincodeCourier, codDue } from './cod.js';
 import { notify } from './notify.js';
 import { linkBase } from './products.js';
@@ -189,7 +190,7 @@ export function applyTracking(o0, upd, via) {
     notify(o.userId, { kind: 'order', title: `Shipment ${st === 'lost' ? 'lost or damaged' : 'cancelled'} · #${o.id}`, body: `AWB ${o.shipment.awb} with ${o.shipment.courier || 'the courier'} — check it in Shiprocket.`, link: '/orders', ckey: ck });
   } else if (st === 'out_for_delivery' && cfgOf(u)?.notifyBuyer && o.email) {
     const first = String(o.name || '').split(/\s+/)[0] || 'there', biz = u.settings?.businessName || u.name;
-    sendEmail(u, { to: o.email, subject: 'Your order is out for delivery today 🚚', text: `Hi ${first},\n\nYour order (#${o.id}) is out for delivery with ${o.shipment.courier || 'our courier'}.${order.fulfilment?.trackingUrl ? `\nTrack it here: ${order.fulfilment.trackingUrl}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${codDue(o).toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
+    sendEmail(u, { to: o.email, subject: 'Your order is out for delivery today 🚚', text: `Hi ${first},\n\nYour order (#${o.id}) is out for delivery with ${o.shipment.courier || 'our courier'}.${order.fulfilment?.trackingUrl ? `\nTrack it here: ${order.fulfilment.trackingUrl}` : ''}${trackUrl(o) ? `\nYour order page: ${trackUrl(o)}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${codDue(o).toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
   }
   return T.orders.get(o.id);
 }

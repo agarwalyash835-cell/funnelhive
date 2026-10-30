@@ -603,8 +603,9 @@ export function ProductPage({ id }) {
           {s.whatsapp && <a className="sv-wa-inline" href={waLink(s.whatsapp, t('askWa', { p: l.title }))} target="_blank" rel="noreferrer"><WaGlyph />{t('chat')}</a>}
         </div>
       </div>
+      {d?.reviews?.length > 0 && <ProductReviews list={d.reviews} l={l} />}
       {related.length > 0 && <section className="sv-sec sv-related"><h2 className="sv-h2">{t('youMayLike')}</h2><div className="sv-rail">{related.map((x) => <Card key={x.id} l={x} />)}</div></section>}
-      <div className="sv-pbar"><Price l={l} /><AddButton l={l} qty={qty} /></div>
+      <div className="sv-pbar"><Price l={l} /><AddButton l={l} qty={qty} size={size || undefined} needSize={() => { setAskSize(true); document.querySelector('.sv-pick')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} /></div>
     </div>
   );
 }
@@ -629,5 +630,86 @@ export function PolicyPage({ k }) {
       {d.policy.draft && <p className="sv-draft">{t('draft')}</p>}
       {d.policy.text.split(/\n+/).map((p, i) => (p.length < 60 && !/[.:;,]$/.test(p) ? <h3 key={i}>{p}</h3> : <p key={i}>{p}</p>))}
     </article>
+  );
+}
+
+// ---------- reviews on a product page (real buyers only — store-orders.js) ----------
+const Starline = ({ n, size = 16 }) => <span className="sv-starline" aria-label={`${n} / 5`}>{[1, 2, 3, 4, 5].map((i) => <i key={i} className={i <= n ? 'on' : ''} style={{ fontSize: size }}>★</i>)}</span>;
+function ProductReviews({ list, l }) {
+  const { t, lang } = useStore();
+  const day = (at) => new Date(at).toLocaleDateString(lang === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return (
+    <section className="sv-sec sv-previews" id="reviews">
+      <div className="sv-sec-head"><h2 className="sv-h2">{t('customerReviews')} <span className="sv-count">{l.reviews || list.length}</span></h2>{l.rating ? <Stars r={l.rating} n={l.reviews} /> : null}</div>
+      <ul>{list.map((r) => <li key={r.id}><Starline n={r.rating} />{r.text && <p>{r.text}</p>}<small><b>{r.name}</b> · {t('verifiedBuyer')}{r.size ? ` · ${t('sizeOf', { s: r.size })}` : ''} · {day(r.at)}</small></li>)}</ul>
+    </section>
+  );
+}
+
+// ---------- the buyer's order page: /s/<handle>/order/<id>?k=<key> ----------
+export function OrderPage({ id, k }) {
+  const { base, t, lang, s, link, setMeta } = useStore();
+  const [d, setD] = useState(null);
+  const url = `${base}/order/${encodeURIComponent(id)}?k=${encodeURIComponent(k || '')}`;
+  useEffect(() => { getJson(url).then(setD); window.scrollTo(0, 0); }, [url]);
+  useEffect(() => { if (d?.order) setMeta(`${t('orderNo', { id: d.order.id })} · ${s.name}`, ''); }, [d?.order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!d) return <div className="sv-wrap"><div className="sv-skel" /></div>;
+  if (d.error) return <div className="sv-wrap sv-empty"><h2>{d.error}</h2><Link className="sv-btn" to={link('')}>{t('shopNow')}</Link></div>;
+  const o = d.order;
+  const day = (at) => new Date(at).toLocaleDateString(lang === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  // the timeline: placed → shipped → out for delivery → delivered (or a note where it stopped)
+  const bad = ['cancelled', 'returned', 'refunded'].includes(o.status);
+  const out = o.stage === 'out_for_delivery' || o.status === 'delivered';
+  const steps = o.digital ? [['stPlaced', o.at], ['stReady', o.at]] : [['stPlaced', o.at], ['stShipped', o.shipped?.at], ['stOut', 0], ['stDelivered', o.deliveredAt]];
+  const reached = o.digital ? 2 : 1 + (o.shipped ? 1 : 0) + (out ? 1 : 0) + (o.status === 'delivered' ? 1 : 0);
+  return (
+    <div className="sv-wrap sv-order">
+      <h1 className="sv-h2">{t('yourOrder')}</h1>
+      <p className="sv-sub">{t('orderNo', { id: o.id })} · {t('placedOn', { d: day(o.at) })}</p>
+      {bad ? <p className="sv-ostatus">{t(o.status === 'cancelled' ? 'stCancelled' : o.status === 'returned' ? 'stReturned' : 'stRefunded')}</p>
+        : <ol className="sv-timeline">{steps.map(([key, at], i) => <li key={key} className={i < reached ? 'done' : ''}><span aria-hidden="true">{i < reached ? '✓' : i + 1}</span><b>{t(key)}</b>{i < reached && at ? <small>{day(at)}</small> : null}</li>)}</ol>}
+      {o.shipped && !bad && <div className="sv-oship">{o.shipped.courier && <b>{o.shipped.courier}</b>}{o.shipped.tracking && <span>{t('awbNo', { n: o.shipped.tracking })}</span>}{o.shipped.url && <a className="sv-btn ghost" href={o.shipped.url} target="_blank" rel="noreferrer">{t('trackWith', { c: o.shipped.courier || 'courier' })}</a>}</div>}
+      {o.review.length > 0 && <OrderReviews o={o} url={url} onDone={(lid) => setD({ ...d, order: { ...o, review: o.review.map((x) => (x.listingId === lid ? { ...x, done: true } : x)) } })} />}
+      <div className="sv-block sv-oitems">
+        <ul>{o.items.map((it, i) => <li key={i}><span>{it.name}</span><b>{rupees(it.price)}</b></li>)}</ul>
+        {o.shipping > 0 && <p><span>{t('shippingLbl')}</span><b>{rupees(o.shipping)}</b></p>}
+        <p className="tot"><span>{t('totalLbl')}</span><b>{rupees(o.total)}</b></p>
+        <small className="sv-tax">{o.payment.method === 'cod' && !o.payment.paid ? <>{o.payment.advance ? `${t('advancePaid', { p: rupees(o.payment.advance) })} · ` : ''}{t('codDue', { p: rupees(o.payment.due) })}</> : t('paidOnline')}</small>
+      </div>
+      {s.whatsapp && <a className="sv-wa-inline" href={waLink(s.whatsapp, t('helpWa', { id: o.id }))} target="_blank" rel="noreferrer"><WaGlyph />{t('needHelp')}</a>}
+    </div>
+  );
+}
+// rate each product in a delivered order: 1–5 stars, then a few optional words
+function OrderReviews({ o, url, onDone }) {
+  const { t } = useStore();
+  const [form, setForm] = useState({}); // listingId → { rating, text, busy, err, edit }
+  const put = (lid, p) => setForm((x) => ({ ...x, [lid]: { ...(x[lid] || {}), ...p } }));
+  const post = async (lid) => {
+    const f = form[lid] || {};
+    put(lid, { busy: true, err: '' });
+    const r = await fetch(url.replace('?', '/review?'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listingId: lid, rating: f.rating, text: f.text || '' }) })
+      .then((x) => x.json()).catch(() => ({ error: 'Network problem — please try again' }));
+    put(lid, { busy: false, err: r.error || '', edit: !!r.error });
+    if (!r.error) onDone(lid);
+  };
+  return (
+    <section className="sv-block sv-orate">
+      <h3>{t('rateTitle')}</h3>
+      <p className="sv-tax">{t('rateSub')}</p>
+      {o.review.map((x) => { const f = form[x.listingId] || {}; return (
+        <div key={x.listingId} className="sv-orate-row">
+          {x.image ? <img src={x.image} alt="" width="56" height="56" /> : <span className="sv-noimg" />}
+          <div>
+            <b>{x.title}</b>
+            {x.done && !f.edit ? <p className="sv-ok">{t('reviewThanks')} <button type="button" className="sv-more" onClick={() => put(x.listingId, { edit: true })}>{t('editReview')}</button></p> : <>
+              <div className="sv-rate" role="radiogroup" aria-label={t('rateTitle')}>{[1, 2, 3, 4, 5].map((n) => <button type="button" key={n} role="radio" aria-checked={f.rating === n} aria-label={t('starsN', { n })} className={n <= (f.rating || 0) ? 'on' : ''} onClick={() => put(x.listingId, { rating: n })}>★</button>)}</div>
+              {f.rating > 0 && <><textarea rows={2} maxLength={600} placeholder={t('reviewPh')} value={f.text || ''} onChange={(e) => put(x.listingId, { text: e.target.value })} /><button type="button" className="sv-btn" disabled={f.busy} onClick={() => post(x.listingId)}>{t('postReview')}</button></>}
+              {f.err && <small className="st-err">{f.err}</small>}
+            </>}
+          </div>
+        </div>
+      ); })}
+    </section>
   );
 }

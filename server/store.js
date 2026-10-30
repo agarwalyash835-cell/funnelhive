@@ -24,6 +24,7 @@ import { THEME_IDS, cleanThemeOptions, cleanPolicyPages, cleanListingExtras, POL
 import { isDemoHandle, demoStore, demoListings, demoQuote, demoArt } from './store-demos.js';
 import { waRequired, waPhoneOk } from './hive-wa.js';
 import { notify } from './notify.js';
+import { registerStoreOrders, reviewStats, trackKey, publicReview } from './store-orders.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -289,7 +290,9 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     payments: rzpCreds(owner) ? 'razorpay' : stripeCreds(owner) ? 'stripe' : 'demo', enabled: !!s.enabled,
     theme: THEME_IDS.includes(s.theme) ? s.theme : 'classic', themeOptions: s.themeOptions || {}, policyPages: policyPagesOf(s, pv), whatsapp: waOf(owner, s), pincode: !!s.cod?.enabled,
   });
-  const catalog = (s, owner) => listingsFor(s.userId).filter((l) => l.visible !== false).map((l) => { const r = resolve(l, owner); return r ? publicListing(l, r) : null; }).filter(Boolean);
+  // the real average and count of each product's visible reviews (store-orders.js)
+  const rated = (pl, stats) => (stats[pl.id] ? { ...pl, ...stats[pl.id] } : pl);
+  const catalog = (s, owner) => { const stats = reviewStats(s.userId); return listingsFor(s.userId).filter((l) => l.visible !== false).map((l) => { const r = resolve(l, owner); return r ? rated(publicListing(l, r), stats) : null; }).filter(Boolean); };
 
   // demo stores' generated product pictures
   app.get('/api/s/:handle/art/:id.svg', (req, res) => {
@@ -334,11 +337,14 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     const l = T.slistings.get(req.params.lid);
     const r = l && l.userId === o.s.userId && l.visible !== false ? resolve(l, o.owner) : null;
     if (!r) return res.status(404).json({ error: 'This product isn’t available' });
-    res.json({ store: publicStore(o.s, o.owner, o.pv), listing: publicListing(l, r) });
+    const reviews = T.sreviews.all({ userId: o.s.userId, listingId: l.id, hidden: 0 }, { order: 'at', desc: true, limit: 20 }).map(publicReview);
+    res.json({ store: publicStore(o.s, o.owner, o.pv), listing: rated(publicListing(l, r), reviewStats(o.s.userId)), reviews });
   });
 
   const quoteLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 30, key: (req) => `${req.ip}:s:${req.params.handle}`, message: 'Too many tries — please wait a minute and try again.' });
   const payLimiter = rateLimit({ windowMs: 3600000, max: isTest ? 1000 : 30, key: (req) => `${req.ip}:sp`, message: 'Too many orders from this network — please try again later.' });
+  // the order's tracking page (store-orders.js), for the thank-you screen
+  const tracked = (s, out) => (out?.orderId && !out.error ? { ...out, track: `/s/${s.handle}/order/${out.orderId}?k=${trackKey(out.orderId)}` } : out);
   const view = (c) => ({ lines: c.lines, subtotal: c.subtotal, discount: c.discount, coupon: c.usedCoupon, shipping: c.shipping, codFee: c.codFee, total: c.total, needsAddress: c.needsAddress, codAllowed: c.codAllowed, digital: c.digital });
   // the cart's prices, as the checkout will charge them (coupon, shipping, COD fee)
   app.post('/api/s/:handle/quote', quoteLimiter, (req, res) => {
@@ -400,7 +406,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     if (!p) return;
     if (rzpCreds(p.owner) || stripeCreds(p.owner)) return res.status(409).json({ error: 'This store takes real payments' });
     delete p.buyer.tk;
-    res.json(recordOrder(p.f, p.charge, p.buyer, { base: appUrl(req) }));
+    res.json(tracked(p.s, recordOrder(p.f, p.charge, p.buyer, { base: appUrl(req) })));
   });
 
   // a COD checkout: the store's checks, then the seller's COD rules (cod.js) → { ...prepare } or null (answered)
@@ -422,7 +428,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     if (adv) return res.status(400).json({ error: `Pay ₹${adv.amount} now to confirm your Cash on Delivery order`, code: 'prepaid', prepaid: adv });
     const out = recordOrder(p.f, p.charge, p.buyer, { cod: true, base: appUrl(req) });
     codPlaced(p.owner, out.orderId, appUrl(req));
-    res.json({ provider: 'cod', ...out });
+    res.json(tracked(p.s, { provider: 'cod', ...out }));
   });
 
   // 1. start: the server's price, a payment row (kind 'store') and a Razorpay order / Stripe intent for it
@@ -435,7 +441,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
       if (adv) return startCodAdvance(req, res, { f: c.f, owner: c.owner, charge: c.charge, buyer: c.buyer, kind: 'store', adv });
       const out = recordOrder(c.f, c.charge, c.buyer, { cod: true, base: appUrl(req) });
       codPlaced(c.owner, out.orderId, appUrl(req));
-      return res.json({ provider: 'cod', ...out });
+      return res.json(tracked(c.s, { provider: 'cod', ...out }));
     }
     const p = prepare(req, res);
     if (!p) return;
@@ -443,7 +449,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     const creds = rzpCreds(owner), sc = stripeCreds(owner);
     if (!creds && !sc) return res.json({ provider: 'demo' });
     const useStripe = !creds; // a store sells in ₹: Razorpay when connected, Stripe otherwise
-    if (charge.total <= 0) return res.json({ provider: 'free', ...recordOrder(f, charge, buyer, { verified: true, base: appUrl(req), testMode: (useStripe ? sc : creds).mode === 'test' }) });
+    if (charge.total <= 0) return res.json(tracked(p.s, { provider: 'free', ...recordOrder(f, charge, buyer, { verified: true, base: appUrl(req), testMode: (useStripe ? sc : creds).mode === 'test' }) }));
     const pay = { id: uid(), kind: 'store', userId: f.userId, funnelId: f.id, buyer, charge: { items: charge.items, total: charge.total, discount: charge.discount, usedCoupon: charge.usedCoupon }, mode: (useStripe ? sc : creds).mode, status: 'created', at: Date.now(), base: appUrl(req), ...(useStripe ? { provider: 'stripe', currency: 'INR' } : {}) };
     const description = charge.items.filter((i) => i.kind === 'store').map((i) => i.name).join(' + ').slice(0, 250);
     const name = owner.settings?.businessName || f.name, color = f.theme.primary;
@@ -481,16 +487,16 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     const creds = rzpCreds(x.owner);
     const { razorpay_order_id: oid, razorpay_payment_id: pid, razorpay_signature: sig } = req.body;
     if (!creds || oid !== x.pay.rzpOrderId || !validPayment(creds.secret, oid, pid, sig)) return res.status(400).json({ error: NOT_CONFIRMED });
-    res.json(finalizePayment(x.pay, pid, appUrl(req)));
+    res.json(tracked(x.s, finalizePayment(x.pay, pid, appUrl(req))));
   });
   app.post('/api/s/:handle/pay/stripe/verify', wrap(async (req, res) => {
     const x = storePay(req, res);
     if (!x) return;
-    if (x.pay.status === 'paid') return res.json(x.pay.result);
+    if (x.pay.status === 'paid') return res.json(tracked(x.s, x.pay.result));
     const sc = stripeCreds(x.owner);
     const id = sc && x.pay.provider === 'stripe' && await confirmedIntent(sc, x.pay).catch(() => null);
     if (!id) return res.status(400).json({ error: NOT_CONFIRMED });
-    res.json(finalizePayment(x.pay, id, appUrl(req)));
+    res.json(tracked(x.s, finalizePayment(x.pay, id, appUrl(req))));
   }));
 
   // ---- the page: the app's HTML with the store's title and link-preview tags ----
@@ -516,8 +522,10 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
       const desc = (r ? r.description : seo.description || st.tagline || st.about) || '';
       const img = (r ? r.images[0] : st.themeOptions?.heroImage || st.logo) || '';
       const abs = (u) => (u.startsWith('/') ? `${appUrl(req)}${u}` : u);
-      const head = `<meta name="description" content="${esc(desc.slice(0, 200))}"><meta property="og:type" content="${r ? 'product' : 'website'}"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc.slice(0, 200))}">${img ? `<meta property="og:image" content="${esc(abs(img))}">` : ''}<meta name="theme-color" content="${esc(st.color)}">${(pv && !s.enabled) || demo ? '<meta name="robots" content="noindex">' : ''}`;
+      const head = `<meta name="description" content="${esc(desc.slice(0, 200))}"><meta property="og:type" content="${r ? 'product' : 'website'}"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc.slice(0, 200))}">${img ? `<meta property="og:image" content="${esc(abs(img))}">` : ''}<meta name="theme-color" content="${esc(st.color)}">${(pv && !s.enabled) || demo || sub.startsWith('order/') ? '<meta name="robots" content="noindex">' : ''}`;
       res.set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace(/<title>[^<]*<\/title>/, () => `<title>${esc(title)}</title>`).replace('<!--ff-head-->', () => head));
     });
   }
+
+  registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId });
 }

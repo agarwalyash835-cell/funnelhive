@@ -261,3 +261,50 @@ test('stock comes back on a COD cancel or RTO (once only) and on a refund unless
   assert.equal((await api(`/orders/${kept.orderId}/refund`, 'POST', { items: [0], restock: false }, A)).status, 200);
   assert.equal(await stockOf(tea.id), before - 1, 'restock off: the goods didn’t come back');
 });
+
+test('the buyer’s order page: only with its key, shows where the order is; reviews once delivered, shown on the product', async () => {
+  assert.equal((await api('/inventory/moves', 'POST', { itemId: tea.id, kind: 'OPENING', qty: 5 }, A)).status, 200);
+  const r = await payCart({ cart: [{ id: L.tea.id, qty: 1 }, { id: L.ebook.id, qty: 1 }], address: MH, name: 'Sunita Rao', email: 'sunita@x.in' });
+  const m = String(r.track).match(/^\/s\/chai-co\/order\/([\w]+)\?k=([\w-]{16})$/);
+  assert.ok(m, `tracking link on the thank-you screen: ${r.track}`);
+  const page = (k) => pub(`/order/${r.orderId}?k=${k}`);
+  assert.equal((await pub(`/order/${r.orderId}`)).status, 404, 'no key, no order');
+  assert.equal((await page('x'.repeat(16))).status, 404, 'a wrong key opens nothing');
+  let o = (await page(m[2])).data.order;
+  assert.deepEqual([o.status, o.payment.method, o.name, o.items.map((i) => i.name)], ['pending', 'online', 'Sunita', ['Assam Tea 250g', 'Tea Brewing Guide']]);
+  assert.equal(o.review.length, 0, 'nothing to review before delivery');
+  const early = await pub(`/order/${r.orderId}/review?k=${m[2]}`, { listingId: L.tea.id, rating: 5 });
+  assert.equal(early.status, 400);
+  // shipped, then delivered: the page follows, and the buyer is asked to rate
+  await api(`/orders/${r.orderId}/fulfil`, 'POST', { status: 'shipped', courier: 'Delhivery', tracking: 'AWB123' }, A);
+  o = (await page(m[2])).data.order;
+  assert.deepEqual([o.status, o.shipped.courier, o.shipped.tracking], ['shipped', 'Delhivery', 'AWB123']);
+  assert.match(o.shipped.url, /delhivery\.com.*AWB123/);
+  await api(`/orders/${r.orderId}/fulfil`, 'POST', { status: 'delivered' }, A);
+  o = (await page(m[2])).data.order;
+  assert.deepEqual(o.review.map((x) => [x.listingId, x.done]), [[L.tea.id, false], [L.ebook.id, false]]);
+  // reviews: 1–5 stars, only products in this order, once each (again = an edit)
+  const rv = (b) => pub(`/order/${r.orderId}/review?k=${m[2]}`, b);
+  assert.equal((await rv({ listingId: L.tea.id, rating: 9 })).status, 400);
+  assert.equal((await rv({ listingId: L.mug.id, rating: 4 })).status, 400, 'not in this order');
+  assert.equal((await rv({ listingId: L.tea.id, rating: 3, text: 'Good' })).status, 200);
+  const re = await rv({ listingId: L.tea.id, rating: 4, text: 'Strong and fresh, will order again' });
+  assert.deepEqual([re.data.review.rating, re.data.review.name], [4, 'Sunita R.']);
+  assert.equal((await rv({ listingId: L.ebook.id, rating: 2 })).status, 200);
+  assert.equal((await page(m[2])).data.order.review.every((x) => x.done), true);
+  // the product shows the real average, count and the review itself
+  let p = (await pub(`/p/${L.tea.id}`)).data;
+  assert.deepEqual([p.listing.rating, p.listing.reviews, p.reviews.length, p.reviews[0].text], [4, 1, 1, 'Strong and fresh, will order again']);
+  assert.equal((await pub('')).data.listings.find((l) => l.id === L.tea.id).reviews, 1);
+  // the seller sees every review and can hide one; hidden ones leave the store
+  const mine = (await api('/store/reviews', 'GET', null, A)).data.reviews;
+  assert.equal(mine.length, 2);
+  const teaReview = mine.find((x) => x.listingId === L.tea.id);
+  assert.equal(teaReview.product, 'Assam Tea 250g');
+  assert.equal((await api(`/store/reviews/${teaReview.id}`, 'PUT', { hidden: true }, B)).status, 404, 'not another seller’s');
+  assert.equal((await api(`/store/reviews/${teaReview.id}`, 'PUT', { hidden: true }, A)).data.hidden, true);
+  p = (await pub(`/p/${L.tea.id}`)).data;
+  assert.deepEqual([p.listing.rating, p.listing.reviews, p.reviews.length], [undefined, undefined, 0]);
+  // another store's address doesn't open this order
+  assert.equal((await api(`/s/demo-grocery/order/${r.orderId}?k=${m[2]}`)).status, 404);
+});

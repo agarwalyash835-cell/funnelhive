@@ -96,7 +96,29 @@ export default function StoreSettings() {
             onDelete={async () => { if (!(await confirmDialog({ title: t('Remove from store?'), text: t('The product or stock item itself is kept.') }))) return; await api(`/store/listings/${l.id}`, 'DELETE'); setD({ ...d, listings: d.listings.filter((y) => y.id !== l.id) }); }} />)}</div>
         )}
       </Panel>
+      <Panel title={t('Reviews')}><StoreReviews /></Panel>
     </Layout>
+  );
+}
+
+// buyers' reviews (left from their order page after delivery) — hide one to take it off the store
+function StoreReviews() {
+  const [list, setList] = useState(null);
+  useEffect(() => { api('/store/reviews').then((r) => setList(r.reviews)).catch(loadFailed); }, []);
+  if (!list) return <div className="skeleton" style={{ height: 60 }} />;
+  if (!list.length) return <Empty icon="star" title={t('No reviews yet')} text={t('After an order is delivered, the buyer gets a link to rate what they bought. Reviews show on your products.')} />;
+  const toggle = async (r) => {
+    try { const x = await api(`/store/reviews/${r.id}`, 'PUT', { hidden: !r.hidden }); setList(list.map((y) => (y.id === r.id ? { ...y, hidden: x.hidden } : y))); } catch (e) { toast(e.message); }
+  };
+  return (
+    <div className="st-list">{list.map((r) => (
+      <div key={r.id} className={`st-row${r.hidden ? ' off' : ''}`}><div className="st-row-head">
+        <div><b>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)} · {r.product || t('(removed)')}</b>
+          <small className="muted">{r.name}{r.size ? ` · ${r.size}` : ''} · #{r.orderId} · {new Date(r.at).toLocaleDateString('en-IN')}{r.hidden ? ` · ${t('Hidden')}` : ''}</small>
+          {r.text && <p style={{ margin: '4px 0 0' }}>{r.text}</p>}</div>
+        <button type="button" className="btn sm" onClick={() => toggle(r)}>{r.hidden ? t('Show') : t('Hide')}</button>
+      </div></div>
+    ))}</div>
   );
 }
 

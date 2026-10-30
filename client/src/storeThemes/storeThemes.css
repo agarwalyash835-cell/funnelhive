@@ -860,3 +860,45 @@ p.sv-byline { font-size: 15px; margin: -2px 0 10px; }
 .th-brand .sv-ann { background: var(--st-ink); color: var(--st-bg); }
 .th-brand .sv-h2 { font-weight: 800; letter-spacing: -.02em; }
 .th-brand .sv-btn { border-radius: 999px; font-weight: 700; }
+
+/* ---------- the buyer's order page and product reviews (store-orders.js) ---------- */
+.sv-order { max-width: 720px; margin: 0 auto; padding-top: 28px; padding-bottom: 48px; display: grid; gap: 18px; }
+.sv-order > .sv-h2 { margin: 0; }
+.sv-order > .sv-sub { margin: -10px 0 0; }
+.sv-timeline { list-style: none; margin: 0; padding: 20px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; background: var(--st-surface); border: 1px solid var(--st-line); border-radius: var(--st-radius); counter-reset: none; }
+.sv-timeline:has(li:nth-child(2):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sv-timeline li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; color: var(--st-soft); font-size: 13px; }
+.sv-timeline li::before { content: ''; position: absolute; top: 15px; right: 50%; width: 100%; height: 3px; background: var(--st-line); z-index: 0; }
+.sv-timeline li:first-child::before { display: none; }
+.sv-timeline li.done::before { background: var(--st-brand); }
+.sv-timeline li span { position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--st-surface); border: 2px solid var(--st-line); font-weight: 700; font-size: 13px; }
+.sv-timeline li.done span { background: var(--st-brand); border-color: var(--st-brand); color: var(--st-brand-ink); }
+.sv-timeline li.done b { color: var(--st-ink); }
+.sv-timeline small { font-size: 11.5px; }
+.sv-ostatus { margin: 0; padding: 14px 16px; border-radius: var(--st-radius); background: color-mix(in srgb, #d93025 10%, var(--st-surface)); color: #b3261e; font-weight: 600; }
+.sv-oship { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 14px 16px; border-radius: var(--st-radius); background: var(--st-brand-soft); }
+.sv-oship span { color: var(--st-soft); font-size: 14px; }
+.sv-oship .sv-btn { margin-left: auto; }
+.sv-oitems ul { list-style: none; margin: 0 0 6px; padding: 0; }
+.sv-oitems li, .sv-oitems p { display: flex; justify-content: space-between; gap: 12px; margin: 0; padding: 8px 0; border-bottom: 1px solid var(--st-line); }
+.sv-oitems p.tot { border-bottom: 0; font-size: 17px; }
+.sv-orate { padding: 18px; border-radius: var(--st-radius); background: var(--st-surface); border: 1px solid var(--st-line); }
+.sv-orate h3 { margin: 0; }
+.sv-orate > .sv-tax { display: block; margin: 4px 0 12px; }
+.sv-orate-row { display: grid; grid-template-columns: 56px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--st-line); }
+.sv-orate-row img, .sv-orate-row .sv-noimg { width: 56px; height: 56px; object-fit: cover; border-radius: var(--st-radius-sm); }
+.sv-orate-row > div { display: grid; gap: 8px; justify-items: start; }
+.sv-orate-row textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid var(--st-line); border-radius: var(--st-radius-sm); font: inherit; background: var(--st-bg); color: var(--st-ink); }
+.sv-rate { display: flex; gap: 2px; }
+.sv-rate button { border: 0; background: none; padding: 0 2px; font-size: 30px; line-height: 1; color: var(--st-line); cursor: pointer; transition: transform .1s; }
+.sv-rate button.on { color: #f5a623; }
+.sv-rate button:hover { transform: scale(1.12); }
+.sv-ok { margin: 0; color: var(--st-sale); font-weight: 600; }
+.sv-starline i { font-style: normal; color: var(--st-line); }
+.sv-starline i.on { color: #f5a623; }
+.sv-previews ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+@media (min-width: 860px) { .sv-previews ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.sv-previews li { padding: 16px; border-radius: var(--st-radius); background: var(--st-surface); border: 1px solid var(--st-line); display: grid; gap: 6px; }
+.sv-previews li p { margin: 0; line-height: 1.5; }
+.sv-previews li small { color: var(--st-soft); font-size: 12.5px; }
+.sv-previews .sv-sec-head { align-items: center; }

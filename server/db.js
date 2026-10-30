@@ -175,6 +175,8 @@ const SCHEMA = {
   // the storefront (store.js): one store per seller (its /s/<handle> address), and what it lists for sale
   stores: { cols: { userId: 0, handle: 0 }, unique: [['userId'], ['handle']] },
   slistings: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] },
+  // buyers' reviews of what they bought from a store (store-orders.js): one per product per order; the seller can hide one
+  sreviews: { cols: { userId: 0, listingId: 0, orderId: 0, hidden: (r) => bool(r.hidden), at: 0 }, unique: [['orderId', 'listingId']], index: [['userId', 'listingId'], ['userId', 'at']] },
   // ---- inventory phase 2 tables go here ----
   // ---- inventory-pro (industry) tables go here ----
   // bills of materials (one per finished item), schemes per item, named rate lists, credit limits per party, counter bills

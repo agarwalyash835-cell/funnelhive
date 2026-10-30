@@ -14,6 +14,7 @@ import { issueInvoice, invoiceUrl, providerRefund } from './sales.js';
 import { notify, money } from './notify.js';
 import { STATES } from './platform.js';
 import { codSellerAction, codDue } from './cod.js';
+import { trackUrl } from './store-orders.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 // "Where should we ship it?" — checked whenever a checkout asks for an address
@@ -88,13 +89,16 @@ export function applyFulfilment(owner, o, status, extra = {}, base) {
   const biz = owner.settings?.businessName || owner.name, first = String(o.name || '').split(/\s+/)[0] || 'there';
   if (status === 'shipped') {
     const ff = order.fulfilment;
-    if (extra.buyer !== false && o.email) sendEmail(owner, { to: o.email, subject: `Your order is on its way 🚚`, text: `Hi ${first},\n\nYour order (#${o.id}) has been shipped${ff.courier ? ` with ${ff.courier}` : ''}.${ff.tracking ? `\nTracking number: ${ff.tracking}` : ''}${ff.trackingUrl ? `\nTrack it here: ${ff.trackingUrl}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${codDue(o).toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
+    if (extra.buyer !== false && o.email) sendEmail(owner, { to: o.email, subject: `Your order is on its way 🚚`, text: `Hi ${first},\n\nYour order (#${o.id}) has been shipped${ff.courier ? ` with ${ff.courier}` : ''}.${ff.tracking ? `\nTracking number: ${ff.tracking}` : ''}${ff.trackingUrl ? `\nTrack it here: ${ff.trackingUrl}` : ''}${trackUrl(o) ? `\nYour order page: ${trackUrl(o)}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${codDue(o).toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
     if (extra.buyer !== false) waEvent(owner, 'order_shipped', { to: o.phone, params: [first, ff.courier || 'our courier'], link: ff.trackingUrl || (ff.tracking ? `tracking number ${ff.tracking}` : 'we will share the tracking soon'), entityId: o.id, ckey: contactKey(o.email, o.phone) });
     fireAutomation(o.userId, 'shipped', { email: o.email, phone: o.phone, name: o.name, funnelId: o.funnelId, product: o.items[0]?.name, amount: o.total, trackingLink: ff.trackingUrl || '', courier: ff.courier || '', trackingId: ff.tracking || '' });
     fireWebhook(o.userId, 'order.shipped', { order: o.id, courier: ff.courier, tracking: ff.tracking, trackingUrl: ff.trackingUrl, email: o.email });
   }
   // a delivered COD order means the cash was collected
   if (status === 'delivered' && o.status === 'cod') order = settleCod(owner, order, base);
+  // a store order delivered: one note asking how it was, with the order page where each product can be rated
+  const page = status === 'delivered' && o.fulfilment?.status !== 'delivered' && extra.buyer !== false && o.email && trackUrl(o);
+  if (page) sendEmail(owner, { to: o.email, subject: 'Your order has arrived — how was it? ⭐', text: `Hi ${first},\n\nYour order (#${o.id}) has been delivered. We hope you love it!\n\nIf you have a minute, rate what you bought — it helps other shoppers and helps us get better:\n${page}\n\n— ${biz}` }).catch(() => {});
   // returned to origin: an unpaid COD order is cancelled (nothing to refund); a paid one needs a refund from Orders
   if (status === 'returned' && o.status === 'cod') order = cancelCod(o, 'returned');
   return order;

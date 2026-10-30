@@ -48,6 +48,10 @@ const en = {
   bulkTitle: 'Bulk & contractor orders', bulkCta: 'Request a quote on WhatsApp', bulkAsk: 'Hi! I need a bulk quote for: ', bulkQuote: 'Bulk quote',
   madeBy: 'Made by {m}', makers: 'Meet the makers', makersSub: 'Every piece carries the name of the hands that made it', seeWork: 'See their work', handloomSeal: 'Handloom', bisMark: 'BIS',
   benefitsTitle: 'Why you’ll love it', howItWorks: 'How it works', versusTitle: '{s} vs the regular kind', ours: 'Ours', regular: 'Regular', reviewsTitle: 'What customers say', seeDetails: 'See details', specSheet: 'Specifications',
+  // the buyer's order page and reviews
+  trackOrder: 'Track your order', yourOrder: 'Your order', orderNo: 'Order #{id}', placedOn: 'Placed on {d}', stPlaced: 'Order placed', stShipped: 'Shipped', stOut: 'Out for delivery', stDelivered: 'Delivered', stCancelled: 'Cancelled', stReturned: 'Returned to us', stRefunded: 'Refunded', stReady: 'Ready — check your email for downloads',
+  trackWith: 'Track with {c}', awbNo: 'Tracking no. {n}', paidOnline: 'Paid online', codDue: 'Pay {p} in cash on delivery', advancePaid: '{p} paid online', subtotalLbl: 'Items', shippingLbl: 'Shipping', totalLbl: 'Total', needHelp: 'Need help with this order?', helpWa: 'Hi! I have a question about my order #{id}.',
+  rateTitle: 'How was it?', rateSub: 'Your rating helps other shoppers — it takes a few seconds.', reviewPh: 'What did you like? (optional)', postReview: 'Post review', reviewThanks: 'Thanks for your review!', editReview: 'Edit', starsN: '{n} stars', customerReviews: 'Customer reviews', verifiedBuyer: 'Verified buyer', noReviewsYet: 'No reviews yet',
 };
 const hi = {
   search: 'खोजें', searchPh: 'प्रोडक्ट खोजें', cart: 'कार्ट', bag: 'बैग', addToCart: 'कार्ट में डालें', addToBag: 'बैग में डालें', add: 'जोड़ें', soldOut: 'स्टॉक ख़त्म',
@@ -95,6 +99,9 @@ const hi = {
   bulkTitle: 'थोक और ठेकेदार ऑर्डर', bulkCta: 'WhatsApp पर कोटेशन माँगें', bulkAsk: 'नमस्ते! मुझे इनका थोक रेट चाहिए: ', bulkQuote: 'थोक रेट',
   madeBy: '{m} द्वारा बना', makers: 'कारीगरों से मिलें', makersSub: 'हर पीस पर उसे बनाने वाले हाथों का नाम', seeWork: 'इनका काम देखें', handloomSeal: 'हैंडलूम', bisMark: 'BIS',
   benefitsTitle: 'आपको क्यों पसंद आएगा', howItWorks: 'कैसे काम करता है', versusTitle: '{s} बनाम आम प्रोडक्ट', ours: 'हमारा', regular: 'आम', reviewsTitle: 'ग्राहक क्या कहते हैं', seeDetails: 'पूरी जानकारी', specSheet: 'स्पेसिफ़िकेशन',
+  trackOrder: 'ऑर्डर ट्रैक करें', yourOrder: 'आपका ऑर्डर', orderNo: 'ऑर्डर #{id}', placedOn: '{d} को दिया गया', stPlaced: 'ऑर्डर मिला', stShipped: 'भेज दिया गया', stOut: 'डिलीवरी के लिए निकला', stDelivered: 'डिलीवर हो गया', stCancelled: 'रद्द', stReturned: 'हमें वापस आया', stRefunded: 'पैसे वापस', stReady: 'तैयार — डाउनलोड के लिए ईमेल देखें',
+  trackWith: '{c} पर ट्रैक करें', awbNo: 'ट्रैकिंग नंबर {n}', paidOnline: 'ऑनलाइन भुगतान हो गया', codDue: 'डिलीवरी पर {p} नकद दें', advancePaid: '{p} ऑनलाइन दिए', subtotalLbl: 'सामान', shippingLbl: 'शिपिंग', totalLbl: 'कुल', needHelp: 'इस ऑर्डर में मदद चाहिए?', helpWa: 'नमस्ते! मेरे ऑर्डर #{id} के बारे में सवाल है।',
+  rateTitle: 'कैसा लगा?', rateSub: 'आपकी रेटिंग दूसरे ग्राहकों की मदद करती है — बस कुछ सेकंड लगेंगे।', reviewPh: 'क्या पसंद आया? (ज़रूरी नहीं)', postReview: 'रिव्यू भेजें', reviewThanks: 'रिव्यू के लिए धन्यवाद!', editReview: 'बदलें', starsN: '{n} स्टार', customerReviews: 'ग्राहकों के रिव्यू', verifiedBuyer: 'असली ख़रीदार', noReviewsYet: 'अभी कोई रिव्यू नहीं',
 };
 export const LABELS = { en, hi };
 export const LANGS = [['en', 'EN'], ['hi', 'हिं']];
