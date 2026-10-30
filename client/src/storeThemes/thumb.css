@@ -1,0 +1,41 @@
+/* Theme gallery thumbnails (Store settings) — a miniature of each theme drawn from its tokens. */
+.tt { --u: 1px; height: 190px; overflow: hidden; background: var(--st-bg); border-radius: 10px; display: flex; flex-direction: column; gap: 6px; padding-bottom: 6px; box-sizing: border-box; border: 1px solid rgba(0,0,0,.08); }
+.tt i, .tt b, .tt em { display: block; border-radius: 3px; }
+.tt-ann { height: 7px; background: var(--st-ink); flex: none; }
+.tt-grocery .tt-ann { background: var(--st-brand); }
+.tt-electronics .tt-ann { background: linear-gradient(90deg, var(--st-brand), var(--st-accent2)); }
+.tt-beauty .tt-ann { background: var(--st-accent2); }
+.tt-hdr { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; height: 14px; }
+.tt-hdr i { width: 14px; height: 6px; background: var(--st-line); }
+.tt-hdr b { width: 56px; height: 8px; background: var(--st-ink); }
+.tt-hdr.h-search b, .tt-hdr.h-bar b, .tt-hdr.h-simple b { order: -1; background: var(--st-brand); }
+.tt-hero { position: relative; margin: 0 10px; height: 74px; border-radius: var(--st-radius); overflow: hidden; display: flex; align-items: center; flex: none; background: var(--st-brand-soft); }
+.tt-hero img { position: absolute; right: 0; top: 0; height: 100%; width: auto; object-fit: cover; }
+.tt-hero span { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 0 10px; }
+.tt-hero span b { width: 70px; height: 9px; background: var(--st-ink); }
+.tt-hero span i { width: 50px; height: 5px; background: var(--st-soft); opacity: .6; }
+.tt-hero span em { width: 30px; height: 9px; background: var(--st-brand); border-radius: var(--st-radius-sm); }
+.tt-hero.r-editorial { margin: 0; border-radius: 0; background: #1b1a17; }
+.tt-hero.r-editorial img { width: 100%; opacity: .9; }
+.tt-hero.r-editorial span { align-self: flex-end; padding-bottom: 8px; }
+.tt-hero.r-editorial span b { background: #fff; width: 84px; height: 12px; }
+.tt-hero.r-editorial span i { background: #fff; }
+.tt-hero.r-editorial span em { background: #fff; border-radius: 0; }
+.tt-hero.r-banner { background: linear-gradient(120deg, var(--st-brand), color-mix(in srgb, var(--st-brand) 55%, #000)); }
+.tt-hero.r-banner span b, .tt-hero.r-banner span i { background: var(--st-brand-ink); }
+.tt-hero.r-banner span em { background: var(--st-accent2); }
+.tt-hero.r-banner img { height: 80%; top: 10%; right: 8px; border-radius: 6px; }
+.tt-electronics .tt-hero.r-banner { background: radial-gradient(circle at 80% 30%, color-mix(in srgb, var(--st-brand) 60%, transparent), #10141c 70%); }
+.tt-hero.r-split { background: transparent; }
+.tt-hero.r-split img { border-radius: 999px 999px 8px 8px; background: var(--st-accent2); height: 100%; }
+.tt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 10px; flex: 1; min-height: 0; }
+.tt-grid > div { display: flex; flex-direction: column; gap: 3px; background: var(--st-surface); border-radius: calc(var(--st-radius) / 2); overflow: hidden; padding-bottom: 4px; box-shadow: var(--st-shadow); }
+.tt-grid span { display: block; flex: 1; min-height: 0; background: var(--st-brand-soft); overflow: hidden; }
+.tt-grid span img { width: 100%; height: 100%; object-fit: cover; }
+.tt-grid i { height: 4px; width: 70%; margin: 0 4px; background: var(--st-soft); opacity: .5; }
+.tt-grid b { height: 5px; width: 40%; margin: 0 4px; background: var(--st-ink); }
+.tt-grid.c-editorial > div { background: none; box-shadow: none; border-radius: 0; padding: 0; }
+.tt-grid.c-compact > div { border: 1px solid var(--st-line); }
+.tt-grid.c-compact b { background: var(--st-brand); width: 50%; align-self: flex-end; margin-right: 4px; }
+.tt-grid.c-spec > div { border: 1px solid var(--st-line); }
+.tt-grid.c-spec b { background: var(--st-brand); width: 80%; }

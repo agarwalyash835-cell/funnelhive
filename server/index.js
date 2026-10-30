@@ -92,6 +92,7 @@ import { registerAiBuild } from './aibuild.js';
 import { registerMetaSignup } from './meta-signup.js';
 import { registerWaKnowledge } from './waknow.js';
 import { registerStore, storeFunnel, storeFunnelId, takeStock, STORE_NAME } from './store.js';
+import { registerStoreAi } from './store-ai.js';
 import { registerAffiliates, attributeOrder } from './affiliates.js';
 
 const SECRET = loadSecret(DATA_DIR);
@@ -2043,6 +2044,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
 
 // the storefront (/s/<handle>): its API, checkout for a whole cart, and its page with title / link-preview tags
 registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml });
+registerStoreAi(app, { auth, rateLimit, isTest, credits });
 
 // an API path nobody answered is a JSON 404, never the app's HTML page
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));

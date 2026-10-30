@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Layout, Panel, Empty, toast, confirmDialog, inr, loadFailed } from '../ui';
 import { t } from '../appI18n';
+import { ThemePanel, AiSetup, PolicyPages } from './StoreLook.jsx';
 import '../store.css';
+import '../storeThemes/storeLook.css';
 
 // Sell → Store: the seller's online shop (server/store.js) — on/off, address, look, shipping and COD, policies,
 // and the catalog: digital Products and Inventory items, each with store-only title, photos, category, price / MRP.
@@ -25,7 +27,7 @@ export default function StoreSettings() {
   const save = async () => {
     setBusy(true);
     try {
-      const r = await api('/store', 'PUT', { enabled: !!s.enabled, handle: s.handle || '', name: s.name, tagline: s.tagline, about: s.about, color: s.color, logo: s.logo, categories: String(s.cats || '').split(',').map((x) => x.trim()).filter(Boolean), shipping: { fee: Number(s.shipping?.fee) || 0, freeAbove: Number(s.shipping?.freeAbove) || 0 }, cod: { enabled: !!s.cod?.enabled, fee: Number(s.cod?.fee) || 0 }, policies: s.policies || {} });
+      const r = await api('/store', 'PUT', { enabled: !!s.enabled, handle: s.handle || '', name: s.name, tagline: s.tagline, about: s.about, color: s.color, logo: s.logo, categories: String(s.cats || '').split(',').map((x) => x.trim()).filter(Boolean), shipping: { fee: Number(s.shipping?.fee) || 0, freeAbove: Number(s.shipping?.freeAbove) || 0 }, cod: { enabled: !!s.cod?.enabled, fee: Number(s.cod?.fee) || 0 }, policies: s.policies || {}, theme: s.theme || 'classic', themeOptions: s.themeOptions || {}, policyPages: s.policyPages || {} });
       setD({ ...d, store: r.store }); setS({ ...r.store, cats: (r.store.categories || []).join(', ') });
       toast(t('Store saved'));
     } catch (e) { toast(e.message); }
@@ -55,6 +57,13 @@ export default function StoreSettings() {
       <a className="btn" href={s.previewUrl} target="_blank" rel="noreferrer">{t('Preview')}</a>
       {s.enabled && <a className="btn primary" href={s.url} target="_blank" rel="noreferrer">{t('Open store')}</a>}
     </>}>
+      <Panel title={t('Describe your shop')}>
+        <p className="hint">{t('Write a sentence or two — AI picks a theme and drafts your store’s words, categories, policies and product descriptions. You preview it first.')}</p>
+        <AiSetup d={d} s={s} onApplied={load} />
+      </Panel>
+      <Panel title={t('Look & theme')}>
+        <ThemePanel s={s} set={set} onSave={save} busy={busy} />
+      </Panel>
       <Panel title={t('Store settings')}>
         <div className="st-set">
           <label className="fcheck"><input type="checkbox" checked={!!s.enabled} onChange={(e) => set({ enabled: e.target.checked })} /><span><b>{t('Store is open')}</b><small className="muted"> · {t('buyers can see and buy')}</small></span></label>
@@ -75,6 +84,10 @@ export default function StoreSettings() {
           <div className="st-full"><button className="btn primary" disabled={busy} onClick={save}>{busy ? t('Saving…') : t('Save')}</button></div>
         </div>
       </Panel>
+      <Panel title={t('Policy pages')}>
+        <PolicyPages s={s} set={set} />
+        <div className="sl-actions"><button className="btn primary" disabled={busy} onClick={save}>{busy ? t('Saving…') : t('Save')}</button></div>
+      </Panel>
       <Panel title={t('Catalog')} actions={options.length > 0 && <div className="st-add"><select value={pick} onChange={(e) => setPick(e.target.value)}><option value="">{t('Add to store…')}</option>{options.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}</select><button className="btn primary sm" disabled={!pick} onClick={add}>{t('Add')}</button></div>}>
         {!d.inventory && <p className="hint">{t('Physical stock items appear here when the Inventory add-on is on.')}</p>}
         {!d.listings.length ? <Empty icon="tag" title={t('Nothing for sale yet')} text={t('Add your Products (downloads, courses) or Inventory items to the store.')} /> : (
@@ -87,14 +100,22 @@ export default function StoreSettings() {
   );
 }
 
+const listOf = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((s) => s.trim()).filter(Boolean);
+
 function ListingRow({ l, name, item, cats, onSaved, onDelete }) {
   const [x, setX] = useState(l);
   const [open, setOpen] = useState(false);
   const set = (p) => setX({ ...x, ...p });
   const save = async (patch) => {
-    try { const r = await api(`/store/listings/${l.id}`, 'PUT', patch || { title: x.title, description: x.description, category: x.category, price: x.price === '' ? null : x.price, mrp: x.mrp === '' ? null : x.mrp, images: x.images, visible: x.visible, sort: Number(x.sort) || 0 }); setX(r); onSaved(r); if (!patch) toast(t('Saved')); } catch (e) { toast(e.message); }
+    try { const r = await api(`/store/listings/${l.id}`, 'PUT', patch || { title: x.title, description: x.description, category: x.category, highlights: listOf(x.highlights), sizes: listOf(x.sizes), badge: x.badge || '', price: x.price === '' ? null : x.price, mrp: x.mrp === '' ? null : x.mrp, images: x.images, visible: x.visible, sort: Number(x.sort) || 0 }); setX(r); onSaved(r); if (!patch) toast(t('Saved')); } catch (e) { toast(e.message); }
   };
   const price = x.price ?? item?.sale_rate;
+  const [ai, setAi] = useState(false);
+  const rewrite = async () => {
+    setAi(true);
+    try { const r = await api(`/store/listings/${l.id}/ai`, 'POST', {}); setX((c) => ({ ...c, ...r.draft })); toast(t('Rewritten — check it, then Save')); } catch (e) { toast(e.message); }
+    setAi(false);
+  };
   return (
     <div className={`st-row${x.visible === false ? ' off' : ''}`}>
       <div className="st-row-head" onClick={() => setOpen(!open)}>
@@ -107,7 +128,10 @@ function ListingRow({ l, name, item, cats, onSaved, onDelete }) {
         <label>{t('Category')}<select value={x.category || ''} onChange={(e) => set({ category: e.target.value })}><option value="">—</option>{[...new Set([...cats, x.category].filter(Boolean))].map((c) => <option key={c}>{c}</option>)}</select></label>
         <label>{t('Price (₹)')}<input type="number" min={0} value={x.price ?? ''} placeholder={item?.sale_rate != null ? `${item.sale_rate} (${t('sale rate')})` : ''} onChange={(e) => set({ price: e.target.value })} /></label>
         <label>{t('MRP / compare-at (₹)')}<input type="number" min={0} value={x.mrp ?? ''} onChange={(e) => set({ mrp: e.target.value })} /></label>
-        <label className="st-full">{t('Description')}<textarea rows={3} value={x.description || ''} onChange={(e) => set({ description: e.target.value })} /></label>
+        <label className="st-full"><span className="sl-row">{t('Description')}<button type="button" className="btn sm" disabled={ai} onClick={rewrite}>{ai ? t('Writing…') : t('Rewrite with AI')}</button></span><textarea rows={3} value={x.description || ''} onChange={(e) => set({ description: e.target.value })} /></label>
+        <label>{t('Highlights')}<input value={Array.isArray(x.highlights) ? x.highlights.join(', ') : x.highlights || ''} placeholder={t('Pure cotton, Hand-block printed')} onChange={(e) => set({ highlights: e.target.value })} /></label>
+        <label>{t('Sizes shown')}<input value={Array.isArray(x.sizes) ? x.sizes.join(', ') : x.sizes || ''} placeholder="S, M, L, XL" onChange={(e) => set({ sizes: e.target.value })} /></label>
+        <label>{t('Badge')}<input maxLength={20} value={x.badge || ''} placeholder={t('New drop / Bestseller')} onChange={(e) => set({ badge: e.target.value })} /></label>
         <div className="st-full st-imgs">{(x.images || []).map((u, i) => <span key={u + i}><img src={u} alt="" /><button type="button" aria-label={t('Remove')} onClick={() => set({ images: x.images.filter((_, j) => j !== i) })}>×</button></span>)}
           {(x.images || []).length < 8 && <label className="btn sm">{t('Add photo')}<input hidden type="file" accept="image/*" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) try { const u = await upload(f); setX((c) => ({ ...c, images: [...(c.images || []), u] })); } catch (er) { toast(er.message); } }} /></label>}</div>
         <label>{t('Order in list')}<input type="number" min={0} value={x.sort || 0} onChange={(e) => set({ sort: e.target.value })} /></label>
