@@ -132,6 +132,27 @@ test('sizes: one must be picked from the listed ones; two sizes are two lines sh
   assert.equal((await api(`/store/listings/${L.mug.id}`, 'PUT', { sizes: [] }, A)).status, 200);
 });
 
+test('a cart left at checkout is kept for a reminder, its link puts it back, and buying clears it', async () => {
+  const abandoned = async () => (await api('/orders?tab=abandoned', 'GET', null, A)).data.abandoned.filter((a) => a.store);
+  const cart = [{ id: L.tea.id, qty: 2 }, { id: L.mug.id, qty: 1 }];
+  assert.equal((await pub('/abandon', { cart, phone: '9812345670' })).status, 200);
+  assert.equal((await abandoned()).length, 0, 'not kept without the checkout’s notice');
+  await pub('/abandon', { notice: true, cart, phone: '9812345670', name: 'Ravi Kumar' });
+  await pub('/abandon', { notice: true, cart, phone: '9812345670', email: 'ravi@x.dev', name: 'Ravi Kumar' });
+  const [a, ...rest] = await abandoned();
+  assert.equal(rest.length, 0, 'the phone-only cart became the one with the email');
+  assert.deepEqual([a.cartTitle, a.amount, a.funnel], ['Assam Tea 250g + 1 more', 730, 'Online store']);
+  assert.match(a.link, new RegExp(`/s/chai-co/cart\\?c=${a.id}$`));
+  // the link's cart: lines only, nothing about who left it
+  const back = await pub(`/cart/${a.id}`);
+  assert.deepEqual(back.data, { cart: [{ id: L.tea.id, qty: 2 }, { id: L.mug.id, qty: 1 }] });
+  assert.equal((await pub('/cart/nope')).status, 404);
+  assert.equal((await api(`/s/demo-grocery/cart/${a.id}`)).status, 404, 'only from its own store');
+  // buying with that number clears it
+  await payCart({ cart: [{ id: L.ebook.id, qty: 1 }], phone: '9812345670', email: 'ravi@x.dev' });
+  assert.equal((await abandoned()).length, 0);
+});
+
 let interOrder;
 test('paying: one order, all items, GST line per item (IGST out of state), stock taken, digital delivered', async () => {
   const r = await payCart({ cart: [{ id: L.tea.id, qty: 2, price: 1 }, { id: L.ebook.id, qty: 1 }], address: KA });

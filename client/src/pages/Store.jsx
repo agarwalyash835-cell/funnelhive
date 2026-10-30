@@ -35,6 +35,7 @@ function useCart(handle) {
     setQty: (k, qty) => setCart((c) => (qty < 1 ? c.filter((x) => lineKey(x) !== k) : c.map((x) => (lineKey(x) === k ? { ...x, qty: Math.min(999, qty) } : x)))),
     remove: (k) => setCart((c) => c.filter((x) => lineKey(x) !== k)),
     clear: () => setCart([]),
+    replace: (lines) => setCart(lines),
   };
 }
 const setMetaTag = (sel, attr, v) => { let m = document.head.querySelector(sel); if (!m) { m = document.createElement('meta'); m.setAttribute(attr, sel.match(/"(.+)"/)[1]); document.head.appendChild(m); } m.setAttribute('content', v || ''); };
@@ -65,6 +66,9 @@ export default function Store() {
   const cart = useCart(handle);
   const base = `/api/s/${handle}`;
   useEffect(() => { getJson(`${base}${qs}`).then(setData); }, [base, qs]);
+  // a reminder's link (…/cart?c=<id>) puts the left cart back
+  const back = sp.get('c');
+  useEffect(() => { if (back) getJson(`${base}/cart/${encodeURIComponent(back)}`).then((r) => { if (Array.isArray(r.cart) && r.cart.length) cart.replace(r.cart); }); }, [back]); // eslint-disable-line react-hooks/exhaustive-deps
   // Store settings shows unsaved theme changes and AI drafts in a frame: { store, listings, extra } overrides
   useEffect(() => {
     if (!pv || window.parent === window) return undefined;
@@ -150,6 +154,8 @@ function Cart({ base, data, cart, home }) {
   const [couponErr, setCouponErr] = useState('');
   const set = (p) => setF({ ...f, ...p });
   const items = cart.cart.filter((x) => byId[x.id]);
+  // once there's an email or a 10-digit number, the cart is kept for one reminder (the notice below says so)
+  const leftCart = () => { if (!s.demo && (/\S+@\S+\.\S+/.test(f.email) || f.phone.replace(/\D/g, '').length >= 10)) buyerPost(`${base}/abandon`, { notice: true, cart: items, email: f.email, name: f.name, phone: f.phone }).catch(() => {}); };
   const body = (extra = {}) => ({ cart: items, coupon: code || undefined, email: f.email, method: f.method === 'cod' ? 'cod' : undefined, ...extra });
   const key = JSON.stringify([items, code, f.method]);
   useEffect(() => {
@@ -233,8 +239,8 @@ function Cart({ base, data, cart, home }) {
       <form className="st-form" onSubmit={pay}>
         <h2>Checkout</h2>
         <input required placeholder="Full name" value={f.name} onChange={(e) => set({ name: e.target.value })} autoComplete="name" />
-        <input type="email" required={!!quote?.digital} placeholder={quote?.digital ? 'Email (downloads are sent here)' : 'Email'} value={f.email} onChange={(e) => set({ email: e.target.value })} autoComplete="email" />
-        <input type="tel" required={f.method === 'cod'} placeholder="Mobile number" value={f.phone} onChange={(e) => set({ phone: e.target.value })} autoComplete="tel" />
+        <input type="email" required={!!quote?.digital} placeholder={quote?.digital ? 'Email (downloads are sent here)' : 'Email'} value={f.email} onChange={(e) => set({ email: e.target.value })} onBlur={leftCart} autoComplete="email" />
+        <input type="tel" required={f.method === 'cod'} placeholder="Mobile number" value={f.phone} onChange={(e) => set({ phone: e.target.value })} onBlur={leftCart} autoComplete="tel" />
         {needsAddress && <>
           <input required placeholder="Address" value={f.line1} onChange={(e) => set({ line1: e.target.value })} autoComplete="address-line1" />
           <input placeholder="Landmark (optional)" value={f.line2} onChange={(e) => set({ line2: e.target.value })} autoComplete="address-line2" />
@@ -251,6 +257,7 @@ function Cart({ base, data, cart, home }) {
         </div>}
         {err && <p className="st-err" role="alert">{err}</p>}
         <button className="st-btn big" disabled={busy || !quote || !s.enabled || s.demo}>{busy ? 'Processing…' : adv ? `Pay ${rs(adv.amount)} now · ${rs(adv.due)} on delivery` : f.method === 'cod' ? `Place order · ${quote ? rs(quote.total) : ''}` : `Pay ${quote ? rs(quote.total) : ''}`}</button>
+        <small className="st-tax">If you don’t finish, we may send you one reminder about this cart on WhatsApp or email.</small>
         <small className="st-tax">🔒 Secure checkout{s.payments === 'demo' ? ' (demo — no payment taken)' : ''}</small>
       </form>
     </div>

@@ -370,7 +370,13 @@ export async function hiveTick(now = Date.now()) {
         // bought since (recovery marks most carts; this catches a purchase in another funnel)
         if ((c.email && T.orders.exists({ userId: id, ckey: contactKey(c.email), at: { gt: c.at } })) || ordersByPhone({ userId: id }, c.phone, c.at).length) continue;
         const claimed = tx(() => { const x = T.abandoned.get(c.id); if (!x || x.waReminded || x.recovered) return false; x.waReminded = now; T.abandoned.put(x); return true; });
-        const f = claimed && T.funnels.get(c.funnelId);
+        if (!claimed) continue;
+        // a store cart: its summary, and a link that puts the cart back
+        if (c.store) {
+          await waEvent(u, 'abandoned_checkout', { to: c.phone, params: [String(c.name || '').split(/\s+/)[0] || 'there', c.cartTitle || 'your cart'], link: `${c.cartLink}?c=${c.id}`, entityId: c.id, ckey: contactKey(c.email, c.phone) });
+          continue;
+        }
+        const f = T.funnels.get(c.funnelId);
         if (!f) continue;
         const step = f.steps.find((s) => s.id === c.stepId) || f.steps.find((s) => s.type === 'checkout');
         const chk = f.steps.find((s) => s.type === 'checkout')?.blocks.find((b) => b.type === 'checkout')?.props;

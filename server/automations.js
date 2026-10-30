@@ -227,8 +227,9 @@ function contextFor(userId, data) {
   return {
     key: data.key || contactKey(data.email, data.phone), name, first_name: name.split(/\s+/)[0] || '', email: data.email || '', phone: data.phone || '',
     qualified: typeof data.qualified === 'boolean' ? data.qualified : null,
-    product: data.product || '', amount: data.amount != null ? `₹${Number(data.amount).toLocaleString('en-IN')}` : '', amountRaw: data.amount != null ? Number(data.amount) : null, source: data.source || '', funnel: f?.name || '', funnelId: f?.id || null,
-    funnel_link: f ? funnelUrl(f, origin) : '', checkout_link: f ? funnelUrl(f, origin, checkout?.slug) : '', business: userOf(userId)?.settings?.businessName || '', origin,
+    product: data.product || '', amount: data.amount != null ? `₹${Number(data.amount).toLocaleString('en-IN')}` : '', amountRaw: data.amount != null ? Number(data.amount) : null, source: data.source || '', funnel: f?.name || data.funnelName || '', funnelId: f?.id || null,
+    // a store cart brings its own links (the store has no funnel pages)
+    funnel_link: data.funnelLink || (f ? funnelUrl(f, origin) : ''), checkout_link: data.checkoutLink || (f ? funnelUrl(f, origin, checkout?.slug) : ''), business: userOf(userId)?.settings?.businessName || '', origin,
     access_link: data.accessLink || '', invoice_link: data.invoiceLink || '',
     booking_time: data.bookingTime || '', booking_link: data.bookingLink || '', meeting_link: data.meetingLink || '',
     webinar_time: data.webinarTime || '', join_link: data.joinLink || '',
@@ -599,6 +600,14 @@ function scanAbandoned() {
     for (const c of T.abandoned.all({ userId: a.userId, recovered: 0, demo: 0, at: { gte: since, lte: now - delay } })) {
       if (a.trigger.funnelId && a.trigger.funnelId !== c.funnelId) continue;
       if ((c.auto || []).includes(a.id)) continue;
+      // a store cart: no funnel behind it — the cart's own summary and a link that puts it back
+      if (c.store) {
+        if (c.userId !== a.userId) continue;
+        c.auto = [...(c.auto || []), a.id];
+        T.abandoned.put(c);
+        start(a, { email: c.email, name: c.name, phone: c.phone, product: c.cartTitle, amount: c.amount, source: 'store', funnelName: 'Online store', checkoutLink: `${c.cartLink}?c=${c.id}`, funnelLink: c.cartLink.replace(/\/cart$/, '') });
+        continue;
+      }
       const f = T.funnels.get(c.funnelId);
       if (!f || f.userId !== a.userId) continue;
       c.auto = [...(c.auto || []), a.id];

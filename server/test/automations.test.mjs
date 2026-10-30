@@ -168,6 +168,22 @@ test('automation: abandoned checkout reminder stops when the person buys', async
   assert.ok(!mails.slice(before).some((m) => m.includes('Last chance')));
 });
 
+test('automation: a store cart left at checkout gets the reminder, with a link that puts the cart back', async () => {
+  const p = (await api('/products', 'POST', { name: 'Yoga Mat Guide' }, T)).data;
+  assert.equal((await api('/store', 'PUT', { handle: 'yoga-shop', name: 'Yoga Shop', enabled: true }, T)).status, 200);
+  const l = (await api('/store/listings', 'POST', { kind: 'product', refId: p.id, price: 299 }, T)).data;
+  const a = (await api('/automations', 'POST', { name: 'Store cart reminder', trigger: { type: 'abandoned', delayMin: 5 }, steps: [{ type: 'email', subject: 'Your cart, {{first_name}}', body: '{{product}} for {{amount}} — finish here: {{checkout_link}}' }] }, T)).data;
+  await api(`/automations/${a.id}`, 'PUT', { active: true }, T);
+  const before = mails.length;
+  await api('/s/yoga-shop/abandon', 'POST', { notice: true, cart: [{ id: l.id, qty: 1 }], email: 'meera@example.com', name: 'Meera Iyer' });
+  const m = await until(() => mails.slice(before).find((x) => x.includes('Your cart, Meera')));
+  assert.ok(m, 'reminder sent');
+  assert.match(m, /Yoga Mat Guide for ₹299/);
+  const c = m.match(/\/s\/yoga-shop\/cart\?c=([a-f0-9]+)/);
+  assert.ok(c, 'link back to the store cart');
+  assert.deepEqual((await api(`/s/yoga-shop/cart/${c[1]}`)).data.cart, [{ id: l.id, qty: 1 }]);
+});
+
 test('automation: purchase → stage move + WhatsApp text (24h rule reported, not hidden)', async () => {
   const pipes = (await api('/pipelines', 'GET', null, T)).data;
   const won = pipes[0].stages.find((s) => s.won), interested = pipes[0].stages[2];

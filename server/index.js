@@ -1039,7 +1039,11 @@ app.get('/api/orders', auth, (req, res) => {
   const ids = (out.orders || []).map((o) => o.id);
   for (let i = 0; i < ids.length; i += 500) for (const inv of T.sinvoices.all({ orderId: ids.slice(i, i + 500) }, { order: 'at' })) if (inv.userId === req.user.id) (invoices[inv.orderId] ||= []).push({ id: inv.id, number: inv.number, type: inv.type, total: inv.total, url: invoiceUrl(baseOf(inv.funnelId), inv), gstin: inv.billedTo?.gstin || '', registered: !!inv.registered, test: !!inv.test, irn: inv.irn?.irn || null });
   if (out.orders) out.orders = out.orders.map((o) => ({ ...o, invoices: invoices[o.id] || [] }));
-  if (out.abandoned) out.abandoned = out.abandoned.map((a) => { const f = byId[a.funnelId], st = f.steps?.find((x) => x.id === a.stepId); return { ...a, link: f.published ? funnelUrl(f, process.env.APP_URL || appUrl(req), st?.slug) : null }; });
+  if (out.abandoned) out.abandoned = out.abandoned.map((a) => {
+    if (a.store) return { ...a, link: a.cartLink ? `${a.cartLink}?c=${a.id}` : null }; // a store cart: its link puts the cart back
+    const f = byId[a.funnelId], st = f?.steps?.find((x) => x.id === a.stepId);
+    return { ...a, link: f?.published ? funnelUrl(f, process.env.APP_URL || appUrl(req), st?.slug) : null };
+  });
   res.json({ payments: !!rzpCreds(req.user), ...out });
 });
 
@@ -1518,21 +1522,25 @@ function quizDone(f, stepId, block, quiz, lead, visitor, source) {
 app.post('/api/public/:slug/abandon', (req, res) => {
   const f = pub(req, res);
   if (!f) return;
-  if (req.body.notice !== true || req.body.consent === false || req.body.tk?.consent === false) return res.json({ ok: true });
+  saveAbandoned(f, req);
+  res.json({ ok: true });
+});
+// shared with the store's cart (store.js), which adds { store: true, cart, cartTitle, amount, cartLink } → the row, or null
+function saveAbandoned(f, req, extra = {}) {
+  if (req.body.notice !== true || req.body.consent === false || req.body.tk?.consent === false) return null;
   let email = String(req.body.email || '').trim().slice(0, 200);
   const name = String(req.body.name || '').slice(0, 120), raw = String(req.body.phone || '').slice(0, 40);
   if (!EMAIL_RE.test(email)) email = '';
   const ph = checkoutPhone(raw), phone = ph || raw;
   const stepId = f.steps.some((s) => s.id === req.body.stepId) ? req.body.stepId : null;
   const ckey = contactKey(email, ph);
-  if (!isPreview(req) && (email || ph) && !T.orders.exists({ funnelId: f.id, ckey }) && !(ph && ordersByPhone({ funnelId: f.id }, ph).length)) {
-    // a phone-only cart becomes this one once the email is typed too
-    const ex = T.abandoned.find({ funnelId: f.id, ckey }) || (email && ph && T.abandoned.find({ funnelId: f.id, ckey: contactKey(null, ph) }));
-    if (ex) T.abandoned.put(Object.assign(ex, { email: email || ex.email, name: name || ex.name, phone: phone || ex.phone, visitor: ex.visitor || visitorOf(req), at: Date.now(), noticeAt: ex.noticeAt || Date.now() }));
-    else { const attr = cleanAttr(req.body.attr); T.abandoned.insert({ id: uid(), userId: f.userId, funnelId: f.id, stepId, email, name, phone, visitor: visitorOf(req), at: Date.now(), noticeAt: Date.now(), recovered: false, ...(attr ? { attr } : {}) }); }
-  }
-  res.json({ ok: true });
-});
+  if (isPreview(req) || !(email || ph) || T.orders.exists({ funnelId: f.id, ckey }) || (ph && ordersByPhone({ funnelId: f.id }, ph).length)) return null;
+  // a phone-only cart becomes this one once the email is typed too
+  const ex = T.abandoned.find({ funnelId: f.id, ckey }) || (email && ph && T.abandoned.find({ funnelId: f.id, ckey: contactKey(null, ph) }));
+  if (ex) return T.abandoned.put(Object.assign(ex, { email: email || ex.email, name: name || ex.name, phone: phone || ex.phone, visitor: ex.visitor || visitorOf(req), at: Date.now(), noticeAt: ex.noticeAt || Date.now(), ...extra }));
+  const attr = cleanAttr(req.body.attr);
+  return T.abandoned.insert({ id: uid(), userId: f.userId, funnelId: f.id, stepId, email, name, phone, visitor: visitorOf(req), at: Date.now(), noticeAt: Date.now(), recovered: false, ...(attr ? { attr } : {}), ...extra });
+}
 // a purchase recovers the funnel's abandoned checkouts with the buyer's email or phone number
 function recoverAbandoned(f, buyer) {
   const rows = buyer.email ? T.abandoned.all({ funnelId: f.id, ckey: contactKey(buyer.email) }) : [];
@@ -2105,7 +2113,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
 }
 
 // the storefront (/s/<handle>): its API, checkout for a whole cart, and its page with title / link-preview tags
-registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance });
+registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned });
 registerStoreAi(app, { auth, rateLimit, isTest, credits });
 
 // an API path nobody answered is a JSON 404, never the app's HTML page

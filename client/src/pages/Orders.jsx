@@ -118,7 +118,7 @@ export default function Orders() {
     if (!toShip.length) return toast(t('Nothing waiting to ship'));
     downloadCSV('to-ship.csv', toShip.map((o) => ({ order_id: o.id, order_date: new Date(o.at).toISOString().slice(0, 10), customer_name: o.name, phone: o.phone, email: o.email, address_line1: o.address?.line1, address_line2: o.address?.line2 || '', city: o.address?.city, state: o.address?.state || '', pincode: o.address?.pincode, products: o.items.filter((i) => !['shipping', 'cod_fee'].includes(i.kind)).map((i) => i.name).join(' | '), payment_method: o.status === 'cod' ? 'COD' : 'Prepaid', cod_amount: o.status === 'cod' ? (o.codDue ?? o.total) : 0, advance_paid: o.prepaid?.amount || 0, order_total: o.total })));
   };
-  const recoverMsg = (a) => `Hi ${a.name?.split(' ')[0] || 'there'} 👋 You were one step away from getting ${a.funnel}.${a.link ? ` You can finish your order here: ${a.link}` : ' Reply here and we’ll help you finish your order.'}`;
+  const recoverMsg = (a) => `Hi ${a.name?.split(' ')[0] || 'there'} 👋 You were one step away from getting ${a.cartTitle || a.funnel}.${a.link ? ` You can finish your order here: ${a.link}` : ' Reply here and we’ll help you finish your order.'}`;
   const exportCsv = async () => {
     let rows;
     try { rows = tab === 'orders' ? await fetchAll(qs, 'orders', 'nextCursor') : await fetchAll(filterQs, 'abandoned', 'abandonedCursor'); } catch (e) { return toast(e.message); }
@@ -206,7 +206,7 @@ export default function Orders() {
               <div className="tbl-wrap"><table className="tbl">
                 <thead><tr><th>{t('Contact')}</th><th>{t('Funnel')}</th><th className="r">{t('When')}</th><th className="r">{t('Recover')}</th></tr></thead>
                 <tbody>{abandoned.map((a) => (
-                  <tr key={a.id}><td><b>{a.name || '—'}</b><small className="sub-t">{[a.email, a.phone].filter(Boolean).join(' · ')}</small></td><td>{a.funnel}</td><td className="r muted" title={fullDate(a.at)}>{ago(a.at)}</td>
+                  <tr key={a.id}><td><b>{a.name || '—'}</b><small className="sub-t">{[a.email, a.phone].filter(Boolean).join(' · ')}</small></td><td>{a.funnel}{a.cartTitle && <small className="sub-t">{a.cartTitle}{a.amount ? ` · ₹${Number(a.amount).toLocaleString('en-IN')}` : ''}</small>}</td><td className="r muted" title={fullDate(a.at)}>{ago(a.at)}</td>
                     <td className="r"><div className="row end">
                       {a.phone && <a className="btn soft sm" href={`https://wa.me/${a.phone.replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}?text=${encodeURIComponent(recoverMsg(a))}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>}
                       {a.email && <a className="icon-btn" title={t('Email')} href={`mailto:${a.email}?subject=${encodeURIComponent(`Your order — ${a.funnel}`)}&body=${encodeURIComponent(recoverMsg(a))}`}><Icon name="mail" size={15} /></a>}

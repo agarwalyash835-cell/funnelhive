@@ -216,7 +216,7 @@ export function priceCart(store, owner, body, { couponFor, discountFor }) {
 }
 
 // ---------- routes ----------
-export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance }) {
+export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned }) {
   const pvKey = (s) => crypto.createHmac('sha256', secret).update(`store.${s.id}`).digest('base64url').slice(0, 16);
   const storeUrl = (req, s) => `${(process.env.PAGES_URL || appUrl(req)).replace(/\/+$/, '')}/s/${s.handle}`;
   const sellerView = (req, s) => ({ ...s, url: s.handle ? storeUrl(req, s) : null, previewUrl: s.handle ? `${storeUrl(req, s)}?pv=${pvKey(s)}` : null });
@@ -350,6 +350,30 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     // Cash on Delivery with an advance (cod.js): what's paid now and what's left for delivery
     const adv = req.body?.method === 'cod' && c.codAllowed ? codAdvanceFor(o.owner, c.total) : null;
     res.json({ ...view(c), ...(adv ? { prepaid: adv } : {}) });
+  });
+
+  // ---- carts left at checkout: kept (with the buyer's notice) so automations and the WhatsApp reminder can bring them back ----
+  // body: { cart, email, name, phone, notice: true } — the same rules as a funnel's abandoned checkout (index.js saveAbandoned)
+  app.post('/api/s/:handle/abandon', quoteLimiter, (req, res) => {
+    const o = openStore(req, res, { buying: true, quote: true });
+    if (!o) return;
+    if (o.demo || o.pv) return res.json({ ok: true });
+    const c = priceCart(o.s, o.owner, { cart: req.body?.cart }, { couponFor, discountFor });
+    if (c.error) return res.json({ ok: true });
+    const first = c.lines[0], more = c.lines.length - 1;
+    saveAbandoned(storeFunnel(o.s), req, {
+      store: true, cart: c.lines.map((l) => ({ id: l.id, qty: l.qty, ...(l.size ? { size: l.size } : {}) })), amount: c.total,
+      cartTitle: more > 0 ? `${first.title} + ${more} more` : first.title, cartLink: `${storeUrl(req, o.s)}/cart`,
+    });
+    res.json({ ok: true });
+  });
+  // the reminder's link (…/cart?c=<id>) puts that cart back — its lines only, never who left it
+  app.get('/api/s/:handle/cart/:cid', quoteLimiter, (req, res) => {
+    const o = openStore(req, res, { buying: true, quote: true });
+    if (!o) return;
+    const a = !o.demo && T.abandoned.get(clip(req.params.cid, 40));
+    if (!a || !a.store || a.funnelId !== storeFunnelId(o.s.userId) || !Array.isArray(a.cart)) return res.status(404).json({ error: 'That cart has expired — the products are still in the store' });
+    res.json({ cart: a.cart });
   });
 
   // everything the checkout needs before money moves → { o, charge, buyer } or an error already sent
