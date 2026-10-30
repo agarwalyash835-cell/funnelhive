@@ -74,14 +74,14 @@ export const IMAGE_ASPECTS = ['1:1', '16:9', '9:16', '4:5', '5:4', '3:4', '4:3',
 export const imagesReady = () => !!KIE_KEY;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // → { buf, type } — kie.ai keeps results for 14 days, so the caller stores the bytes itself
-export async function generateImage(prompt, { aspect = '16:9', timeoutMs = 150000, pollMs = 2500 } = {}) {
+export async function generateImage(prompt, { aspect = '16:9', format = 'png', timeoutMs = 150000, pollMs = 2500 } = {}) {
   if (!KIE_KEY) throw new Error('AI images aren’t switched on yet');
   const p = String(prompt || '').trim().slice(0, 1500);
   if (p.length < 3) throw new Error('Describe the image you want');
   const auth = { Authorization: `Bearer ${KIE_KEY}` };
   const c = await fetch(`${KIE_BASE}/api/v1/jobs/createTask`, {
     method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30000),
-    body: JSON.stringify({ model: IMAGE_MODEL, input: { prompt: p, output_format: 'png', aspect_ratio: IMAGE_ASPECTS.includes(aspect) ? aspect : '16:9' } }),
+    body: JSON.stringify({ model: IMAGE_MODEL, input: { prompt: p, output_format: format === 'jpg' ? 'jpg' : 'png', aspect_ratio: IMAGE_ASPECTS.includes(aspect) ? aspect : '16:9' } }),
   });
   const cd = await c.json().catch(() => ({}));
   const taskId = cd?.data?.taskId;

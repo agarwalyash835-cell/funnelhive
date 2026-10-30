@@ -3,6 +3,8 @@
 // as small SVGs (generated, so license-safe and a few hundred bytes each) — served at /api/s/demo-<theme>/art/<id>.svg.
 // Adding an industry: add its catalogue to DEMOS and, if its products need new shapes, a drawing to ART.
 
+import fs from 'node:fs';
+
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 // ---------- drawings ----------
@@ -194,7 +196,11 @@ export const isDemoHandle = (h) => /^demo-/.test(String(h || ''));
 const handleOf = (t) => `demo-${t}`;
 const themeOfHandle = (h) => (isDemoHandle(h) ? String(h).slice(5) : null);
 const idOf = (t, i) => `${t}-${String(i + 1).padStart(2, '0')}`;
-const imgOf = (t, id) => `/api/s/${handleOf(t)}/art/${id}.svg`;
+// AI-made photos (server/scripts/demo-images.mjs) win over the drawn SVGs once they exist
+let PHOTOS = {};
+try { PHOTOS = JSON.parse(fs.readFileSync(new URL('./demo-photos.json', import.meta.url), 'utf8')); } catch {}
+const hasPhoto = (t, id) => (PHOTOS[t] || []).includes(id);
+const imgOf = (t, id) => (hasPhoto(t, id) ? `/demo/${t}/${id}.webp` : `/api/s/${handleOf(t)}/art/${id}.svg`);
 
 // the public store, shaped like store.js publicStore
 export function demoStore(handle) {
@@ -204,7 +210,7 @@ export function demoStore(handle) {
   return {
     handle, name: s.name, tagline: s.tagline, about: s.about, color: '#6366f1', logo: '', categories: s.categories, policies: {}, policyPages: [],
     shipping: s.shipping, cod: s.cod, payments: 'demo', enabled: true, demo: true, pincode: true, whatsapp: '',
-    theme: s.theme, themeOptions: { whatsapp: false, ...s.themeOptions },
+    theme: s.theme, themeOptions: { whatsapp: false, ...s.themeOptions, ...(hasPhoto(t, 'hero') ? { heroImage: `/demo/${t}/hero.webp` } : {}) },
   };
 }
 export function demoListings(handle) {
