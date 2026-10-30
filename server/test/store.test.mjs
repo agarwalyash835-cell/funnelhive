@@ -198,3 +198,31 @@ test('the last units paid for twice at once: the later payment is honoured, flag
   const bell = (await api('/notifications', 'GET', null, A)).data;
   assert.ok(JSON.stringify(bell).includes('Sold more than you had in stock'));
 });
+
+// stock back: a cancelled COD order and a return to origin put the goods back once; a refund restocks unless the
+// seller says the goods didn't come back
+test('stock comes back on a COD cancel or RTO (once only) and on a refund unless restock is off', async () => {
+  await api('/settings/cod', 'PUT', { noCod: '' }, A);
+  let before = await stockOf(tea.id);
+  const c = await pub('/cod', { cart: [{ id: L.tea.id, qty: 2 }], name: 'Meena', phone: '9876543211', address: MH });
+  assert.equal(c.status, 200, JSON.stringify(c.data));
+  assert.equal(await stockOf(tea.id), before - 2);
+  assert.equal((await api(`/orders/${c.data.orderId}/cod`, 'POST', { action: 'cancel' }, A)).status, 200);
+  assert.equal(await stockOf(tea.id), before, 'a cancelled COD order puts its stock back');
+  await api(`/orders/${c.data.orderId}/cod`, 'POST', { action: 'rto' }, A);
+  assert.equal(await stockOf(tea.id), before, 'never twice');
+
+  before = await stockOf(tea.id);
+  const paid = await payCart({ cart: [{ id: L.tea.id, qty: 1 }], address: MH });
+  assert.equal(await stockOf(tea.id), before - 1);
+  const r = await api(`/orders/${paid.orderId}/refund`, 'POST', { items: [0] }, A);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(await stockOf(tea.id), before, 'refunded: back in stock');
+  const mv = (await api(`/inventory/moves?itemId=${tea.id}`, 'GET', null, A)).data.moves.find((m) => m.kind === 'RETURN_IN' && m.ref === `Order ${paid.orderId}`);
+  assert.equal(mv.note, 'Refunded');
+
+  before = await stockOf(tea.id);
+  const kept = await payCart({ cart: [{ id: L.tea.id, qty: 1 }], address: MH });
+  assert.equal((await api(`/orders/${kept.orderId}/refund`, 'POST', { items: [0], restock: false }, A)).status, 200);
+  assert.equal(await stockOf(tea.id), before - 1, 'restock off: the goods didn’t come back');
+});

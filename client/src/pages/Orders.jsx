@@ -339,6 +339,7 @@ function RefundModal({ o, onClose, onDone }) {
   const open = o.items.map((it, i) => ({ ...it, i })).filter((it) => !it.refunded);
   const [pick, setPick] = useState(open.map((it) => it.i));
   const [reason, setReason] = useState('');
+  const [restock, setRestock] = useState(true); // store items go back into stock unless the goods didn't come back
   const [busy, setBusy] = useState(false);
   const amount = open.filter((it) => pick.includes(it.i)).reduce((s, it) => s + it.price, 0);
   const viaRzp = open.some((it) => pick.includes(it.i) && it.paymentId);
@@ -346,7 +347,7 @@ function RefundModal({ o, onClose, onDone }) {
   const go = async () => {
     setBusy(true);
     try {
-      const r = await api(`/orders/${o.id}/refund`, 'POST', { items: pick, reason });
+      const r = await api(`/orders/${o.id}/refund`, 'POST', { items: pick, reason, restock });
       toast(r.errors?.length ? `Partly done: ${r.errors.join(' · ')}` : `Refunded ${money(amount, o)}`);
       onDone();
     } catch (e) { toast(e.message); setBusy(false); }
@@ -360,6 +361,7 @@ function RefundModal({ o, onClose, onDone }) {
             <span>{it.name} <small className="muted">· {it.kind}{it.productId ? ' · access will be removed' : ''}</small></span><b>{money(it.price, o)}</b></label>
         ))}</div>
         <label className="fld"><span>Reason <small className="muted">· optional, for your records</small></span><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Asked within the 7-day guarantee" /></label>
+        {o.items.some((it, k) => pick.includes(k) && it.itemId) && <label className="fcheck"><input type="checkbox" checked={restock} onChange={(e) => setRestock(e.target.checked)} /> Put the items back in stock <small className="muted">· untick if the goods didn’t come back</small></label>}
         <p className="hint">{viaRzp ? `The money goes back through ${via} to the buyer’s original payment method (usually 5–10 working days).` : 'This order wasn’t paid online here, so the refund is only recorded — pay the buyer back yourself.'} A credit note is issued for invoiced items, and the refund is taken out of your reports.</p>
         <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn danger" disabled={!pick.length || busy} onClick={go}>{busy ? 'Refunding…' : `Refund ${money(amount, o)}`}</button></div>
       </div>

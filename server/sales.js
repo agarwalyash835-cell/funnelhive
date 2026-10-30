@@ -17,6 +17,7 @@ import { linkBase } from './products.js';
 import { stripeCreds, stripeRefund } from './stripe.js';
 import { trackServer } from './tracking.js';
 import { notify, money } from './notify.js';
+import { returnStock } from './store-stock.js';
 import { nextInSeries, PIN_RE } from './gst-returns.js';
 
 let SECRET = '';
@@ -117,7 +118,7 @@ export function issueInvoice(owner, order, lines, { paymentId = null, gst = null
 
 // ---------- refunds ----------
 // itemIndexes: which items of the order to refund (default: everything not refunded yet)
-export async function refundOrder(owner, order0, { itemIndexes, reason = '', by = 'seller' } = {}) {
+export async function refundOrder(owner, order0, { itemIndexes, reason = '', by = 'seller', restock = true } = {}) {
   // claim the items first (re-read inside a transaction): a double click or a second tab can't refund them twice
   // while the first refund is still waiting on Razorpay / Stripe; a claim older than 5 minutes counts as abandoned
   // each item once: [1, 1] must never refund the same item twice
@@ -131,9 +132,9 @@ export async function refundOrder(owner, order0, { itemIndexes, reason = '', by 
   });
   if (!idx.length) return { error: want.some((i) => order.items[i]?.refundingAt && !order.items[i]?.refunded) ? 'This refund is already being processed' : 'Nothing left to refund on this order' };
   const release = (list) => T.orders.update(order.id, (o) => { for (const i of list) if (o.items[i]) delete o.items[i].refundingAt; });
-  try { return await refundClaimed(owner, order, idx, { reason, by }); } finally { release(idx); }
+  try { return await refundClaimed(owner, order, idx, { reason, by, restock }); } finally { release(idx); }
 }
-async function refundClaimed(owner, order, idx, { reason, by }) {
+async function refundClaimed(owner, order, idx, { reason, by, restock }) {
   const creds = rzpCreds(owner);
   const groups = new Map(); // payment id → item indexes
   for (const i of idx) { const pid = order.items[i].paymentId || ''; groups.set(pid, [...(groups.get(pid) || []), i]); }
@@ -153,7 +154,7 @@ async function refundClaimed(owner, order, idx, { reason, by }) {
     done.push({ pid, list, amount, refundId });
   }
   if (!done.length) return { error: errors.join(' · ') };
-  let updated = applyRefund(owner, order.id, done.map((d) => ({ items: d.list, amount: d.amount, refundId: d.refundId, paymentId: d.pid || null })), { reason, by });
+  let updated = applyRefund(owner, order.id, done.map((d) => ({ items: d.list, amount: d.amount, refundId: d.refundId, paymentId: d.pid || null })), { reason, by, restock });
   // a refunded plan stops billing: its subscription is cancelled straight away (plans.js imports this file, hence the late import)
   const planRefunded = done.some((d) => d.list.some((i) => ['main', 'renewal'].includes(order.items[i].kind)));
   if (planRefunded && order.plan?.subId && ['active', 'authenticated', 'pending', 'halted', 'paused'].includes(updated?.plan?.status)) {
@@ -168,7 +169,7 @@ async function refundClaimed(owner, order, idx, { reason, by }) {
 
 // Records refunds on the order (already refunded at the payment provider): items, totals, access,
 // credit notes, webhooks, automations and analytics. parts: [{ items: [index], amount, refundId, paymentId }]
-export function applyRefund(owner, orderId, parts, { reason = '', by = 'seller', base = null } = {}) {
+export function applyRefund(owner, orderId, parts, { reason = '', by = 'seller', base = null, restock = true } = {}) {
   let order, fresh = [];
   tx(() => {
     order = T.orders.get(orderId);
@@ -197,6 +198,8 @@ export function applyRefund(owner, orderId, parts, { reason = '', by = 'seller',
   if (!order || !fresh.length) return order;
   // access: only the refunded items' products (other products in the same order stay)
   const refundedIdx = new Set(fresh.flatMap((r) => r.items));
+  // store items go back into stock (a refund without the goods coming back passes restock: false)
+  if (restock !== false) returnStock(order, [...refundedIdx].map((i) => order.items[i]), 'Refunded');
   for (const a of T.access.all({ orderId: order.id })) if (refundedIdx.has(a.item) && !a.revoked) { a.revoked = true; a.revokedAt = Date.now(); a.revokeReason = 'refunded'; T.access.put(a); }
   // credit notes for invoiced items
   for (const r of fresh) {
@@ -260,7 +263,7 @@ export function registerSales(app, { auth, wrap, secret, appUrl }) {
   app.post('/api/orders/:oid/refund', auth, wrap(async (req, res) => {
     const order = T.orders.get(req.params.oid);
     if (!order || order.userId !== req.user.id) return res.status(404).json({ error: 'Order not found' });
-    const r = await refundOrder(req.user, order, { itemIndexes: Array.isArray(req.body?.items) ? req.body.items : null, reason: req.body?.reason });
+    const r = await refundOrder(req.user, order, { itemIndexes: Array.isArray(req.body?.items) ? req.body.items : null, reason: req.body?.reason, restock: req.body?.restock !== false });
     if (r.error) return res.status(400).json(r);
     res.json(r);
   }));

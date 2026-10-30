@@ -3,6 +3,7 @@
 // any digital products are delivered then. A COD order that's refused / returned (RTO) is cancelled and nets out of
 // revenue. Online-paid orders use the same shipping steps.
 import { storeFunnel, storeFunnelId } from './store.js';
+import { returnStock } from './store-stock.js';
 import { T, tx, contactKey } from './db.js';
 import { sendEmail } from './messaging.js';
 import { waEvent } from './hive-wa.js';
@@ -101,6 +102,7 @@ export function applyFulfilment(owner, o, status, extra = {}, base) {
 export function cancelCod(o, why) {
   const order = tx(() => T.orders.update(o.id, (x) => { x.cancelledAmount = x.total; x.total = 0; x.status = 'cancelled'; x.cancelReason = why; x.cancelledAt = Date.now(); if (why === 'returned') x.rtoAt ||= Date.now(); for (const it of x.items) it.refunded ||= { at: Date.now(), cod: true }; }));
   revoke(o.userId, { orderId: o.id }, 'cancelled');
+  returnStock(order, order.items, why === 'returned' ? 'Returned to origin (RTO)' : 'COD order cancelled');
   const { userId, ...out } = order;
   fireWebhook(o.userId, 'order.cancelled', { reason: why, order: out });
   return order;
@@ -110,5 +112,7 @@ export function cancelCod(o, why) {
 // cancelled is just marked. It counts against the buyer's number (cod.js codHistory) and in Orders.
 export function markRto(o) {
   if (o.status === 'cod') { T.orders.update(o.id, (x) => { if (x.fulfilment) x.fulfilment = { ...x.fulfilment, status: 'returned', at: Date.now() }; }); return cancelCod(o, 'returned'); }
-  return T.orders.update(o.id, (x) => { x.rtoAt = Date.now(); if (x.fulfilment) x.fulfilment = { ...x.fulfilment, status: 'returned', at: Date.now() }; });
+  const order = T.orders.update(o.id, (x) => { x.rtoAt = Date.now(); if (x.fulfilment) x.fulfilment = { ...x.fulfilment, status: 'returned', at: Date.now() }; });
+  returnStock(order, order.items, 'Returned to origin (RTO)'); // a paid order came back: the goods are in stock again (refund it separately)
+  return order;
 }
