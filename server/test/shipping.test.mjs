@@ -25,6 +25,7 @@ const fakeServer = http.createServer(async (req, res) => {
   }
   if (req.headers.authorization !== `Bearer ${fake.token}` || fake.expireNext) { fake.expireNext = false; fake.token = 'expired'; return send(401, { message: 'Token has expired' }); }
   if (url.pathname === '/settings/company/pickup') return send(200, { data: { shipping_address: [{ id: 1, pickup_location: 'Primary', pin_code: '560034', city: 'Bengaluru', address: 'Koramangala' }, { id: 2, pickup_location: 'Delhi WH', pin_code: '110001', city: 'Delhi', address: 'CP' }] } });
+  if (url.pathname === '/orders/cancel') { (fake.cancels ||= []).push(...b.ids); return send(200, { status: 200, message: 'Order cancelled successfully' }); }
   if (url.pathname === '/orders/create/adhoc') { fake.orders.push(b); const n = fake.orders.length; return send(200, { order_id: 5000 + n, shipment_id: 9000 + n, status: 'NEW', status_code: 1 }); }
   if (url.pathname === '/courier/serviceability/') {
     const to = url.searchParams.get('delivery_postcode'), cod = url.searchParams.get('cod') === '1';
@@ -217,6 +218,28 @@ test('bulk ship; RTO cancels the unpaid COD order and counts in the buyer’s re
   assert.ok(bell.some((x) => /Delivery failed/.test(x.title)));
   assert.ok(bell.some((x) => /RTO/.test(x.title)));
   assert.equal((await api('/orders?status=ndr', 'GET', null, T)).data.orders.length, 1, 'the NDR filter');
+});
+
+// cancel before pickup: Shiprocket cancels it, the order can be shipped again; after pickup it's an RTO, not a cancel
+test('a shipment can be cancelled before pickup and shipped again; not once it’s in transit', async () => {
+  const id = await codOrder({ phone: '9000000011' });
+  const s1 = await api(`/orders/${id}/shipping/shiprocket`, 'POST', { override: true }, T);
+  assert.equal(s1.status, 200, JSON.stringify(s1.data));
+  const shiprocketId = s1.data.shipment.orderId;
+  const c = await api(`/orders/${id}/shipping-cancel`, 'POST', {}, T);
+  assert.equal(c.status, 200, JSON.stringify(c.data));
+  assert.ok(fake.cancels.includes(shiprocketId), 'cancelled at Shiprocket');
+  let o = await order(id);
+  assert.equal(o.shipment, undefined);
+  assert.equal(o.cancelledShipments.at(-1).stage, 'cancelled');
+  assert.equal((await api(`/orders/${id}/shipping-cancel`, 'POST', {}, T)).status, 400, 'nothing left to cancel');
+  const s2 = await api(`/orders/${id}/shipping/shiprocket`, 'POST', { override: true }, T);
+  assert.equal(s2.status, 200, 'shipped again');
+  assert.notEqual(s2.data.shipment.orderId, shiprocketId, 'a new Shiprocket order');
+  await hook(s2.data.shipment.awb, 'IN TRANSIT');
+  const late = await api(`/orders/${id}/shipping-cancel`, 'POST', {}, T);
+  assert.equal(late.status, 409);
+  assert.match(late.data.error, /RTO/);
 });
 
 test('the poll picks up what the webhook missed; an expired token is refreshed', async () => {

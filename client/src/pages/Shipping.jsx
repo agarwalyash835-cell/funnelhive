@@ -104,6 +104,9 @@ export function ShipmentCard({ o, onSaved }) {
   if (!sh?.awb) return null;
   const st = STAGE[sh.stage];
   const refresh = async () => { setBusy(true); try { await api(`/orders/${o.id}/shipping-track`, 'POST'); onSaved(); } catch (e) { toast(e.message); } setBusy(false); };
+  // before the courier picks it up, the booking can be cancelled (the order can then be shipped again)
+  const canCancel = !['picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'ndr', 'rto_initiated', 'rto_delivered', 'lost', 'cancelled'].includes(sh.stage);
+  const cancel = async () => { if (!(await confirmDialog({ title: t('Cancel this shipment?'), text: t('Shiprocket cancels the booking and the AWB. The order goes back to “not shipped” so you can ship it again.'), confirm: t('Cancel shipment'), danger: true }))) return; setBusy(true); try { await api(`/orders/${o.id}/shipping-cancel`, 'POST'); toast(t('Shipment cancelled')); onSaved(); } catch (e) { toast(e.message); } setBusy(false); };
   return (
     <section className="ship-card">
       <h4>{t('Shipment')} {st && <span className={`pill ${st[1]}`}>{t(st[0])}</span>}</h4>
@@ -115,6 +118,7 @@ export function ShipmentCard({ o, onSaved }) {
         {sh.manifestUrl && <a className="btn ghost sm" href={sh.manifestUrl} target="_blank" rel="noreferrer">{t('Manifest')}</a>}
         {o.fulfilment?.trackingUrl && <a className="btn ghost sm" href={o.fulfilment.trackingUrl} target="_blank" rel="noreferrer">{t('Tracking page ↗')}</a>}
         <button className="btn ghost sm" disabled={busy} onClick={refresh}>{busy ? t('Checking…') : t('Refresh tracking')}</button>
+        {canCancel && <button className="btn ghost sm danger" disabled={busy} onClick={cancel}>{t('Cancel shipment')}</button>}
       </div>
       {sh.events?.length > 0 && <ol className="ship-tl">{[...sh.events].reverse().slice(0, 12).map((e, i) => <li key={i}><b>{e.status}</b>{e.location && <span className="muted"> · {e.location}</span>}<small className="muted">{fmt(e.at)}{e.activity && e.activity !== e.status ? ` · ${e.activity}` : ''}</small></li>)}</ol>}
     </section>

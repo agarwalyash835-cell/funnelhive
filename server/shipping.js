@@ -193,6 +193,23 @@ export function applyTracking(o0, upd, via) {
   return T.orders.get(o.id);
 }
 
+// cancel a booked shipment before the courier picks it up: Shiprocket cancels it, the order goes back to "not shipped"
+// (the cancelled shipment is kept in its history) so it can be shipped again; after pickup it's an RTO, not a cancel
+const PICKED = ['picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'ndr', 'rto_initiated', 'rto_delivered', 'lost'];
+export async function cancelShipment(u, o) {
+  const sh = o.shipment;
+  if (!sh?.provider) throw err('This order hasn’t been shipped with a courier');
+  if (sh.stage === 'cancelled') throw err('This shipment is already cancelled');
+  if (PICKED.includes(sh.stage)) throw err('The courier has already picked this up — ask them to return it (RTO) instead', 409);
+  const ctx = await ctxFor(u, sh.provider);
+  await shiprocket.cancel(ctx, { orderId: sh.orderId, awb: sh.awb });
+  return T.orders.update(o.id, (x) => {
+    x.cancelledShipments = [...(x.cancelledShipments || []), { ...x.shipment, stage: 'cancelled', cancelledAt: Date.now() }].slice(-10);
+    delete x.shipment;
+    if (x.fulfilment) x.fulfilment = { status: 'pending', at: Date.now() };
+  });
+}
+
 export async function trackNow(u, o) {
   if (!o.shipment?.awb) throw err('This order hasn’t been shipped with Shiprocket');
   const ctx = await ctxFor(u, o.shipment.provider || 'shiprocket');
@@ -305,6 +322,10 @@ export function registerShipping(app, { auth, wrap, rateLimit, isTest, appUrl })
     if (!provider(req, res)) return;
     const b = req.body || {};
     try { res.json(await shipOrder(req.user, o, { courierId: b.courierId, override: !!b.override, pkg: pkgBody(b.pkg) })); } catch (e) { fail(res, e); }
+  }));
+  app.post('/api/orders/:oid/shipping-cancel', auth, shipLimiter, wrap(async (req, res) => {
+    const o = own(req, res); if (!o) return;
+    try { res.json(await cancelShipment(req.user, o)); } catch (e) { fail(res, e); }
   }));
   app.post('/api/orders/:oid/shipping-track', auth, shipLimiter, wrap(async (req, res) => {
     const o = own(req, res); if (!o) return;

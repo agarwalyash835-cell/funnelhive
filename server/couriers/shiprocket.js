@@ -83,6 +83,11 @@ export async function pickup(ctx, shipmentId) {
   const x = d?.response || {};
   return { scheduledFor: String(x.pickup_scheduled_date || ''), token: String(x.pickup_token_number || '') };
 }
+// cancel before pickup: the Shiprocket order (which frees its AWB), else just the AWB
+export async function cancel(ctx, { orderId, awb }) {
+  if (orderId) await call(ctx, 'POST', '/orders/cancel', { ids: [orderId] });
+  else if (awb) await call(ctx, 'POST', '/orders/cancel/shipment/awbs', { awbs: [awb] });
+}
 export async function label(ctx, shipmentId) {
   const d = await call(ctx, 'POST', '/courier/generate/label', { shipment_id: [shipmentId] });
   return String(d.label_url || '');
