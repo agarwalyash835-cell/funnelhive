@@ -91,6 +91,8 @@ async function one(j) {
   } catch (e) {
     failed++;
     console.error(`✗ ${j.t}/${j.id}: ${e.message}`);
+    // out of credits: stop instead of failing every remaining image
+    if (/credits insufficient|top up/i.test(e.message)) { failed += queue.length; queue.length = 0; console.error('✗ stopping — the AI account is out of credits'); }
   }
 }
 // a few at a time — the AI service queues them anyway
