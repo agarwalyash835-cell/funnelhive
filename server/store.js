@@ -19,7 +19,9 @@ import { inventoryOn, stockOf, addMove } from './inventory-core.js';
 import { GST_RATES } from './sales.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment } from './razorpay.js';
 import { stripeCreds, startStripePayment, confirmedIntent } from './stripe.js';
-import { codCheckoutError, shipError, codPlaced } from './cod.js';
+import { codCheckoutError, shipError, codPlaced, pincodeInfo } from './cod.js';
+import { THEME_IDS, cleanThemeOptions, cleanPolicyPages, cleanListingExtras, POLICY_KEYS } from './store-themes.js';
+import { isDemoHandle, demoStore, demoListings, demoQuote, demoArt } from './store-demos.js';
 import { waRequired, waPhoneOk } from './hive-wa.js';
 import { notify } from './notify.js';
 
@@ -64,12 +66,12 @@ export function takeStock(order, items) {
 }
 
 // ---------- cleaning ----------
-function cleanStore(b, cur = {}) {
+export function cleanStore(b, cur = {}) {
   const out = {};
   if ('enabled' in b) out.enabled = !!b.enabled;
   if ('handle' in b) {
     const h = clip(b.handle, 40).toLowerCase();
-    if (!HANDLE.test(h) || RESERVED.has(h)) return { error: 'The store address is 3–40 letters, numbers or dashes (not starting or ending with a dash)' };
+    if (!HANDLE.test(h) || RESERVED.has(h) || isDemoHandle(h)) return { error: 'The store address is 3–40 letters, numbers or dashes (not starting or ending with a dash)' };
     out.handle = h;
   }
   for (const [k, n] of [['name', 80], ['tagline', 160], ['about', 2000]]) if (k in b) out[k] = clip(b[k], n);
@@ -86,6 +88,9 @@ function cleanStore(b, cur = {}) {
     if (!Number.isFinite(fee) || fee < 0 || fee > 10000) return { error: 'COD fee must be 0 or more' };
     out.cod = { enabled: !!c.enabled, fee: Math.round(fee) };
   }
+  if ('theme' in b) { if (!THEME_IDS.includes(b.theme)) return { error: 'Choose one of the store themes' }; out.theme = b.theme; }
+  if ('themeOptions' in b) { const o = cleanThemeOptions(b.themeOptions); if (o.error) return o; out.themeOptions = o; }
+  if ('policyPages' in b) out.policyPages = cleanPolicyPages(b.policyPages || {}, cur.policyPages || {});
   if ('policies' in b) {
     const p = b.policies || {}, pol = {};
     for (const k of ['refund', 'shipping', 'terms', 'privacy', 'contact']) {
@@ -97,7 +102,7 @@ function cleanStore(b, cur = {}) {
   }
   return out;
 }
-function cleanListing(b, cur = {}) {
+export function cleanListing(b, cur = {}) {
   const out = {};
   if (!cur.id) {
     if (!['product', 'item'].includes(b.kind)) return { error: 'Choose a product or an inventory item' };
@@ -117,6 +122,7 @@ function cleanListing(b, cur = {}) {
     if (!Number.isFinite(v) || v < 0 || v > 10000000) return { error: `Invalid ${k === 'mrp' ? 'MRP' : 'price'}` };
     out[k] = r2(v);
   }
+  cleanListingExtras(b, out);
   if ('visible' in b) out.visible = !!b.visible;
   if ('sort' in b) out.sort = Math.max(0, Math.min(100000, Math.round(Number(b.sort) || 0)));
   return out;
@@ -141,6 +147,7 @@ const publicListing = (l, r) => ({
   id: l.id, title: r.title, description: l.description || '', category: l.category || '', images: r.images, price: r.price,
   ...(l.mrp && l.mrp > r.price ? { mrp: l.mrp } : {}), kind: r.digital ? 'digital' : 'physical',
   ...(r.item ? { unit: r.unit, stock: Math.max(0, Math.floor(r.stock)), soldOut: r.stock < 1 } : {}),
+  ...(l.highlights?.length ? { highlights: l.highlights } : {}), ...(l.sizes?.length ? { sizes: l.sizes } : {}), ...(l.badge ? { badge: l.badge } : {}),
 });
 
 // ---------- pricing the cart (server side, from the catalog) ----------
@@ -203,7 +210,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
   const pvKey = (s) => crypto.createHmac('sha256', secret).update(`store.${s.id}`).digest('base64url').slice(0, 16);
   const storeUrl = (req, s) => `${(process.env.PAGES_URL || appUrl(req)).replace(/\/+$/, '')}/s/${s.handle}`;
   const sellerView = (req, s) => ({ ...s, url: s.handle ? storeUrl(req, s) : null, previewUrl: s.handle ? `${storeUrl(req, s)}?pv=${pvKey(s)}` : null });
-  const ensure = (u) => storeOf(u.id) || T.stores.insert({ id: uid(), userId: u.id, handle: null, enabled: false, name: u.settings?.businessName || '', tagline: '', about: '', color: '#6366f1', logo: '', categories: [], shipping: { fee: 0, freeAbove: 0 }, cod: { enabled: false, fee: 0 }, policies: {}, at: Date.now() });
+  const ensure = (u) => storeOf(u.id) || T.stores.insert({ id: uid(), userId: u.id, handle: null, enabled: false, name: u.settings?.businessName || '', tagline: '', about: '', color: '#6366f1', logo: '', categories: [], shipping: { fee: 0, freeAbove: 0 }, cod: { enabled: false, fee: 0 }, policies: {}, theme: 'classic', themeOptions: {}, policyPages: {}, at: Date.now() });
   const productsFor = (u) => T.products.all({ userId: u.id }, { order: 'at', desc: true }).map((p) => ({ id: p.id, name: p.name, cover: p.cover || '', hsn: p.hsn || '', gstRate: p.gstRate ?? null }));
   const itemsFor = (u) => (inventoryOn(u) ? T.iitems.all({ userId: u.id, active: 1 }).map((i) => ({ id: i.id, name: i.name, unit: i.unit || '', sale_rate: i.sale_rate ?? null, hsn: i.hsn || '', gst_percent: i.gst_percent ?? null, category: i.category || '', stock: stockOf(i.id) })) : []);
   const listingsFor = (userId) => T.slistings.all({ userId }, { order: 'at' }).sort((a, b) => (a.sort || 0) - (b.sort || 0));
@@ -248,23 +255,58 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
 
   // ---- the public store ----
   // open when switched on and the owner's account serves pages; the seller's preview link (?pv=) opens it before that
-  const openStore = (req, res, { buying = false } = {}) => {
-    const s = T.stores.find({ handle: clip(req.params.handle, 40).toLowerCase() });
+  // a demo store (/s/demo-<theme>) can be browsed and its cart priced, never bought from
+  const openStore = (req, res, { buying = false, quote = false } = {}) => {
+    const h = clip(req.params.handle, 40).toLowerCase();
+    if (isDemoHandle(h)) {
+      const d = demoStore(h);
+      if (!d) { res.status(404).json({ error: 'This store is not available right now.' }); return null; }
+      if (buying && !quote) { res.status(403).json({ error: 'This is a demo store — nothing can be bought here. Start your own store to sell like this.', demo: true }); return null; }
+      return { demo: d };
+    }
+    const s = T.stores.find({ handle: h });
     const owner = s && T.users.get(s.userId);
     const pv = s && typeof req.query.pv === 'string' && req.query.pv === pvKey(s);
     if (!s || !owner || !accessFor(owner).pagesLive || !(s.enabled || (pv && !buying))) { res.status(404).json({ error: 'This store is not available right now.' }); return null; }
-    return { s, owner };
+    return { s, owner, pv };
   };
-  const publicStore = (s, owner) => ({
+  // policy pages the AI drafted are shown to buyers once the seller has reviewed them (the preview shows drafts)
+  const policyPagesOf = (s, pv) => POLICY_KEYS.filter((k) => s.policyPages?.[k]?.text && (pv || !s.policyPages[k].draft)).map((k) => ({ k, draft: !!s.policyPages[k].draft }));
+  const waOf = (owner, s) => { const d = String(owner.settings?.supportWhatsapp || '').replace(/\D/g, ''); return s.themeOptions?.whatsapp === false || d.length < 10 ? '' : d.length === 10 ? `91${d}` : d; };
+  const publicStore = (s, owner, pv = false) => ({
     handle: s.handle, name: s.name || owner.settings?.businessName || STORE_NAME, tagline: s.tagline || '', about: s.about || '', color: s.color || '#6366f1', logo: s.logo || '',
     categories: s.categories || [], policies: s.policies || {}, shipping: s.shipping || { fee: 0, freeAbove: 0 }, cod: s.cod?.enabled ? { enabled: true, fee: s.cod.fee || 0 } : { enabled: false },
     payments: rzpCreds(owner) ? 'razorpay' : stripeCreds(owner) ? 'stripe' : 'demo', enabled: !!s.enabled,
+    theme: THEME_IDS.includes(s.theme) ? s.theme : 'classic', themeOptions: s.themeOptions || {}, policyPages: policyPagesOf(s, pv), whatsapp: waOf(owner, s), pincode: !!s.cod?.enabled,
   });
   const catalog = (s, owner) => listingsFor(s.userId).filter((l) => l.visible !== false).map((l) => { const r = resolve(l, owner); return r ? publicListing(l, r) : null; }).filter(Boolean);
+
+  // demo stores' generated product pictures
+  app.get('/api/s/:handle/art/:id.svg', (req, res) => {
+    const svg = isDemoHandle(req.params.handle) && demoArt(req.params.handle, String(req.params.id));
+    if (!svg) return res.status(404).end();
+    res.set({ 'Cache-Control': 'public, max-age=86400', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" }).type('image/svg+xml').send(svg);
+  });
+  // what a PIN code means for this store (delivery, COD) — the seller's COD rules (cod.js)
+  const pinLimiter = rateLimit({ windowMs: 60000, max: isTest ? 5000 : 120, key: (req) => `${req.ip}:spin`, message: 'Too many PIN code checks — please wait a minute.' });
+  app.get('/api/s/:handle/pincode', pinLimiter, (req, res) => {
+    const o = openStore(req, res);
+    if (!o) return;
+    if (o.demo) { const ok = /^[1-9]\d{5}$/.test(String(req.query.pin || '')); return res.json({ valid: ok, deliverable: ok, cod: ok, state: '', message: ok ? '' : 'Please enter a valid 6-digit PIN code' }); }
+    res.set('Cache-Control', 'no-store').json(pincodeInfo(o.owner, req.query.pin));
+  });
+  app.get('/api/s/:handle/policy/:k', (req, res) => {
+    const o = openStore(req, res);
+    if (!o) return;
+    const p = !o.demo && POLICY_KEYS.includes(req.params.k) && o.s.policyPages?.[req.params.k];
+    if (!p?.text || (p.draft && !o.pv)) return res.status(404).json({ error: 'This page isn’t available' });
+    res.json({ store: publicStore(o.s, o.owner, o.pv), policy: { k: req.params.k, text: p.text, draft: !!p.draft } });
+  });
 
   app.get('/api/s/:handle', (req, res) => {
     const o = openStore(req, res);
     if (!o) return;
+    if (o.demo) return res.json({ store: o.demo, listings: demoListings(o.demo.handle) });
     let list = catalog(o.s, o.owner);
     const term = clip(req.query.q, 80).toLowerCase(), cat = clip(req.query.category, 40);
     if (cat) list = list.filter((l) => l.category === cat);
@@ -273,15 +315,16 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     if (sort === 'price_asc') list.sort((a, b) => a.price - b.price);
     else if (sort === 'price_desc') list.sort((a, b) => b.price - a.price);
     else if (sort === 'name') list.sort((a, b) => a.title.localeCompare(b.title));
-    res.json({ store: publicStore(o.s, o.owner), listings: list });
+    res.json({ store: publicStore(o.s, o.owner, o.pv), listings: list });
   });
   app.get('/api/s/:handle/p/:lid', (req, res) => {
     const o = openStore(req, res);
     if (!o) return;
+    if (o.demo) { const dl = demoListings(o.demo.handle).find((x) => x.id === req.params.lid); return dl ? res.json({ store: o.demo, listing: dl }) : res.status(404).json({ error: 'This product isn’t available' }); }
     const l = T.slistings.get(req.params.lid);
     const r = l && l.userId === o.s.userId && l.visible !== false ? resolve(l, o.owner) : null;
     if (!r) return res.status(404).json({ error: 'This product isn’t available' });
-    res.json({ store: publicStore(o.s, o.owner), listing: publicListing(l, r) });
+    res.json({ store: publicStore(o.s, o.owner, o.pv), listing: publicListing(l, r) });
   });
 
   const quoteLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 30, key: (req) => `${req.ip}:s:${req.params.handle}`, message: 'Too many tries — please wait a minute and try again.' });
@@ -289,8 +332,9 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
   const view = (c) => ({ lines: c.lines, subtotal: c.subtotal, discount: c.discount, coupon: c.usedCoupon, shipping: c.shipping, codFee: c.codFee, total: c.total, needsAddress: c.needsAddress, codAllowed: c.codAllowed, digital: c.digital });
   // the cart's prices, as the checkout will charge them (coupon, shipping, COD fee)
   app.post('/api/s/:handle/quote', quoteLimiter, (req, res) => {
-    const o = openStore(req, res, { buying: true });
+    const o = openStore(req, res, { buying: true, quote: true });
     if (!o) return;
+    if (o.demo) { const d = demoQuote(o.demo.handle, req.body || {}); return d.error ? res.status(d.status).json(d) : res.json(d); }
     const c = priceCart(o.s, o.owner, req.body || {}, { couponFor, discountFor });
     if (c.error) return res.status(c.status).json(c);
     // Cash on Delivery with an advance (cod.js): what's paid now and what's left for delivery
@@ -418,20 +462,27 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
   // ---- the page: the app's HTML with the store's title and link-preview tags ----
   if (indexHtml) {
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const POLICY_TITLE = { refund: 'Refund policy', shipping: 'Shipping policy', terms: 'Terms', privacy: 'Privacy policy' };
     app.get(['/s/:handle', '/s/:handle/*'], (req, res) => {
-      const s = T.stores.find({ handle: clip(req.params.handle, 40).toLowerCase() });
-      const owner = s && T.users.get(s.userId);
-      const pv = s && req.query.pv === pvKey(s);
-      if (!s || !owner || !(s.enabled || pv)) return res.status(404).set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace('<!--ff-head-->', '<meta name="robots" content="noindex">'));
-      const st = publicStore(s, owner);
-      const m = String(req.params[0] || '').match(/^p\/([\w-]{1,60})/);
-      const l = m && T.slistings.get(m[1]);
-      const r = l && l.userId === s.userId && l.visible !== false ? resolve(l, owner) : null;
-      const title = r ? `${r.title} · ${st.name}` : st.name;
-      const desc = (r ? l.description : st.tagline || st.about) || '';
-      const img = (r ? r.images[0] : st.logo) || '';
+      const h = clip(req.params.handle, 40).toLowerCase();
+      const demo = isDemoHandle(h) && demoStore(h);
+      const s = demo || T.stores.find({ handle: h });
+      const owner = s && !demo && T.users.get(s.userId);
+      const pv = s && !demo && req.query.pv === pvKey(s);
+      if (!s || (!demo && (!owner || !(s.enabled || pv)))) return res.status(404).set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace('<!--ff-head-->', '<meta name="robots" content="noindex">'));
+      const st = demo || publicStore(s, owner, pv);
+      const seo = st.themeOptions?.seo || {};
+      const sub = String(req.params[0] || '');
+      const m = sub.match(/^p\/([\w-]{1,60})/), pm = sub.match(/^policy\/(\w+)/);
+      let r = null;
+      if (m && demo) { const dl = demoListings(h).find((x) => x.id === m[1]); r = dl && { title: dl.title, images: dl.images, description: dl.description }; }
+      else if (m) { const l = T.slistings.get(m[1]); const x = l && l.userId === s.userId && l.visible !== false ? resolve(l, owner) : null; r = x && { title: x.title, images: x.images, description: l.description || '' }; }
+      const pol = pm && POLICY_TITLE[pm[1]];
+      const title = r ? `${r.title} · ${st.name}` : pol ? `${pol} · ${st.name}` : seo.title || (st.tagline ? `${st.name} — ${st.tagline}` : st.name);
+      const desc = (r ? r.description : seo.description || st.tagline || st.about) || '';
+      const img = (r ? r.images[0] : st.themeOptions?.heroImage || st.logo) || '';
       const abs = (u) => (u.startsWith('/') ? `${appUrl(req)}${u}` : u);
-      const head = `<meta name="description" content="${esc(desc.slice(0, 200))}"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc.slice(0, 200))}">${img ? `<meta property="og:image" content="${esc(abs(img))}">` : ''}<meta name="theme-color" content="${esc(st.color)}">${pv && !s.enabled ? '<meta name="robots" content="noindex">' : ''}`;
+      const head = `<meta name="description" content="${esc(desc.slice(0, 200))}"><meta property="og:type" content="${r ? 'product' : 'website'}"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc.slice(0, 200))}">${img ? `<meta property="og:image" content="${esc(abs(img))}">` : ''}<meta name="theme-color" content="${esc(st.color)}">${(pv && !s.enabled) || demo ? '<meta name="robots" content="noindex">' : ''}`;
       res.set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace(/<title>[^<]*<\/title>/, () => `<title>${esc(title)}</title>`).replace('<!--ff-head-->', () => head));
     });
   }

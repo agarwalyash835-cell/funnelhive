@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams, useLocation } from 'react-router-dom';
+import { Link, useParams, useLocation, useNavigate } from 'react-router-dom';
 import { loadRazorpay } from '../api';
 import { buyerPost, confirmPaid } from '../buyerFetch';
 import { stripeDialog } from '../stripePay';
+import { themeOf } from '../storeThemes/index.js';
+import { themeVars, fontHref, fontOf, sectionsOf, cartTotal } from '../storeThemes/tokens.js';
+import { label } from '../storeThemes/i18n.js';
+import { StoreCtx, SECTIONS, Announcement, Header, Footer, WhatsAppButton, CartBar, ProductPage, PolicyPage, getJson } from '../storeThemes/kit.jsx';
 import '../store.css';
+import '../storeThemes/storeThemes.css';
 
-// The public store (/s/<handle>): home with categories, search and sort, product pages, a cart kept in this browser,
-// and one checkout for the whole cart. The server prices everything (server/store.js) — this page only shows it.
+// The public store (/s/<handle>): a renderer of the sections its theme picks (client/src/storeThemes/) — home,
+// product pages, policy pages — plus a cart kept in this browser and one checkout for the whole cart. The server
+// prices everything (server/store.js) — this page only shows it. Demo stores (/s/demo-<theme>) browse and price a
+// cart but can't check out. Opened in a frame by Store settings (?pv=…), it previews unsaved theme changes and
+// AI drafts sent with postMessage.
 const IN_STATES = ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'];
 const rs = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-const getJson = (url) => fetch(url).then((r) => r.json().then((d) => (r.ok ? d : { error: d.error || 'Not available' }))).catch(() => ({ error: 'Network problem — check your connection' }));
 const store = {
   get: (k) => { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch { return []; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
@@ -28,113 +35,102 @@ function useCart(handle) {
     clear: () => setCart([]),
   };
 }
+const setMetaTag = (sel, attr, v) => { let m = document.head.querySelector(sel); if (!m) { m = document.createElement('meta'); m.setAttribute(attr, sel.match(/"(.+)"/)[1]); document.head.appendChild(m); } m.setAttribute('content', v || ''); };
+const setMeta = (title, desc) => {
+  document.title = title;
+  setMetaTag('meta[name="description"]', 'name', (desc || '').slice(0, 200));
+  setMetaTag('meta[property="og:title"]', 'property', title);
+  setMetaTag('meta[property="og:description"]', 'property', (desc || '').slice(0, 200));
+};
+const langKey = (h) => `ff_lang_${h}`;
 
 export default function Store() {
   const { handle } = useParams();
   const rest = useParams()['*'] || '';
   const { search } = useLocation();
-  const pv = new URLSearchParams(search).get('pv');
+  const navigate = useNavigate();
+  const sp = new URLSearchParams(search);
+  const pv = sp.get('pv');
   const qs = pv ? `?pv=${encodeURIComponent(pv)}` : '';
   const [data, setData] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [langPick, setLangPick] = useState(() => { try { return localStorage.getItem(langKey(handle)); } catch { return null; } });
+  const [q, setQ] = useState('');
+  const [cat, setCat] = useState('');
+  const [sort, setSort] = useState('');
+  const [toastMsg, setToast] = useState('');
   const cart = useCart(handle);
   const base = `/api/s/${handle}`;
   useEffect(() => { getJson(`${base}${qs}`).then(setData); }, [base, qs]);
-  useEffect(() => { if (data?.store) { document.title = data.store.name; document.documentElement.style.setProperty('--st-brand', data.store.color); } }, [data]);
+  // Store settings shows unsaved theme changes and AI drafts in a frame: { store, listings, extra } overrides
+  useEffect(() => {
+    if (!pv || window.parent === window) return undefined;
+    const on = (e) => { if (e.origin === window.location.origin && e.data?.type === 'ff-store-preview') setPreview(e.data.preview || null); };
+    window.addEventListener('message', on);
+    window.parent.postMessage({ type: 'ff-store-ready' }, window.location.origin);
+    return () => window.removeEventListener('message', on);
+  }, [pv]);
+  const view = useMemo(() => {
+    if (!data?.store) return null;
+    const themeParam = pv ? sp.get('theme') : null;
+    const s = { ...data.store, ...(preview?.store || {}) };
+    if (themeParam) s.theme = themeParam;
+    const over = preview?.listings || {};
+    const listings = [...data.listings.map((l) => (over[l.id] ? { ...l, ...over[l.id] } : l)), ...(preview?.extra || [])];
+    return { s, listings, byId: Object.fromEntries(listings.map((l) => [l.id, l])) };
+  }, [data, preview, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  const theme = themeOf(view?.s.theme);
+  const opts = view?.s.themeOptions || {};
+  const vars = useMemo(() => themeVars(theme, opts, view?.s.color), [theme, opts, view?.s.color]);
+  const font = fontOf(theme, opts);
+  useEffect(() => {
+    if (!view) return;
+    let el = document.getElementById('sv-font');
+    if (!el) { el = document.createElement('link'); el.id = 'sv-font'; el.rel = 'stylesheet'; document.head.appendChild(el); }
+    const href = fontHref(font);
+    if (el.href !== href) el.href = href;
+    document.documentElement.style.background = vars['--st-bg'];
+    return () => { document.documentElement.style.background = ''; };
+  }, [font, view, vars]);
+  const isHome = !rest.match(/^(p\/|cart|policy\/)/);
+  useEffect(() => { if (view && isHome) setMeta(opts.seo?.title || (view.s.tagline ? `${view.s.name} — ${view.s.tagline}` : view.s.name), opts.seo?.description || view.s.tagline || view.s.about); }, [view, isHome]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!toastMsg) return undefined; const x = setTimeout(() => setToast(''), 2200); return () => clearTimeout(x); }, [toastMsg]);
   if (!data) return <div className="st-page"><div className="st-wrap"><div className="st-skel" /></div></div>;
   if (data.error) return <div className="st-page"><div className="st-wrap st-empty"><h2>{data.error}</h2></div></div>;
-  const s = data.store;
-  const home = `/s/${handle}${qs}`;
-  const m = rest.match(/^p\/([\w-]+)/);
+  const { s, listings, byId } = view;
+  const lang = langPick || (opts.lang === 'hi' ? 'hi' : 'en');
+  const t = (k, v) => label(lang, k, v);
+  const link = (p) => `/s/${handle}${p}${qs}`;
+  const cats = (s.categories || []).filter((c) => listings.some((l) => l.category === c));
+  const ctx = {
+    s, data, theme, opts, lang, t, cart, listings, byId, base, qs, handle, link, cats, q, setQ, cat, setCat, sort, setSort, navigate, setMeta,
+    setLang: (k) => { setLangPick(k); try { localStorage.setItem(langKey(handle), k); } catch {} },
+    cartWord: theme.copy.cart, perks: opts.perks || [], cartSum: cartTotal(cart.cart, byId), year: new Date().getFullYear(),
+    toast: setToast,
+    goCat: (c) => { setCat(c); setQ(''); if (!isHome) navigate(link('')); setTimeout(() => document.getElementById('sv-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
+  };
+  const m = rest.match(/^p\/([\w-]+)/), pol = rest.match(/^policy\/(\w+)/);
+  const onCart = rest.startsWith('cart');
+  const home = link('');
   return (
-    <div className="st-page" style={{ '--st-brand': s.color }}>
-      <header className="st-top">
-        <Link to={home} className="st-brand">{s.logo ? <img src={s.logo} alt="" /> : null}<span>{s.name}</span></Link>
-        <Link to={`/s/${handle}/cart${qs}`} className="st-cartbtn" aria-label="Cart">🛒<span>{cart.count}</span></Link>
-      </header>
-      {!s.enabled && <div className="st-note">Preview — this store isn’t open yet, so nothing can be bought.</div>}
-      <main className="st-wrap">
-        {m ? <Product base={base} qs={qs} id={m[1]} cart={cart} handle={handle} />
-          : rest.startsWith('cart') ? <Cart base={base} data={data} cart={cart} home={home} />
-          : <Home data={data} base={base} qs={qs} cart={cart} handle={handle} />}
-      </main>
-      <footer className="st-foot">
-        {Object.entries(s.policies || {}).map(([k, u]) => <a key={k} href={u} target="_blank" rel="noreferrer">{{ refund: 'Refunds', shipping: 'Shipping', terms: 'Terms', privacy: 'Privacy', contact: 'Contact' }[k]}</a>)}
-        <span>© {s.name}</span>
-      </footer>
-    </div>
-  );
-}
-
-function Card({ l, to, onAdd }) {
-  return (
-    <div className="st-card">
-      <Link to={to} className="st-img">{l.images[0] ? <img src={l.images[0]} alt={l.title} loading="lazy" /> : <span />}{l.mrp && <em>{Math.round((1 - l.price / l.mrp) * 100)}% off</em>}</Link>
-      <Link to={to} className="st-title">{l.title}</Link>
-      <div className="st-price"><b>{rs(l.price)}</b>{l.mrp && <s>{rs(l.mrp)}</s>}</div>
-      {l.soldOut ? <button className="st-btn" disabled>Sold out</button> : <button className="st-btn" onClick={() => onAdd(l.id)}>Add to cart</button>}
-    </div>
-  );
-}
-
-function Home({ data, base, qs, cart, handle }) {
-  const s = data.store;
-  const [cat, setCat] = useState('');
-  const [q, setQ] = useState('');
-  const [sort, setSort] = useState('');
-  const [added, setAdded] = useState('');
-  const list = useMemo(() => {
-    let l = data.listings.filter((x) => (!cat || x.category === cat) && (!q || `${x.title} ${x.description} ${x.category}`.toLowerCase().includes(q.toLowerCase())));
-    if (sort === 'price_asc') l = [...l].sort((a, b) => a.price - b.price);
-    if (sort === 'price_desc') l = [...l].sort((a, b) => b.price - a.price);
-    if (sort === 'name') l = [...l].sort((a, b) => a.title.localeCompare(b.title));
-    return l;
-  }, [data, cat, q, sort]);
-  const cats = s.categories.filter((c) => data.listings.some((l) => l.category === c));
-  const add = (id) => { cart.add(id); setAdded(id); setTimeout(() => setAdded(''), 1500); };
-  return (
-    <>
-      {(s.tagline || s.about) && <section className="st-hero"><h1>{s.tagline || s.name}</h1>{s.about && <p>{s.about}</p>}</section>}
-      <div className="st-tools">
-        <input type="search" placeholder="Search products" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort"><option value="">Featured</option><option value="price_asc">Price: low to high</option><option value="price_desc">Price: high to low</option><option value="name">Name</option></select>
+    <StoreCtx.Provider value={ctx}>
+      <div className={`st-page sv-root th-${theme.id}${theme.tokens.dark ? ' sv-dark' : ''}`} style={vars} lang={lang}>
+        {s.demo && <div className="sv-demo"><span>{t('demo')}</span><a href={`/login?from=${encodeURIComponent(handle)}`}>{t('demoCta')} →</a></div>}
+        <Announcement />
+        <Header home={isHome} />
+        {!s.enabled && <div className="st-note">{t('preview')}</div>}
+        <main className="sv-main">
+          {m ? <ProductPage id={m[1]} />
+            : pol ? <PolicyPage k={pol[1]} />
+            : onCart ? <div className="sv-wrap sv-cartwrap">{s.demo && <div className="sv-democheck"><b>{t('demoCheckout')}</b><a className="sv-btn" href={`/login?from=${encodeURIComponent(handle)}`}>{t('demoCta')}</a></div>}<Cart base={base} data={{ ...data, store: s, listings }} cart={cart} home={home} /></div>
+            : <div className="sv-home">{sectionsOf(theme, opts).map((k) => { const C = SECTIONS[k]; return C ? <C key={k} /> : null; })}</div>}
+        </main>
+        <Footer />
+        {!onCart && !m && <CartBar />}
+        <WhatsAppButton product={m ? byId[m[1]]?.title : ''} />
+        {toastMsg && <div className="sv-toast" role="status">{toastMsg} · <Link to={link('/cart')}>{t('viewCart')}</Link></div>}
       </div>
-      {cats.length > 0 && <div className="st-cats"><button className={!cat ? 'on' : ''} onClick={() => setCat('')}>All</button>{cats.map((c) => <button key={c} className={cat === c ? 'on' : ''} onClick={() => setCat(c)}>{c}</button>)}</div>}
-      {!list.length ? <p className="st-empty">No products found.</p> : <div className="st-grid">{list.map((l) => <Card key={l.id} l={l} to={`/s/${handle}/p/${l.id}${qs}`} onAdd={add} />)}</div>}
-      {added && <div className="st-toast">Added to cart · <Link to={`/s/${handle}/cart${qs}`}>View cart</Link></div>}
-    </>
-  );
-}
-
-function Product({ base, qs, id, cart, handle }) {
-  const [d, setD] = useState(null);
-  const [img, setImg] = useState(0);
-  const [qty, setQty] = useState(1);
-  const [added, setAdded] = useState(false);
-  useEffect(() => { getJson(`${base}/p/${id}${qs}`).then(setD); }, [base, id, qs]);
-  useEffect(() => { if (d?.listing) document.title = `${d.listing.title} · ${d.store.name}`; }, [d]);
-  if (!d) return <div className="st-skel" />;
-  if (d.error) return <p className="st-empty">{d.error}</p>;
-  const l = d.listing;
-  const max = l.kind === 'digital' ? 1 : Math.max(1, l.stock);
-  return (
-    <div className="st-prod">
-      <div className="st-gallery">
-        <div className="st-main">{l.images[img] ? <img src={l.images[img]} alt={l.title} /> : <span />}</div>
-        {l.images.length > 1 && <div className="st-thumbs">{l.images.map((u, i) => <button key={u + i} className={i === img ? 'on' : ''} onClick={() => setImg(i)}><img src={u} alt="" /></button>)}</div>}
-      </div>
-      <div className="st-info">
-        <h1>{l.title}</h1>
-        <div className="st-price big"><b>{rs(l.price)}</b>{l.mrp && <><s>{rs(l.mrp)}</s><em>{Math.round((1 - l.price / l.mrp) * 100)}% off</em></>}</div>
-        <small className="st-tax">Inclusive of all taxes{l.kind === 'digital' ? ' · instant download' : ''}</small>
-        {l.kind === 'physical' && (l.soldOut ? <p className="st-stock out">Sold out</p> : l.stock <= 5 ? <p className="st-stock">Only {l.stock} left</p> : null)}
-        {!l.soldOut && <div className="st-buy">
-          {l.kind === 'physical' && <div className="st-qty"><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label="Less">−</button><span>{qty}</span><button onClick={() => setQty(Math.min(max, qty + 1))} aria-label="More">+</button></div>}
-          <button className="st-btn" onClick={() => { cart.add(l.id, qty); setAdded(true); }}>Add to cart</button>
-        </div>}
-        {added && <p className="st-ok">Added · <Link to={`/s/${handle}/cart${qs}`}>Go to cart</Link></p>}
-        {l.description && <div className="st-desc">{l.description}</div>}
-      </div>
-    </div>
+    </StoreCtx.Provider>
   );
 }
 
@@ -251,7 +247,7 @@ function Cart({ base, data, cart, home }) {
           {adv.keep && <label><input type="checkbox" required checked={agree} onChange={(e) => setAgree(e.target.checked)} /> {rs(adv.amount)} is non-refundable if you refuse the delivery</label>}
         </div>}
         {err && <p className="st-err" role="alert">{err}</p>}
-        <button className="st-btn big" disabled={busy || !quote || !s.enabled}>{busy ? 'Processing…' : adv ? `Pay ${rs(adv.amount)} now · ${rs(adv.due)} on delivery` : f.method === 'cod' ? `Place order · ${quote ? rs(quote.total) : ''}` : `Pay ${quote ? rs(quote.total) : ''}`}</button>
+        <button className="st-btn big" disabled={busy || !quote || !s.enabled || s.demo}>{busy ? 'Processing…' : adv ? `Pay ${rs(adv.amount)} now · ${rs(adv.due)} on delivery` : f.method === 'cod' ? `Place order · ${quote ? rs(quote.total) : ''}` : `Pay ${quote ? rs(quote.total) : ''}`}</button>
         <small className="st-tax">🔒 Secure checkout{s.payments === 'demo' ? ' (demo — no payment taken)' : ''}</small>
       </form>
     </div>
