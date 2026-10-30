@@ -9,9 +9,16 @@ export const FONT_PAIRS = {
   soft: { name: 'Soft', heading: 'Cormorant Garamond', body: 'Manrope', hw: '500;600', bw: '400;500;600' },
   tech: { name: 'Tech', heading: 'Space Grotesk', body: 'Inter', hw: '500;700', bw: '400;500;600' },
   elegant: { name: 'Elegant', heading: 'DM Serif Display', body: 'DM Sans', hw: '400', bw: '400;500;700' },
+  // these five carry Devanagari in at least one face (Martel, Poppins, Hind, Mukta, Tiro Devanagari Hindi)
+  regal: { name: 'Regal', heading: 'Martel', body: 'Poppins', hw: '300;700', bw: '300;400;500', serif: true },
+  warm: { name: 'Warm', heading: 'Fraunces', body: 'Hind', hw: '500;600', bw: '400;500;600', serif: true },
+  rounded: { name: 'Rounded', heading: 'Fredoka', body: 'Mukta', hw: '500;600;700', bw: '400;500;700' },
+  clinical: { name: 'Clinical', heading: 'Martel Sans', body: 'Hind', hw: '700;800', bw: '400;500;600' },
+  bookish: { name: 'Bookish', heading: 'Tiro Devanagari Hindi', body: 'Literata', hw: '400', bw: '400;500;700', serif: true },
 };
 export const HERO_LAYOUTS = { editorial: 'Full-bleed picture', split: 'Text and picture side by side', banner: 'Bold banner', minimal: 'Text only' };
-export const SECTION_NAMES = { hero: 'Hero banner', delivery: 'Delivery strip', offers: 'Offers', categories: 'Categories', new: 'New arrivals', lookbook: 'Lookbook', bundles: 'Routine bundle', compare: 'Compare', grid: 'All products', trust: 'Why buy from us', about: 'About the store' };
+export const SECTION_NAMES = { hero: 'Hero banner', delivery: 'Delivery strip', offers: 'Offers', categories: 'Categories', new: 'New arrivals', lookbook: 'Lookbook', bundles: 'Routine bundle', compare: 'Compare', grid: 'All products', trust: 'Why buy from us', about: 'About the store',
+  promise: 'Trust badges', assist: 'WhatsApp help', room: 'Shop the room' };
 
 const stack = (f, fallback) => `'${f}', ${fallback}`;
 // the Google Fonts stylesheet for a font pair (display=swap: text shows at once in the fallback font)
@@ -53,7 +60,7 @@ export function themeVars(theme, opts = {}, storeColor) {
     '--st-brand': b, '--st-brand-ink': inkOn(b), '--st-brand-soft': mix(b, k.bg, k.dark ? 0.8 : 0.9),
     '--st-accent2': k.accent2 || b, '--st-bg': k.bg, '--st-surface': k.surface, '--st-ink': k.ink, '--st-soft': k.soft, '--st-line': k.line,
     '--st-sale': k.sale || '#16a34a', '--st-radius': k.radius, '--st-radius-sm': k.radiusSm, '--st-shadow': k.shadow, '--st-gap': k.gap || '16px',
-    '--st-font-h': stack(f.heading, f.heading.includes('Serif') || ['Bodoni Moda', 'Cormorant Garamond'].includes(f.heading) ? 'Georgia, serif' : 'system-ui, sans-serif'),
+    '--st-font-h': stack(f.heading, f.serif || f.heading.includes('Serif') || ['Bodoni Moda', 'Cormorant Garamond'].includes(f.heading) ? 'Georgia, serif' : 'system-ui, sans-serif'),
     '--st-font-b': stack(f.body, 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif'),
     '--st-case': k.upper ? 'uppercase' : 'none', '--st-track': k.upper ? '.14em' : '0',
   };
@@ -78,6 +85,7 @@ const ICONS = [
   [/cleanse|wash/i, '🫧'], [/treat|serum/i, '💧'], [/moistur|cream/i, '🧴'], [/protect|sun|spf/i, '☀️'], [/hair/i, '💇'], [/body|lip/i, '🌸'],
   [/kurta|kurti|ethnic/i, '👘'], [/dress/i, '👗'], [/saree|sari/i, '🥻'], [/denim|jeans/i, '👖'], [/shoe|foot|flat/i, '👡'], [/bag|access/i, '👜'], [/co-ord|tee|shirt|top/i, '👕'],
   [/gift/i, '🎁'], [/book|guide|course/i, '📘'], [/toy|kid/i, '🧸'], [/jewel/i, '💍'], [/pet/i, '🐾'], [/sweet|mithai/i, '🍬'],
+  [/diabet|sugar/i, '🩸'], [/heart|bp\b/i, '🫀'], [/pain|fever/i, '💊'], [/vitamin|supplement|immun/i, '🌿'], [/cold|cough|flu/i, '🤧'], [/baby|mother/i, '👶'], [/device|monitor/i, '🩺'], [/first aid/i, '🩹'],
 ];
 export const catIcon = (name) => (ICONS.find(([re]) => re.test(String(name || ''))) || [null, '🛍️'])[1];
 // wa.me link with a first message

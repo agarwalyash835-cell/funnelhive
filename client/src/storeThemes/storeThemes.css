@@ -469,3 +469,236 @@
 .th-electronics .sv-chiprow button.on { background: var(--st-brand); border-color: var(--st-brand); color: var(--st-brand-ink); }
 .th-electronics .sv-toast { background: var(--st-surface); border: 1px solid var(--st-line); }
 .th-electronics .st-note { background: #2a2210; color: #f5d68a; }
+
+/* ---------- kit pieces for jewellery, home, bakery, pharmacy and books ---------- */
+.sv-btn.ghost { background: transparent; color: var(--st-brand); box-shadow: inset 0 0 0 1.5px currentColor; }
+.sv-btn svg { flex: none; }
+.sv-byline { display: block; color: var(--st-soft); font-size: 12.5px; line-height: 1.35; }
+p.sv-byline { font-size: 15px; margin: -2px 0 10px; }
+.sv-specline { color: var(--st-soft); font-size: 12px; letter-spacing: .02em; }
+.sv-cred { font-size: 12.5px; color: var(--st-soft); margin: 10px 0 0; }
+.sv-note { margin: 16px 0 0; padding: 12px 14px; border-radius: var(--st-radius-sm); background: var(--st-brand-soft); font-size: 14px; border-left: 3px solid var(--st-brand); }
+/* FSSAI mark: square outline, green dot (veg) / brown triangle (non-veg) */
+.sv-diet { display: inline-grid; place-items: center; flex: none; width: 14px; height: 14px; border: 1.5px solid #138a36; border-radius: 2px; background: #fff; vertical-align: middle; box-sizing: border-box; margin-right: 8px; }
+.sv-diet::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #138a36; }
+.sv-diet.nonveg { border-color: #8b3a1c; }
+.sv-diet.nonveg::after { width: 0; height: 0; border-radius: 0; background: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid #8b3a1c; }
+.sv-pinfo h1 .sv-diet { width: 18px; height: 18px; transform: translateY(-3px); }
+.sv-card-diet { position: absolute; top: 8px; right: 8px; z-index: 1; line-height: 0; }
+.sv-card-diet .sv-diet { margin: 0; }
+/* badge strip */
+.sv-promise-row { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.sv-promise-row::-webkit-scrollbar { display: none; }
+.sv-seal { flex: none; display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px 10px 10px; border-radius: 999px; background: var(--st-surface); border: 1px solid var(--st-line); font-weight: 600; font-size: 14px; white-space: nowrap; }
+.sv-seal-ic { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--st-brand-soft); color: var(--st-brand); }
+@media (min-width: 860px) { .sv-promise-row { justify-content: center; flex-wrap: wrap; } }
+.sv-promise .sv-cred { text-align: center; }
+/* WhatsApp help panel */
+.sv-assist { display: grid; gap: 18px; padding: 24px 20px; border-radius: var(--st-radius); background: var(--st-surface); border: 1px solid var(--st-line); }
+.sv-assist .sv-h2 { margin-bottom: 6px; }
+.sv-assist p { margin: 0; color: var(--st-soft); max-width: 620px; }
+.sv-assist-act, .sv-assist-mini { display: flex; flex-wrap: wrap; gap: 10px; }
+.sv-assist-act .sv-btn, .sv-assist-mini .sv-btn { flex: 1 1 200px; }
+.sv-assist .sv-btn svg, .sv-assist-mini .sv-btn svg { width: 20px; height: 20px; }
+.sv-assist-mini { margin-top: 12px; }
+@media (min-width: 860px) { .sv-assist { grid-template-columns: 1fr auto; align-items: center; padding: 32px 36px; } .sv-assist-act .sv-btn { flex: 0 0 auto; } }
+/* shop the room: a collage with numbered pins and the list beside it */
+.sv-room { display: grid; gap: 16px; }
+.sv-room-head p { margin: -6px 0 0; color: var(--st-soft); }
+.sv-room-scene { position: relative; display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; padding: 14px; border-radius: var(--st-radius); background: linear-gradient(180deg, color-mix(in srgb, var(--st-accent2) 18%, var(--st-bg)) 0 62%, color-mix(in srgb, var(--st-brand) 14%, var(--st-bg)) 62%); }
+.sv-room-pc { position: relative; display: block; overflow: hidden; border-radius: calc(var(--st-radius) - 2px); box-shadow: 0 14px 30px -18px rgba(0,0,0,.45); }
+.sv-room-pc img { width: 100%; height: 100%; object-fit: cover; aspect-ratio: 1; }
+.sv-room-pc.p1 { grid-row: span 2; }
+.sv-room-pc.p1 img { aspect-ratio: auto; }
+.sv-room-scene.n4 .sv-room-pc.p4 { grid-column: 1 / -1; }
+.sv-room-scene.n4 .sv-room-pc.p4 img { aspect-ratio: 2.4; }
+.sv-pinno { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--st-surface); color: var(--st-ink); font-weight: 700; font-size: 13px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-surface) 45%, transparent); }
+.sv-room-pc .sv-pinno { position: absolute; left: 10px; top: 10px; }
+.sv-room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.sv-room-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--st-line); }
+.sv-room-list .sv-pinno { background: var(--st-brand); color: var(--st-brand-ink); box-shadow: none; }
+.sv-room-list a { flex: 1; min-width: 0; text-decoration: none; font-weight: 600; display: flex; flex-direction: column; }
+.sv-room-list small { color: var(--st-soft); font-weight: 400; font-size: 12.5px; }
+.sv-room > .sv-btn { justify-self: start; }
+@media (min-width: 900px) { .sv-room { grid-template-columns: 1.5fr 1fr; column-gap: 40px; align-items: start; } .sv-room-head { grid-column: 1 / -1; } .sv-room-scene { grid-row: 2 / span 2; } }
+/* product details table */
+.sv-dtable { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.sv-dtable th, .sv-dtable td { text-align: left; padding: 10px 0; border-bottom: 1px solid var(--st-line); vertical-align: top; }
+.sv-dtable th { width: 42%; font-weight: 500; color: var(--st-soft); padding-right: 12px; }
+/* cards: luxe (jewellery), room (home), treat (bakery), clinic (pharmacy), book (books) */
+.card-luxe { background: none; box-shadow: none; border-radius: 0; text-align: center; }
+.card-luxe .sv-card-img { background: var(--st-surface); outline: 1px solid var(--st-line); outline-offset: -8px; }
+.card-luxe:hover .sv-card-img { outline-color: var(--st-accent2); }
+.card-luxe .sv-card-body { align-items: center; padding: 14px 4px 0; }
+.card-luxe .sv-card-title { font-weight: 400; font-size: 14px; letter-spacing: .02em; }
+.card-luxe .sv-price { justify-content: center; }
+.card-luxe .sv-price b { font-weight: 500; }
+.card-luxe .sv-card-act { justify-content: center; padding: 8px 0 0; }
+.card-luxe .sv-card-act .sv-btn { flex: none; }
+.card-luxe .sv-badge { left: 50%; transform: translateX(-50%); top: 14px; border-radius: 0; background: var(--st-accent2); color: #fff; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; font-size: 9.5px; white-space: nowrap; }
+.card-room .sv-card-img { aspect-ratio: 4 / 3; }
+.card-room .sv-card-body { padding-top: 12px; }
+.card-treat .sv-card-img { margin: 8px 8px 0; border-radius: calc(var(--st-radius) - 6px); }
+.card-treat .sv-card-act { padding-top: 6px; }
+.card-clinic { border: 1px solid var(--st-line); box-shadow: none; }
+.card-clinic .sv-card-img { background: #fff; border-bottom: 1px solid var(--st-line); }
+.card-clinic .sv-card-img img { object-fit: contain; padding: 6%; box-sizing: border-box; }
+.card-clinic .sv-card-title { font-size: 14px; }
+.card-clinic .sv-card-act .sv-btn { background: var(--st-surface); color: var(--st-brand); box-shadow: inset 0 0 0 1.5px var(--st-brand); }
+.card-clinic .sv-card-act .sv-btn:hover { background: var(--st-brand); color: var(--st-brand-ink); }
+.card-book { background: none; box-shadow: none; border-radius: 0; overflow: visible; }
+.card-book .sv-card-img { aspect-ratio: 3 / 4; background: none; overflow: visible; }
+.card-book .sv-card-img img { border-radius: 2px 4px 4px 2px; box-shadow: inset 4px 0 0 rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.12), 0 14px 24px -14px rgba(31,26,20,.55); transition: transform .3s; }
+.card-book:hover .sv-card-img img { transform: translateY(-4px) rotate(-.6deg); }
+.card-book .sv-card-body { padding: 12px 0 0; }
+.card-book .sv-card-title { font-family: var(--st-font-h); font-weight: 400; font-size: 16px; }
+.card-book .sv-card-act { padding: 8px 0 0; }
+
+/* ---------- Swarna (jewellery) ---------- */
+.th-jewellery .sv-ann { background: var(--st-brand); color: #f3e6c8; letter-spacing: .16em; text-transform: uppercase; font-size: 10.5px; }
+.th-jewellery .sv-hdr { border-bottom-color: color-mix(in srgb, var(--st-accent2) 45%, transparent); }
+.th-jewellery .sv-brand { font-family: var(--st-font-h); font-weight: 300; letter-spacing: .3em; text-transform: uppercase; font-size: 19px; }
+.th-jewellery .sv-catnav button { letter-spacing: .14em; text-transform: uppercase; font-size: 11px; }
+.th-jewellery .sv-sec { margin-top: 56px; margin-bottom: 56px; }
+.th-jewellery .sv-h2 { font-weight: 300; text-align: center; font-size: clamp(24px, 4vw, 36px); margin-bottom: 24px; }
+.th-jewellery .sv-h2::after { content: ''; display: block; width: 44px; height: 1px; margin: 14px auto 0; background: var(--st-accent2); }
+.th-jewellery .sv-sec-head { justify-content: center; }
+.th-jewellery .sv-sec-head .sv-more { display: none; }
+.th-jewellery .sv-hero h1, .th-jewellery .sv-pinfo h1 { font-weight: 300; letter-spacing: -.01em; }
+.th-jewellery .hero-split .sv-hero-art { border-radius: 999px 999px 0 0; background: var(--st-brand); outline: 1px solid var(--st-accent2); outline-offset: 8px; margin: 10px; }
+.th-jewellery .hero-split .sv-hero-art img:not(:first-child) { border-color: var(--st-bg); }
+.th-jewellery .sv-btn:not(.line):not(.ghost) { background: var(--st-brand); text-transform: uppercase; letter-spacing: .16em; font-size: 12px; font-weight: 500; padding: 15px 26px; }
+.th-jewellery .sv-btn.ghost { text-transform: uppercase; letter-spacing: .16em; font-size: 12px; font-weight: 500; color: var(--st-accent2); }
+.th-jewellery .cats-circles { justify-content: center; gap: 22px; }
+.th-jewellery .cats-circles button { width: 100px; }
+.th-jewellery .cats-circles .sv-cat-img { width: 92px; height: 92px; padding: 1.5px; background: var(--st-accent2); }
+.th-jewellery .cats-circles .sv-cat-name { font-weight: 400; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
+.th-jewellery .sv-seal { background: none; border: 0; border-radius: 0; font-weight: 400; font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase; padding: 4px 18px 4px 0; }
+.th-jewellery .sv-seal + .sv-seal { border-left: 1px solid var(--st-line); padding-left: 18px; }
+.th-jewellery .sv-seal-ic { background: none; color: var(--st-accent2); border: 1px solid var(--st-accent2); }
+.th-jewellery .sv-assist { background: var(--st-brand); color: #f6eedc; border: 0; text-align: center; justify-items: center; }
+.th-jewellery .sv-assist .sv-h2 { color: #fff; }
+.th-jewellery .sv-assist p { color: color-mix(in srgb, #f6eedc 80%, transparent); margin: 0 auto; }
+.th-jewellery .sv-assist .sv-btn:not(.ghost) { background: var(--st-accent2); color: #1c1a12; }
+.th-jewellery .sv-assist .sv-btn.ghost { color: #f3e6c8; }
+@media (min-width: 860px) { .th-jewellery .sv-assist { grid-template-columns: 1fr; } }
+.th-jewellery .sv-trust-grid > div { background: none; border: 0; border-top: 1px solid var(--st-accent2); border-radius: 0; text-align: center; align-items: center; }
+.th-jewellery .sv-trust-ic { background: none; color: var(--st-accent2); }
+.th-jewellery .sv-gimg { background: var(--st-surface); outline: 1px solid var(--st-line); outline-offset: -10px; }
+.th-jewellery .sv-dtable th { letter-spacing: .1em; text-transform: uppercase; font-size: 11.5px; }
+.th-jewellery .sv-about p { font-family: var(--st-font-h); font-weight: 300; font-size: clamp(19px, 2.6vw, 26px); color: var(--st-ink); }
+.th-jewellery .sv-chiprow button, .th-jewellery .sv-search, .th-jewellery .sv-tools select { border-radius: 0; }
+.th-jewellery .sv-chiprow button.on { background: var(--st-brand); border-color: var(--st-brand); }
+.th-jewellery .sv-foot { background: #10251d; color: #efe4c9; border: 0; }
+.th-jewellery .sv-foot-in p, .th-jewellery .sv-foot h4, .th-jewellery .sv-foot-base { color: color-mix(in srgb, #efe4c9 65%, transparent); }
+.th-jewellery .sv-foot-base { border-color: color-mix(in srgb, #efe4c9 18%, transparent); }
+.th-jewellery .sv-foot .sv-paybadges span, .th-jewellery .sv-foot .sv-lang { border-color: color-mix(in srgb, #efe4c9 25%, transparent); }
+.th-jewellery .sv-cbar { border-radius: 0; background: var(--st-brand); letter-spacing: .08em; }
+
+/* ---------- Aangan (home décor & furniture) ---------- */
+.th-home .sv-ann { background: var(--st-brand); color: #fbeee0; }
+.th-home .sv-brand { font-family: var(--st-font-h); font-weight: 600; font-size: 23px; letter-spacing: -.01em; }
+.th-home .sv-h2 { font-weight: 500; font-size: clamp(24px, 4vw, 38px); }
+.th-home .sv-hero h1 { font-weight: 500; font-size: clamp(40px, 9vw, 88px); line-height: .98; letter-spacing: -.03em; }
+.th-home .hero-editorial { min-height: min(70vh, 640px); background: var(--st-ink); }
+.th-home .hero-editorial::after { background: linear-gradient(180deg, transparent 30%, rgba(43,30,20,.72)); }
+.th-home .hero-editorial .sv-btn { background: var(--st-bg); color: var(--st-ink); }
+.th-home .sv-deliv { margin-top: 0; background: var(--st-surface); border-color: var(--st-line); }
+.th-home .sv-deliv-ic { background: var(--st-accent2); color: #fff; }
+.th-home .cats-portrait button { aspect-ratio: 4 / 5; border-radius: var(--st-radius); }
+.th-home .cats-portrait .sv-cat-name { letter-spacing: .02em; text-transform: none; font-family: var(--st-font-h); font-size: 18px; font-weight: 500; }
+.th-home .sv-room { padding: 22px 16px; border-radius: var(--st-radius); background: var(--st-surface); border: 1px solid var(--st-line); }
+@media (min-width: 900px) { .th-home .sv-room { padding: 32px; } }
+.th-home .sv-seal { border-radius: var(--st-radius); }
+.th-home .sv-seal-ic { background: color-mix(in srgb, var(--st-accent2) 18%, var(--st-surface)); color: var(--st-accent2); }
+.th-home .sv-pill.hot { background: color-mix(in srgb, var(--st-accent2) 16%, var(--st-surface)); color: var(--st-accent2); }
+.th-home .sv-badge { background: var(--st-surface); color: var(--st-ink); }
+.th-home .sv-assist { background: color-mix(in srgb, var(--st-accent2) 14%, var(--st-surface)); border-color: color-mix(in srgb, var(--st-accent2) 30%, transparent); }
+.th-home .sv-about p { font-family: var(--st-font-h); font-size: clamp(20px, 2.8vw, 28px); color: var(--st-ink); }
+.th-home .sv-foot { background: var(--st-ink); color: #f4eee5; border: 0; }
+.th-home .sv-foot-in p, .th-home .sv-foot h4, .th-home .sv-foot-base { color: color-mix(in srgb, #f4eee5 65%, transparent); }
+.th-home .sv-foot-base { border-color: color-mix(in srgb, #f4eee5 18%, transparent); }
+.th-home .sv-foot .sv-paybadges span, .th-home .sv-foot .sv-lang { border-color: color-mix(in srgb, #f4eee5 25%, transparent); }
+
+/* ---------- Mithaas (bakery & sweets) ---------- */
+.th-bakery .sv-ann { background: var(--st-accent2); color: var(--st-ink); font-weight: 600; }
+.th-bakery .sv-brand { font-family: var(--st-font-h); font-weight: 700; font-size: 25px; color: var(--st-brand); }
+.th-bakery .sv-h2 { font-weight: 700; font-size: clamp(23px, 4vw, 34px); }
+.th-bakery .sv-hero h1 { font-weight: 700; }
+.th-bakery .sv-sec { margin: 26px auto; }
+.th-bakery .sv-deliv { margin-top: 12px; background: #fff; border: 2px dashed color-mix(in srgb, var(--st-brand) 35%, transparent); }
+.th-bakery .sv-deliv-ic { background: var(--st-accent2); color: var(--st-ink); }
+.th-bakery .hero-banner .sv-hero-copy { background: radial-gradient(circle at 92% 12%, var(--st-accent2) 0 90px, transparent 91px), radial-gradient(circle at 70% 120%, color-mix(in srgb, var(--st-accent2) 45%, transparent) 0 140px, transparent 141px), linear-gradient(135deg, var(--st-brand), color-mix(in srgb, var(--st-brand) 70%, #6b1d10)); min-height: 200px; }
+.th-bakery .hero-banner .sv-hero-art img { border: 5px solid #fff; border-radius: 50%; }
+.th-bakery .cats-circles .sv-cat-img { background: repeating-conic-gradient(var(--st-brand) 0 10deg, var(--st-accent2) 10deg 20deg); padding: 4px; }
+.th-bakery .sv-badge { background: var(--st-accent2); color: var(--st-ink); border-radius: 999px; }
+.th-bakery .sv-badge.off { background: var(--st-brand); color: #fff; }
+.th-bakery .sv-add, .th-bakery .sv-stepper { border-radius: 999px; }
+.th-bakery .sv-bundle { background: radial-gradient(circle at 100% 0, color-mix(in srgb, var(--st-accent2) 55%, transparent) 0 120px, transparent 121px), color-mix(in srgb, var(--st-brand) 8%, #fff); border: 2px solid color-mix(in srgb, var(--st-brand) 18%, transparent); }
+.th-bakery .sv-bundle-item { border-radius: 18px; }
+.th-bakery .sv-assist { background: var(--st-ink); color: #fff3e6; border: 0; }
+.th-bakery .sv-assist .sv-h2 { color: #fff; }
+.th-bakery .sv-assist p { color: color-mix(in srgb, #fff3e6 78%, transparent); }
+.th-bakery .sv-assist .sv-btn { background: var(--st-accent2); color: var(--st-ink); }
+.th-bakery .sv-search, .th-bakery .sv-tools select, .th-bakery .sv-pin input, .th-bakery .sv-pin button, .th-bakery .sv-qty { border-radius: 999px; }
+.th-bakery .sv-gimg { border-radius: 28px; }
+.th-bakery .sv-seal { background: #fff; }
+.th-bakery .sv-seal-ic { background: color-mix(in srgb, var(--st-accent2) 40%, #fff); color: var(--st-ink); }
+.th-bakery .sv-cbar { border-radius: 999px; }
+
+/* ---------- Arogya (pharmacy & wellness) ---------- */
+.th-pharmacy .sv-ann { background: var(--st-brand); color: #fff; }
+.th-pharmacy .sv-brand { font-family: var(--st-font-h); font-weight: 800; color: var(--st-brand); font-size: 21px; }
+.th-pharmacy .sv-brand::before { content: ''; flex: none; width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(var(--st-brand), var(--st-brand)) center / 12px 4px no-repeat, linear-gradient(var(--st-brand), var(--st-brand)) center / 4px 12px no-repeat, color-mix(in srgb, var(--st-brand) 14%, #fff); }
+.th-pharmacy .sv-hdr { background: #fff; backdrop-filter: none; }
+.th-pharmacy .sv-search { background: var(--st-bg); border-color: var(--st-line); }
+.th-pharmacy .sv-sec { margin: 22px auto; }
+.th-pharmacy .sv-h2 { font-weight: 800; font-size: clamp(19px, 3vw, 24px); letter-spacing: -.01em; }
+.th-pharmacy .sv-promise { margin-top: 14px; }
+.th-pharmacy .sv-promise-row { gap: 8px; }
+.th-pharmacy .sv-seal { border-radius: var(--st-radius-sm); padding: 8px 14px 8px 8px; font-size: 13.5px; background: #fff; }
+.th-pharmacy .sv-seal-ic { width: 28px; height: 28px; border-radius: 6px; background: color-mix(in srgb, var(--st-accent2) 14%, #fff); color: var(--st-accent2); }
+.th-pharmacy .sv-promise .sv-cred { font-variant-numeric: tabular-nums; }
+.th-pharmacy .sv-assist { background: linear-gradient(120deg, var(--st-brand), color-mix(in srgb, var(--st-brand) 70%, #063b39)); color: #fff; border: 0; position: relative; overflow: hidden; }
+.th-pharmacy .sv-assist::after { content: 'Rx'; position: absolute; right: -6px; bottom: -34px; font: 800 140px/1 var(--st-font-h); color: rgba(255,255,255,.08); pointer-events: none; }
+.th-pharmacy .sv-assist .sv-h2 { color: #fff; }
+.th-pharmacy .sv-assist p { color: rgba(255,255,255,.85); }
+.th-pharmacy .sv-assist .sv-btn { background: #fff; color: var(--st-brand); position: relative; z-index: 1; }
+.th-pharmacy .cats-tiles button .sv-cat-ic { background: #fff; border: 1px solid var(--st-line); box-sizing: border-box; }
+.th-pharmacy .sv-hero.hero-minimal { text-align: left; padding: 18px 16px 0; }
+.th-pharmacy .hero-minimal h1 { font-size: clamp(26px, 5vw, 44px); font-weight: 800; }
+.th-pharmacy .hero-minimal p { margin-left: 0; }
+.th-pharmacy .sv-badge { background: color-mix(in srgb, var(--st-accent2) 14%, #fff); color: var(--st-accent2); }
+.th-pharmacy .sv-badge.off { background: var(--st-accent2); color: #fff; }
+.th-pharmacy .sv-gimg { background: #fff; border: 1px solid var(--st-line); }
+.th-pharmacy .sv-gimg img { object-fit: contain; }
+.th-pharmacy .sv-note { border-left-color: var(--st-accent2); background: color-mix(in srgb, var(--st-accent2) 9%, #fff); }
+.th-pharmacy .sv-trust-ic { background: color-mix(in srgb, var(--st-brand) 10%, #fff); }
+
+/* ---------- Panna (books & stationery) ---------- */
+.th-books .sv-ann { background: var(--st-brand); color: #f6ead5; font-style: italic; }
+.th-books .sv-brand { font-family: var(--st-font-h); font-weight: 400; font-size: 26px; }
+.th-books .sv-hdr { border-bottom: 3px double var(--st-ink); }
+.th-books .sv-catnav button { font-style: italic; }
+.th-books .sv-h2 { font-weight: 400; font-size: clamp(24px, 4vw, 36px); border-top: 1px solid var(--st-ink); padding-top: 12px; }
+.th-books .sv-sec-head .sv-h2 { flex: 1; }
+.th-books .sv-hero.hero-minimal { padding: 48px 16px 20px; max-width: 980px; }
+.th-books .hero-minimal h1 { font-weight: 400; font-size: clamp(40px, 9vw, 92px); line-height: 1.02; letter-spacing: -.02em; }
+.th-books .hero-minimal h1::before { content: '“'; display: block; color: var(--st-accent2); font-size: 1.1em; line-height: .6; }
+.th-books .hero-minimal p { font-style: italic; }
+.th-books .sv-btn:not(.ghost) { background: var(--st-ink); color: var(--st-bg); }
+.th-books .sv-btn.ghost { color: var(--st-ink); }
+.th-books .cats-chips button { border-radius: var(--st-radius); border-color: var(--st-ink); background: none; font-style: italic; }
+.th-books .cats-chips button.on { background: var(--st-ink); color: var(--st-bg); }
+.th-books .sv-chiprow button { border-radius: var(--st-radius); }
+.th-books .sv-chiprow button.on { background: var(--st-brand); border-color: var(--st-brand); }
+.th-books .sv-badge { background: var(--st-accent2); color: #1f1a14; border-radius: 0; }
+.th-books .sv-bundle { background: repeating-linear-gradient(180deg, transparent 0 27px, color-mix(in srgb, #5b8bd0 22%, transparent) 27px 28px), #fffdf6; border: 1px solid var(--st-line); border-left: 3px solid color-mix(in srgb, #d04848 55%, transparent); }
+.th-books .sv-bundle-item img { aspect-ratio: 3 / 4; }
+.th-books .sv-assist { background: none; border: 1px solid var(--st-ink); border-radius: 0; box-shadow: 6px 6px 0 var(--st-accent2); }
+.th-books .sv-gimg { aspect-ratio: 3 / 4; background: none; }
+.th-books .sv-gimg.main img { box-shadow: inset 5px 0 0 rgba(0,0,0,.12); border-radius: 2px 5px 5px 2px; }
+.th-books .sv-pinfo h1 { font-weight: 400; }
+.th-books p.sv-byline { font-style: italic; font-size: 17px; }
+.th-books .sv-about p { font-family: var(--st-font-h); font-size: clamp(20px, 2.8vw, 28px); color: var(--st-ink); }
+.th-books .sv-foot { border-top: 3px double var(--st-ink); }

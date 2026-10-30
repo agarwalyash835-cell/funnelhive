@@ -3,15 +3,21 @@
 // must match it (client/test/store-themes.test.mjs checks they do).
 // No imports: the client's tests import this file directly.
 
-export const THEME_IDS = ['classic', 'fashion', 'grocery', 'beauty', 'electronics'];
-export const FONT_IDS = ['modern', 'editorial', 'friendly', 'soft', 'tech', 'elegant'];
+export const THEME_IDS = ['classic', 'fashion', 'grocery', 'beauty', 'electronics', 'jewellery', 'home', 'bakery', 'pharmacy', 'books'];
+export const FONT_IDS = ['modern', 'editorial', 'friendly', 'soft', 'tech', 'elegant', 'regal', 'warm', 'rounded', 'clinical', 'bookish'];
 export const HERO_IDS = ['editorial', 'split', 'banner', 'minimal'];
-export const SECTION_IDS = ['hero', 'delivery', 'offers', 'categories', 'new', 'lookbook', 'bundles', 'compare', 'grid', 'trust', 'about'];
-export const PERK_IDS = ['freeDelivery', 'fastDelivery', 'returns7', 'exchange', 'warranty', 'emi', 'authentic', 'crueltyFree', 'fresh', 'handmade'];
+export const SECTION_IDS = ['hero', 'delivery', 'offers', 'categories', 'new', 'lookbook', 'bundles', 'compare', 'grid', 'trust', 'about', 'promise', 'assist', 'room'];
+export const PERK_IDS = ['freeDelivery', 'fastDelivery', 'returns7', 'exchange', 'warranty', 'emi', 'authentic', 'crueltyFree', 'fresh', 'handmade', 'hallmark', 'certified', 'installation', 'licensed', 'bakedFresh'];
 export const POLICY_KEYS = ['refund', 'shipping', 'terms', 'privacy'];
 
 // a sentence's likely industry, for when the AI names no theme (or one we don't have)
 const HINTS = [
+  // checked first: their words would otherwise be caught by broader ones below ("decoration" → ration, "mithai" …)
+  ['jewellery', /jewel|jewell?ery|jewelry|\bgold\b|silver|diamond|ornament|kundan|polki|mangalsutra|bangle|earring|jhumka|gehne|ज्वेल|गहन|सोन/i],
+  ['home', /furniture|d[eé]cor|home ?furnish|interior|sofa|lamp|rug|carpet|curtain|cushion|bedsheet|wardrobe|teak|फ़र्नीचर|फर्नीचर/i],
+  ['bakery', /baker|bakery|cake|pastr|cookie|sweet ?shop|sweets|mithai|halwai|laddoo|ladoo|hamper|मिठाई|केक|बेकरी/i],
+  ['pharmacy', /pharma|chemist|medical store|medicine|medicos|drug ?store|surgical|दवा|मेडिकल/i],
+  ['books', /\bbooks?\b|bookstore|book ?shop|stationer|novel|notebook|school ?supplies|publisher|किताब|पुस्तक/i],
   ['grocery', /kirana|grocer|grocery|ration|atta|dal|masala|vegetable|sabzi|fruit|dairy|doodh|provision|supermarket|किराना|राशन|सब्ज़ी|सब्जी/i],
   ['beauty', /beauty|skin|skincare|cosmetic|makeup|serum|cream|hair ?care|salon|soap|ayurved|सौंदर्य|स्किन/i],
   ['electronics', /electronic|mobile|phone|laptop|gadget|charger|earbud|headphone|speaker|accessor|repair|smart ?watch|मोबाइल/i],
@@ -33,7 +39,7 @@ export function cleanThemeOptions(b = {}, { lenient = false } = {}) {
   if ('font' in b) { const f = clip(b.font, 20); if (f && !FONT_IDS.includes(f)) { const e = bad('Choose one of the font pairs'); if (e) return e; } else o.font = f; }
   if ('hero' in b) { const h = clip(b.hero, 20); if (h && !HERO_IDS.includes(h)) { const e = bad('Choose one of the hero layouts'); if (e) return e; } else o.hero = h; }
   if ('heroImage' in b) { const u = String(b.heroImage || ''); if (u && !imgOk(u)) { const e = bad('The banner must be an uploaded image'); if (e) return e; } else o.heroImage = u; }
-  for (const [k, n] of [['announcement', 140], ['heroTitle', 90], ['heroText', 240], ['heroCta', 30], ['deliveryNote', 120]]) if (k in b) o[k] = clip(b[k], n);
+  for (const [k, n] of [['announcement', 140], ['heroTitle', 90], ['heroText', 240], ['heroCta', 30], ['deliveryNote', 120], ['credentials', 120]]) if (k in b) o[k] = clip(b[k], n);
   if ('sections' in b) o.sections = list(b.sections, SECTION_IDS.length, 20).filter((s) => SECTION_IDS.includes(s));
   if ('perks' in b) o.perks = list(b.perks, 6, 20).filter((s) => PERK_IDS.includes(s));
   if ('offers' in b) {
@@ -57,10 +63,13 @@ export function cleanPolicyPages(b = {}, cur = {}) {
   return out;
 }
 
-// extra listing fields themes show: spec / benefit highlights, sizes (shown, not chosen at checkout), a badge
+// extra listing fields themes show: spec / benefit highlights, sizes (shown, not chosen at checkout), a badge, a byline, diet
 export function cleanListingExtras(b, out) {
   if ('highlights' in b) out.highlights = list(b.highlights, 6, 40);
   if ('sizes' in b) out.sizes = list(b.sizes, 12, 10);
   if ('badge' in b) out.badge = clip(b.badge, 20);
+  // a line under the title (author · publisher, salt and strength, purity · weight) and the FSSAI veg / non-veg mark
+  if ('byline' in b) out.byline = clip(b.byline, 80);
+  if ('diet' in b) out.diet = ['veg', 'nonveg'].includes(b.diet) ? b.diet : '';
   return out;
 }

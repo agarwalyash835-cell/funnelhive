@@ -107,7 +107,7 @@ function ListingRow({ l, name, item, cats, onSaved, onDelete }) {
   const [open, setOpen] = useState(false);
   const set = (p) => setX({ ...x, ...p });
   const save = async (patch) => {
-    try { const r = await api(`/store/listings/${l.id}`, 'PUT', patch || { title: x.title, description: x.description, category: x.category, highlights: listOf(x.highlights), sizes: listOf(x.sizes), badge: x.badge || '', price: x.price === '' ? null : x.price, mrp: x.mrp === '' ? null : x.mrp, images: x.images, visible: x.visible, sort: Number(x.sort) || 0 }); setX(r); onSaved(r); if (!patch) toast(t('Saved')); } catch (e) { toast(e.message); }
+    try { const r = await api(`/store/listings/${l.id}`, 'PUT', patch || { title: x.title, description: x.description, category: x.category, highlights: listOf(x.highlights), sizes: listOf(x.sizes), badge: x.badge || '', byline: x.byline || '', diet: x.diet || '', price: x.price === '' ? null : x.price, mrp: x.mrp === '' ? null : x.mrp, images: x.images, visible: x.visible, sort: Number(x.sort) || 0 }); setX(r); onSaved(r); if (!patch) toast(t('Saved')); } catch (e) { toast(e.message); }
   };
   const price = x.price ?? item?.sale_rate;
   const [ai, setAi] = useState(false);
@@ -132,6 +132,8 @@ function ListingRow({ l, name, item, cats, onSaved, onDelete }) {
         <label>{t('Highlights')}<input value={Array.isArray(x.highlights) ? x.highlights.join(', ') : x.highlights || ''} placeholder={t('Pure cotton, Hand-block printed')} onChange={(e) => set({ highlights: e.target.value })} /></label>
         <label>{t('Sizes shown')}<input value={Array.isArray(x.sizes) ? x.sizes.join(', ') : x.sizes || ''} placeholder="S, M, L, XL" onChange={(e) => set({ sizes: e.target.value })} /></label>
         <label>{t('Badge')}<input maxLength={20} value={x.badge || ''} placeholder={t('New drop / Bestseller')} onChange={(e) => set({ badge: e.target.value })} /></label>
+        <label>{t('Byline')}<input maxLength={80} value={x.byline || ''} placeholder={t('Author · Publisher, or 22KT · 4.2 g')} onChange={(e) => set({ byline: e.target.value })} /></label>
+        <label>{t('Food mark')}<select value={x.diet || ''} onChange={(e) => set({ diet: e.target.value })}><option value="">—</option><option value="veg">{t('Veg (green dot)')}</option><option value="nonveg">{t('Non-veg (brown triangle)')}</option></select></label>
         <div className="st-full st-imgs">{(x.images || []).map((u, i) => <span key={u + i}><img src={u} alt="" /><button type="button" aria-label={t('Remove')} onClick={() => set({ images: x.images.filter((_, j) => j !== i) })}>×</button></span>)}
           {(x.images || []).length < 8 && <label className="btn sm">{t('Add photo')}<input hidden type="file" accept="image/*" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) try { const u = await upload(f); setX((c) => ({ ...c, images: [...(c.images || []), u] })); } catch (er) { toast(er.message); } }} /></label>}</div>
         <label>{t('Order in list')}<input type="number" min={0} value={x.sort || 0} onChange={(e) => set({ sort: e.target.value })} /></label>
