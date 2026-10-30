@@ -514,7 +514,7 @@ export function Card({ l }) {
         {l.diet && <span className="sv-card-diet"><Diet d={l.diet} /></span>}
         {l.soldOut && <span className="sv-soldout">{t('soldOut')}</span>}
         {v === 'toy' && /\bBIS\b/.test((l.highlights || []).join(' ')) && <span className="sv-bis"><Icon n="shield" size={14} />{t('bisMark')}</span>}
-        {v === 'craft' && l.tags?.includes('Handloom') && <span className="sv-seal">{t('handloomSeal')}</span>}
+        {v === 'craft' && l.tags?.includes('Handloom') && <span className="sv-hseal">{t('handloomSeal')}</span>}
       </Link>
       <div className="sv-card-body">
         {v === 'soft' && l.highlights?.length ? <div className="sv-chips">{l.highlights.slice(0, 2).map((h) => <span key={h}>{h}</span>)}</div> : null}
