@@ -54,6 +54,7 @@ export default function SaleInvoice() {
           </tfoot>
         </table>
         {CUR === 'INR' ? <p className="inv-words">{inWords(i.total)}</p> : <p className="inv-words">Amounts in {CUR}{i.fx ? ` · ≈ ₹${Math.round(i.total * i.fx).toLocaleString('en-IN')} at ₹${i.fx}/${CUR}` : ''}</p>}
+        {i.note && <p className="inv-words">{i.note}</p>}
         {i.export && <p className="inv-words">{i.lut ? 'Supply meant for export under LUT without payment of IGST.' : 'Export of services with payment of IGST.'}</p>}
         <footer className="inv-f">{i.registered ? 'This is a computer-generated document and does not need a signature.' : 'GST is not charged: the supplier is not registered under GST.'}</footer>
       </article>

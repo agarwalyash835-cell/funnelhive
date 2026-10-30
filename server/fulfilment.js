@@ -10,9 +10,10 @@ import { waEvent } from './hive-wa.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { fire as fireAutomation } from './automations.js';
 import { deliver, revoke, linkBase } from './products.js';
-import { issueInvoice, invoiceUrl } from './sales.js';
+import { issueInvoice, invoiceUrl, providerRefund } from './sales.js';
+import { notify, money } from './notify.js';
 import { STATES } from './platform.js';
-import { codSellerAction } from './cod.js';
+import { codSellerAction, codDue } from './cod.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 // "Where should we ship it?" — checked whenever a checkout asks for an address
@@ -35,9 +36,11 @@ function settleCod(owner, order, base) {
   if (order.status !== 'cod') return order;
   const f = T.funnels.get(order.funnelId) || (order.funnelId === storeFunnelId(order.userId) ? storeFunnel(order.userId) : null);
   const lines = order.items.map((it, i) => ({ index: i, name: it.name, kind: it.kind, amount: it.price, ...(it.hsn ? { sac: it.hsn } : {}), ...(it.gstRate != null ? { rate: it.gstRate } : {}) })).filter((l) => l.amount > 0 && !order.items[l.index].refunded);
-  const paid = T.orders.update(order.id, (o) => { o.status = 'paid'; o.codPaidAt = Date.now(); });
-  // place of supply for goods: where they were delivered (unless the buyer gave a GSTIN)
-  const inv = issueInvoice(owner, paid, lines, { test: false, gst: paid.gst || (paid.address?.state ? { state: paid.address.state } : null) });
+  const paid = T.orders.update(order.id, (o) => { o.status = 'paid'; o.codPaidAt = Date.now(); if (o.prepaid) o.codDue = codDue(o); });
+  // place of supply for goods: where they were delivered (unless the buyer gave a GSTIN). One invoice for the full
+  // value; an advance paid online at checkout is shown on it as "paid in advance · collected on delivery".
+  const paidSplit = paid.prepaid ? { advance: paid.prepaid.amount, onDelivery: codDue(paid) } : null;
+  const inv = issueInvoice(owner, paid, lines, { test: paid.prepaid?.mode === 'test', paidSplit, gst: paid.gst || (paid.address?.state ? { state: paid.address.state } : null) });
   const invUrl = inv ? invoiceUrl(linkBase(order.funnelId, base), inv) : null;
   const grants = paid.items.map((it, i) => (it.productId ? { productId: it.productId, item: i } : null)).filter(Boolean);
   if (f && grants.length && paid.email) deliver({ f, owner, email: paid.email, name: paid.name, phone: paid.phone, grants, orderId: paid.id, base, invoiceUrl: invUrl });
@@ -85,7 +88,7 @@ export function applyFulfilment(owner, o, status, extra = {}, base) {
   const biz = owner.settings?.businessName || owner.name, first = String(o.name || '').split(/\s+/)[0] || 'there';
   if (status === 'shipped') {
     const ff = order.fulfilment;
-    if (extra.buyer !== false && o.email) sendEmail(owner, { to: o.email, subject: `Your order is on its way 🚚`, text: `Hi ${first},\n\nYour order (#${o.id}) has been shipped${ff.courier ? ` with ${ff.courier}` : ''}.${ff.tracking ? `\nTracking number: ${ff.tracking}` : ''}${ff.trackingUrl ? `\nTrack it here: ${ff.trackingUrl}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${o.total.toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
+    if (extra.buyer !== false && o.email) sendEmail(owner, { to: o.email, subject: `Your order is on its way 🚚`, text: `Hi ${first},\n\nYour order (#${o.id}) has been shipped${ff.courier ? ` with ${ff.courier}` : ''}.${ff.tracking ? `\nTracking number: ${ff.tracking}` : ''}${ff.trackingUrl ? `\nTrack it here: ${ff.trackingUrl}` : ''}${o.status === 'cod' ? `\n\nPlease keep ₹${codDue(o).toLocaleString('en-IN')} ready — it’s Cash on Delivery.` : ''}\n\n— ${biz}` }).catch(() => {});
     if (extra.buyer !== false) waEvent(owner, 'order_shipped', { to: o.phone, params: [first, ff.courier || 'our courier'], link: ff.trackingUrl || (ff.tracking ? `tracking number ${ff.tracking}` : 'we will share the tracking soon'), entityId: o.id, ckey: contactKey(o.email, o.phone) });
     fireAutomation(o.userId, 'shipped', { email: o.email, phone: o.phone, name: o.name, funnelId: o.funnelId, product: o.items[0]?.name, amount: o.total, trackingLink: ff.trackingUrl || '', courier: ff.courier || '', trackingId: ff.tracking || '' });
     fireWebhook(o.userId, 'order.shipped', { order: o.id, courier: ff.courier, tracking: ff.tracking, trackingUrl: ff.trackingUrl, email: o.email });
@@ -97,10 +100,21 @@ export function applyFulfilment(owner, o, status, extra = {}, base) {
   return order;
 }
 
-// an unpaid COD order cancelled (by the seller, the buyer, or returned to origin): nothing to refund. COD orders
-// don't take stock out of Inventory or the stock counter (those count paid orders only), so there's none to put back.
+// an unpaid COD order cancelled (by the seller, the buyer, or returned to origin): no invoice, nothing collected.
+// Its stock goes back (store-stock.js). An advance paid online at checkout (order.prepaid): refunded through the
+// gateway when its policy is 'refund' or the seller cancelled; otherwise kept as a booking fee (prepaid.retained).
+// A retained cancellation fee may attract GST — that's for the seller and their CA; nothing is invoiced here.
 export function cancelCod(o, why) {
-  const order = tx(() => T.orders.update(o.id, (x) => { x.cancelledAmount = x.total; x.total = 0; x.status = 'cancelled'; x.cancelReason = why; x.cancelledAt = Date.now(); if (why === 'returned') x.rtoAt ||= Date.now(); for (const it of x.items) it.refunded ||= { at: Date.now(), cod: true }; }));
+  let refund = false;
+  const order = tx(() => T.orders.update(o.id, (x) => {
+    x.cancelledAmount = x.total; x.total = 0; x.status = 'cancelled'; x.cancelReason = why; x.cancelledAt = Date.now(); if (why === 'returned') x.rtoAt ||= Date.now(); for (const it of x.items) it.refunded ||= { at: Date.now(), cod: true };
+    if (x.prepaid && !x.prepaid.refund && !x.prepaid.retained) {
+      x.codDue = 0;
+      if (x.prepaid.policy === 'keep' && why !== 'cancelled') x.prepaid.retained = { amount: x.prepaid.amount, at: Date.now(), why };
+      else { x.prepaid.refund = { status: 'pending', at: Date.now() }; refund = true; }
+    }
+  }));
+  if (refund) refundAdvance(order.id).catch((e) => console.error('COD advance refund failed', e.message));
   revoke(o.userId, { orderId: o.id }, 'cancelled');
   returnStock(order, order.items, why === 'returned' ? 'Returned to origin (RTO)' : 'COD order cancelled');
   const { userId, ...out } = order;
@@ -115,4 +129,17 @@ export function markRto(o) {
   const order = T.orders.update(o.id, (x) => { x.rtoAt = Date.now(); if (x.fulfilment) x.fulfilment = { ...x.fulfilment, status: 'returned', at: Date.now() }; });
   returnStock(order, order.items, 'Returned to origin (RTO)'); // a paid order came back: the goods are in stock again (refund it separately)
   return order;
+}
+
+// a cancelled COD order's advance back to the buyer, at the gateway it was paid through (once; a failure is kept on
+// the order and the seller can retry from Orders)
+export async function refundAdvance(orderId) {
+  const o = T.orders.get(orderId), owner = o && T.users.get(o.userId);
+  if (!o?.prepaid?.paymentId || !owner || o.prepaid.refund?.status === 'done' || o.prepaid.retained) return o;
+  const r = await providerRefund(owner, o, o.prepaid.paymentId, o.prepaid.amount, `Order ${o.id} cancelled — advance refunded`);
+  const at = Date.now();
+  const out = T.orders.update(o.id, (x) => { x.prepaid = { ...x.prepaid, refund: r.error ? { status: 'failed', error: r.error, at } : { status: 'done', id: r.id, amount: x.prepaid.amount, at } }; });
+  if (r.error) notify(o.userId, { kind: 'order', title: `Couldn’t refund the COD advance · #${o.id}`, body: `${money(o.prepaid.amount, o.currency || 'INR')} — ${r.error}`, link: '/orders', ckey: contactKey(o.email, o.phone) });
+  else fireWebhook(o.userId, 'order.refunded', { order: o.id, amount: o.prepaid.amount, refundId: r.id, advance: true });
+  return out;
 }

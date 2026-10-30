@@ -116,7 +116,7 @@ export default function Orders() {
     let toShip;
     try { toShip = await fetchAll('&status=ship', 'orders', 'nextCursor'); } catch (e) { return toast(e.message); }
     if (!toShip.length) return toast(t('Nothing waiting to ship'));
-    downloadCSV('to-ship.csv', toShip.map((o) => ({ order_id: o.id, order_date: new Date(o.at).toISOString().slice(0, 10), customer_name: o.name, phone: o.phone, email: o.email, address_line1: o.address?.line1, address_line2: o.address?.line2 || '', city: o.address?.city, state: o.address?.state || '', pincode: o.address?.pincode, products: o.items.filter((i) => !['shipping', 'cod_fee'].includes(i.kind)).map((i) => i.name).join(' | '), payment_method: o.status === 'cod' ? 'COD' : 'Prepaid', cod_amount: o.status === 'cod' ? o.total : 0, order_total: o.total })));
+    downloadCSV('to-ship.csv', toShip.map((o) => ({ order_id: o.id, order_date: new Date(o.at).toISOString().slice(0, 10), customer_name: o.name, phone: o.phone, email: o.email, address_line1: o.address?.line1, address_line2: o.address?.line2 || '', city: o.address?.city, state: o.address?.state || '', pincode: o.address?.pincode, products: o.items.filter((i) => !['shipping', 'cod_fee'].includes(i.kind)).map((i) => i.name).join(' | '), payment_method: o.status === 'cod' ? 'COD' : 'Prepaid', cod_amount: o.status === 'cod' ? (o.codDue ?? o.total) : 0, advance_paid: o.prepaid?.amount || 0, order_total: o.total })));
   };
   const recoverMsg = (a) => `Hi ${a.name?.split(' ')[0] || 'there'} 👋 You were one step away from getting ${a.funnel}.${a.link ? ` You can finish your order here: ${a.link}` : ' Reply here and we’ll help you finish your order.'}`;
   const exportCsv = async () => {
@@ -384,11 +384,18 @@ function CodBox({ o, onSaved }) {
       <h4>{t('Cash on Delivery')}</h4>
       <p>{o.codStatus ? t(CODST[o.codStatus]?.[0] || o.codStatus) : t('No confirmation asked')}{c.answeredAt ? ` · ${fullDate(c.answeredAt)} (${c.by})` : ''}{rto ? ` · ${t('returned to origin (RTO)')}` : ''}</p>
       {last && <small className="muted">{t('Last asked {when} by {via}', { when: fullDate(last.at), via: t(VIA[last.via] || last.via) })}{c.dueAt && o.codStatus === 'pending' ? ` · ${t('no reply after {when}', { when: fullDate(c.dueAt) })}` : ''}</small>}
+      {o.prepaid && <p className="cod-adv">{t('Advance paid online {amount}', { amount: inr(o.prepaid.amount) })}{o.status === 'cod' ? ` · ${t('to collect on delivery {amount}', { amount: inr(o.codDue ?? o.total - o.prepaid.amount) })}` : ''} · {t(o.prepaid.policy === 'keep' ? 'kept if refused' : 'refunded if refused')}
+        {o.prepaid.retained && <><br /><b>{t('Kept as a booking fee: {amount}', { amount: inr(o.prepaid.retained.amount) })}</b> <small className="muted">· {t('may attract GST — check with your CA')}</small></>}
+        {o.prepaid.refund?.status === 'done' && <><br /><b>{t('Advance refunded {amount}', { amount: inr(o.prepaid.refund.amount) })}</b> <small className="muted mono">{o.prepaid.refund.id}</small></>}
+        {o.prepaid.refund?.status === 'pending' && <><br />{t('Refunding the advance…')}</>}
+        {o.prepaid.refund?.status === 'failed' && <><br /><b className="bad">{t('Advance refund failed')}</b> <small className="muted">{o.prepaid.refund.error}</small></>}
+      </p>}
       {risk && <p className={`cod-risk ${risk.bad ? 'bad' : ''}`}>{t('This number with you: {n} COD orders · {d} delivered · {r} RTO · {c} cancelled · {u} no reply', { n: risk.orders, d: risk.delivered, r: risk.rto, c: risk.cancelled, u: risk.unconfirmed })}</p>}
       <div className="row">
         {o.status === 'cod' && (!o.codStatus || ['pending', 'unconfirmed'].includes(o.codStatus)) && <button className="btn soft sm" onClick={() => act('resend')}>{t(o.codStatus ? 'Resend confirmation' : 'Ask to confirm')}</button>}
         {o.status === 'cod' && o.codStatus !== 'confirmed' && <button className="btn ghost sm" onClick={() => act('confirm')}>{t('Confirmed by phone')}</button>}
         {risk?.link && o.status === 'cod' && <button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(risk.link); toast(t('Confirmation link copied')); }}>{t('Copy confirm link')}</button>}
+        {o.prepaid?.refund?.status === 'failed' && <button className="btn soft sm" onClick={() => act('refund_advance')}>{t('Retry advance refund')}</button>}
         {!rto && ['cod', 'cancelled'].includes(o.status) && <button className="btn ghost sm" onClick={() => act('rto')}>{t('Returned to origin (RTO)')}</button>}
       </div>
     </section>

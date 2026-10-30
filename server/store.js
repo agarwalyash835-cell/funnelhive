@@ -199,7 +199,7 @@ export function priceCart(store, owner, body, { couponFor, discountFor }) {
 }
 
 // ---------- routes ----------
-export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml }) {
+export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance }) {
   const pvKey = (s) => crypto.createHmac('sha256', secret).update(`store.${s.id}`).digest('base64url').slice(0, 16);
   const storeUrl = (req, s) => `${(process.env.PAGES_URL || appUrl(req)).replace(/\/+$/, '')}/s/${s.handle}`;
   const sellerView = (req, s) => ({ ...s, url: s.handle ? storeUrl(req, s) : null, previewUrl: s.handle ? `${storeUrl(req, s)}?pv=${pvKey(s)}` : null });
@@ -293,7 +293,9 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     if (!o) return;
     const c = priceCart(o.s, o.owner, req.body || {}, { couponFor, discountFor });
     if (c.error) return res.status(c.status).json(c);
-    res.json(view(c));
+    // Cash on Delivery with an advance (cod.js): what's paid now and what's left for delivery
+    const adv = req.body?.method === 'cod' && c.codAllowed ? codAdvanceFor(o.owner, c.total) : null;
+    res.json({ ...view(c), ...(adv ? { prepaid: adv } : {}) });
   });
 
   // everything the checkout needs before money moves → { o, charge, buyer } or an error already sent
@@ -323,13 +325,23 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     res.json(recordOrder(p.f, p.charge, p.buyer, { base: appUrl(req) }));
   });
 
-  app.post('/api/s/:handle/cod', payLimiter, (req, res) => {
+  // a COD checkout: the store's checks, then the seller's COD rules (cod.js) → { ...prepare } or null (answered)
+  const prepareCod = (req, res) => {
     const p = prepare(req, res, 'cod');
-    if (!p) return;
-    if (!p.charge.codAllowed) return res.status(400).json({ error: 'Cash on Delivery isn’t available for this order' });
-    if (!/^\d{10}$/.test(String(p.buyer.phone).replace(/\D/g, '').replace(/^91(?=\d{10}$)/, ''))) return res.status(400).json({ error: 'Please enter your 10-digit mobile number — the courier will call before delivery' });
+    if (!p) return null;
+    const fail = (body) => { res.status(400).json(body); return null; };
+    if (!p.charge.codAllowed) return fail({ error: 'Cash on Delivery isn’t available for this order' });
+    if (!/^\d{10}$/.test(String(p.buyer.phone).replace(/\D/g, '').replace(/^91(?=\d{10}$)/, ''))) return fail({ error: 'Please enter your 10-digit mobile number — the courier will call before delivery' });
     const risk = codCheckoutError(p.owner, p.charge, p.buyer);
-    if (risk) return res.status(400).json(risk);
+    if (risk) return fail(risk);
+    return p;
+  };
+  app.post('/api/s/:handle/cod', payLimiter, (req, res) => {
+    const p = prepareCod(req, res);
+    if (!p) return;
+    // an advance is due first: the checkout pays it through pay/start (method: 'cod')
+    const adv = codAdvanceFor(p.owner, p.charge.total);
+    if (adv) return res.status(400).json({ error: `Pay ₹${adv.amount} now to confirm your Cash on Delivery order`, code: 'prepaid', prepaid: adv });
     const out = recordOrder(p.f, p.charge, p.buyer, { cod: true, base: appUrl(req) });
     codPlaced(p.owner, out.orderId, appUrl(req));
     res.json({ provider: 'cod', ...out });
@@ -337,6 +349,16 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
 
   // 1. start: the server's price, a payment row (kind 'store') and a Razorpay order / Stripe intent for it
   app.post('/api/s/:handle/pay/start', payLimiter, wrap(async (req, res) => {
+    // Cash on Delivery with an advance paid online first (cod.js) — none due: booked as plain COD
+    if (req.body?.method === 'cod') {
+      const c = prepareCod(req, res);
+      if (!c) return;
+      const adv = codAdvanceFor(c.owner, c.charge.total);
+      if (adv) return startCodAdvance(req, res, { f: c.f, owner: c.owner, charge: c.charge, buyer: c.buyer, kind: 'store', adv });
+      const out = recordOrder(c.f, c.charge, c.buyer, { cod: true, base: appUrl(req) });
+      codPlaced(c.owner, out.orderId, appUrl(req));
+      return res.json({ provider: 'cod', ...out });
+    }
     const p = prepare(req, res);
     if (!p) return;
     const { owner, f, charge, buyer } = p;

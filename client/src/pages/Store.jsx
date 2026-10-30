@@ -143,6 +143,7 @@ function Cart({ base, data, cart, home }) {
   const byId = Object.fromEntries(data.listings.map((l) => [l.id, l]));
   const [f, setF] = useState(() => ({ name: '', email: '', phone: '', line1: '', line2: '', city: '', state: '', pincode: '', coupon: '', method: 'online' }));
   const [quote, setQuote] = useState(null);
+  const [agree, setAgree] = useState(false); // COD with a non-refundable advance: the buyer's tick
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
@@ -169,16 +170,19 @@ function Cart({ base, data, cart, home }) {
   );
   if (!items.length) return <div className="st-empty"><h2>Your cart is empty</h2><Link className="st-btn" to={home}>Shop now</Link></div>;
   const needsAddress = quote?.needsAddress;
+  // Cash on Delivery with an advance paid online first (server/cod.js): { amount, due, keep } from the quote
+  const adv = f.method === 'cod' ? quote?.prepaid : null;
   const pay = async (e) => {
     e.preventDefault();
     setBusy(true); setErr('');
     const address = needsAddress ? { line1: f.line1, line2: f.line2, city: f.city, state: f.state, pincode: f.pincode } : undefined;
-    const b = body({ name: f.name, phone: f.phone, address, source: 'store' });
+    const b = body({ name: f.name, phone: f.phone, address, source: 'store', ...(adv ? { acceptAdvance: agree } : {}) });
     let r;
-    if (f.method === 'cod') r = await buyerPost(`${base}/cod`, b);
+    if (f.method === 'cod' && !adv) r = await buyerPost(`${base}/cod`, b);
     else {
       const st = await buyerPost(`${base}/pay/start`, b);
       if (st.error) r = st;
+      else if (st.provider === 'cod') r = st;
       else if (st.provider === 'demo') r = await buyerPost(`${base}/order`, b);
       else if (st.provider === 'free') r = st;
       else if (st.provider === 'stripe') {
@@ -242,8 +246,12 @@ function Cart({ base, data, cart, home }) {
           <label><input type="radio" checked={f.method === 'online'} onChange={() => set({ method: 'online' })} /> Pay online</label>
           <label><input type="radio" checked={f.method === 'cod'} onChange={() => set({ method: 'cod' })} /> Cash on Delivery{s.cod?.fee ? ` (+${rs(s.cod.fee)})` : ''}</label>
         </div>}
+        {adv && <div className="st-methods">
+          <p><b>Pay {rs(adv.amount)} now to confirm, {rs(adv.due)} on delivery</b></p>
+          {adv.keep && <label><input type="checkbox" required checked={agree} onChange={(e) => setAgree(e.target.checked)} /> {rs(adv.amount)} is non-refundable if you refuse the delivery</label>}
+        </div>}
         {err && <p className="st-err" role="alert">{err}</p>}
-        <button className="st-btn big" disabled={busy || !quote || !s.enabled}>{busy ? 'Processing…' : f.method === 'cod' ? `Place order · ${quote ? rs(quote.total) : ''}` : `Pay ${quote ? rs(quote.total) : ''}`}</button>
+        <button className="st-btn big" disabled={busy || !quote || !s.enabled}>{busy ? 'Processing…' : adv ? `Pay ${rs(adv.amount)} now · ${rs(adv.due)} on delivery` : f.method === 'cod' ? `Place order · ${quote ? rs(quote.total) : ''}` : `Pay ${quote ? rs(quote.total) : ''}`}</button>
         <small className="st-tax">🔒 Secure checkout{s.payments === 'demo' ? ' (demo — no payment taken)' : ''}</small>
       </form>
     </div>
