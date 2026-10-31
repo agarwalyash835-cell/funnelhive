@@ -5,7 +5,7 @@ const issuedAt = (t) => { try { return JSON.parse(atob(t.split('.')[1].replace(/
 let refreshing = null;
 function refresh() {
   const t = tok();
-  if (!t || refreshing || Date.now() - issuedAt(t) < 86400000 || localStorage.getItem('ff_admin_token')) return refreshing;
+  if (!t || refreshing || Date.now() - issuedAt(t) < 86400000 || localStorage.getItem('ff_admin_token') || localStorage.getItem('ff_agency_token')) return refreshing;
   refreshing = fetch('/api/auth/refresh', { method: 'POST', headers: { Authorization: 'Bearer ' + t } })
     .then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.token && tok() === t) setToken(d.token); }).catch(() => {}).finally(() => { refreshing = null; });
   return refreshing;
@@ -23,7 +23,9 @@ export async function api(path, method = 'GET', body) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && tok()) { localStorage.removeItem('ff_token'); location.href = '/login'; }
+    // an agency's 2-hour visit to a client ended: back to the agency's own sign-in
+    if (res.status === 401 && tok() && localStorage.getItem('ff_agency_token')) { leaveClient(); }
+    else if (res.status === 401 && tok()) { localStorage.removeItem('ff_token'); location.href = '/login'; }
     // trial / subscription over, or AI credits used up: the app shell shows the upgrade prompt
     if (res.status === 402) window.dispatchEvent(new CustomEvent('ff:paywall', { detail: data }));
     const err = new Error(data.error || 'Request failed');
@@ -40,12 +42,15 @@ export const setToken = (t) => localStorage.setItem('ff_token', t);
 export const logout = () => {
   const t = tok();
   if (t) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, keepalive: true }).catch(() => {});
-  localStorage.removeItem('ff_token'); localStorage.removeItem('ff_admin_token'); location.href = '/login';
+  localStorage.removeItem('ff_token'); localStorage.removeItem('ff_admin_token'); localStorage.removeItem('ff_agency_token'); location.href = '/login';
 };
 export const loggedIn = () => !!tok();
 
 // "Log in as" a seller (admins, for support) and back
 export const impersonate = (token) => { localStorage.setItem('ff_admin_token', tok()); setToken(token); location.href = '/'; };
+// An agency opening a client account (a reason, 2 hours — the client sees it) and back to the agency
+export const enterClient = (token) => { if (!localStorage.getItem('ff_agency_token')) localStorage.setItem('ff_agency_token', tok()); setToken(token); location.href = '/'; };
+export const leaveClient = () => { const t = localStorage.getItem('ff_agency_token'); localStorage.removeItem('ff_agency_token'); if (t) setToken(t); location.href = '/agency'; };
 export const stopImpersonating = () => { const t = localStorage.getItem('ff_admin_token'); localStorage.removeItem('ff_admin_token'); if (t) setToken(t); location.href = '/admin'; };
 
 // Razorpay Checkout is loaded only when someone actually pays

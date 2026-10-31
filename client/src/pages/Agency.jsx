@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, setToken, loggedIn } from '../api';
+import { api, loggedIn, enterClient, fmtDate } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, num, inr, ago, confirmDialog, promptDialog } from '../ui';
 import { AuthShell } from './Auth';
 import { shareLink } from './Team';
 import { PartnerConsole } from '../partnerKit';
 
 const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
-const open = async (ownerId) => { try { const r = await api('/team/switch', 'POST', { ownerId }); setToken(r.token); location.href = '/'; } catch (e) { toast(e.message); } };
+// opening a client account: a reason (the client sees it), for 2 hours
+const open = async (c) => {
+  const reason = await promptDialog({ title: `Open ${c.business || 'this client'}`, text: 'Say why — your client sees it in their activity log and notifications. Access lasts 2 hours.', label: 'Reason', placeholder: 'Updating the landing page' });
+  if (!reason) return;
+  try { const r = await api(`/agency/clients/${c.id}/enter`, 'POST', { reason }); enterClient(r.token); } catch (e) { toast(e.message); }
+};
+const ACCESS = { full: ['ok', 'Full access'], read: ['warn', 'Read-only'], off: ['bad', 'Access off'] };
 
 // /agency — client accounts, white-label
 export default function Agency() {
@@ -17,6 +23,10 @@ export default function Agency() {
   const [invite, setInvite] = useState(null);
   const load = () => api('/agency').then(setD).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
+  // from the workspace switcher: /agency?open=<client id>
+  useEffect(() => { const id = new URLSearchParams(location.search).get('open'); const c = id && d?.clients.find((x) => x.id === id); if (c) { history.replaceState(null, '', '/agency'); open(c); } }, [d]);
+  const owner = d?.me?.role !== 'clients';
+  const reportLink = async (c) => { try { const r = await api(`/agency/clients/${c.id}/report-link`, 'POST', { days: 30 }); copy(`${location.origin}${r.url}`); toast('Report link copied — works for 30 days'); load(); } catch (e) { toast(e.message); } };
   const act = async (fn, msg) => { try { await fn(); if (msg) toast(msg); load(); } catch (e) { toast(e.message); } };
   const total = (d?.clients || []).reduce((a, c) => ({ visitors: a.visitors + c.stats.visitors, leads: a.leads + c.stats.leads, revenue: a.revenue + c.stats.revenue }), { visitors: 0, leads: 0, revenue: 0 });
   return (
@@ -32,33 +42,39 @@ export default function Agency() {
             <div className="kpi"><span className="kpi-l">Leads (30 days)</span><b className="kpi-v">{num(total.leads)}</b></div>
             <div className="kpi"><span className="kpi-l">Client revenue (30 days)</span><b className="kpi-v">{inr(total.revenue)}</b></div>
           </div>
-          <PartnerConsole onChanged={load} />
+          {owner && <PartnerConsole onChanged={load} />}
           <Panel pad={false} title="Clients">
             {!d.clients.length ? <Empty icon="users" title="No client accounts yet" text="Each client gets their own account — funnels, contacts, payments, domains and data kept separate. You switch between them from the sidebar; they can log in too.">{d.limit > 0 && <button className="btn primary" onClick={() => setAdd(true)}>Add your first client</button>}</Empty> : (
               <div className="tbl-wrap"><table className="tbl">
                 <thead><tr><th>Client</th><th className="r">Funnels</th><th className="r">Visitors</th><th className="r">Leads</th><th className="r">Revenue</th><th>Login</th><th /></tr></thead>
                 <tbody>{d.clients.map((c) => (
                   <tr key={c.id}>
-                    <td><b>{c.business}</b><small className="sub-t">since {new Date(c.createdAt).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</small></td>
+                    <td><b>{c.business}</b><small className="sub-t">since {new Date(c.createdAt).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</small>
+                      {c.access && c.access !== 'full' && <span className={`pill ${ACCESS[c.access][0]}`}>{ACCESS[c.access][1]}</span>}
+                      {c.deletion && <span className="pill bad">Deleting on {fmtDate(c.deletion.purgeAt)}</span>}</td>
                     <td className="r">{num(c.funnels)}</td><td className="r">{num(c.stats.visitors)}</td><td className="r">{num(c.stats.leads)}</td><td className="r strong">{inr(c.stats.revenue)}</td>
-                    <td>{c.email ? <span className="pill ok">{c.email}</span> : c.invited ? <span className="pill warn">invited</span> : <button className="link-btn" onClick={() => setInvite(c)}>Invite client</button>}</td>
+                    <td>{c.email ? <span className="pill ok">{c.email}</span> : c.invited ? <span className="pill warn">invited</span> : owner && !c.deletion ? <button className="link-btn" onClick={() => setInvite(c)}>Invite client</button> : <span className="muted sm">—</span>}</td>
                     <td className="r"><div className="row end">
-                      <button className="btn primary sm" onClick={() => open(c.id)}>Open</button>
-                      <button className="icon-btn" title="Copy the client report link" aria-label="Copy the client report link" onClick={() => copy(`${location.origin}${c.report}`)}><Icon name="chart" size={15} /></button>
-                      {c.email && <button className="icon-btn" title="Hand the account over (they pay for it themselves)" aria-label="Hand the account over (they pay for it themselves)" onClick={async () => (await confirmDialog({ title: `Hand ${c.business} over?`, text: 'It leaves your Agency plan and starts its own trial; you stay on its team as an admin.', confirm: 'Hand over' })) && act(() => api(`/agency/clients/${c.id}/detach`, 'POST'), 'Handed over')}><Icon name="external" size={15} /></button>}
-                      <button className="icon-btn danger" title="Delete the client account" aria-label="Delete the client account" onClick={async () => (await promptDialog({ title: `Delete ${c.business} and all its funnels, contacts and orders?`, confirmWord: 'DELETE', confirm: 'Delete', danger: true })) === 'DELETE' && act(() => api(`/agency/clients/${c.id}`, 'DELETE', { confirm: 'DELETE' }), 'Deleted')}><Icon name="trash" size={15} /></button>
+                      {c.deletion ? (owner && <button className="btn ghost sm" onClick={() => act(() => api(`/agency/clients/${c.id}/restore`, 'POST'), 'Deletion cancelled')}>Undo delete</button>) : <>
+                        <button className="btn primary sm" disabled={c.access === 'off'} title={c.access === 'off' ? 'This client turned off agency access' : undefined} onClick={() => open(c)}>Open</button>
+                        <button className="icon-btn" title={c.report ? `Copy a new client report link (the current one, valid until ${fmtDate(c.reportExpires)}, stops working)` : 'Make a client report link (30 days)'} aria-label="Client report link" onClick={() => reportLink(c)}><Icon name="chart" size={15} /></button>
+                        {c.report && <button className="icon-btn" title="Turn the report link off" aria-label="Turn the report link off" onClick={() => act(() => api(`/agency/clients/${c.id}/report-link`, 'DELETE'), 'Report link turned off')}><Icon name="x" size={15} /></button>}
+                        {owner && c.email && <button className="icon-btn" title="Hand the account over (they pay for it themselves)" aria-label="Hand the account over (they pay for it themselves)" onClick={async () => (await confirmDialog({ title: `Hand ${c.business} over?`, text: 'It leaves your Agency plan and starts its own trial; you stay on its team as an admin.', confirm: 'Hand over' })) && act(() => api(`/agency/clients/${c.id}/detach`, 'POST'), 'Handed over')}><Icon name="external" size={15} /></button>}
+                        {owner && <button className="icon-btn danger" title="Delete the client account" aria-label="Delete the client account" onClick={async () => (await promptDialog({ title: `Delete ${c.business}?`, text: 'The account is paused now and deleted with all its funnels, contacts and orders after 30 days. The client is told. You can undo it until then.', confirmWord: 'DELETE', confirm: 'Delete', danger: true })) === 'DELETE' && act(() => api(`/agency/clients/${c.id}`, 'DELETE', { confirm: 'DELETE' }), 'Paused — deleted in 30 days')}><Icon name="trash" size={15} /></button>}
+                      </>}
                     </div></td>
                   </tr>
                 ))}</tbody>
               </table></div>
             )}
           </Panel>
-          <WhiteLabel w={d.whiteLabel} enabled={d.limit > 0} />
-          <ClientMenu menu={d.clientMenu} enabled={d.limit > 0} />
+          {owner && d.staff?.length > 0 && <StaffPanel staff={d.staff} clients={d.clients} onChanged={load} />}
+          {owner && <WhiteLabel w={d.whiteLabel} enabled={d.limit > 0} />}
+          {owner && <ClientMenu menu={d.clientMenu} enabled={d.limit > 0} />}
           <p className="hint">Copy funnels to a client from the Funnels page (⋯ → Copy to client). Funnels you build for others can also be shared as a link or a file.</p>
         </>
       )}
-      {add && <AddClient onClose={() => setAdd(false)} onDone={async (r) => { setAdd(false); load(); if (await confirmDialog({ title: 'Client account ready', text: 'Open it now?', confirm: 'Open it', cancel: 'Later' })) open(r.id); }} />}
+      {add && <AddClient onClose={() => setAdd(false)} onDone={async (r) => { setAdd(false); load(); if (r.token && await confirmDialog({ title: 'Client account ready', text: 'Open it now to set it up? (2 hours, logged as “Setting up the new account”)', confirm: 'Open it', cancel: 'Later' })) enterClient(r.token); }} />}
       {invite && <InviteClient c={invite} onClose={() => setInvite(null)} onDone={() => { setInvite(null); load(); }} />}
     </Layout>
   );
@@ -89,6 +105,41 @@ function InviteClient({ c, onClose, onDone }) {
         <div className="row end" style={{ marginTop: 12 }}><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary">Send invitation</button></div>
       </form>
     </Modal>
+  );
+}
+
+// client managers (Settings → Team, role "Client manager"): all clients, or the ones picked here
+function StaffPanel({ staff, clients, onChanged }) {
+  const save = async (m, ids) => { try { await api(`/agency/staff/${m.id}`, 'PUT', { clientIds: ids.length ? ids : null }); toast('Saved'); onChanged(); } catch (e) { toast(e.message); } };
+  return (
+    <Panel title="Client managers">
+      <p className="muted sm">Team members with the Client manager role open client accounts for you (each visit needs a reason the client sees). Pick clients to limit someone to those; none picked = all clients. Invite them from Settings → Team.</p>
+      {staff.map((m) => {
+        const ids = m.clientIds || [];
+        const flip = (id) => save(m, ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+        return (
+          <div key={m.id} style={{ marginTop: 10 }}>
+            <b>{m.name || m.email}</b> <small className="muted">{m.status === 'invited' ? 'invited' : ids.length ? `${ids.length} client${ids.length > 1 ? 's' : ''}` : 'all clients'}</small>
+            <div className="chips" style={{ marginTop: 6 }}>{clients.map((c) => <button key={c.id} type="button" className={ids.includes(c.id) ? 'on' : ''} aria-pressed={ids.includes(c.id)} onClick={() => flip(c.id)}>{c.business}</button>)}</div>
+          </div>
+        );
+      })}
+    </Panel>
+  );
+}
+
+// Settings (a client account's own owner): how much its agency may do here, and its recent visits
+export function AgencyAccessPanel() {
+  const [v, setV] = useState(null);
+  useEffect(() => { api('/agency-access').then(setV).catch(() => setV(false)); }, []);
+  if (!v || !v.agency) return null;
+  const set = async (mode) => { try { setV(await api('/agency-access', 'PUT', { mode })); toast('Saved'); } catch (e) { toast(e.message); } };
+  return (
+    <Panel title="Agency access">
+      <p className="muted sm"><b>{v.agency}</b> manages this account. Choose what they can do when they open it — each visit needs a reason, lasts 2 hours and shows up here and in your activity log.</p>
+      <div className="seg">{[['full', 'Full access'], ['read', 'Read-only'], ['off', 'Off']].map(([k, l]) => <button key={k} className={v.mode === k ? 'on' : ''} aria-pressed={v.mode === k} onClick={() => set(k)}>{l}</button>)}</div>
+      {v.visits.length > 0 && <table className="tbl compact" style={{ marginTop: 12 }}><tbody>{v.visits.map((x, i) => <tr key={i}><td><b>{x.who}</b> <span className="muted">{x.what}</span></td><td className="r muted sm">{ago(x.at)}</td></tr>)}</tbody></table>}
+    </Panel>
   );
 }
 

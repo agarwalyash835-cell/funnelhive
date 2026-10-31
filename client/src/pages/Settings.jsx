@@ -8,7 +8,7 @@ import { PrivacyPanel } from './Privacy';
 import { ApiKeysPanel } from './Developers';
 import { AdSpendPanel } from './AdSpend';
 import { AppsPanel } from './AppsPanel';
-import { ActivityPanel } from './Agency';
+import { ActivityPanel, AgencyAccessPanel } from './Agency';
 import { allZones, zoneOption } from '../tzfmt';
 import { EmailPanel, WhatsAppPanel, DomainsPanel, RazorpayPanel, StripePanel, HiveMcpPanel } from './SettingsChannels';
 import { LeadSourcesPanel } from './LeadSources';
@@ -157,6 +157,8 @@ export default function Settings() {
         <HiveMcpPanel />
 
         <TeamPanel />
+
+        {!me?.workspace && !me?.agencyAccess && <AgencyAccessPanel />}
 
         <ActivityPanel />
 
