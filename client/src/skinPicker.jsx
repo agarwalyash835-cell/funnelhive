@@ -9,7 +9,7 @@ import { t } from './appI18n';
 export function SkinThumb({ s }) {
   const [bg, surface, accent, ink] = s.sw;
   return (
-    <span className={`sk-thumb lay-${s.layout}`} style={{ '--k-bg': bg, '--k-surface': surface, '--k-accent': accent, '--k-ink': ink }} aria-hidden="true">
+    <span className={`sk-thumb lay-${s.thumb || s.layout}`} style={{ '--k-bg': bg, '--k-surface': surface, '--k-accent': accent, '--k-ink': ink }} aria-hidden="true">
       <i className="sk-nav">{[0, 1, 2, 3].map((n) => <b key={n} className={n === 0 ? 'on' : ''} />)}</i>
       <i className="sk-body"><b className="sk-h" /><span className="sk-cards"><b /><b /><b /></span><b className="sk-wide" /></i>
       {s.dock && <i className="sk-dock" />}
