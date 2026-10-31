@@ -16,6 +16,8 @@ import './page-premium.css';
 import './app-products.css';
 import './app-refresh.css';
 import './glass.css';
+import './skins.css';
+import { bootSkin } from './skins';
 import './cod.css';
 
 const named = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })));
@@ -74,8 +76,8 @@ const Contact = named(() => import('./pages/Legal'), 'Contact');
 const TemplateGallery = named(() => import('./pages/Templates'), 'TemplateGallery');
 const TemplatePreview = named(() => import('./pages/Templates'), 'TemplatePreview');
 
-// the app's look (same rule as applyLook in ui.jsx, which isn't in the funnel-page bundle)
-try { document.documentElement.classList.toggle('glass', localStorage.getItem('ff_ui') === 'glass'); } catch {}
+// the dashboard's skin, as this browser last saw it (skins.js) — /api/me corrects it once it loads
+bootSkin();
 
 // Each lazy screen gets its own Suspense — the live funnel page (Public) has none, so its server HTML hydrates as is
 const L = (C, props) => <Suspense fallback={<div className="skeleton" style={{ margin: 24 }} />}><C {...props} /></Suspense>;

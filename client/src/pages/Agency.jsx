@@ -5,6 +5,8 @@ import { Layout, Panel, Icon, Empty, Modal, toast, num, inr, ago, confirmDialog,
 import { AuthShell } from './Auth';
 import { shareLink } from './Team';
 import { PartnerConsole } from '../partnerKit';
+import SkinPicker, { SkinThumb } from '../skinPicker';
+import { SKINS } from '../skins';
 
 const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
 // opening a client account: a reason (the client sees it), for 2 hours
@@ -168,7 +170,8 @@ const DnsTable = ({ records }) => (
 const PILL = { active: ['ok', 'Verified'], verified: ['ok', 'Verified'], pending: ['warn', 'Waiting for DNS'], failed: ['bad', 'Not working'] };
 
 function WhiteLabel({ w, enabled }) {
-  const [v, setV] = useState({ brand: '', logo: '', primary: '', supportEmail: '', domain: '', hidePowered: false, legalName: '', address: '', supportPhone: '', termsUrl: '', privacyUrl: '', ...w });
+  const [v, setV] = useState({ brand: '', logo: '', primary: '', supportEmail: '', domain: '', hidePowered: false, legalName: '', address: '', supportPhone: '', termsUrl: '', privacyUrl: '', skin: '', ...w });
+  const [skinPick, setSkinPick] = useState(false);
   const [st, setSt] = useState(null); // { domain: proof + records, sender }
   const [busy, setBusy] = useState(false);
   const loadSt = () => api('/agency/white-label/status').then(setSt).catch(() => {});
@@ -188,6 +191,10 @@ function WhiteLabel({ w, enabled }) {
           <label className="fld"><span>Support email</span><input value={v.supportEmail} onChange={(e) => setV({ ...v, supportEmail: e.target.value })} placeholder="help@youragency.com" /></label>
           <label className="fld full"><span>Your app domain <small className="muted">· optional, e.g. app.youragency.com</small></span><input value={v.domain} onChange={(e) => setV({ ...v, domain: e.target.value })} placeholder="app.youragency.com" /></label>
         </div>
+        <div className="fld full sk-default"><span>Dashboard skin for your clients <small className="muted">· the look new and existing client accounts start with; each person can still pick their own</small></span>
+          <div className="row">{(() => { const sk = SKINS[v.skin] || SKINS.classic; return <><SkinThumb s={sk} /><b>{sk.name}</b></>; })()}<button type="button" className="btn ghost sm" onClick={() => setSkinPick(true)}>Choose skin</button></div>
+        </div>
+        {skinPick && <Modal title="Your clients’ dashboard skin" onClose={() => setSkinPick(false)} width={860}><SkinPicker value={v.skin || 'classic'} title="The look your client accounts get — so your product doesn’t look like anyone else’s. Press Keep, then Save." onPick={(k) => setV({ ...v, skin: k === 'classic' ? '' : k })} onClose={() => setSkinPick(false)} /></Modal>}
         <label className="tog"><input type="checkbox" checked={!!v.hidePowered} onChange={(e) => setV({ ...v, hidePowered: e.target.checked })} /><span />Hide “Powered by” on client pages and reports</label>
         <h4 style={{ margin: '18px 0 6px' }}>Your business details</h4>
         <p className="muted sm">Shown on your app domain’s login, contact and policy pages instead of ours.</p>

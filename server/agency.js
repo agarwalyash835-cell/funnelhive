@@ -18,6 +18,7 @@ import { randomToken, hashToken } from './security.js';
 import { appUrl, mailEnabled } from './mail.js';
 import { isPlatformHost } from './domains.js';
 import { audit } from './admin-guard.js';
+import { cleanSkin } from './skins.js';
 import { agencyForHost, verifiedDomainOf, domainTakenByOther, syncDomainProof, domainView, sendBranded } from './whitelabel.js';
 import { termsOf, clientsOf, AGENCY_ADDONS } from './agency-terms.js';
 import { startAgencyAccess, staffMember, staffCovers, accessMode, logAgency } from './agency-access.js';
@@ -53,7 +54,7 @@ export function brandFor(u) {
   const owner = u?.agencyId ? T.users.get(u.agencyId) : u;
   const w = owner?.settings?.whiteLabel;
   return w?.brand ? { brand: w.brand, logo: w.logo || '', primary: w.primary || '', supportEmail: w.supportEmail || '', hidePowered: !!w.hidePowered, agency: true,
-    legalName: w.legalName || '', address: w.address || '', supportPhone: w.supportPhone || '', termsUrl: w.termsUrl || '', privacyUrl: w.privacyUrl || '', domain: verifiedDomainOf(owner) || '' } : null;
+    legalName: w.legalName || '', address: w.address || '', supportPhone: w.supportPhone || '', termsUrl: w.termsUrl || '', privacyUrl: w.privacyUrl || '', domain: verifiedDomainOf(owner) || '', skin: cleanSkin(w.skin) } : null;
 }
 const DOMAIN_RE = /^(?=.{4,253}$)([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}$/;
 // an agency's own app domain (app.agency.com) — login page and dashboard in their brand, once DNS proves it's
@@ -321,7 +322,9 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     const b = req.body || {};
     const w = { brand: clip(b.brand, 40), logo: clip(b.logo, 500), primary: /^#[0-9a-f]{6}$/i.test(b.primary || '') ? b.primary : '', supportEmail: clip(b.supportEmail, 200), hidePowered: !!b.hidePowered, domain: clip(b.domain, 253).toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''),
       // the agency's own legal details, shown on its domain instead of the platform's
-      legalName: clip(b.legalName, 120), address: clip(b.address, 300), supportPhone: clip(b.supportPhone, 30), termsUrl: clip(b.termsUrl, 500), privacyUrl: clip(b.privacyUrl, 500) };
+      legalName: clip(b.legalName, 120), address: clip(b.address, 300), supportPhone: clip(b.supportPhone, 30), termsUrl: clip(b.termsUrl, 500), privacyUrl: clip(b.privacyUrl, 500),
+      // the dashboard skin its client accounts start with (each person can still pick their own — skins.js)
+      skin: cleanSkin(b.skin) };
     for (const k of ['termsUrl', 'privacyUrl']) if (w[k] && !/^https:\/\/[^\s"'<>]+$/.test(w[k])) return res.status(400).json({ error: 'Terms and privacy links must start with https://' });
     if (w.supportPhone && !/^\+?[0-9 ()-]{6,30}$/.test(w.supportPhone)) return res.status(400).json({ error: 'Enter a valid support phone number' });
     if (w.logo && !/^(https:\/\/|\/uploads\/)[^\s"'<>]+$/.test(w.logo)) return res.status(400).json({ error: 'The logo must be an https:// image link or an uploaded image' });

@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
 import { api, meCache, logout, stopImpersonating, leaveClient, fmtDate } from './api';
+import { SKINS, applySkin, currentSkin } from './skins';
+import SkinPicker from './skinPicker';
 import { isSuper } from './tier';
 import { agencyHost } from './agencyHost';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
@@ -47,11 +49,6 @@ export function downloadCSV(name, rows) {
 }
 
 export const BRAND = 'FunnelHive';
-const LOOK_KEY = 'ff_ui';
-// the app's look: Studio (default) or Liquid Glass — remembered on this device
-export const currentLook = () => { try { return localStorage.getItem(LOOK_KEY) === 'glass' ? 'glass' : 'studio'; } catch { return 'studio'; } };
-export const applyLook = (look = currentLook()) => { if (typeof document !== 'undefined') document.documentElement.classList.toggle('glass', look === 'glass'); };
-const toggleLook = () => { const next = currentLook() === 'glass' ? 'studio' : 'glass'; try { localStorage.setItem(LOOK_KEY, next); } catch {} applyLook(next); };
 // where live funnel pages are served (PAGES_URL on the server, else this app)
 export const pagesOrigin = () => (typeof window !== 'undefined' && window.__PAGES_URL__) || location.origin;
 
@@ -221,7 +218,7 @@ function ProfileMenu({ me, onGo }) {
           {ACCOUNT.filter((to) => allowed(to, me)).map((to) => <Link key={to} role="menuitem" to={to} onClick={go}><Icon name={PAGES[to][0]} size={15} />{t(PAGES[to][1])}</Link>)}
           {me?.adminUrl && <a role="menuitem" href={`${me.adminUrl}/admin`}><Icon name="shield" size={15} />{t('Admin')}</a>}
           <hr />
-          <button type="button" role="menuitem" onClick={() => { toggleLook(); setOpen(false); }}><Icon name="palette" size={15} />{t(currentLook() === 'glass' ? 'Switch to the standard look' : 'Switch to Liquid Glass')}</button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('ff:skins')); }}><Icon name="palette" size={15} />{t('Change skin…')}</button>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('ff:jump')); }}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
           <button type="button" role="menuitem" onClick={logout}><Icon name="logout" size={15} />{t('Log out')}</button>
         </div>
@@ -359,7 +356,12 @@ export function Layout({ title, subtitle, actions, children, wide }) {
     return () => window.removeEventListener('keydown', k);
   }, []);
   const [paywall, setPaywall] = useState(null);
-  useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); }).catch(() => {}); }, []);
+  useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); if (!isSuper) applySkin(m.skin || 'classic'); }).catch(() => {}); }, []);
+  // the skin picker (profile menu → Change skin…) and the skin's layout
+  const [skin, setSkin] = useState(currentSkin);
+  const [skinOpen, setSkinOpen] = useState(false);
+  useEffect(() => { const s = () => setSkin(currentSkin()), o = () => setSkinOpen(true); window.addEventListener('ff:skin', s); window.addEventListener('ff:skins', o); return () => { window.removeEventListener('ff:skin', s); window.removeEventListener('ff:skins', o); }; }, []);
+  const sk = SKINS[skin] || SKINS.classic;
   useEffect(() => { applyUiLang(); }, []);
   useEffect(() => { const h = (e) => setPaywall(e.detail || {}); window.addEventListener('ff:paywall', h); return () => window.removeEventListener('ff:paywall', h); }, []);
   // the admin address (tiers): only the admin panel — no seller menu, notifications or funnel search
@@ -378,7 +380,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
     </div>
   );
   return (
-    <div className={`app ${mini ? 'mini' : ''}`}>
+    <div className={`app ${mini || sk.layout === 'rail' ? 'mini' : ''} lay-${sk.layout}`}>
       <aside className={`side ${open ? 'open' : ''}`}>
         <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}<span className="brand-n">{me?.brand || BRAND}</span><button type="button" className="side-fold" onClick={fold} title={t(mini ? 'Show the menu (Ctrl+B)' : 'Fold the menu to icons (Ctrl+B)')} aria-label={t(mini ? 'Show the menu' : 'Fold the menu')}><Icon name="panel" size={16} /></button></div>
         <button type="button" className="side-jump" onClick={() => window.dispatchEvent(new Event('ff:jump'))}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
@@ -408,8 +410,20 @@ export function Layout({ title, subtitle, actions, children, wide }) {
         <div className={`content ${wide ? 'wide' : ''}`}>{typeof children === 'function' ? children(me) : children}</div>
       </main>
       {paywall && <Paywall info={paywall} onClose={() => setPaywall(null)} />}
+      {sk.dock && <Dock me={me} />}
+      {skinOpen && <Modal title={t('Dashboard skin')} onClose={() => { applySkin(skin); setSkinOpen(false); }} width={860}><SkinPicker onClose={(k) => { setSkinOpen(false); if (k) api('/settings', 'PUT', { skin: k === 'classic' ? '' : k }).then(() => { meCache.at = 0; }).catch((e) => toast(e.message)); }} /></Modal>}
       <Jump me={me} />
     </div>
+  );
+}
+
+// the floating quick-action bar of skins that have one: jump anywhere, a new funnel, bookings, Hive AI
+function Dock({ me }) {
+  const items = [['search', t('Jump to…'), () => window.dispatchEvent(new Event('ff:jump'))], ...[['/funnels', 'plus', t('New funnel')], ['/bookings', 'calendar', t('Bookings')], ['/hive', 'sparkles', t('Hive AI')]].filter(([to]) => allowed(to, me)).map(([to, ic, l]) => [ic, l, to])];
+  return (
+    <nav className="sk-dockbar" aria-label={t('Quick actions')}>
+      {items.map(([ic, l, go]) => (typeof go === 'string' ? <Link key={l} to={go} title={l} aria-label={l}><Icon name={ic} size={18} /></Link> : <button type="button" key={l} onClick={go} title={l} aria-label={l}><Icon name={ic} size={18} /></button>))}
+    </nav>
   );
 }
 

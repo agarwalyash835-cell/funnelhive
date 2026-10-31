@@ -57,6 +57,7 @@ import { fxRate } from './fx.js';
 import { registerLegal, publicPrivacy, privacyOf, consentLine, legalMissing } from './legal.js';
 import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
 import { registerAgency, logRequest, brandFor, brandForHost } from './agency.js';
+import { cleanSkin } from './skins.js';
 import { registerWhiteLabel, sendBranded, agencySite, brandedIndex } from './whitelabel.js';
 import { agencyGate, registerAgencyAccess } from './agency-access.js';
 import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
@@ -499,6 +500,8 @@ app.get('/api/me', auth, (req, res) => {
     aiEnabled: aiEnabled(), ...(!req.actor && adminHere(req) ? { aiProvider: aiProvider() } : {}), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
     billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && adminHere(req), ...(!req.actor && adminHere(req) ? { adminLevel: adminLevel(req.user) } : {}), adminUrl: !req.actor && !req.impersonator && isAdmin(req.user) && superHost() && req.tokenAud !== 'super' ? superUrl() : null, brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
     uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
+    // the dashboard's skin: the person's own choice, else their agency's default for clients (skins.js)
+    skin: cleanSkin(req.actor ? req.actor.settings?.skin : s.skin) || cleanSkin(brandFor(req.user)?.skin) || null,
     impersonating: !!req.impersonator, agencyAccess: req.agencyAccess ? { agency: req.agencyAccess.agencyName, by: req.agencyAccess.staff ? req.agencyAccess.actorName : null, mode: req.agencyAccess.mode, reason: req.agencyAccess.reason, expiresAt: req.agencyAccess.expiresAt } : null, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
     workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, ...memberRole(req.user.id, req.role), custom: !!req.customPerms, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
     perms: req.actor ? memberRole(req.user.id, req.role).perms : null, // a member's access per area (the app hides what they can't open)
@@ -554,6 +557,15 @@ app.put('/api/settings', auth, wrap(async (req, res) => {
       T.users.update(req.actor.id, (x) => { x.settings = { ...(x.settings || {}), uiLang: l }; });
       if (Object.keys(body).length === 1) return res.json({ ...s, uiLang: l });
     } else next.uiLang = l;
+  }
+  // the dashboard's skin (skins.js) — like the language, each person's own; '' goes back to the default
+  if ('skin' in body) {
+    const k = cleanSkin(body.skin);
+    if (body.skin && !k) return res.status(400).json({ error: 'Unknown skin' });
+    if (req.actor) {
+      T.users.update(req.actor.id, (x) => { x.settings = { ...(x.settings || {}), skin: k }; });
+      if (Object.keys(body).length === 1) return res.json({ ...s, skin: k });
+    } else next.skin = k;
   }
   if (body.payments && typeof body.payments === 'object') {
     next.payments = { ...s.payments };
