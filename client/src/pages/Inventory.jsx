@@ -51,11 +51,11 @@ export default function Inventory() {
     }
   };
 
-  if (on === false) return <Layout title="Inventory" subtitle="Your stock, in FunnelHive"><Empty icon="box" title="Inventory isn’t switched on" text="Inventory is an add-on — items, godowns, stock in and out, low-stock alerts and bill photos. Ask us to turn it on for your account." /></Layout>;
+  if (on === false) return <Layout title="Inventory" subtitle="Your stock, kept here"><Empty icon="box" title="Inventory isn’t switched on" text="Inventory is an add-on — items, godowns, stock in and out, low-stock alerts and bill photos. Ask us to turn it on for your account." /></Layout>;
   const s = d?.summary, rows = (d?.items || []).filter((i) => show !== 'low' || i.low), godowns = d?.godowns || [];
   const maxQty = Math.max(1, ...rows.map((i) => i.stock));
   return (
-    <Layout title="Inventory" subtitle="Your stock, in FunnelHive — items, godowns, stock in and out" actions={on && <><Link className="btn ghost" to="/counter" title="Phone-first counter billing — works offline"><Icon name="receipt" size={14} /> Counter mode</Link><NewMenu onPick={setForm} /></>}>
+    <Layout title="Inventory" subtitle="Your stock — items, godowns, stock in and out" actions={on && <><Link className="btn ghost" to="/counter" title="Phone-first counter billing — works offline"><Icon name="receipt" size={14} /> Counter mode</Link><NewMenu onPick={setForm} /></>}>
       {!d ? <div className="skeleton" /> : <>
         <div className="tl-strip">
           {[['Stock value', money(s.value), 'at purchase rates', 'wallet', 'in'], ['Items', s.items.toLocaleString('en-IN'), `${godowns.length} ${godowns.length === 1 ? 'godown' : 'godowns'}`, 'layers'], ['Low stock', s.low.toLocaleString('en-IN'), s.low ? 'at or below reorder level' : 'nothing running low', 'bell', s.low ? 'out' : 'in'], ['Out of stock', s.out.toLocaleString('en-IN'), s.out ? 'need restocking' : 'all in stock', 'box', s.out ? 'bad' : 'in']].map(([label, value, sub, icon, tone]) => (

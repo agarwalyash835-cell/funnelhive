@@ -24,7 +24,7 @@ import { THEME_IDS, cleanThemeOptions, cleanPolicyPages, cleanListingExtras, POL
 import { isDemoHandle, demoStore, demoListings, demoQuote, demoArt } from './store-demos.js';
 import { waRequired, waPhoneOk } from './hive-wa.js';
 import { notify } from './notify.js';
-import { registerStoreOrders, reviewStats, trackKey, publicReview } from './store-orders.js';
+import { registerStoreOrders, reviewStats, trackKey, publicReview, waitingCounts } from './store-orders.js';
 import { registerStoreFeeds } from './store-feeds.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -89,6 +89,12 @@ export function cleanStore(b, cur = {}) {
     const c = b.cod || {}, fee = Number(c.fee || 0);
     if (!Number.isFinite(fee) || fee < 0 || fee > 10000) return { error: 'COD fee must be 0 or more' };
     out.cod = { enabled: !!c.enabled, fee: Math.round(fee) };
+  }
+  // returns and exchanges buyers can ask for from their order page (store-orders.js): days after delivery, 0 = none
+  if ('returns' in b) {
+    const r = b.returns || {}, days = Math.round(Number(r.days ?? 7));
+    if (!Number.isFinite(days) || days < 0 || days > 90) return { error: 'The return window is 0 to 90 days' };
+    out.returns = { days, exchange: r.exchange !== false };
   }
   if ('theme' in b) { if (!THEME_IDS.includes(b.theme)) return { error: 'Choose one of the store themes' }; out.theme = b.theme; }
   if ('themeOptions' in b) { const o = cleanThemeOptions(b.themeOptions); if (o.error) return o; out.themeOptions = o; }
@@ -235,7 +241,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
   // ---- the seller ----
   app.get('/api/store', auth, (req, res) => {
     const s = ensure(req.user);
-    res.json({ store: sellerView(req, s), listings: listingsFor(req.user.id), products: productsFor(req.user), items: itemsFor(req.user), inventory: inventoryOn(req.user) });
+    res.json({ store: sellerView(req, s), listings: listingsFor(req.user.id), products: productsFor(req.user), items: itemsFor(req.user), inventory: inventoryOn(req.user), waiting: waitingCounts(req.user.id) });
   });
   app.put('/api/store', auth, (req, res) => {
     const s = ensure(req.user);
@@ -535,5 +541,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     });
   }
 
-  registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId, saveReviewPhoto });
+  // a stock item's units in stock (null for downloads) — for back-in-stock alerts
+  const stockOfListing = (l, owner) => { const r = resolve(l, owner); return r && r.item ? Math.floor(r.stock) : null; };
+  registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId, stockOfListing, saveReviewPhoto });
 }

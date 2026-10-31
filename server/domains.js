@@ -6,12 +6,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { brandForHost } from './agency.js';
 import { T, uid, JOBS } from './db.js';
+import { superHost, agencyHost } from './tiers.js';
 
 const HOST_RE = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch { return ''; } };
 export const cnameTarget = () => (process.env.CNAME_TARGET || hostOf(process.env.APP_URL || '')).toLowerCase().replace(/\.$/, '');
 const serverIp = () => (process.env.SERVER_IP || '').trim();
-const appHosts = () => new Set(['localhost', '127.0.0.1', '::1', hostOf(process.env.APP_URL || ''), hostOf(process.env.PAGES_URL || ''), cnameTarget(), ...(process.env.APP_HOSTS || '').split(',')].map((s) => s.trim().toLowerCase()).filter(Boolean));
+// SUPER_HOST / AGENCY_HOST (tiers.js): the admin and agency addresses are the platform's own too
+const appHosts = () => new Set(['localhost', '127.0.0.1', '::1', hostOf(process.env.APP_URL || ''), hostOf(process.env.PAGES_URL || ''), cnameTarget(), superHost(), agencyHost(), ...(process.env.APP_HOSTS || '').split(',')].map((s) => s.trim().toLowerCase()).filter(Boolean));
 // the platform's own addresses and anything under or above them (app.x.tech, pages.x.tech, x.tech) — never a seller's or agency's
 export const isPlatformHost = (d) => [...appHosts()].some((h) => h && !['localhost', '127.0.0.1', '::1'].includes(h) && (d === h || d.endsWith(`.${h}`) || h.endsWith(`.${d}`)));
 const fakeDns = () => process.env.DOMAINS_FAKE_DNS === '1'; // tests only
@@ -20,6 +22,8 @@ const fakeDown = (domain) => { try { return fs.readFileSync(process.env.DOMAINS_
 // Two-part public suffixes: brand.co.in is a whole (apex) domain, like brand.in — it can't take a CNAME
 const MULTI_SUFFIXES = new Set(['co.in', 'org.in', 'net.in', 'firm.in', 'gen.in', 'ind.in', 'ac.in', 'edu.in', 'gov.in', 'res.in', 'co.uk', 'org.uk', 'me.uk', 'ltd.uk', 'plc.uk', 'ac.uk', 'gov.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'org.nz', 'com.sg', 'edu.sg', 'com.my', 'co.za', 'com.br', 'com.ar', 'com.mx', 'co.jp', 'co.kr', 'com.cn', 'com.hk', 'com.tw', 'co.id', 'com.ph', 'com.pk', 'com.bd', 'com.np', 'com.lk', 'co.ke', 'com.ng', 'com.tr', 'com.sa', 'co.il', 'com.eg']);
 export const isApex = (domain) => { const p = domain.split('.'); return p.length === (MULTI_SUFFIXES.has(p.slice(-2).join('.')) ? 3 : 2); };
+// the whole (registrable) domain a host belongs to: app.brand.co.in → brand.co.in
+export const registrableDomain = (domain) => { const p = String(domain || '').split('.'); return p.slice(-(MULTI_SUFFIXES.has(p.slice(-2).join('.')) ? 3 : 2)).join('.'); };
 // a live domain is only given up after repeated failed checks over a whole day (one DNS blip never takes a site down)
 const LAPSE_FAILS = 3, LAPSE_MS = 24 * 3600000;
 
@@ -63,6 +67,9 @@ export function pagesSplit(req, res, next) {
   next();
 }
 
+// { domain, token } → { txt, route }: the ownership TXT record and the CNAME / A record pointing here (agency app
+// domains are proven the same way — whitelabel.js)
+export async function checkDomainDns(d) { return check(d); }
 async function check(d) {
   const r = { txt: false, route: false };
   if (fakeDns()) { r.txt = r.route = !fakeDown(d.domain); return r; }
@@ -104,16 +111,18 @@ async function verify(d) {
 }
 
 const view = (d) => { const { userId, ...x } = d; return x; };
+// the DNS records that connect a domain: { domain, token } → [{ type, name, value, why }]
+export function dnsRecords(d, { what = 'your funnel', www = true } = {}) {
+  const target = cnameTarget(), ip = serverIp();
+  const txt = { type: 'TXT', name: `_funnelhive.${d.domain}`, value: `ff-verify=${d.token}`, why: 'Proves the domain is yours' };
+  if (!isApex(d.domain)) return [txt, { type: 'CNAME', name: d.domain, value: target || '(your server address — ask your administrator to set APP_URL)', why: `Sends visitors to ${what}` }];
+  // a whole domain (brand.in, brand.co.in) can't take a CNAME: it needs an A record; www follows it to the same funnel
+  return [txt,
+    { type: 'A', name: d.domain, value: ip || '(this server’s IP address — ask your administrator to set SERVER_IP)', why: `Sends visitors to ${what}` },
+    ...(www ? [{ type: 'CNAME', name: `www.${d.domain}`, value: target || d.domain, why: `Optional: www.${d.domain} opens the same funnel`, optional: true }] : [])];
+}
 export function registerDomains(app, { auth }) {
-  const records = (d) => {
-    const target = cnameTarget(), ip = serverIp();
-    const txt = { type: 'TXT', name: `_funnelhive.${d.domain}`, value: `ff-verify=${d.token}`, why: 'Proves the domain is yours' };
-    if (!isApex(d.domain)) return [txt, { type: 'CNAME', name: d.domain, value: target || '(your server address — ask your administrator to set APP_URL)', why: 'Sends visitors to your funnel' }];
-    // a whole domain (brand.in, brand.co.in) can't take a CNAME: it needs an A record; www follows it to the same funnel
-    return [txt,
-      { type: 'A', name: d.domain, value: ip || '(this server’s IP address — ask your administrator to set SERVER_IP)', why: 'Sends visitors to your funnel' },
-      { type: 'CNAME', name: `www.${d.domain}`, value: target || d.domain, why: `Optional: www.${d.domain} opens the same funnel`, optional: true }];
-  };
+  const records = (d) => dnsRecords(d);
   const out = (d) => ({ ...view(d), records: records(d) });
   const own = (req, res) => { const d = T.domains.get(req.params.did); if (!d || d.userId !== req.user.id) { res.status(404).json({ error: 'Domain not found' }); return null; } return d; };
   const ownFunnel = (req, id) => { const f = id && T.funnels.get(id); return f && f.userId === req.user.id ? f : null; };
@@ -154,7 +163,8 @@ export function registerDomains(app, { auth }) {
   });
   // Caddy on_demand_tls "ask" endpoint: only issue certificates for connected domains
   // (the www / bare twin of a connected domain too, so its redirect works over HTTPS)
-  app.get('/api/domains/tls-check', (req, res) => { const h = normalizeDomain(req.query.domain); res.status(activeDomain(h) || wwwTwin(h) || brandForHost(h) ? 200 : 404).end(); });
+  // (and the platform's admin and agency addresses, SUPER_HOST / AGENCY_HOST, should Caddy ask about them)
+  app.get('/api/domains/tls-check', (req, res) => { const h = normalizeDomain(req.query.domain); res.status(activeDomain(h) || wwwTwin(h) || brandForHost(h) || (h && (h === superHost() || h === agencyHost())) ? 200 : 404).end(); });
 
   // re-check pending domains in the background for 3 days after they're added (or after they lapsed),
   // and live ones once a day — every 6 hours while failing, so a lapse is confirmed or cleared within a day

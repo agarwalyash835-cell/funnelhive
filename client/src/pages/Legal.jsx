@@ -1,10 +1,34 @@
 import { useEffect } from 'react';
 import { useSite, SiteHeader, SiteFooter } from './Landing';
 import { inr } from '../ui';
+import { agencyHost } from '../agencyHost';
 
 // Plain-language policies built from the company details in Admin → Plan & settings.
 // Have them reviewed by your lawyer before going live.
 const UPDATED = '16 October 2026';
+
+// On an agency's own domain: the agency's details and its own policy links — never the platform's company or policies
+function AgencyPage({ title, kind }) {
+  const site = useSite(), a = agencyHost() || {};
+  const c = site?.company || {}, brand = site?.brand || a.brand || '';
+  useEffect(() => { document.title = `${title} · ${brand}`; }, [title, brand]);
+  const link = kind === 'terms' ? c.termsUrl : kind === 'privacy' ? c.privacyUrl : '';
+  return (
+    <div className="site">
+      <header className="site-h"><a href="/login" className="brand">{a.logo ? <img className="logo img" src={a.logo} alt="" /> : null}{brand}</a><div className="row"><a className="btn ghost sm" href="/login?mode=login">Log in</a></div></header>
+      <article className="legal"><h1>{title}</h1>
+        {link ? <p>Read our {title.toLowerCase()} here: <a href={link} rel="noopener">{link}</a></p> : kind !== 'contact' ? <p>For our {title.toLowerCase()}, please contact us using the details below.</p> : null}
+        {site && <div className="contact-card">
+          <p><b>{c.name || brand}</b>{c.address ? <><br />{c.address}</> : null}</p>
+          {c.email && <p><b>Email</b><br /><a href={`mailto:${c.email}`}>{c.email}</a></p>}
+          {c.phone && <p><b>Phone</b><br />{c.phone}</p>}
+          {(c.termsUrl || c.privacyUrl) && <p>{c.termsUrl && <a href={c.termsUrl} rel="noopener">Terms of service</a>}{c.termsUrl && c.privacyUrl ? ' · ' : ''}{c.privacyUrl && <a href={c.privacyUrl} rel="noopener">Privacy policy</a>}</p>}
+        </div>}
+      </article>
+    </div>
+  );
+}
+const agencyOr = (title, kind, Platform) => function LegalPage() { return agencyHost() ? <AgencyPage title={title} kind={kind} /> : <Platform />; };
 
 function Page({ title, children }) {
   const site = useSite();
@@ -33,7 +57,7 @@ const Grievance = ({ s }) => <>
   <p>We acknowledge every complaint within 24 hours and resolve it within 15 days. If you are not satisfied with how we handled a complaint about your personal data, you may approach the Data Protection Board of India.</p>
 </>;
 
-export const Terms = () => (
+export const Terms = agencyOr('Terms of service', 'terms', () => (
   <Page title="Terms of service">{(s) => <>
     <p>These terms are an agreement between you (“you”, the seller) and {who(s)} (“we”), which runs {s.brand}. By creating an account you accept them.</p>
     <h2>1. The service</h2>
@@ -60,9 +84,9 @@ export const Terms = () => (
     <h2>11. Contact</h2>
     <p>Questions? Write to <Mail to={mail(s)} />.</p>
   </>}</Page>
-);
+));
 
-export const Privacy = () => (
+export const Privacy = agencyOr('Privacy policy', 'privacy', () => (
   <Page title="Privacy policy">{(s) => <>
     <p>This policy explains what personal data {who(s)} collects through {s.brand} and how we use it, in line with India’s Digital Personal Data Protection Act, 2023.</p>
     <h2>Data about you (sellers)</h2>
@@ -95,9 +119,9 @@ export const Privacy = () => (
     <p>Data is sent over HTTPS, passwords are hashed, payment and messaging secrets are encrypted, and two-step login is available for every account.</p>
     <Grievance s={s} />
   </>}</Page>
-);
+));
 
-export const Refunds = () => (
+export const Refunds = agencyOr('Cancellation & refund policy', 'refunds', () => (
   <Page title="Cancellation & refund policy">{(s) => <>
     <h2>Free trial</h2>
     <p>Every account starts with a {s.trialDays}-day free trial. You are not charged during the trial, and if you subscribe during it your first charge happens only when the trial ends.</p>
@@ -110,9 +134,9 @@ export const Refunds = () => (
     <h2>Your customers</h2>
     <p>Refunds for products you sell through your funnels are between you and your customers, made through your own payment-gateway account.</p>
   </>}</Page>
-);
+));
 
-export const Contact = () => (
+export const Contact = agencyOr('Contact us', 'contact', () => (
   <Page title="Contact us">{(s) => <>
     <p>We’re happy to help with setup, billing or anything else.</p>
     <div className="contact-card">
@@ -124,4 +148,4 @@ export const Contact = () => (
     <p className="muted">Write to us and we’ll get back to you as soon as we can.</p>
     <Grievance s={s} />
   </>}</Page>
-);
+));

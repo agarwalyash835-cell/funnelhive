@@ -2,6 +2,8 @@ import React, { lazy, Suspense } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { loggedIn } from './api';
+import { isSuper, superUrl } from './tier';
+import { agencyHost } from './agencyHost';
 import ErrorBoundary, { initMonitoring } from './ErrorBoundary';
 // Live funnel pages are in the first download; every other screen loads its own chunk when opened,
 // so a buyer opening a funnel never downloads the dashboard.
@@ -14,6 +16,9 @@ import './page-premium.css';
 import './app-products.css';
 import './app-refresh.css';
 import './glass.css';
+import './skins.css';
+import './skins-more.css';
+import { bootSkin } from './skins';
 import './cod.css';
 
 const named = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })));
@@ -72,8 +77,8 @@ const Contact = named(() => import('./pages/Legal'), 'Contact');
 const TemplateGallery = named(() => import('./pages/Templates'), 'TemplateGallery');
 const TemplatePreview = named(() => import('./pages/Templates'), 'TemplatePreview');
 
-// the app's look (same rule as applyLook in ui.jsx, which isn't in the funnel-page bundle)
-try { document.documentElement.classList.toggle('glass', localStorage.getItem('ff_ui') === 'glass'); } catch {}
+// the dashboard's skin, as this browser last saw it (skins.js) — /api/me corrects it once it loads
+bootSkin();
 
 // Each lazy screen gets its own Suspense — the live funnel page (Public) has none, so its server HTML hydrates as is
 const L = (C, props) => <Suspense fallback={<div className="skeleton" style={{ margin: 24 }} />}><C {...props} /></Suspense>;
@@ -102,7 +107,24 @@ function LangRoot({ children }) {
 const onDomain = typeof window !== 'undefined' && !!window.__FF_DOMAIN__;
 const onFunnel = onDomain || /^\/(f|learn|cert|affiliate)\/[^/]/.test(location.pathname);
 
-const app = onDomain ? (
+// the admin address (super host, server tiers.js): its own sign-in and the admin panel, nothing else
+const superApp = (
+  <LangRoot>
+  <BrowserRouter>
+    <AppToaster />
+    <Screens variant="app">
+      <Routes>
+        <Route path="/login" element={L(Auth, { admin: true })} />
+        <Route path="/admin" element={P(Admin)} />
+        <Route path="/admin/invoices/:id" element={P(Invoice, { admin: true })} />
+        <Route path="*" element={<Navigate to={loggedIn() ? '/admin' : '/login'} replace />} />
+      </Routes>
+    </Screens>
+  </BrowserRouter>
+  </LangRoot>
+);
+
+const app = isSuper ? superApp : onDomain ? (
   <BrowserRouter>
     <Screens variant="page">
       <Routes>
@@ -129,8 +151,9 @@ const app = onDomain ? (
         <Route path="/report/:token" element={L(ClientReport)} />
         <Route path="/reset" element={L(Reset)} />
         <Route path="/team/accept" element={L(AcceptInvite)} />
-        <Route path="/" element={loggedIn() ? L(Dashboard) : L(Landing)} />
-        <Route path="/pricing" element={L(Landing)} />
+        {/* an agency’s own domain: its login page, never the platform’s landing page, prices or admin screens */}
+        <Route path="/" element={loggedIn() ? L(Dashboard) : agencyHost() ? <Navigate to="/login?mode=login" replace /> : L(Landing)} />
+        <Route path="/pricing" element={agencyHost() ? <Navigate to="/login" replace /> : L(Landing)} />
         <Route path="/terms" element={L(Terms)} />
         <Route path="/privacy" element={L(Privacy)} />
         <Route path="/refunds" element={L(Refunds)} />
@@ -173,8 +196,8 @@ const app = onDomain ? (
         <Route path="/hive" element={P(Hive)} />
         <Route path="/billing" element={P(Billing)} />
         <Route path="/billing/invoices/:id" element={P(Invoice)} />
-        <Route path="/admin" element={P(Admin)} />
-        <Route path="/admin/invoices/:id" element={P(Invoice, { admin: true })} />
+        {!superUrl && <Route path="/admin" element={agencyHost() ? <Navigate to="/" replace /> : P(Admin)} />}
+        {!superUrl && <Route path="/admin/invoices/:id" element={agencyHost() ? <Navigate to="/" replace /> : P(Invoice, { admin: true })} />}
         <Route path="/ai" element={<Navigate to="/hive" replace />} />
         <Route path="/automations/:id?" element={P(Automations)} />
         <Route path="/templates" element={P(TemplateGallery)} />

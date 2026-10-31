@@ -18,7 +18,7 @@ export function ApiKeysPanel() {
   const revoke = async (k) => { if (!await confirmDialog({ title: `Revoke “${k.name}”?`, text: 'Apps using it stop working immediately.', confirm: 'Revoke', danger: true })) return; await api(`/keys/${k.id}`, 'DELETE'); load(); };
   return (
     <Panel title="API & integrations" actions={<Link className="btn ghost sm" to="/developers"><Icon name="external" size={13} /> API reference</Link>}>
-      <p className="muted sm">Connect FunnelHive to 5,000+ apps with <b>Zapier</b>, <b>Pabbly Connect</b>, <b>Make</b> or <b>n8n</b> — new leads, orders and bookings start your workflows, and other apps can add contacts, tags and orders here. Or use the REST API from your own code.</p>
+      <p className="muted sm">Connect your account to 5,000+ apps with <b>Zapier</b>, <b>Pabbly Connect</b>, <b>Make</b> or <b>n8n</b> — new leads, orders and bookings start your workflows, and other apps can add contacts, tags and orders here. Or use the REST API from your own code.</p>
       {fresh && (
         <div className="mcp-fresh">
           <b>Copy your key now — it won’t be shown again</b>
@@ -60,7 +60,7 @@ const EVENTS = ['lead.created', 'order.created', 'order.updated', 'order.refunde
 export default function Developers() {
   const base = location.origin;
   return (
-    <Layout title="API reference" subtitle="Everything in FunnelHive is available over a REST API — the same one the app uses.">
+    <Layout title="API reference" subtitle="Everything in your account is available over a REST API — the same one the app uses.">
       <Panel title="Getting started">
         <ol className="dev-steps">
           <li>Create a key in <Link to="/settings">Settings → API &amp; integrations</Link> (full or read-only).</li>

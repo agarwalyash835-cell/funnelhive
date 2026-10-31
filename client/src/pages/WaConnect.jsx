@@ -29,11 +29,11 @@ function extrasFor(version, keepApp) {
 }
 const LIMITS = [
   'Keep using WhatsApp on your phone at least once every 14 days, or the connection stops.',
-  'Messages you send from the app show in the FunnelHive inbox too.',
+  'Messages you send from the app show in your inbox here too.',
   'In the app: broadcast lists become read-only, and disappearing messages, view-once and live location are turned off for chats.',
-  'Group chats, calls, and the app’s labels, quick replies and greeting/away messages don’t come across to FunnelHive.',
+  'Group chats, calls, and the app’s labels, quick replies and greeting/away messages don’t come across here.',
   'Linked devices (WhatsApp Web, desktop) are logged out once — link them again afterwards. WhatsApp for Windows isn’t supported.',
-  'Messages from FunnelHive are charged by WhatsApp like any API message; messages from the app stay free.',
+  'Messages sent from here are charged by WhatsApp like any API message; messages from the app stay free.',
 ];
 
 export default function WaConnect({ onChange }) {
@@ -102,7 +102,7 @@ export default function WaConnect({ onChange }) {
         <>
           <p><b>Connect WhatsApp in one step</b> — log in with Facebook and pick your number. No codes or tokens to copy.</p>
           <div className="wacx-choices" role="radiogroup">
-            <label className={mode === 'app' ? 'on' : ''}><input type="radio" name="wacx" checked={mode === 'app'} onChange={() => setMode('app')} /><span><b>Use my existing WhatsApp Business app number</b><small>Keep using the app on your phone — FunnelHive works on the same number.</small></span></label>
+            <label className={mode === 'app' ? 'on' : ''}><input type="radio" name="wacx" checked={mode === 'app'} onChange={() => setMode('app')} /><span><b>Use my existing WhatsApp Business app number</b><small>Keep using the app on your phone — this works on the same number.</small></span></label>
             <label className={mode === 'new' ? 'on' : ''}><input type="radio" name="wacx" checked={mode === 'new'} onChange={() => setMode('new')} /><span><b>Use a new number</b><small>A number not on WhatsApp yet. You’ll get a code by SMS or call.</small></span></label>
           </div>
           {mode === 'app' && (

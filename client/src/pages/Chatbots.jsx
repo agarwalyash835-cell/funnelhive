@@ -140,10 +140,10 @@ export default function Chatbots() {
     if (!fl) return;
     try {
       const j = JSON.parse(await fl.text());
-      if (!Array.isArray(j.nodes)) throw new Error('That file isn’t a FunnelHive chatbot');
+      if (!Array.isArray(j.nodes)) throw new Error('That file isn’t a chatbot export');
       const f = await api('/waflows', 'POST', { flow: { ...pickFlow(j), name: j.name || 'Imported chatbot' } });
       await load(); nav(`/chatbots/${f.id}`); toast('Chatbot imported — it’s switched off until you go live');
-    } catch (er) { toast(er instanceof SyntaxError ? 'That file isn’t a FunnelHive chatbot' : er.message); }
+    } catch (er) { toast(er instanceof SyntaxError ? 'That file isn’t a chatbot export' : er.message); }
   };
   return (
     <Layout title="Chatbots & AI agent" subtitle="Automate WhatsApp: chatbots that collect details and route chats, and an AI agent that answers like your best salesperson." actions={<Link className="btn ghost sm" to="/inbox"><Icon name="chat" size={15} />Open inbox</Link>}>

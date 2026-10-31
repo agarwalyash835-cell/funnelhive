@@ -294,8 +294,10 @@ export function AdminPartners() {
 }
 
 function PartnerTerms({ t, onClose, onDone }) {
-  const [v, setV] = useState(t);
-  const save = async (enabled) => { try { await api(`/admin/partners/${t.id}`, 'PUT', { ...v, enabled }); toast(enabled ? 'Partner terms saved' : 'Reselling switched off'); onDone(); } catch (e) { toast(e.message); } };
+  const [v, setV] = useState({ addons: [], seatCap: '', status: 'active', ...t, seatCap: t.seatCap ?? '' });
+  // one set of terms per agency (kind, max clients, add-ons for clients, seats per client, rates, status)
+  const save = async (enabled) => { try { await api(`/admin/agencies/${t.id}`, 'PUT', { kind: enabled ? 'reseller' : 'agency', perAccount: v.perAccount, creditRate: v.creditRate, maxClients: v.maxAccounts, addons: v.addons, seatCap: v.seatCap === '' ? null : v.seatCap, status: v.status }); toast(enabled ? 'Partner terms saved' : 'Saved — agency only (no reselling)'); onDone(); } catch (e) { toast(e.message); } };
+  const flip = (k) => setV({ ...v, addons: v.addons.includes(k) ? v.addons.filter((x) => x !== k) : [...v.addons, k] });
   return (
     <Modal title={`Wholesale terms — ${t.who}`} onClose={onClose} width={520}>
       <div className="m-body">
@@ -303,9 +305,13 @@ function PartnerTerms({ t, onClose, onDone }) {
           <div className="fld"><label>₹ per active account / 30 days</label><input type="number" min="0" value={v.perAccount} onChange={(e) => setV({ ...v, perAccount: e.target.value })} /></div>
           <div className="fld"><label>₹ per 100 AI credits used</label><input type="number" min="0" value={v.creditRate} onChange={(e) => setV({ ...v, creditRate: e.target.value })} /></div>
           <div className="fld"><label>Max sub-accounts</label><input type="number" min="1" value={v.maxAccounts} onChange={(e) => setV({ ...v, maxAccounts: e.target.value })} /></div>
+          <div className="fld"><label>Team seats per client <small className="muted">· empty = no cap</small></label><input type="number" min="1" value={v.seatCap} onChange={(e) => setV({ ...v, seatCap: e.target.value })} /></div>
         </div>
+        <div className="fld"><label>Add-ons the agency may switch on for its clients</label>
+          <div className="chips">{[['tally', 'Tally'], ['inventory', 'Inventory']].map(([k, l]) => <button key={k} type="button" className={v.addons.includes(k) ? 'on' : ''} aria-pressed={v.addons.includes(k)} onClick={() => flip(k)}>{l}</button>)}</div></div>
+        <label className="tog"><input type="checkbox" checked={v.status === 'suspended'} onChange={(e) => setV({ ...v, status: e.target.checked ? 'suspended' : 'active' })} /><span />Agency tools switched off (no new clients, can’t open clients)</label>
         <p className="hint">Turning reselling on makes the partner’s own workspace free (they pay through the wallet), and lets them sell their own plans and credit packs.</p>
-        <div className="m-foot">{t.enabled && <button className="btn ghost danger" onClick={() => save(false)}>Switch reselling off</button>}<button className="btn primary" onClick={() => save(true)}>{t.enabled ? 'Save' : 'Switch reselling on'}</button></div>
+        <div className="m-foot"><button className="btn ghost" onClick={() => save(false)}>{t.enabled ? 'Switch reselling off' : 'Save as agency only'}</button><button className="btn primary" onClick={() => save(true)}>{t.enabled ? 'Save' : 'Switch reselling on'}</button></div>
       </div>
     </Modal>
   );

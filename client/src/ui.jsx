@@ -2,7 +2,11 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
-import { api, meCache, logout, stopImpersonating, fmtDate } from './api';
+import { api, meCache, logout, stopImpersonating, leaveClient, fmtDate } from './api';
+import { SKINS, applySkin, currentSkin } from './skins';
+import SkinPicker from './skinPicker';
+import { isSuper } from './tier';
+import { agencyHost } from './agencyHost';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
 import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft } from 'lucide-react';
 
@@ -45,11 +49,6 @@ export function downloadCSV(name, rows) {
 }
 
 export const BRAND = 'FunnelHive';
-const LOOK_KEY = 'ff_ui';
-// the app's look: Studio (default) or Liquid Glass — remembered on this device
-export const currentLook = () => { try { return localStorage.getItem(LOOK_KEY) === 'glass' ? 'glass' : 'studio'; } catch { return 'studio'; } };
-export const applyLook = (look = currentLook()) => { if (typeof document !== 'undefined') document.documentElement.classList.toggle('glass', look === 'glass'); };
-const toggleLook = () => { const next = currentLook() === 'glass' ? 'studio' : 'glass'; try { localStorage.setItem(LOOK_KEY, next); } catch {} applyLook(next); };
 // where live funnel pages are served (PAGES_URL on the server, else this app)
 export const pagesOrigin = () => (typeof window !== 'undefined' && window.__PAGES_URL__) || location.origin;
 
@@ -67,7 +66,7 @@ const PAGES = {
   '/store': ['tag', 'Store', 'Your online shop — products and stock items in one cart, one checkout'],
   '/school': ['bookmark', 'School', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
-  '/inventory': ['box', 'Inventory', 'Your stock in FunnelHive — items, godowns, stock in and out, low-stock alerts'],
+  '/inventory': ['box', 'Inventory', 'Your stock — items, godowns, stock in and out, low-stock alerts'],
   '/affiliates': ['users', 'Affiliates', 'People who sell for you — referral links, coupons, commission and payouts'],
   '/counter': ['receipt', 'Counter mode', 'Bill at the shop counter on a phone — scan, bill, print; works offline'],
   '/tally': ['wallet', 'Tally', 'Your TallyPrime books — money owed, vouchers, stock — and vouchers saved straight into Tally'],
@@ -81,7 +80,7 @@ const PAGES = {
   '/webinars': ['play', 'Webinars', 'Live or scheduled sessions with sign-ups and reminders'],
   '/templates': ['layout', 'Templates', '100+ ready-made funnels to start from'],
   '/settings': ['settings', 'Settings', 'Business profile, payments, domains and team'],
-  '/billing': ['card', 'Plan & billing', 'Your FunnelHive plan and invoices'],
+  '/billing': ['card', 'Plan & billing', 'Your plan and invoices'],
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
@@ -135,11 +134,12 @@ const NAV_KEY = 'ff_nav';
 const navLocal = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
 const allowed = (to, me) => {
-  if (to === '/admin') return !!me?.admin;
+  if (to === '/admin') return !!me?.admin && !agencyHost(); // never on an agency's own domain
   if (to === '/tally' && !me?.nav?.tally) return false; // an add-on we switch on per account
   if ((to === '/inventory' || to === '/counter') && !me?.nav?.inventory) return false;
   // a sub-account (a client of an agency / partner) has no agency tools of its own; its billing page shows its plan
   if (!me?.workspace) return !(to === '/agency' && me?.billing?.agencyManaged) && !(to === '/billing' && me?.billing?.agencyManaged && !me?.billing?.resold);
+  if (me.workspace.role === 'clients') return to === '/agency'; // an agency's client manager: only the Agency page
   if (to === '/billing' || to === '/agency') return false;
   if (me.workspace.funnelIds) return to === '/' || to === '/funnels'; // limited to some funnels: nothing account-wide
   if (me.workspace.custom) { // a custom role: the pages its areas can at least view (the server enforces it)
@@ -216,8 +216,9 @@ function ProfileMenu({ me, onGo }) {
       {open && (
         <div className="me-menu" role="menu">
           {ACCOUNT.filter((to) => allowed(to, me)).map((to) => <Link key={to} role="menuitem" to={to} onClick={go}><Icon name={PAGES[to][0]} size={15} />{t(PAGES[to][1])}</Link>)}
+          {me?.adminUrl && <a role="menuitem" href={`${me.adminUrl}/admin`}><Icon name="shield" size={15} />{t('Admin')}</a>}
           <hr />
-          <button type="button" role="menuitem" onClick={() => { toggleLook(); setOpen(false); }}><Icon name="palette" size={15} />{t(currentLook() === 'glass' ? 'Switch to the standard look' : 'Switch to Liquid Glass')}</button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('ff:skins')); }}><Icon name="palette" size={15} />{t('Change skin…')}</button>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('ff:jump')); }}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
           <button type="button" role="menuitem" onClick={logout}><Icon name="logout" size={15} />{t('Log out')}</button>
         </div>
@@ -355,11 +356,31 @@ export function Layout({ title, subtitle, actions, children, wide }) {
     return () => window.removeEventListener('keydown', k);
   }, []);
   const [paywall, setPaywall] = useState(null);
-  useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); }).catch(() => {}); }, []);
+  useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); if (!isSuper) applySkin(m.skin || 'classic'); }).catch(() => {}); }, []);
+  // the skin picker (profile menu → Change skin…) and the skin's layout
+  const [skin, setSkin] = useState(currentSkin);
+  const [skinOpen, setSkinOpen] = useState(false);
+  useEffect(() => { const s = () => setSkin(currentSkin()), o = () => setSkinOpen(true); window.addEventListener('ff:skin', s); window.addEventListener('ff:skins', o); return () => { window.removeEventListener('ff:skin', s); window.removeEventListener('ff:skins', o); }; }, []);
+  const sk = SKINS[skin] || SKINS.classic;
   useEffect(() => { applyUiLang(); }, []);
   useEffect(() => { const h = (e) => setPaywall(e.detail || {}); window.addEventListener('ff:paywall', h); return () => window.removeEventListener('ff:paywall', h); }, []);
+  // the admin address (tiers): only the admin panel — no seller menu, notifications or funnel search
+  if (isSuper) return (
+    <div className="app mini super-admin">
+      <main className="main" style={{ marginLeft: 0 }}>
+        <header className="topbar">
+          <div className="tb-title">{title && <h1>{title}</h1>}{subtitle && <p>{subtitle}</p>}</div>
+          <div className="tb-actions">{actions}</div>
+          {me && <span className="muted sm" title={me.email}>{me.email}{me.adminLevel === 'support' ? ' · support' : ''}</span>}
+          <button type="button" className="btn ghost sm" onClick={logout}><Icon name="logout" size={15} />{t('Log out')}</button>
+        </header>
+        {loadFail && <div className="app-banner bad" role="alert"><span>Part of this page didn’t load — check your connection.</span><button onClick={() => location.reload()}>Reload</button></div>}
+        <div className={`content ${wide ? 'wide' : ''}`}>{typeof children === 'function' ? children(me) : children}</div>
+      </main>
+    </div>
+  );
   return (
-    <div className={`app ${mini ? 'mini' : ''}`}>
+    <div className={`app ${mini || sk.layout === 'rail' ? 'mini' : ''} lay-${sk.layout}${sk.band ? ' lay-band' : ''}`}>
       <aside className={`side ${open ? 'open' : ''}`}>
         <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}<span className="brand-n">{me?.brand || BRAND}</span><button type="button" className="side-fold" onClick={fold} title={t(mini ? 'Show the menu (Ctrl+B)' : 'Fold the menu to icons (Ctrl+B)')} aria-label={t(mini ? 'Show the menu' : 'Fold the menu')}><Icon name="panel" size={16} /></button></div>
         <button type="button" className="side-jump" onClick={() => window.dispatchEvent(new Event('ff:jump'))}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
@@ -381,6 +402,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
         </header>
         {loadFail && <div className="app-banner bad" role="alert"><span>Part of this page didn’t load — check your connection.</span><button onClick={() => location.reload()}>Reload</button></div>}
         {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} /><span>{tx('You’re working in the {name} workspace as {role}.', { name: <b>{me.workspace.name}</b>, role: (t(({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role] || '') || me.workspace.roleName || '') })}</span></div>}
+        {me?.agencyAccess && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('{agency} is working in this account ({mode}) until {time}: “{reason}”. The owner sees this visit.', { agency: <b>{me.agencyAccess.by ? `${me.agencyAccess.by} · ${me.agencyAccess.agency}` : me.agencyAccess.agency}</b>, mode: me.agencyAccess.mode === 'read' ? t('read-only') : t('full access'), time: new Date(me.agencyAccess.expiresAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }), reason: me.agencyAccess.reason })}</span><button onClick={leaveClient}>{t('Back to agency')}</button></div>}
         {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('You’re signed in as {email} (support view).', { email: <b>{me.email}</b> })}</span><button onClick={stopImpersonating}>{t('Back to admin')}</button></div>}
         {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}
         {me?.billing && !me.billing.ok && <div className="app-banner bad"><Icon name="clock" size={15} />{me.billing.reason || t('Your account is read-only.')}{me.billing.status !== 'suspended' && <span>{me.billing.pagesLive ? t(' Your live pages stay up until {date}.', { date: fmtDate(me.billing.pagesOfflineAt) }) : t(' Your live pages are offline.')}</span>}{me.billing.status !== 'suspended' && <Link to="/billing">{t('Choose a plan')}</Link>}</div>}
@@ -388,8 +410,20 @@ export function Layout({ title, subtitle, actions, children, wide }) {
         <div className={`content ${wide ? 'wide' : ''}`}>{typeof children === 'function' ? children(me) : children}</div>
       </main>
       {paywall && <Paywall info={paywall} onClose={() => setPaywall(null)} />}
+      {sk.dock && <Dock me={me} />}
+      {skinOpen && <Modal title={t('Dashboard skin')} onClose={() => { applySkin(skin); setSkinOpen(false); }} width={860}><SkinPicker onClose={(k) => { setSkinOpen(false); if (k) api('/settings', 'PUT', { skin: k === 'classic' ? '' : k }).then(() => { meCache.at = 0; }).catch((e) => toast(e.message)); }} /></Modal>}
       <Jump me={me} />
     </div>
+  );
+}
+
+// the floating quick-action bar of skins that have one: jump anywhere, a new funnel, bookings, Hive AI
+function Dock({ me }) {
+  const items = [['search', t('Jump to…'), () => window.dispatchEvent(new Event('ff:jump'))], ...[['/funnels', 'plus', t('New funnel')], ['/bookings', 'calendar', t('Bookings')], ['/hive', 'sparkles', t('Hive AI')]].filter(([to]) => allowed(to, me)).map(([to, ic, l]) => [ic, l, to])];
+  return (
+    <nav className="sk-dockbar" aria-label={t('Quick actions')}>
+      {items.map(([ic, l, go]) => (typeof go === 'string' ? <Link key={l} to={go} title={l} aria-label={l}><Icon name={ic} size={18} /></Link> : <button type="button" key={l} onClick={go} title={l} aria-label={l}><Icon name={ic} size={18} /></button>))}
+    </nav>
   );
 }
 

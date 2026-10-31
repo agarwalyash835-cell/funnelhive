@@ -3,7 +3,7 @@
    ===================================================================== */
 :root {
   /* Studio: warm neutral greys, near-black for actions, honey (amber) as the one brand colour */
-  --c-bg: #f6f5f2; --c-surface: #ffffff; --c-surface-2: #faf9f7; --c-ink: #1c1917; --c-ink-2: #44403c; --c-muted: #78716c;
+  --c-bg: #f6f5f2; --c-surface: #ffffff; --c-surface-2: #faf9f7; --c-ink: #1c1917; --c-ink-2: #44403c; --c-muted: #6e6863;
   --c-line: #e7e5e2; --c-line-2: #efedea; --c-accent: #b45309; --c-accent-2: #d97706; --c-accent-soft: #fdf3dc;
   --c-honey: #f5a524; --c-act: #1c1917; --c-act-hover: #3a3532;
   --c-ok: #15803d; --c-ok-soft: #eaf6ee; --c-warn: #a16207; --c-warn-soft: #fdf6e3; --c-bad: #c2410c; --c-bad-soft: #fdeee6;

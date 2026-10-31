@@ -139,3 +139,28 @@ test('a plain agency client with no partner plan is still covered by its agency,
   assert.equal(me.billing.agencyManaged, true);
   assert.ok(!me.billing.resold);
 });
+
+test('one place for an agency’s terms: kind, max clients, add-ons for clients, team seats per client, status', async () => {
+  const t = (await api(`/admin/agencies/${partnerId}`, 'PUT', { kind: 'reseller', addons: ['tally', 'nope'], seatCap: 1 }, ADMIN)).data.terms;
+  assert.deepEqual([t.kind, t.enabled, t.perAccount, t.creditRate, t.maxClients, t.addons, t.seatCap, t.status], ['reseller', true, 499, 20, 10, ['tally'], 1, 'active'], 'the old terms are kept');
+  assert.ok((await api('/admin/agencies', 'GET', null, ADMIN)).data.some((x) => x.id === partnerId && x.terms.seatCap === 1));
+  assert.equal((await api(`/admin/agencies/${partnerId}`, 'PUT', { seatCap: 2 }, P)).status, 403, 'only the platform');
+  // add-ons: the agency switches on only those its terms allow; not the client's owner
+  assert.equal((await api(`/agency/clients/${clientId}/addons`, 'PUT', { tally: true }, P)).data.addons.tally, true);
+  assert.equal((await api(`/agency/clients/${clientId}/addons`, 'PUT', { inventory: true }, P)).status, 403);
+  assert.equal((await api(`/agency/clients/${clientId}/addons`, 'PUT', { tally: true }, C)).status, 404);
+  // team seats: the cap counts the client's own team (not the agency)
+  assert.equal((await api('/team/invite', 'POST', { email: 'one@shop.in', role: 'viewer' }, C)).status, 200);
+  const two = await api('/team/invite', 'POST', { email: 'two@shop.in', role: 'viewer' }, C);
+  assert.deepEqual([two.status, two.data.seatCap], [400, true]);
+  // the client's team member can't confirm a payment (the same rule as paying)
+  const tm = await register(api, 'one@shop.in');
+  const inv = (await api('/team/members', 'GET', null, C)).data.members.find((m) => m.email === 'one@shop.in');
+  const tok = (await api(`/team/members/${inv.id}/resend`, 'POST', {}, C)).data.token;
+  const T1 = (await api('/team/accept', 'POST', { token: tok }, tm.token)).data.token;
+  assert.equal((await api('/partner-billing/verify', 'POST', { payment: 'x' }, T1)).status, 403);
+  // suspended: no new clients
+  await api(`/admin/agencies/${partnerId}`, 'PUT', { status: 'suspended' }, ADMIN);
+  assert.equal((await api('/agency/clients', 'POST', { business: 'Blocked' }, P)).status, 402);
+  await api(`/admin/agencies/${partnerId}`, 'PUT', { status: 'active' }, ADMIN);
+});

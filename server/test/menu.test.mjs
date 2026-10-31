@@ -37,7 +37,7 @@ test('an agency sets its clients’ menu; clients, members and plain accounts ca
   assert.ok(c.data.id, JSON.stringify(c.data));
   clientId = c.data.id;
   assert.equal((await api('/agency/client-menu', 'PUT', { pages: ['/contacts', '/bookings', '/admin'] }, agency)).data.clientMenu.join(), '/contacts,/bookings');
-  clientTok = (await api('/team/switch', 'POST', { ownerId: clientId }, agency)).data.token;
+  clientTok = c.data.token; // creating a client opens it (an agency-access session)
   assert.deepEqual((await api('/me', 'GET', null, clientTok)).data.nav.clientMenu, ['/contacts', '/bookings']);
   assert.ok((await api('/agency/client-menu', 'PUT', { pages: ['/funnels'] }, clientTok)).status >= 400, 'not from inside a client');
   assert.equal((await api('/agency/client-menu', 'PUT', { pages: [] }, agency)).data.clientMenu, null, 'empty = back to by industry');

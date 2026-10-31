@@ -9,12 +9,13 @@ import path from 'node:path';
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'fh-partner-'));
 process.env.NODE_ENV = 'test';
-let T, uid, B, P, partner, client;
+let T, uid, B, P, AT, partner, client;
 const DAY = 86400000;
 before(async () => {
   ({ T, uid } = await import('../db.js')); await import('../sales.js');
   B = await import('../billing.js');
   P = await import('../partners.js');
+  AT = await import('../agency-terms.js');
   partner = T.users.insert({ id: uid(), email: 'p@x.in', name: 'P', billing: { status: 'comped' }, partner: { enabled: true, perAccount: 499, creditRate: 20, maxAccounts: 10 }, settings: { resale: { plans: [{ id: 'basic', name: 'Basic', monthly: 999, credits: 100 }], packs: [], defaultPlan: 'basic' } } });
   client = T.users.insert({ id: uid(), email: 'c@x.in', name: 'C', agencyId: partner.id, billing: { status: 'trialing', trialEndsAt: Date.now() + 14 * DAY }, sub: { planId: 'basic', status: 'active', periodEnd: Date.now() + 20 * DAY }, extraCredits: 50, settings: {} });
 });
@@ -54,8 +55,8 @@ test('fees: once per 30 days per active sub-account; an overdrawn wallet goes on
   assert.equal(P.balanceOf(partner.id), -529, 'not charged twice');
   P.ledger(partner.id, -1000, 'adjust', 'test');
   P.partnerJob();
-  assert.ok(T.users.get(partner.id).partner.hold, 'below the floor: on hold');
+  assert.ok(AT.termsOf(T.users.get(partner.id)).hold, 'below the floor: on hold');
   P.ledger(partner.id, 5000, 'topup', 'test');
   P.partnerJob();
-  assert.ok(!T.users.get(partner.id).partner.hold, 'topped up: off hold');
+  assert.ok(!AT.termsOf(T.users.get(partner.id)).hold, 'topped up: off hold');
 });

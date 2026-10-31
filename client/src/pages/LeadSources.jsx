@@ -36,7 +36,7 @@ export function LeadSourcesPanel() {
           <header><b>IndiaMART</b><Status st={d.stats.indiamart} /></header>
           <p className="muted sm">Buyer enquiries, Buy-Leads and call (PNS) leads. Needs a paid IndiaMART seller plan.</p>
           <h5>Real time (recommended)</h5>
-          <ol className="ls-steps"><li>Open <b>seller.indiamart.com → Lead Manager → ⋮ → Import/Export Leads → Push API</b>.</li><li>Choose <b>Other</b>, name it <b>FunnelHive</b> and paste this address as the Webhook Listener URL.</li><li>Confirm with the OTP IndiaMART sends to your mobile.</li></ol>
+          <ol className="ls-steps"><li>Open <b>seller.indiamart.com → Lead Manager → ⋮ → Import/Export Leads → Push API</b>.</li><li>Choose <b>Other</b>, give it any name and paste this address as the Webhook Listener URL.</li><li>Confirm with the OTP IndiaMART sends to your mobile.</li></ol>
           <Copy label="IndiaMART push URL" value={d.indiamart.pushUrl} />
           <h5>Or with your Pull API key <small className="muted">(also brings in the last day’s enquiries)</small></h5>
           {d.indiamart.connected ? (

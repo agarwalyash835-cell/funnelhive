@@ -24,6 +24,24 @@
 	}
 }
 
+# The platform admin panel (SUPER_DOMAIN, e.g. super.getaihive.in; matches SUPER_HOST for the app) and the agencies'
+# address (AGENCY_DOMAIN, e.g. agency.getaihive.in; matches AGENCY_HOST). Same app: it decides by host name what each
+# address answers (see DEPLOY.md, "Admin and agency addresses"). Unset, they only answer *.localhost names.
+{$SUPER_DOMAIN:super.localhost} {
+	encode zstd gzip
+	reverse_proxy funnelhive:4000 {
+		lb_try_duration 30s
+		lb_try_interval 500ms
+	}
+}
+{$AGENCY_DOMAIN:agency.localhost} {
+	encode zstd gzip
+	reverse_proxy funnelhive:4000 {
+		lb_try_duration 30s
+		lb_try_interval 500ms
+	}
+}
+
 # Live funnel pages on their own domain (PAGES_DOMAIN, e.g. pages.yourbrand.in; matches PAGES_URL for the app),
 # so buyers' pages never share an origin with the dashboard. Unset, it only answers pages.localhost.
 {$PAGES_DOMAIN:pages.localhost} {

@@ -41,7 +41,7 @@ export function platformMailer() {
 }
 export function mailFrom() { return process.env.MAIL_FROM || mailSettings?.()?.from || 'FunnelHive <no-reply@funnelhive.app>'; }
 // a seller's emails go out from the platform address under the seller's own name ("Asha Yoga" <no-reply@…>)
-const fromAs = (name) => { const addr = (/<([^>]+)>/.exec(mailFrom()) || [])[1] || mailFrom(); return name ? `"${String(name).replace(/["<>]/g, '')}" <${addr}>` : mailFrom(); };
+export const fromAs = (name) => { const addr = (/<([^>]+)>/.exec(mailFrom()) || [])[1] || mailFrom(); return name ? `"${String(name).replace(/["<>]/g, '')}" <${addr}>` : mailFrom(); };
 const parseAddr = (s) => { const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(String(s)); return m ? { name: m[1].trim(), email: m[2].trim() } : { name: '', email: String(s).trim() }; };
 const providerError = (d, status) => { const e = new Error(d.message || d.error?.message || `Email provider error ${status}`); e.status = status; return e; };
 export async function resendSend(key, payload) {
@@ -92,10 +92,11 @@ function transportFor(cfg) {
 const htmlOf = (text, track) => `<div style="font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;max-width:560px">${String(text).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]).replace(/(https?:\/\/[^\s<]+)/g, (u) => `<a href="${(track ? track.link(u.replace(/&amp;/g, '&')) : u.replace(/&amp;/g, '&')).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${u}</a>`).replace(/\n/g, '<br>')}</div>${track?.pixel ? `<img src="${track.pixel}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px">` : ''}`;
 
 // → { status: 'sent', id } | { status: 'not-configured' }; throws on a provider error
-export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverride, track }) {
+// (fromName / replyTo without an account: a platform email under another name — mail.js)
+export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverride, track, fromName: asName, replyTo: asReply }) {
   const own = cfgOverride || userSmtp(u);
-  const e = u?.channels?.email || {};
-  const fromName = e.fromName || u?.settings?.businessName || 'FunnelHive';
+  const e = u?.channels?.email || (asReply ? { replyTo: asReply } : {});
+  const fromName = e.fromName || u?.settings?.businessName || asName || 'FunnelHive';
   const body = unsubscribeUrl ? `${text}\n\n—\nDon’t want these emails? Unsubscribe: ${unsubscribeUrl}` : text;
   const headers = unsubscribeUrl ? { 'List-Unsubscribe': `<${unsubscribeUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } : undefined;
   // a seller's SMTP host is re-checked on send (DNS can change after saving) and the connection goes to the very
@@ -103,7 +104,7 @@ export async function sendEmail(u, { to, subject, text, unsubscribeUrl, cfgOverr
   let smtp = own || envSmtp();
   if (own) { await checkPublicHost(own.host); if (!allowPrivate() && !net.isIP(own.host)) { const { address } = await dns.lookup(own.host); if (isPrivateIp(address)) throw new Error('This must be a public internet address'); smtp = { ...own, ip: address }; } }
   if (smtp) {
-    const from = own ? `"${fromName.replace(/"/g, '')}" <${e.fromEmail || smtp.user}>` : process.env.MAIL_FROM || `"${fromName.replace(/"/g, '')}" <${smtp.user}>`;
+    const from = own ? `"${fromName.replace(/"/g, '')}" <${e.fromEmail || smtp.user}>` : asName ? `"${fromName.replace(/"/g, '')}" <${(/<([^>]+)>/.exec(process.env.MAIL_FROM || '') || [])[1] || process.env.MAIL_FROM || smtp.user}>` : process.env.MAIL_FROM || `"${fromName.replace(/"/g, '')}" <${smtp.user}>`;
     const info = await transportFor(smtp).sendMail({ from, to, subject, text: body, html: htmlOf(body, track), replyTo: e.replyTo || undefined, headers });
     return { status: 'sent', id: info.messageId };
   }
@@ -280,7 +281,7 @@ export function registerChannels(app, { auth, wrap, rateLimit, isTest }) {
     const to = str(req.body.to || req.user.email, 200);
     if (!EMAIL_RE.test(to)) return res.status(400).json({ error: 'Enter a valid email address' });
     try {
-      const r = await sendEmail(req.user, { to, subject: 'Test email from FunnelHive ✅', text: `This is a test.\n\nIf you can read this, emails to your contacts will be delivered through ${emailStatus(req.user).via || 'your mail server'}.` });
+      const r = await sendEmail(req.user, { to, subject: 'Test email ✅', text: `This is a test.\n\nIf you can read this, emails to your contacts will be delivered through ${emailStatus(req.user).via || 'your mail server'}.` });
       if (r.status !== 'sent') return res.status(400).json({ error: 'Email sending isn’t set up yet — add your SMTP details first' });
       res.json({ ok: true, to });
     } catch (e) { res.status(400).json({ error: `Couldn’t send: ${e.message}` }); }

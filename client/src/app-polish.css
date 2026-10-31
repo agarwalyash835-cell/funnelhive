@@ -170,6 +170,7 @@ input::placeholder, textarea::placeholder { color: #a8a29e; }
 .kpi-v { font-size: 24px; font-weight: 760; letter-spacing: -.03em; line-height: 1.15; }
 .delta { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 99px; background: var(--c-line-2); font-size: 11.5px; white-space: nowrap; }
 .delta.up { background: var(--c-ok-soft); color: #0b7a44; }
+.gl-hero .delta { background: rgba(255, 255, 255, .12); } /* on the dark hero card: bright text on a see-through pill */
 .delta.down { background: var(--c-bad-soft); color: #b91c1c; }
 .mini-kpis div { border: 1px solid var(--c-line-2); background: linear-gradient(180deg, var(--c-surface-2), #fff); }
 

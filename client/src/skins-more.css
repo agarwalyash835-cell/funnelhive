@@ -1,0 +1,303 @@
+/* =====================================================================
+   DASHBOARD SKINS, part 2 — fourteen more of FunnelHive's own looks (see skins.css for the rules and the
+   first six). Each one has its own structure: where the menu sits (floating card, right-hand side, colour
+   band, top tabs, light rail), how cards are drawn, the type, the corners and the density.
+   ===================================================================== */
+
+/* ---------- shared layouts ---------- */
+/* float: the menu as a rounded card floating beside the work area */
+@media (min-width: 900px) {
+  .app.lay-float { padding: 12px 0 12px 12px; }
+  .app.lay-float .side { top: 12px; height: calc(100vh - 24px); border: 0; border-radius: 20px; box-shadow: 0 1px 2px rgba(15, 23, 42, .05), 0 18px 40px -26px rgba(15, 23, 42, .35); }
+}
+/* right: the menu on the right-hand side */
+@media (min-width: 900px) {
+  .app.lay-right { grid-template-columns: minmax(0, 1fr) 244px; }
+  .app.lay-right.mini { grid-template-columns: minmax(0, 1fr) 68px; }
+  .app.lay-right .side { grid-column: 2; grid-row: 1; border-right: 0; border-left: 1px solid var(--c-line); }
+  .app.lay-right .main { grid-column: 1; grid-row: 1; }
+  .app.lay-right .side nav a.active { box-shadow: inset -3px 0 0 var(--c-honey); }
+}
+/* band: a colour band across the top of the work area, the page title in white on it */
+.app.lay-band .main { position: relative; isolation: isolate; }
+.app.lay-band .main::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 190px; z-index: -1; background: var(--k-band); }
+.app.lay-band .topbar h1, .app.lay-band .topbar p { color: #fff; }
+.app.lay-band .topbar .burger { color: #fff; }
+/* spacious: more air everywhere */
+:is(html[data-skin='paper'], html[data-skin='lavender']) .topbar { padding: 30px 40px 0; }
+:is(html[data-skin='paper'], html[data-skin='lavender']) .content { padding: 26px 40px 56px; gap: 26px; }
+:is(html[data-skin='paper'], html[data-skin='lavender']) .app-banner { margin: 18px 40px 0; }
+:is(html[data-skin='paper'], html[data-skin='lavender']) .panel-b { padding: 22px; }
+:is(html[data-skin='paper'], html[data-skin='lavender']) .panel-h { padding: 18px 22px; }
+:is(html[data-skin='paper'], html[data-skin='lavender']) .tbl td { padding: 14px 22px; }
+:is(html[data-skin='paper'], html[data-skin='lavender']) .tbl th { padding: 12px 22px; }
+/* dense: the most on screen */
+html[data-skin='compact'] .topbar { padding: 12px 20px 0; }
+html[data-skin='compact'] .topbar h1 { font-size: 18px; }
+html[data-skin='compact'] .content { padding: 12px 20px 36px; gap: 12px; }
+html[data-skin='compact'] .app-banner { margin: 10px 20px 0; padding: 7px 12px; }
+html[data-skin='compact'] .panel-h { padding: 8px 12px; }
+html[data-skin='compact'] .panel-b { padding: 12px; }
+html[data-skin='compact'] .tbl { font-size: 12.5px; }
+html[data-skin='compact'] .tbl th, html[data-skin='compact'] .tbl td { padding: 6px 12px; }
+html[data-skin='compact'] .kpi { padding: 10px 12px; }
+html[data-skin='compact'] .kpi-v { font-size: 19px; }
+html[data-skin='compact'] .btn { height: 30px; font-size: 13px; }
+html[data-skin='compact'] .side nav a { padding: 6px 10px; font-size: 13px; }
+html[data-skin='compact'] .side { padding: 14px 10px; }
+
+/* dark menus in this set use the same readable menu colours as Midnight / Graphite */
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .side { border-right: 0; }
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .side .brand { color: #fff; }
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .side nav a:hover,
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .side nav a.active { background: var(--c-side-2); color: #fff; }
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) :is(.nav-gh, .nav-n, .nav-more-b, .side-fold, .side-jump, .side-jump kbd) { color: var(--k-side-soft); border-color: var(--k-side-line); }
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .side-jump { background: var(--c-side-2); }
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .side-jump kbd { background: rgba(0, 0, 0, .25); }
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .nav-gh:hover { color: #fff; }
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .side-foot,
+:is(html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest']) .side-foot :is(.ws-switch, .ai-status, .me, .me b, .me small, .me div) { color: var(--k-side-soft); background-color: transparent; border-color: var(--k-side-line); }
+
+/* ---------- 1 Ocean Float: sea-glass teal, the menu as a floating card ---------- */
+html[data-skin='ocean'] {
+  --c-bg: #e6f1f2; --c-surface: #ffffff; --c-surface-2: #f3f9f9; --c-ink: #0b2b30; --c-ink-2: #23484e; --c-muted: #4a6a70;
+  --c-line: #cfe2e4; --c-line-2: #e2eff0; --c-accent: #0e6f78; --c-accent-2: #128b96; --c-accent-soft: #d8f0f2;
+  --c-honey: #18a7b5; --c-act: #0e5f67; --c-act-hover: #0b4c52;
+  --c-side: #ffffff; --c-side-2: #e0f2f4; --c-side-ink: #2c4f55;
+  --r-sm: 10px; --r: 14px; --r-lg: 18px;
+  --sh-1: 0 1px 2px rgba(11, 43, 48, .05); --sh-2: 0 12px 30px -18px rgba(11, 43, 48, .3); --primary: #0e6f78;
+}
+html[data-skin='ocean'] .main { background: none; }
+html[data-skin='ocean'] .panel, html[data-skin='ocean'] .kpi { border-color: transparent; box-shadow: var(--sh-1), var(--sh-2); }
+html[data-skin='ocean'] .side nav a.active { background: var(--c-side-2); box-shadow: none; color: var(--c-accent); }
+
+/* ---------- 2 Forest Ledger: deep green menu, a green band, ledger-ruled tables ---------- */
+html[data-skin='forest'] {
+  --c-bg: #f1f4ee; --c-surface: #ffffff; --c-surface-2: #f6f8f3; --c-ink: #17241a; --c-ink-2: #344536; --c-muted: #556455;
+  --c-line: #d7dfd2; --c-line-2: #e6ece2; --c-accent: #2f6b3a; --c-accent-2: #3d8a4a; --c-accent-soft: #e2f0e2;
+  --c-honey: #6bbf59; --c-act: #24522d; --c-act-hover: #1b4022;
+  --c-side: #18301e; --c-side-2: #24442b; --c-side-ink: #c4d6c4;
+  --k-side-soft: #b5c9b5; --k-side-line: #33553b; --k-band: linear-gradient(120deg, #24522d, #3d7a3f 60%, #5f8f3a);
+  --r-sm: 6px; --r: 8px; --r-lg: 10px; --primary: #2f6b3a;
+}
+html[data-skin='forest'] .main { background: none; }
+html[data-skin='forest'] .tbl tbody tr:nth-child(even) td { background: var(--c-surface-2); }
+html[data-skin='forest'] .tbl th { border-bottom: 2px solid var(--c-accent); }
+html[data-skin='forest'] .kpi { border-left: 4px solid var(--c-accent-2); }
+
+/* ---------- 3 Rose Petal: blush, rounded type, pill everything ---------- */
+html[data-skin='rose'] {
+  --c-bg: #fbf1f3; --c-surface: #ffffff; --c-surface-2: #fdf6f8; --c-ink: #2e1520; --c-ink-2: #51303d; --c-muted: #7a5562;
+  --c-line: #f0d9e0; --c-line-2: #f7e8ec; --c-accent: #b0335c; --c-accent-2: #c94471; --c-accent-soft: #fbe2ea;
+  --c-honey: #e46b93; --c-act: #9c2950; --c-act-hover: #861f43;
+  --c-side: #fdf4f6; --c-side-2: #f8dfe7; --c-side-ink: #5b3644;
+  --r-sm: 999px; --r: 20px; --r-lg: 24px;
+  --sh-1: 0 1px 2px rgba(46, 21, 32, .04); --sh-2: 0 14px 34px -22px rgba(176, 51, 92, .35); --primary: #b0335c;
+}
+html[data-skin='rose'] body { font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI', system-ui, sans-serif; }
+html[data-skin='rose'] .main { background: none; }
+html[data-skin='rose'] .side nav a { border-radius: 999px; }
+html[data-skin='rose'] .side nav a.active { background: var(--c-side-2); box-shadow: none; color: var(--c-act); }
+html[data-skin='rose'] .panel, html[data-skin='rose'] .kpi { box-shadow: var(--sh-2); }
+html[data-skin='rose'] .seg, html[data-skin='rose'] .seg button { border-radius: 999px; }
+html[data-skin='rose'] input, html[data-skin='rose'] select, html[data-skin='rose'] textarea { border-radius: 14px; }
+
+/* ---------- 4 Saffron Bazaar: deep maroon menu, saffron rules, festive and warm ---------- */
+html[data-skin='saffron'] {
+  --c-bg: #fbf5ea; --c-surface: #fffcf6; --c-surface-2: #fdf6ea; --c-ink: #2a160f; --c-ink-2: #4b2b1f; --c-muted: #6f5143;
+  --c-line: #edd9bd; --c-line-2: #f5e8d3; --c-accent: #a33d0b; --c-accent-2: #c2570f; --c-accent-soft: #fde7cf;
+  --c-honey: #f59e0b; --c-act: #7a1f2b; --c-act-hover: #631823;
+  --c-side: #4a0f1a; --c-side-2: #651826; --c-side-ink: #f3d9c4;
+  --k-side-soft: #e9c9b1; --k-side-line: #7c2a38;
+  --r-sm: 8px; --r: 10px; --r-lg: 12px; --primary: #c2570f;
+}
+html[data-skin='saffron'] .main { background: none; }
+html[data-skin='saffron'] .side nav a.active { box-shadow: inset 3px 0 0 var(--c-honey); }
+html[data-skin='saffron'] .panel, html[data-skin='saffron'] .kpi { border-top: 3px solid var(--c-honey); }
+html[data-skin='saffron'] .panel-h h3 { color: var(--c-act); }
+
+/* ---------- 5 Mono: strict black and white, monospace headings, hairlines, no shadows ---------- */
+html[data-skin='mono'] {
+  --c-bg: #ffffff; --c-surface: #ffffff; --c-surface-2: #f5f5f5; --c-ink: #0a0a0a; --c-ink-2: #262626; --c-muted: #595959;
+  --c-line: #0a0a0a; --c-line-2: #e5e5e5; --c-accent: #0a0a0a; --c-accent-2: #262626; --c-accent-soft: #f0f0f0;
+  --c-honey: #0a0a0a; --c-act: #0a0a0a; --c-act-hover: #333333;
+  --c-ok: #166534; --c-warn: #854d0e; --c-bad: #9f1239;
+  --c-side: #ffffff; --c-side-2: #f0f0f0; --c-side-ink: #262626;
+  --r-sm: 0; --r: 0; --r-lg: 0; --sh-1: none; --sh-2: none; --primary: #0a0a0a;
+}
+html[data-skin='mono'] :is(h1, h2, h3, .brand-n, .kpi-v, .nav-gh, .tbl th) { font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace; letter-spacing: -.02em; }
+html[data-skin='mono'] .main { background: none; }
+html[data-skin='mono'] .side nav a { border-radius: 0; }
+html[data-skin='mono'] .side nav a.active { background: none; box-shadow: none; text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 2px; color: #000; }
+html[data-skin='mono'] .side { border-right: 1px solid #0a0a0a; }
+html[data-skin='mono'] .tbl td { border-bottom-color: #e5e5e5; }
+
+/* ---------- 6 Bold Block: neo-brutalist — thick borders, hard shadows, a loud yellow ---------- */
+html[data-skin='brutal'] {
+  --c-bg: #fff8e1; --c-surface: #ffffff; --c-surface-2: #fffbea; --c-ink: #111111; --c-ink-2: #222222; --c-muted: #4d4d4d;
+  --c-line: #111111; --c-line-2: #ece4c5; --c-accent: #111111; --c-accent-2: #111111; --c-accent-soft: #fff1a8;
+  --c-honey: #ffd60a; --c-act: #111111; --c-act-hover: #2b2b2b;
+  --c-side: #ffd60a; --c-side-2: #ffffff; --c-side-ink: #111111;
+  --r-sm: 6px; --r: 8px; --r-lg: 10px; --sh-1: 4px 4px 0 #111; --sh-2: 6px 6px 0 #111; --primary: #111111;
+}
+html[data-skin='brutal'] .main { background: none; }
+html[data-skin='brutal'] .panel, html[data-skin='brutal'] .kpi { border: 2px solid #111; box-shadow: var(--sh-1); }
+html[data-skin='brutal'] .btn { border: 2px solid #111; box-shadow: 3px 3px 0 #111; font-weight: 700; }
+html[data-skin='brutal'] .btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #111; }
+html[data-skin='brutal'] .btn.primary { background: #ffd60a; color: #111; }
+html[data-skin='brutal'] .btn.primary:hover { background: #ffe14d; }
+html[data-skin='brutal'] .side { border-right: 2px solid #111; }
+html[data-skin='brutal'] .side nav a { font-weight: 600; }
+html[data-skin='brutal'] .side nav a.active { background: #fff; box-shadow: 3px 3px 0 #111; border: 2px solid #111; }
+html[data-skin='brutal'] :is(h1, h2, .kpi-v) { font-weight: 800; letter-spacing: -.03em; }
+
+/* ---------- 7 Royal: navy and gold, serif headings, a wide stately menu ---------- */
+html[data-skin='royal'] {
+  --c-bg: #f5f3ee; --c-surface: #ffffff; --c-surface-2: #f9f7f2; --c-ink: #141b33; --c-ink-2: #2f3856; --c-muted: #555c73;
+  --c-line: #e1dccf; --c-line-2: #ece8de; --c-accent: #7a5d0f; --c-accent-2: #a37f1a; --c-accent-soft: #f6eccd;
+  --c-honey: #d4a520; --c-act: #16224a; --c-act-hover: #22306a;
+  --c-side: #121a38; --c-side-2: #1f2a54; --c-side-ink: #d5d9e8;
+  --k-side-soft: #c3c9de; --k-side-line: #2c3866;
+  --r-sm: 6px; --r: 10px; --r-lg: 12px; --primary: #16224a;
+}
+html[data-skin='royal'] :is(h1, h2, h3, .brand-n, .kpi-v) { font-family: Georgia, 'Times New Roman', serif; font-weight: 600; }
+html[data-skin='royal'] .main { background: none; }
+html[data-skin='royal'] .side nav a.active { box-shadow: inset 3px 0 0 var(--c-honey); }
+html[data-skin='royal'] .panel-h { border-bottom: 1px solid var(--c-accent-soft); }
+html[data-skin='royal'] .kpi { border-bottom: 2px solid var(--c-honey); }
+@media (min-width: 900px) { html[data-skin='royal'] .app:not(.mini) { grid-template-columns: 268px minmax(0, 1fr); } }
+
+/* ---------- 8 Paper Calm: quiet off-white, no borders, lots of air ---------- */
+html[data-skin='paper'] {
+  --c-bg: #f8f7f4; --c-surface: #fdfcfa; --c-surface-2: #f4f2ee; --c-ink: #26231f; --c-ink-2: #45403a; --c-muted: #66605a;
+  --c-line: #e9e5de; --c-line-2: #efece6; --c-accent: #4d5b46; --c-accent-2: #5e6f56; --c-accent-soft: #eaeee6;
+  --c-honey: #8fa684; --c-act: #3c4737; --c-act-hover: #2f392b;
+  --c-side: #f8f7f4; --c-side-2: #eeebe5; --c-side-ink: #45403a;
+  --r-sm: 8px; --r: 12px; --r-lg: 14px; --sh-1: none; --sh-2: none; --primary: #4d5b46;
+}
+html[data-skin='paper'] .main { background: none; }
+html[data-skin='paper'] .panel, html[data-skin='paper'] .kpi { border-color: transparent; }
+html[data-skin='paper'] .side { border-right: 0; }
+html[data-skin='paper'] .side nav a.active { box-shadow: none; }
+html[data-skin='paper'] .topbar h1 { font-size: 30px; font-weight: 500; letter-spacing: -.02em; }
+
+/* ---------- 9 Sunset: an orange-to-violet band, tabs across the top ---------- */
+html[data-skin='sunset'] {
+  --c-bg: #f7f4f8; --c-surface: #ffffff; --c-surface-2: #faf8fb; --c-ink: #1f1530; --c-ink-2: #3d3150; --c-muted: #5e5470;
+  --c-line: #e6e0ec; --c-line-2: #efebf3; --c-accent: #a8355f; --c-accent-2: #d1497c; --c-accent-soft: #fbe6ee;
+  --c-honey: #f07a3c; --c-act: #3a1f6b; --c-act-hover: #4a2a86;
+  --c-side: transparent; --c-side-2: rgba(255, 255, 255, .22); --c-side-ink: #ffffff;
+  --k-band: linear-gradient(110deg, #e8593c 0%, #c43d72 45%, #5b2a96 100%);
+  --r-sm: 10px; --r: 14px; --r-lg: 16px; --primary: #b83e6e;
+}
+html[data-skin='sunset'] .main { background: none; }
+html[data-skin='sunset'] .panel, html[data-skin='sunset'] .kpi { box-shadow: 0 12px 30px -20px rgba(58, 31, 107, .35); }
+/* the top bar sits on the band too */
+@media (min-width: 1000px) {
+  html[data-skin='sunset'] .app.lay-top { background: linear-gradient(var(--k-band-solid, transparent), transparent); }
+  html[data-skin='sunset'] .app.lay-top .side { background: linear-gradient(110deg, #e8593c 0%, #c43d72 45%, #5b2a96 100%); backdrop-filter: none; }
+  html[data-skin='sunset'] .app.lay-top .side .brand, html[data-skin='sunset'] .app.lay-top .side nav a { color: #fff; }
+  html[data-skin='sunset'] .app.lay-top .side nav a:hover { background: rgba(255, 255, 255, .18); }
+  html[data-skin='sunset'] .app.lay-top .side nav a.active { background: #fff; color: var(--c-act); }
+  html[data-skin='sunset'] .app.lay-top .side-foot, html[data-skin='sunset'] .app.lay-top .side-foot * { color: #fff; }
+  html[data-skin='sunset'] .app.lay-top .main::before { height: 150px; }
+}
+@media (max-width: 999px) { html[data-skin='sunset'] { --c-side: #ffffff; --c-side-2: #f3eef6; --c-side-ink: #3d3150; } }
+
+/* ---------- 10 Mirror: the menu on the right, cool violet-grey ---------- */
+html[data-skin='mirror'] {
+  --c-bg: #f2f2f7; --c-surface: #ffffff; --c-surface-2: #f8f8fb; --c-ink: #18182a; --c-ink-2: #36364d; --c-muted: #5a5a72;
+  --c-line: #e0e0ea; --c-line-2: #ebebf2; --c-accent: #5a43c7; --c-accent-2: #6d55e0; --c-accent-soft: #ece8fd;
+  --c-honey: #8b74ff; --c-act: #4a35b0; --c-act-hover: #3d2b94;
+  --c-side: #ffffff; --c-side-2: #efecfd; --c-side-ink: #36364d;
+  --r-sm: 8px; --r: 12px; --r-lg: 14px; --primary: #5a43c7;
+}
+html[data-skin='mirror'] .main { background: none; }
+html[data-skin='mirror'] .topbar { flex-direction: row-reverse; }
+html[data-skin='mirror'] .topbar .tb-title { text-align: right; }
+
+/* ---------- 11 Mint Rail: a light icon rail, fresh mint, soft rounded cards ---------- */
+html[data-skin='mint'] {
+  --c-bg: #eef8f4; --c-surface: #ffffff; --c-surface-2: #f5fbf8; --c-ink: #0f2a20; --c-ink-2: #2a4a3d; --c-muted: #4c6a5e;
+  --c-line: #d3eae0; --c-line-2: #e3f2ec; --c-accent: #11745a; --c-accent-2: #13906e; --c-accent-soft: #d5f3e8;
+  --c-honey: #2ec4a0; --c-act: #0d5e48; --c-act-hover: #0a4b3a;
+  --c-side: #ffffff; --c-side-2: #d5f3e8; --c-side-ink: #2a4a3d;
+  --r-sm: 12px; --r: 16px; --r-lg: 18px; --primary: #11745a;
+}
+html[data-skin='mint'] .main { background: none; }
+html[data-skin='mint'] .side nav a { border-radius: 12px; }
+html[data-skin='mint'] .side nav a.active { box-shadow: none; color: var(--c-act); }
+html[data-skin='mint'] .panel, html[data-skin='mint'] .kpi { border-color: transparent; box-shadow: 0 10px 26px -20px rgba(15, 42, 32, .35); }
+
+/* ---------- 12 Compact Pro: dense, crisp, blue — for power users ---------- */
+html[data-skin='compact'] {
+  --c-bg: #f3f5f8; --c-surface: #ffffff; --c-surface-2: #f7f9fb; --c-ink: #101828; --c-ink-2: #344054; --c-muted: #556070;
+  --c-line: #d9dee6; --c-line-2: #e8ecf1; --c-accent: #1d4ed8; --c-accent-2: #2563eb; --c-accent-soft: #e5edff;
+  --c-honey: #3b82f6; --c-act: #1d4ed8; --c-act-hover: #1e40af;
+  --c-side: #f8fafc; --c-side-2: #e5edff; --c-side-ink: #344054;
+  --r-sm: 5px; --r: 6px; --r-lg: 8px; --sh-1: none; --primary: #1d4ed8;
+}
+html[data-skin='compact'] .main { background: none; }
+html[data-skin='compact'] .side nav a.active { box-shadow: inset 2px 0 0 var(--c-accent-2); color: var(--c-accent); }
+
+/* ---------- 13 Editorial: a magazine — serif text, hairline rules, underlined top tabs ---------- */
+html[data-skin='editorial'] {
+  --c-bg: #fbfaf7; --c-surface: #fbfaf7; --c-surface-2: #f3f1ec; --c-ink: #1a1814; --c-ink-2: #3a3630; --c-muted: #5f5a52;
+  --c-line: #d8d3c9; --c-line-2: #e8e4dc; --c-accent: #9b1c1c; --c-accent-2: #b42323; --c-accent-soft: #f8e5e3;
+  --c-honey: #b42323; --c-act: #1a1814; --c-act-hover: #3a3630;
+  --c-side: #fbfaf7; --c-side-2: transparent; --c-side-ink: #3a3630;
+  --r-sm: 2px; --r: 2px; --r-lg: 2px; --sh-1: none; --sh-2: none; --primary: #9b1c1c;
+}
+html[data-skin='editorial'] body { font-family: Charter, 'Iowan Old Style', Georgia, 'Times New Roman', serif; }
+html[data-skin='editorial'] :is(h1, h2) { font-weight: 700; letter-spacing: -.02em; }
+html[data-skin='editorial'] .topbar h1 { font-size: 34px; }
+html[data-skin='editorial'] .main { background: none; }
+html[data-skin='editorial'] .panel, html[data-skin='editorial'] .kpi { border-width: 0; border-top: 1px solid var(--c-ink); background: transparent; }
+html[data-skin='editorial'] .panel-h { padding-left: 0; padding-right: 0; }
+html[data-skin='editorial'] .tbl th { background: transparent; border-bottom: 1px solid var(--c-ink); }
+@media (min-width: 1000px) {
+  html[data-skin='editorial'] .app.lay-top .side { background: var(--c-bg); border-bottom: 1px solid var(--c-ink); backdrop-filter: none; }
+  html[data-skin='editorial'] .app.lay-top .side nav a { border-radius: 0; padding: 8px 4px; margin: 0 8px; }
+  html[data-skin='editorial'] .app.lay-top .side nav a.active { background: none; box-shadow: inset 0 -2px 0 var(--c-accent); }
+}
+
+/* ---------- 14 Lavender Cloud: a floating menu card, soft lilac, spacious ---------- */
+html[data-skin='lavender'] {
+  --c-bg: #f3f0fb; --c-surface: #ffffff; --c-surface-2: #f8f6fd; --c-ink: #1e1838; --c-ink-2: #3d3560; --c-muted: #5d557e;
+  --c-line: #e4def5; --c-line-2: #eeeafa; --c-accent: #5b3fc4; --c-accent-2: #6e52dc; --c-accent-soft: #ebe5fd;
+  --c-honey: #9a83f5; --c-act: #4c33ad; --c-act-hover: #3f2992;
+  --c-side: #ffffff; --c-side-2: #ede8fd; --c-side-ink: #3d3560;
+  --r-sm: 12px; --r: 16px; --r-lg: 22px;
+  --sh-1: 0 1px 2px rgba(30, 24, 56, .04); --sh-2: 0 16px 36px -24px rgba(91, 63, 196, .4); --primary: #5b3fc4;
+}
+html[data-skin='lavender'] body { background: radial-gradient(900px 600px at 0% 0%, #e9e2fc, transparent 60%), radial-gradient(800px 500px at 100% 100%, #f7e3f1, transparent 60%), #f3f0fb; background-attachment: fixed; }
+html[data-skin='lavender'] .main { background: none; }
+html[data-skin='lavender'] .panel, html[data-skin='lavender'] .kpi { border-color: transparent; box-shadow: var(--sh-1), var(--sh-2); }
+html[data-skin='lavender'] .side nav a.active { box-shadow: none; color: var(--c-act); }
+
+/* ---------- picker drawings for the new layouts ---------- */
+.sk-thumb.lay-float { padding: 5px; gap: 5px; }
+.sk-thumb.lay-float .sk-nav { border-radius: 6px; background: var(--k-surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.sk-thumb.lay-right { grid-template-columns: 1fr 26%; }
+.sk-thumb.lay-right .sk-nav { order: 2; }
+.sk-thumb.lay-band .sk-body { background: linear-gradient(var(--k-accent) 0 34px, transparent 34px); }
+.sk-thumb.lay-band .sk-h { background: #fff; }
+.sk-thumb.lay-darkside .sk-nav { background: var(--k-ink); }
+.sk-thumb.lay-darkside .sk-nav b { background: rgba(255, 255, 255, .3); }
+.sk-thumb.lay-darkside .sk-nav b.on { background: var(--k-accent); }
+.sk-thumb.lay-bandtop { grid-template-columns: 1fr; grid-template-rows: 16px 1fr; }
+.sk-thumb.lay-bandtop .sk-nav { display: flex; gap: 4px; padding: 5px 8px; align-items: center; background: linear-gradient(110deg, #e8593c, #c43d72, #5b2a96); }
+.sk-thumb.lay-bandtop .sk-nav b { width: 18px; height: 5px; background: rgba(255, 255, 255, .6); }
+.sk-thumb.lay-lightrail { grid-template-columns: 12% 1fr; }
+.sk-thumb.lay-lightrail .sk-nav { padding: 10px 4px; background: var(--k-surface); }
+.sk-thumb.lay-lightrail .sk-nav b { height: 7px; width: 7px; margin: 0 auto; border-radius: 50%; }
+.sk-thumb.lay-brutal { border: 2px solid #111; }
+.sk-thumb.lay-brutal .sk-nav { background: #ffd60a; }
+.sk-thumb.lay-brutal .sk-cards b, .sk-thumb.lay-brutal .sk-wide { border: 1.5px solid #111; box-shadow: 2px 2px 0 #111; }
+.sk-thumb.lay-mono .sk-nav { border-right: 1px solid #111; background: #fff; }
+.sk-thumb.lay-mono .sk-cards b, .sk-thumb.lay-mono .sk-wide { border: 1px solid #111; box-shadow: none; border-radius: 0; }
+
+/* dark menus: their own background (app-polish.css paints a light glow on .side that would otherwise win) */
+:is(html[data-skin='midnight'], html[data-skin='graphite'], html[data-skin='saffron'], html[data-skin='royal'], html[data-skin='forest'], html[data-skin='brutal']) .side { background: var(--c-side); }
+/* warning text a step darker on the paler surfaces of these two */
+:is(html[data-skin='editorial'], html[data-skin='paper']) { --c-warn: #8a5306; }

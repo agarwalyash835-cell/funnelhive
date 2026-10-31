@@ -35,7 +35,7 @@ import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerComposio } from './composio.js';
 import { registerHive } from './hive.js';
 import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, creditsShort, usageSummary, AI_COST, pricing } from './billing.js';
-import { platform, isAdmin, brand, publicCompany } from './platform.js';
+import { platform, isAdmin, adminLevel, brand, publicCompany } from './platform.js';
 import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
 import { verifyGoogleToken, googleClientId } from './google.js';
@@ -57,6 +57,9 @@ import { fxRate } from './fx.js';
 import { registerLegal, publicPrivacy, privacyOf, consentLine, legalMissing } from './legal.js';
 import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
 import { registerAgency, logRequest, brandFor, brandForHost } from './agency.js';
+import { cleanSkin } from './skins.js';
+import { registerWhiteLabel, sendBranded, agencySite, brandedIndex } from './whitelabel.js';
+import { agencyGate, registerAgencyAccess } from './agency-access.js';
 import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
 import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
@@ -95,6 +98,7 @@ import { registerStore, storeFunnel, storeFunnelId, takeStock, STORE_NAME } from
 import { registerStoreAi } from './store-ai.js';
 import { trackUrl } from './store-orders.js';
 import { registerAffiliates, attributeOrder } from './affiliates.js';
+import { tierGate, tierMeta, tierOf, tokenTier, tierMatches, superHost, superUrl, sessionMsFor, tokenLifeFor } from './tiers.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
@@ -108,6 +112,8 @@ const app = express();
 app.set('case sensitive routing', true);
 app.set('trust proxy', process.env.TRUST_PROXY ? (/^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY) : 'loopback, linklocal, uniquelocal');
 app.use(requestMetrics); // request counts and timings (observe.js)
+// super / agency / app addresses (tiers.js): the super host answers only the admin panel; the admin API only there
+app.use(tierGate((req) => spaHtml(req)));
 app.use(pagesSplit); // PAGES_URL: live pages and the dashboard on separate domains (domains.js)
 app.disable('x-powered-by');
 app.use(securityHeaders);
@@ -156,16 +162,22 @@ const DEFAULT_SETTINGS = { businessName: '', currency: '₹', supportWhatsapp: '
 // sid: the signed-in device (sessions, security.js). Inside a signed-in request a new token keeps that request's
 // session (and support access), so a "switch workspace" token is signed out together with the device it came from.
 const sessionCtx = new AsyncLocalStorage();
-const sign = (u, ws, sid) => {
+// aud: the tier (tiers.js) the device signed in on — super / agency / app; the token works only on that tier's address
+const sign = (u, ws, sid, aud) => {
   const ctx = sessionCtx.getStore() || {};
   const imp = !sid || sid === ctx.sid ? ctx.imp : null;
   sid ||= ctx.sid;
-  return jwt.sign({ id: u.id, pv: u.pv || 0, ...(ws ? { ws } : {}), ...(sid ? { sid } : {}), ...(imp ? { imp } : {}) }, SECRET, { expiresIn: imp ? '2h' : '14d' });
+  aud ||= ctx.aud || 'app';
+  return jwt.sign({ id: u.id, pv: u.pv || 0, ...(ws ? { ws } : {}), ...(sid ? { sid } : {}), ...(imp ? { imp } : {}), aud }, SECRET, { expiresIn: imp ? '2h' : tokenLifeFor(aud) });
 };
-// an admin "logging in as" a seller (support): short-lived, its own session (marked as support), and the seller's account shows it
-const signAs = (u, adminId, req) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId, sid: startSession(req, u, { imp: adminId, ms: 2 * 3600000 }) }, SECRET, { expiresIn: '2h' });
-// a new sign-in on this device
-const signIn = (req, u) => sign(u, null, startSession(req, u));
+// an admin "logging in as" a seller (support): short-lived, its own session (marked as support), and the seller's account
+// shows it. It's an app token: support looks at the seller's account on the app's address, not on the admin's.
+const signAs = (u, adminId, req) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId, sid: startSession(req, u, { imp: adminId, ms: 2 * 3600000 }), aud: 'app' }, SECRET, { expiresIn: '2h' });
+// a new sign-in on this device, for the address it signed in on
+const signIn = (req, u) => { const aud = tierOf(req); return sign(u, null, startSession(req, u, { aud, ms: sessionMsFor(aud) }), aud); };
+// an agency (or its client manager) working in a client account: short-lived, its own session started by
+// agency-access.js (session.agencyImp), marked with the agencyImp claim; never refreshed (see agency-access.js)
+const signAgency = (actor, ws, agencyId, sid, aud = 'app') => jwt.sign({ id: actor.id, pv: actor.pv || 0, ws, sid, agencyImp: agencyId, aud }, SECRET, { expiresIn: '2h' });
 const pubUser = (u) => ({ id: u.id, email: u.email, name: u.name });
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const withDefaults = (u) => { u.settings = { ...DEFAULT_SETTINGS, ...(u.settings || {}) }; return u; };
@@ -187,17 +199,21 @@ const auth = (req, res, next) => {
       return next();
     }
     p = jwt.verify(t, SECRET);
+    // signed in on another tier's address (an admin token on the app, an app token on the admin panel)
+    if (!tierMatches(p, req)) return res.status(401).json({ error: 'You’re signed in on a different address — please log in here', wrongHost: true });
     req.user = T.users.get(p.id);
     if (!req.user || (p.pv || 0) !== (req.user.pv || 0)) throw new Error();
     if (!sessionOk(p, req.user)) throw new Error(); // signed out on that device (or everywhere)
-    req.sid = p.sid || null; req.tokenWs = p.ws || null; req.tokenIat = p.iat;
+    req.sid = p.sid || null; req.tokenWs = p.ws || null; req.tokenIat = p.iat; req.tokenAud = tokenTier(p);
     if (p.imp) req.impersonator = p.imp;
     if (p.ws) {
       // a team member acting in the owner's workspace: everything below works on the owner's data
-      const w = enterWorkspace(req.user, p.ws);
+      const w = enterWorkspace(req.user, p.ws, p);
       if (!w) return res.status(401).json({ error: 'You no longer have access to that team', workspaceGone: true });
       req.actor = req.user; req.role = w.member.role; req.user = w.owner;
       req.customPerms = customPerms(w.owner.id, req.role); // a custom role: its permission per area (null for built-in roles)
+      const ag = agencyGate(req, res, w); // an agency in a client account: the client's full / read-only / off (agency-access.js)
+      if (ag) return res.status(ag.status).json(ag.body);
       const reqPath = req.originalUrl.split('?')[0].toLowerCase();
       if (!OWN_SESSION.test(reqPath) && !allows(req.role, req.method, reqPath, req.customPerms)) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
       // limited to some funnels: those funnels and what building them needs, nothing account-wide (team.js)
@@ -213,7 +229,7 @@ const auth = (req, res, next) => {
   // an account whose trial / subscription has ended is read-only (402 Payment Required)
   const locked = lockedOut(req);
   if (locked) return res.status(402).json({ error: locked, locked: true });
-  sessionCtx.run({ sid: p.sid, imp: p.imp }, next);
+  sessionCtx.run({ sid: p.sid, imp: p.imp, aud: tokenTier(p) }, next);
 };
 // AI features use monthly credits
 const credits = (kind) => (req, res, next) => {
@@ -239,7 +255,8 @@ function userByToken(token, hashField, expField) {
 async function sendVerification(req, user) {
   const token = userToken(user);
   T.users.update(user.id, (u) => { u.verifyHash = hashToken(token); u.verifyExp = Date.now() + 3 * DAY; });
-  await sendMail({ to: user.email, subject: `Verify your ${brand()} email`, text: `Hi ${user.name},\n\nConfirm your email address by opening this link:\n${appUrl(req)}/verify?token=${token}\n\nThe link is valid for 3 days.` }).catch((e) => console.error('verification email failed', e.message));
+  // in the account's brand (its agency's, with the link on the agency's domain — whitelabel.js)
+  await sendBranded(T.users.get(user.id) || user, req, (b) => ({ to: user.email, subject: `Verify your ${b.name} email`, text: `Hi ${user.name},\n\nConfirm your email address by opening this link:\n${b.linkBase}/verify?token=${token}\n\nThe link is valid for 3 days.` })).catch((e) => console.error('verification email failed', e.message));
 }
 
 // Too many wrong passwords for one email, or wrong 2-step codes for one account (shared by all processes):
@@ -259,6 +276,13 @@ function checkCode(user, code) {
   user.totpStep = step;
   codeLock.clear(user.id);
   return null;
+}
+
+// signing in on the super host (admin panel): platform admins only, and the 2-step code is always needed
+function superLoginCheck(req, user) {
+  if (!isAdmin(user)) return { status: 403, body: { error: 'This address is for the platform’s admins only' } };
+  if (!user.totpEnabled) return { status: 403, body: { error: 'Turn on 2-step verification in the app (Settings → Security) before signing in to the admin panel', code: 'ADMIN_2FA_REQUIRED' } };
+  return checkCode(user, req.body.code);
 }
 
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
@@ -285,7 +309,8 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   if (m) return res.status(429).json({ error: lockedMsg(m), locked: true });
   const user = T.users.find({ email });
   if (!user || !bcrypt.compareSync(String(req.body.password || ''), user.hash)) { if (email) loginLock.fail(email); return res.status(401).json({ error: 'Invalid email or password' }); }
-  if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
+  if (tierOf(req) === 'super') { const bad = superLoginCheck(req, user); if (bad) return res.status(bad.status).json(bad.body); }
+  else if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
   loginLock.clear(email);
   res.json({ token: signIn(req, user), user: pubUser(user) });
 });
@@ -335,7 +360,7 @@ app.post('/api/auth/forgot', authLimiter, wrap(async (req, res) => {
     user.resetHash = hashToken(token);
     user.resetExp = Date.now() + 60 * 60000;
     saveUser(user);
-    await sendMail({ to: user.email, subject: `Reset your ${brand()} password`, text: `Hi ${user.name},\n\nReset your password here (valid for 1 hour):\n${appUrl(req)}/reset?token=${token}\n\nIf you didn't ask for this, you can ignore this email.` }).catch((e) => console.error('reset email failed', e.message));
+    await sendBranded(user, req, (b) => ({ to: user.email, subject: `Reset your ${b.name} password`, text: `Hi ${user.name},\n\nReset your password here (valid for 1 hour):\n${b.linkBase}/reset?token=${token}\n\nIf you didn't ask for this, you can ignore this email.` })).catch((e) => console.error('reset email failed', e.message));
   }
   res.json({ ok: true, emailConfigured: mailEnabled() });
 }));
@@ -366,7 +391,7 @@ app.post('/api/auth/resend-verification', auth, authLimiter, wrap(async (req, re
 }));
 
 // this device's session (tokens from before sessions existed get one), for signing everything else out
-const sidOf = (req) => req.sid || startSession(req, req.actor || req.user);
+const sidOf = (req) => req.sid || startSession(req, req.actor || req.user, { aud: req.tokenAud, ms: sessionMsFor(req.tokenAud) });
 // support ("log in as") can look around but never change how the seller signs in
 const notSupport = (req, res, next) => (req.impersonator ? res.status(403).json({ error: 'Support access can’t change sign-in settings' }) : next());
 
@@ -389,7 +414,8 @@ app.post('/api/auth/2fa/setup', auth, notSupport, (req, res) => {
   if (req.user.totpEnabled) return res.status(400).json({ error: '2-step verification is already on' });
   req.user.totpPending = newTotpSecret();
   saveUser(req.user);
-  res.json({ secret: req.user.totpPending, otpauth: otpauthUrl(req.user.totpPending, req.user.email) });
+  // the authenticator app lists it under the brand the person signs in to (their agency's, for its clients)
+  res.json({ secret: req.user.totpPending, otpauth: otpauthUrl(req.user.totpPending, req.user.email, (brandFor(req.user) || brandForHost(req.hostname))?.brand || platform().brand) });
 });
 app.post('/api/auth/2fa/enable', auth, notSupport, authLimiter, (req, res) => {
   const step = req.user.totpPending ? totpStep(req.user.totpPending, req.body.code) : null;
@@ -420,7 +446,8 @@ app.post('/api/auth/2fa/disable', auth, notSupport, authLimiter, (req, res) => {
 // idle one is signed out after 14 days. Support ("log in as") sessions are never extended.
 app.post('/api/auth/refresh', auth, (req, res) => {
   if (req.apiKey) return res.status(400).json({ error: 'API keys don’t expire' });
-  if (req.impersonator) return res.json({ token: null });
+  // support, agency access and admin sign-ins keep their fixed length (admin: 12 hours) — not extended
+  if (req.impersonator || req.agencyAccess || req.tokenAud === 'super') return res.json({ token: null });
   const me = req.actor || req.user, sid = sidOf(req);
   extendSession(sid);
   res.json({ token: sign(me, req.tokenWs, sid) });
@@ -464,15 +491,19 @@ const demoCount = (userId) => ({
 });
 // the pages a menu can show (pinned / hidden / an agency's default)
 const MENU_PAGES = ['/funnels', '/hive', '/orders', '/reports', '/ads', '/products', '/store', '/school', '/quotes', '/contacts', '/vault', '/automations', '/broadcasts', '/bookings', '/webinars'];
+// the admin panel opens here: anywhere while there's no super host, otherwise only on it
+const adminHere = (req) => isAdmin(req.user) && (!superHost() || req.tokenAud === 'super');
 app.get('/api/me', auth, (req, res) => {
   const s = req.user.settings;
   const funnels = q('SELECT COUNT(*) AS n, COALESCE(SUM(json_extract(data, \'$.published\')), 0) AS pub FROM funnels WHERE userId = ?').get(req.user.id);
   res.json({
     ...pubUser(req.actor || req.user), hasDemo: !!q('SELECT 1 FROM events WHERE userId = ? AND demo = 1 LIMIT 1').get(req.user.id) || T.orders.exists({ userId: req.user.id, demo: 1 }) || T.leads.exists({ userId: req.user.id, demo: 1 }),
-    aiEnabled: aiEnabled(), ...(!req.actor && isAdmin(req.user) ? { aiProvider: aiProvider() } : {}), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
-    billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && isAdmin(req.user), brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
+    aiEnabled: aiEnabled(), ...(!req.actor && adminHere(req) ? { aiProvider: aiProvider() } : {}), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
+    billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && adminHere(req), ...(!req.actor && adminHere(req) ? { adminLevel: adminLevel(req.user) } : {}), adminUrl: !req.actor && !req.impersonator && isAdmin(req.user) && superHost() && req.tokenAud !== 'super' ? superUrl() : null, brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
     uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
-    impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
+    // the dashboard's skin: the person's own choice, else their agency's default for clients (skins.js)
+    skin: cleanSkin(req.actor ? req.actor.settings?.skin : s.skin) || cleanSkin(brandFor(req.user)?.skin) || null,
+    impersonating: !!req.impersonator, agencyAccess: req.agencyAccess ? { agency: req.agencyAccess.agencyName, by: req.agencyAccess.staff ? req.agencyAccess.actorName : null, mode: req.agencyAccess.mode, reason: req.agencyAccess.reason, expiresAt: req.agencyAccess.expiresAt } : null, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
     workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, ...memberRole(req.user.id, req.role), custom: !!req.customPerms, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
     perms: req.actor ? memberRole(req.user.id, req.role).perms : null, // a member's access per area (the app hides what they can't open)
     teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
@@ -527,6 +558,15 @@ app.put('/api/settings', auth, wrap(async (req, res) => {
       T.users.update(req.actor.id, (x) => { x.settings = { ...(x.settings || {}), uiLang: l }; });
       if (Object.keys(body).length === 1) return res.json({ ...s, uiLang: l });
     } else next.uiLang = l;
+  }
+  // the dashboard's skin (skins.js) — like the language, each person's own; '' goes back to the default
+  if ('skin' in body) {
+    const k = cleanSkin(body.skin);
+    if (body.skin && !k) return res.status(400).json({ error: 'Unknown skin' });
+    if (req.actor) {
+      T.users.update(req.actor.id, (x) => { x.settings = { ...(x.settings || {}), skin: k }; });
+      if (Object.keys(body).length === 1) return res.json({ ...s, skin: k });
+    } else next.skin = k;
   }
   if (body.payments && typeof body.payments === 'object') {
     next.payments = { ...s.payments };
@@ -1076,7 +1116,11 @@ app.get('/api/site', (req, res) => {
   const p = platform(), pr = pricing();
   const wl = brandForHost(req.hostname); // an agency's own app domain: their brand on the login page
   // sentryDsn: the public DSN (safe to show — it only lets anyone send reports) for the browser's error reports
-  res.json({ ...(wl ? { whiteLabel: wl } : {}), sentryDsn: /^https:\/\/[^\s"'<>]+$/.test(process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN || '') ? process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN : null, pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, turnstileSiteKey: turnstileSiteKey(), trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: publicCompany() });
+  const common = { sentryDsn: /^https:\/\/[^\s"'<>]+$/.test(process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN || '') ? process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN : null, pagesUrl: process.env.PAGES_URL || '', turnstileSiteKey: turnstileSiteKey() };
+  // on an agency's verified domain: its brand and legal details only — no platform company, GSTIN or prices; new
+  // sign-ups only where they become the agency's (partner) sub-accounts
+  if (wl) return res.json(agencySite(wl, { ...common, signupsOpen: !!(p.signupsOpen && partnerForHost(req.hostname, brandForHost)) }));
+  res.json({ ...common, brand: p.brand, googleClientId: googleClientId() || null, trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: publicCompany() });
 });
 
 // ---------- templates ----------
@@ -1267,7 +1311,9 @@ registerLegal(app, { auth, appUrl });
 registerApi(app, { auth });
 registerAdSpend(app, { auth, wrap });
 registerReports(app, { auth });
-registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signFor: sign });
+registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signAgency });
+registerAgencyAccess(app, { auth });
+registerWhiteLabel(app, { auth, rateLimit, isTest }); // agency app-domain proof, sender, per-host title / manifest (whitelabel.js)
 registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
 registerFulfilment(app, { auth, appUrl });
 registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret: SECRET });
@@ -2012,6 +2058,9 @@ if (JOBS && !isTest) { setInterval(() => indiaMartJob().catch((e) => console.err
 const CLIENT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../client');
 const dist = path.join(CLIENT, 'dist');
 const indexHtml = fs.existsSync(path.join(dist, 'index.html')) ? fs.readFileSync(path.join(dist, 'index.html'), 'utf8') : null;
+// the app's page, telling the browser which address (tier) it's on — the super host shows only the admin panel
+// the app's page for this request: the brand of the domain it's opened on (whitelabel.js) and its tier (tiers.js)
+function spaHtml(req) { return indexHtml && brandedIndex(indexHtml, req).replace('<!--ff-head-->', () => tierMeta(req)); }
 let ssr = null;
 const ssrEntry = path.join(CLIENT, 'dist-ssr', 'entry-server.js');
 if (fs.existsSync(ssrEntry)) {
@@ -2128,14 +2177,17 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
 registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned, saveReviewPhoto });
 registerStoreAi(app, { auth, rateLimit, isTest, credits });
 
+// tests only (NODE_ENV=test): every registered route, for the cross-account check (test/cross-tenant.test.mjs)
+if (isTest) app.get('/api/__test/routes', (req, res) => res.json(app._router.stack.filter((l) => l.route).flatMap((l) => [].concat(l.route.path).filter((p) => typeof p === 'string').map((path) => ({ path, methods: Object.keys(l.route.methods) })))));
+
 // an API path nobody answered is a JSON 404, never the app's HTML page
-app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+app.use('/api',(req, res) => res.status(404).json({ error: 'Not found' }));
 
 if (indexHtml) {
   // the build's files carry a content hash in their names (/assets/index-AbC123.js): cache them for a year;
   // everything else (index.html, favicon…) is revalidated so a new deploy shows up straight away
   app.use(express.static(dist, { index: false, setHeaders: (res, file) => { if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); else if (/(learn|counter)-sw\.js$/.test(file)) res.setHeader('Cache-Control', 'no-cache'); } })); // the members-area and counter apps' service workers update at once
-  app.get('*', (_, res) => res.set('Cache-Control', 'no-cache').type('html').send(indexHtml));
+  app.get('*', (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(spaHtml(req)));
 }
 
 const port = process.env.PORT || 4000;

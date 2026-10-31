@@ -59,13 +59,13 @@ function Connect({ d, onDone, onCancel }) {
   const disconnect = async () => { if (!await confirmDialog({ title: 'Disconnect Sarvam AI?', text: 'Running campaigns keep calling in Sarvam, but their results stop reaching your CRM.', confirm: 'Disconnect', danger: true })) return; await api('/voice/connect', 'DELETE'); onDone(); };
   return (
     <Panel title="Connect your Sarvam AI account" actions={onCancel && <button className="btn ghost sm" onClick={onCancel}>Cancel</button>}>
-      <p className="muted sm">AI calls run on your own Sarvam AI account — your agent, your numbers, your Sarvam minutes. FunnelHive picks who to call from your CRM and brings every result back.</p>
+      <p className="muted sm">AI calls run on your own Sarvam AI account — your agent, your numbers, your Sarvam minutes. We pick who to call from your CRM and brings every result back.</p>
       <ol className="ls-steps">
         <li>Create an account at <b>sarvam.ai</b> and build your calling agent (what it says, the questions it asks, the variables it uses like <code>customer_name</code>).</li>
         <li>In Sarvam → <b>Deploy → Telephony</b>, connect your phone provider (Exotel, Plivo…) and the number calls go out from. Copy the <b>connection ID</b>.</li>
         <li>Deploy the agent for outbound calls, then create an API key in Sarvam → <b>Settings → API Key</b>. Your <b>org ID</b> and <b>workspace ID</b> are in the dashboard URL.</li>
       </ol>
-      <p className="note-bar warn">In India, automated calls must go out from numbers registered for them (140-series for promotional, 1600-series for service calls, via your provider and DLT). FunnelHive only calls contacts who agreed to marketing, never anyone tagged “DND”, and only between 9 am and 9 pm.</p>
+      <p className="note-bar warn">In India, automated calls must go out from numbers registered for them (140-series for promotional, 1600-series for service calls, via your provider and DLT). We only call contacts who agreed to marketing, never anyone tagged “DND”, and only between 9 am and 9 pm.</p>
       <form className="form2" onSubmit={save}>
         <label className="fld full"><span>API key {d.keyHint && <small className="muted">· saved ({d.keyHint}) — leave blank to keep it</small>}</span><input type="password" autoComplete="off" value={v.apiKey} onChange={set('apiKey')} placeholder={d.keyHint ? '••••••••' : 'sk_…'} /></label>
         <label className="fld"><span>Org ID</span><input value={v.orgId} onChange={set('orgId')} required /></label>

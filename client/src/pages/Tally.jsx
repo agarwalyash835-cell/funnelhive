@@ -47,7 +47,7 @@ export default function Tally() {
   if (s.error) return <Layout title="Tally"><p className="err">{s.error}</p></Layout>;
   if (!s.on) {
     return (
-      <Layout title="Tally" subtitle="Your TallyPrime books, inside FunnelHive">
+      <Layout title="Tally" subtitle="Your TallyPrime books, right here">
         <Empty icon="wallet" title="Tally isn’t on for your account" text="See ledgers, vouchers, money owed to you and stock from TallyPrime here — and create vouchers and ledgers without opening Tally. It’s an add-on for manufacturers, retailers and traders: write to us and we’ll switch it on." />
       </Layout>
     );
@@ -57,7 +57,7 @@ export default function Tally() {
   const company = s.companies?.find((c) => c.id === s.companyId);
   const pick = async (id) => { try { await api(`/tally/companies/${id}/select`, 'POST'); changed(); } catch (e) { toast(e.message); } };
   const syncNow = async () => { try { await api('/tally/sync', 'POST', { type: 'SYNC_FULL' }); toast('Sync asked — your PC sends the latest from Tally in a few seconds'); setTimeout(changed, 8000); } catch (e) { toast(e.message); } };
-  if (!s.agents?.length) return <Layout title="Tally" subtitle="Connect TallyPrime on your PC to FunnelHive"><ConnectPC s={s} onDone={load} /></Layout>;
+  if (!s.agents?.length) return <Layout title="Tally" subtitle="Connect TallyPrime on your PC to this account"><ConnectPC s={s} onDone={load} /></Layout>;
   return (
     <Layout title="Tally" subtitle={company ? `${company.name}${company.last_synced_at ? ` · synced ${ago(company.last_synced_at)}` : ''}` : 'Waiting for your company to sync'}
       actions={<div className="row">
@@ -126,10 +126,10 @@ function ConnectPC({ s, onDone, compact }) {
     <ol className="tl-steps">
       <li><b>Install the connector on the PC with TallyPrime</b>{s.download ? <a className="btn ghost sm" href={s.download}><Icon name="download" size={14} /> Download for Windows</a> : <small className="muted">The installer isn’t published yet — ask us for it.</small>}<small className="muted">Windows 10 or 11 (64-bit). If Windows says “protected your PC”: More info → Run anyway.</small></li>
       <li><b>Open TallyPrime with your company</b><small className="muted">In TallyPrime: F1 Help → Settings → Connectivity → set “TallyPrime acts as” to Both, port 9000, then restart TallyPrime. For GST on vouchers, keep Output CGST / SGST / IGST (and Input … for purchases) ledgers under Duties &amp; Taxes.</small></li>
-      <li><b>Paste this code into the connector</b>{code ? <div className="row"><code className="tl-code">{code.code}</code><button className="btn ghost sm" onClick={copy}><Icon name="copy" size={14} /> Copy</button></div> : <button className="btn primary sm" onClick={get}>Get a connect code</button>}<small className="muted">{code ? `It works once, until ${new Date(code.expiresAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}. This page updates when your PC connects.` : 'The code links that PC to this FunnelHive account.'}</small></li>
+      <li><b>Paste this code into the connector</b>{code ? <div className="row"><code className="tl-code">{code.code}</code><button className="btn ghost sm" onClick={copy}><Icon name="copy" size={14} /> Copy</button></div> : <button className="btn primary sm" onClick={get}>Get a connect code</button>}<small className="muted">{code ? `It works once, until ${new Date(code.expiresAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}. This page updates when your PC connects.` : 'The code links that PC to this account.'}</small></li>
     </ol>
   );
-  return compact ? steps : <Panel title="Connect TallyPrime"><p className="muted sm">Your books stay on your PC. A small connector keeps them in sync with FunnelHive and saves the vouchers and ledgers you create here straight into TallyPrime.</p>{steps}</Panel>;
+  return compact ? steps : <Panel title="Connect TallyPrime"><p className="muted sm">Your books stay on your PC. A small connector keeps them in sync with this account and saves the vouchers and ledgers you create here straight into TallyPrime.</p>{steps}</Panel>;
 }
 
 function Overview({ rev, onOpen, go }) {
@@ -202,7 +202,7 @@ function VoucherTable({ rows, onOpen, compact }) {
       <thead><tr><th>Date</th><th>Type</th>{!compact && <th>No.</th>}<th>Party</th><th className="r">Amount</th><th>Status</th></tr></thead>
       <tbody>{rows.map((v) => (
         <tr key={v.id} className="click" onClick={() => onOpen(v)}>
-          <td className="nowrap">{v.voucher_date ? fmtDate(v.voucher_date) : '—'}</td><td><span className={`tl-vt-chip tl-${vtone(v.voucher_type)}`}>{v.voucher_type}</span>{v.source && v.source !== 'TALLY' && <small className="sub-t">from FunnelHive</small>}</td>{!compact && <td className="mono">{v.voucher_number || '—'}</td>}
+          <td className="nowrap">{v.voucher_date ? fmtDate(v.voucher_date) : '—'}</td><td><span className={`tl-vt-chip tl-${vtone(v.voucher_type)}`}>{v.voucher_type}</span>{v.source && v.source !== 'TALLY' && <small className="sub-t">made here</small>}</td>{!compact && <td className="mono">{v.voucher_number || '—'}</td>}
           <td>{v.party_name || '—'}</td><td className={`r tl-amt ${v.status === 'CANCELLED' ? '' : vtone(v.voucher_type) === 'in' ? 'tl-in-t' : vtone(v.voucher_type) === 'out' ? 'tl-out-t' : ''}`}>{money(v.amount)}</td><td><span className={`pill ${VSTATUS[v.status]?.[1] || ''}`}>{VSTATUS[v.status]?.[0] || v.status}</span></td>
         </tr>
       ))}</tbody>

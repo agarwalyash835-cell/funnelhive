@@ -134,8 +134,14 @@ export function buildReport(user, { from, to, key, days }, funnelId = '') {
   }
 
   const t = money(total), table = (m) => Object.entries(m).map(([name, g]) => ({ name, ...money(g) })).sort((a, b) => b.net - a.net).slice(0, 100);
+  // COD advances kept as a booking fee when the buyer refused the parcel (fulfilment.js prepaid.retained): money the
+  // seller keeps from orders that aren't sales, so shown on its own, never mixed into gross / net
+  const kept = q("SELECT data FROM orders WHERE userId = ? AND json_extract(data, '$.prepaid.retained.at') >= ? AND json_extract(data, '$.prepaid.retained.at') < ?").all(uid, from, to)
+    .map((r) => JSON.parse(r.data)).filter((o) => !o.demo && inFunnel(o.funnelId));
+  const keptFees = { amount: r2(kept.reduce((s, o) => s + (Number(o.prepaid.retained.amount) || 0) * (Number(o.fx) || 1), 0)), orders: kept.length };
   return {
     period: { key, days: days || null, from, to },
+    keptFees,
     funnel: funnelId || null,
     funnels: funnels.map((f) => ({ id: f.id, name: f.name })),
     overview: {

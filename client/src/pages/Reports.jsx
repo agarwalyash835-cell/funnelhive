@@ -33,6 +33,8 @@ function Kpis({ d }) {
     ['Monthly recurring', inr(r.mrr), <small>{num(r.members)} active membership{r.members === 1 ? '' : 's'}{r.pastDue ? ` · ${r.pastDue} past due` : ''}</small>],
     ['Instalments still due', inr(r.instalmentsDue), <small>{num(r.instalmentsLeft)} payment{r.instalmentsLeft === 1 ? '' : 's'} on {num(r.plans)} plan{r.plans === 1 ? '' : 's'}</small>],
     ...(o.spend ? [['Return on ad spend', o.roas != null ? `${o.roas}×` : '—', <small>{inr(o.spend)} spent</small>]] : []),
+    // COD advances kept when a buyer refused delivery — kept money, but not a sale, so it's apart from the totals
+    ...(d.keptFees?.orders ? [['Kept booking fees', inr(d.keptFees.amount), <small>{num(d.keptFees.orders)} refused COD order{d.keptFees.orders === 1 ? '' : 's'} · not in sales</small>]] : []),
   ];
   return (
     <div className="kpis rp-kpis">
