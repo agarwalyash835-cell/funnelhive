@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
-import { api, meCache, logout, stopImpersonating, leaveClient, fmtDate } from './api';
+import { api, meCache, logout, stopImpersonating, leaveClient, fmtDate, setToken } from './api';
 import { SKINS, applySkin, currentSkin } from './skins';
 import SkinPicker from './skinPicker';
 import { isSuper } from './tier';
@@ -402,6 +402,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
         </header>
         {loadFail && <div className="app-banner bad" role="alert"><span>Part of this page didn’t load — check your connection.</span><button onClick={() => location.reload()}>Reload</button></div>}
         {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} /><span>{tx('You’re working in the {name} workspace as {role}.', { name: <b>{me.workspace.name}</b>, role: (t(({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role] || '') || me.workspace.roleName || '') })}</span></div>}
+        {me?.workspace?.needs2fa && <div className="app-banner bad" role="alert"><Icon name="shield" size={15} /><span>{tx('{name} requires 2-step verification. Switch to your own account and turn it on in Settings → Security.', { name: <b>{me.workspace.name}</b> })}</span><button onClick={async () => { try { const r = await api('/team/switch', 'POST', { ownerId: null }); setToken(r.token); location.href = '/settings#security'; } catch (e) { toast(e.message); } }}>{t('Switch to my account')}</button></div>}
         {me?.agencyAccess && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('{agency} is working in this account ({mode}) until {time}: “{reason}”. The owner sees this visit.', { agency: <b>{me.agencyAccess.by ? `${me.agencyAccess.by} · ${me.agencyAccess.agency}` : me.agencyAccess.agency}</b>, mode: me.agencyAccess.mode === 'read' ? t('read-only') : t('full access'), time: new Date(me.agencyAccess.expiresAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }), reason: me.agencyAccess.reason })}</span><button onClick={leaveClient}>{t('Back to agency')}</button></div>}
         {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('You’re signed in as {email} (support view).', { email: <b>{me.email}</b> })}</span><button onClick={stopImpersonating}>{t('Back to admin')}</button></div>}
         {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}

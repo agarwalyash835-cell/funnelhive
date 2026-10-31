@@ -67,7 +67,8 @@ import { registerFulfilment, cleanAddress } from './fulfilment.js';
 import { registerCod, codCheckoutError, shipError, codPlaced, codToken, codSettings, codPrepaidPublic } from './cod.js';
 import { registerShipping } from './shipping.js';
 import { registerBroadcasts } from './broadcasts.js';
-import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows, customPerms, memberRole } from './team.js';
+import { registerDataRequests } from './data-requests.js';
+import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows, customPerms, memberRole, canDo, team2faBlocks } from './team.js';
 import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan, needsAfa, AFA_NOTE } from './plans.js';
 import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
 import { registerObserve, requestMetrics, reportError } from './observe.js';
@@ -215,6 +216,8 @@ const auth = (req, res, next) => {
       const ag = agencyGate(req, res, w); // an agency in a client account: the client's full / read-only / off (agency-access.js)
       if (ag) return res.status(ag.status).json(ag.body);
       const reqPath = req.originalUrl.split('?')[0].toLowerCase();
+      // the owner requires 2-step verification: without it, only who-am-I, switching away and signing out work here
+      if (team2faBlocks(w.owner, req.actor) && !OWN_SESSION.test(reqPath) && !/^\/api\/(me|team\/(workspaces|switch|leave))$/.test(reqPath)) return res.status(403).json({ error: `${w.owner.settings?.businessName || 'This account'} requires 2-step verification — switch to your own account and turn it on in Settings → Security`, code: 'TEAM_2FA_REQUIRED' });
       if (!OWN_SESSION.test(reqPath) && !allows(req.role, req.method, reqPath, req.customPerms)) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
       // limited to some funnels: those funnels and what building them needs, nothing account-wide (team.js)
       req.funnelScope = funnelScope(w.member);
@@ -516,7 +519,7 @@ app.get('/api/me', auth, (req, res) => {
     // the dashboard's skin: the person's own choice, else their agency's default for clients (skins.js)
     skin: cleanSkin(req.actor ? req.actor.settings?.skin : s.skin) || cleanSkin(brandFor(req.user)?.skin) || null,
     impersonating: !!req.impersonator, agencyAccess: req.agencyAccess ? { agency: req.agencyAccess.agencyName, by: req.agencyAccess.staff ? req.agencyAccess.actorName : null, mode: req.agencyAccess.mode, reason: req.agencyAccess.reason, expiresAt: req.agencyAccess.expiresAt } : null, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
-    workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, ...memberRole(req.user.id, req.role), custom: !!req.customPerms, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
+    workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, ...memberRole(req.user.id, req.role), needs2fa: team2faBlocks(req.user, req.actor), custom: !!req.customPerms, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
     perms: req.actor ? memberRole(req.user.id, req.role).perms : null, // a member's access per area (the app hides what they can't open)
     teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
     // the sidebar: which optional tools this account has started using (they join the menu), and what needs attention
@@ -806,6 +809,8 @@ app.put('/api/funnels/:id', auth, (req, res) => {
   if ('name' in b && (typeof b.name !== 'string' || !b.name.trim())) return res.status(400).json({ error: 'Give the funnel a name' });
   if ('name' in b) b.name = b.name.trim().slice(0, 120);
   if ('published' in b && typeof b.published !== 'boolean') return res.status(400).json({ error: 'published must be true or false' });
+  // a custom role without "Publish funnels" saves its edits but can't take the funnel live or offline (team.js)
+  if ('published' in b && b.published !== !!f.published && !canDo(req, 'publish')) return res.status(403).json({ error: 'Your role can edit this funnel but not publish it — ask the owner' });
   if ('theme' in b && (!b.theme || typeof b.theme !== 'object' || Array.isArray(b.theme))) return res.status(400).json({ error: 'Invalid theme' });
   // going live needs the seller's legal details (Consumer Protection (E-Commerce) Rules); live funnels stay live
   if (b.published === true && !f.published) { const miss = legalMissing(T.users.get(f.userId), f); if (miss.length) return res.status(400).json({ error: `Add your ${miss.join(', ')} in Settings → Business & legal before publishing`, missing: miss, settings: '/settings#legal' }); }
@@ -1073,7 +1078,7 @@ registerLeadSources(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerVoice(app, { auth, wrap, rateLimit, isTest });
 await registerCampaignTemplates(app, { auth, wrap, credits });
 registerBroadcasts(app, { auth, rateLimit, isTest });
-registerTeam(app, { auth, sign, rateLimit, isTest });
+registerTeam(app, { auth, sign, rateLimit, isTest, checkCode });
 registerPlans(app, { auth, resolveToken });
 registerHive(app, { auth, sign, port: process.env.PORT || 4000, rateLimit, isTest, appUrl, credits: credits('hive') });
 registerBilling(app, { auth, wrap, rateLimit, isTest });
@@ -1320,6 +1325,7 @@ registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl });
 registerGcal(app, { auth, secret: SECRET, appUrl });
 registerStripeSettings(app, { auth, wrap });
 registerLegal(app, { auth, appUrl });
+registerDataRequests(app, { auth });
 registerApi(app, { auth });
 registerAdSpend(app, { auth, wrap });
 registerReports(app, { auth });

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, setToken } from '../api';
+import { Owner } from './TeamOwner';
 import { Panel, Icon, Modal, toast, ago, confirmDialog, promptDialog } from '../ui';
 import { AuthShell } from './Auth';
 
@@ -23,6 +24,7 @@ export function TeamPanel() {
   const [funnels, setFunnels] = useState([]);
   const [pick, setPick] = useState(null); // { id, ids }: choosing which funnels a member works on
   const [rolesV, setRolesV] = useState(0); // bumped when roles change, so the role pickers refresh
+  const [ownerFor, setOwnerFor] = useState(null); // handing the account to this member
   const load = () => api('/team/members').then(setD).catch(() => setD(false));
   useEffect(() => { load(); api('/funnels').then(setFunnels).catch(() => {}); }, []);
   if (d === false) return null;
@@ -47,14 +49,15 @@ export function TeamPanel() {
       )}
       {!d ? <div className="skeleton" /> : (
         <table className="tbl compact team-tbl"><tbody>
-          <tr><td><b>{d.owner.name}</b><small className="sub-t">{d.owner.email}</small></td><td><span className="pill ok">Owner</span></td><td>All funnels</td><td /></tr>
+          <tr><td><b>{d.owner.name}</b><small className="sub-t">{d.owner.email}</small></td><td><span className="pill ok">Owner</span>{d.owner.twoFactor && <span className="pill" title="2-step verification is on">2-step</span>}</td><td>All funnels</td><td /></tr>
           {d.members.map((m) => [
             <tr key={m.id}>
               <td><b>{m.name || m.email}</b><small className="sub-t">{m.name ? m.email : ''}{m.status === 'invited' ? ` · invited ${ago(m.at)}` : m.lastSeenAt ? ` · active ${ago(m.lastSeenAt)}` : ''}</small></td>
-              <td>{d.canManage && m.role !== 'agency' ? <select value={m.role} onChange={(e) => act(() => api(`/team/members/${m.id}`, 'PUT', { role: e.target.value }), 'Role updated')}>{roleOptions(d)}</select> : m.roleName || ROLE_NAME[m.role]}{m.status === 'invited' && <span className="pill warn">pending</span>}</td>
+              <td>{d.canManage && m.role !== 'agency' ? <select value={m.role} onChange={(e) => act(() => api(`/team/members/${m.id}`, 'PUT', { role: e.target.value }), 'Role updated')}>{roleOptions(d)}</select> : m.roleName || ROLE_NAME[m.role]}{m.status === 'invited' && <span className="pill warn">pending</span>}{m.status === 'active' && (m.twoFactor ? <span className="pill" title="2-step verification is on">2-step</span> : d.require2fa && <span className="pill bad" title="Can’t open this account until they turn on 2-step verification">no 2-step</span>)}</td>
               <td>{d.canManage && m.role !== 'agency' ? <button className="btn ghost sm" title="Which funnels they can work on" onClick={() => setPick(pick?.id === m.id ? null : { id: m.id, ids: m.funnelIds || [] })}>{access(m)}</button> : m.funnelIds ? access(m) : ''}</td>
               <td className="r">{d.canManage && <div className="row end">
                 {m.status === 'invited' && <button className="btn ghost sm" onClick={() => act(async () => { const r = await api(`/team/members/${m.id}/resend`, 'POST'); shareLink(r.link, m.email, true); })}>Resend</button>}
+                {d.isOwner && m.canOwn && <button className="btn ghost sm" title="Hand this account to them" onClick={() => setOwnerFor(m)}>Make owner</button>}
                 <button className="icon-btn" title="Remove" aria-label="Remove" onClick={async () => (await confirmDialog({ title: `Remove ${m.email} from your team?`, text: 'They lose access immediately.', confirm: 'Remove', danger: true })) && act(() => api(`/team/members/${m.id}`, 'DELETE'), 'Removed')}><Icon name="trash" size={15} /></button>
               </div>}</td>
             </tr>,
@@ -71,7 +74,11 @@ export function TeamPanel() {
         </tbody></table>
       )}
       {d && <p className="hint">Admin: everything except billing and the team · Marketer: funnels, AI, automations, broadcasts, contacts, products · Sales & support: contacts, orders &amp; shipping, bookings · Viewer: read-only reports. Need something else (a telecaller, a content writer)? Make your own role below. Limit anyone to some funnels (e.g. a designer for one project) with the funnels button. Up to {d.max} people.</p>}
+      {d?.isOwner && (
+        <label className="tog team-2fa"><input type="checkbox" checked={!!d.require2fa} onChange={(e) => act(async () => { const r = await api('/team/security', 'PUT', { require2fa: e.target.checked }); if (r.require2fa && r.without) toast(`${r.without} ${r.without === 1 ? 'person needs' : 'people need'} to turn on 2-step verification before they can open this account`); })} /><span />Require 2-step verification for everyone on the team</label>
+      )}
       {d && <RolesSection key={rolesV} onChange={() => { setRolesV(rolesV + 1); load(); }} />}
+      {ownerFor && <Owner m={ownerFor} needCode={!!d.owner.twoFactor} onClose={() => setOwnerFor(null)} />}
     </Panel>
   );
 }
@@ -145,10 +152,12 @@ export function RolesSection({ onChange }) {
   useEffect(() => { load(); }, []);
   if (!d) return null;
   const blank = Object.fromEntries(d.areas.map((a) => [a.key, 'none']));
-  const open = (r, copy) => setEdit(r ? { ...(copy ? {} : { id: r.id }), name: copy ? `${r.name} (copy)` : r.name, note: r.note, perms: { ...blank, ...r.perms }, readOnly: !copy && r.builtIn } : { name: '', perms: blank });
+  const allOn = Object.fromEntries((d.actions || []).map((a) => [a.key, true]));
+  const open = (r, copy) => setEdit(r ? { ...(copy ? {} : { id: r.id }), name: copy ? `${r.name} (copy)` : r.name, note: r.note, perms: { ...blank, ...r.perms }, actions: { ...allOn, ...(r.actions || {}) }, readOnly: !copy && r.builtIn } : { name: '', perms: blank, actions: allOn });
   const save = async () => {
     try {
-      await (edit.id ? api(`/team/roles/${edit.id}`, 'PUT', { name: edit.name, perms: edit.perms }) : api('/team/roles', 'POST', { name: edit.name, perms: edit.perms }));
+      const body = { name: edit.name, perms: edit.perms, actions: edit.actions };
+      await (edit.id ? api(`/team/roles/${edit.id}`, 'PUT', body) : api('/team/roles', 'POST', body));
       toast(edit.id ? 'Role updated — it applies right away' : `Role “${edit.name}” created`);
       setEdit(null); load(); onChange?.();
     } catch (x) { toast(x.message); }
@@ -201,6 +210,14 @@ export function RolesSection({ onChange }) {
             ))}</tbody>
           </table>
           <p className="hint">View = can open and read; Edit = can also create, change and delete. Billing and deleting the account always stay with you.</p>
+          {!edit.readOnly && d.actions?.length > 0 && (
+            <div className="role-actions">
+              <h5>Risky actions <small className="muted">· switch off what this role shouldn’t do, even where it can edit</small></h5>
+              {d.actions.map((a) => (
+                <label key={a.key} className="tog"><input type="checkbox" checked={edit.actions?.[a.key] !== false} onChange={(e) => setEdit({ ...edit, actions: { ...edit.actions, [a.key]: e.target.checked } })} /><span /><span className="ra-text"><b>{a.label}</b><small className="muted">{a.desc}</small></span></label>
+              ))}
+            </div>
+          )}
           <div className="row end">{edit.readOnly ? <button className="btn primary" onClick={() => setEdit(null)}>Close</button> : <><button className="btn ghost" onClick={() => setEdit(null)}>Cancel</button><button className="btn primary" disabled={!edit.name.trim()} onClick={save}>{edit.id ? 'Save role' : 'Create role'}</button></>}</div>
         </Modal>
       )}

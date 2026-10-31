@@ -2935,3 +2935,9 @@ a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
 .fstats > * { min-width: 0; }
 .fstats b { overflow-wrap: anywhere; }
 @media (max-width: 420px) { .fstats b { font-size: 13px; } .fstats small { font-size: 10px; letter-spacing: 0; } }
+/* team: a custom role's risky actions, and the team's 2-step rule */
+.role-actions { margin-top: 14px; display: grid; gap: 6px; }
+.role-actions h5 { margin: 0 0 4px; font-size: 14px; }
+.role-actions .tog { display: flex; align-items: flex-start; gap: 10px; flex-wrap: nowrap; }
+.role-actions .ra-text { display: grid; gap: 1px; }
+.team-2fa { margin-top: 12px; }

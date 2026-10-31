@@ -7,6 +7,7 @@
 //               (stock, counter bills, returns, stock entries; not the Tally books); reads the rest
 //   viewer    — read-only, no settings or secrets
 // A member can also be limited to some funnels (funnelIds, "this project only"): see scopeAllows.
+import bcrypt from 'bcryptjs';
 import { T, q, uid, tx } from './db.js';
 import { randomToken, hashToken } from './security.js';
 import { sendMail, appUrl, mailEnabled } from './mail.js';
@@ -55,7 +56,7 @@ export function allows(role, method, path, perms) {
   if (role === 'agency') return !/^\/api\/(admin|auth\/|account|billing)/.test(path);
   // a client manager in the agency's own workspace: the agency page and its client accounts only
   if (role === 'clients') return /^\/api\/agency(\/|$)/.test(path);
-  if (!BUILT_IN.has(role)) return !!perms && customAllows(perms, method, path);
+  if (!BUILT_IN.has(role)) return !!perms && customAllows(perms, method, path) && actionAllows(perms.actions, method, path);
   if (OWNER_ONLY.test(path)) return ['/api/team/members', '/api/team/roles'].includes(path) && method === 'GET' && role === 'admin';
   if (role === 'admin') return true;
   // the Tally books and Inventory: admins, or a custom role given the Tally area; sales staff work the counter only
@@ -126,6 +127,32 @@ export function customAllows(perms, method, path) {
   if (lvl === 'edit') return a.key !== 'counter' || perms.tally === 'edit' || counterAllows(method, path);
   return lvl === 'view' && (isRead(method) || (method === 'POST' && !!a.viewPost?.test(path)));
 }
+// ---------- custom roles: risky actions inside an area ----------
+// Edit access to an area allows everything in it; these switch single risky actions off for a custom role. A role
+// saved before actions existed (no actions) keeps them all. Publishing a funnel is checked in the funnel route
+// (it's a field of the funnel, not a path).
+export const ACTIONS = [
+  { key: 'refund', label: 'Issue refunds', desc: 'Refund orders (needs Orders: edit)', re: /^\/api\/orders\/[^/]+\/refund$/, method: 'POST' },
+  { key: 'delete', label: 'Delete things', desc: 'Delete funnels, contacts, products, bookings, files and other records', method: 'DELETE' },
+  { key: 'export', label: 'Export data', desc: 'Download contacts, funnels and CSV files (GST, commissions, ad conversions)', re: /(\/export|\.csv)$/, method: 'GET' },
+  { key: 'publish', label: 'Publish funnels', desc: 'Take funnels live or offline (needs Funnels: edit)' },
+  { key: 'send', label: 'Send campaigns', desc: 'Send WhatsApp and email campaigns, launch calling campaigns, send quotes', re: /^\/api\/(broadcasts\/[^/]+\/send|voice\/campaigns\/[^/]+\/launch|quotes\/[^/]+\/send)$/, method: 'POST' },
+];
+const ACTION_KEYS = ACTIONS.map((a) => a.key);
+export const ALL_ACTIONS = Object.fromEntries(ACTION_KEYS.map((k) => [k, true]));
+// may this custom role do this request's action? (actions: { refund: false, … }; a key that's missing = allowed)
+export function actionAllows(actions, method, path) {
+  if (!actions) return true;
+  const a = ACTIONS.find((x) => x.method === method && (!x.re || x.re.test(path)) && (x.re || method === 'DELETE'));
+  return !a || actions[a.key] !== false;
+}
+export const canDo = (req, key) => !req.customPerms?.actions || req.customPerms.actions[key] !== false;
+function cleanActions(v) {
+  if (v == null) return { actions: { ...ALL_ACTIONS } };
+  if (typeof v !== 'object' || Array.isArray(v) || Object.keys(v).some((k) => !ACTION_KEYS.includes(k))) return { error: 'actions must be an object of action → true / false' };
+  return { actions: Object.fromEntries(ACTION_KEYS.map((k) => [k, v[k] !== false])) };
+}
+
 // the four built-in roles in the same area model, for showing what they allow (enforced by the rules above)
 const P = (o) => Object.fromEntries(AREA_KEYS.map((k) => [k, o?.[k] || 'none']));
 const allLevel = (lvl) => P(Object.fromEntries(AREAS.map((a) => [a.key, a.levels.includes(lvl) ? lvl : a.levels.at(-1)])));
@@ -151,13 +178,13 @@ export function roleInfo(ownerId, role) {
   if (BUILT_IN.has(role)) return { id: role, name: ROLES[role].split(' — ')[0], desc: ROLES[role].split(' — ')[1], perms: PRESETS[role], builtIn: true };
   if (role === 'agency') return { id: role, name: 'Agency', desc: 'manages this account', perms: PRESETS.agency, builtIn: true };
   const r = typeof role === 'string' && role.startsWith('role_') && T.roles.get(role);
-  return r && r.userId === ownerId ? { id: r.id, name: r.name, desc: 'custom role', perms: P(r.perms), builtIn: false } : null;
+  return r && r.userId === ownerId ? { id: r.id, name: r.name, desc: 'custom role', perms: P(r.perms), actions: { ...ALL_ACTIONS, ...(r.actions || {}) }, builtIn: false } : null;
 }
 // the permissions the auth middleware checks a custom role against (null for built-in roles; a role that's
 // gone grants nothing)
-export const customPerms = (ownerId, role) => (BUILT_IN.has(role) || role === 'agency' ? null : roleInfo(ownerId, role)?.perms || P({}));
+export const customPerms = (ownerId, role) => { if (BUILT_IN.has(role) || role === 'agency') return null; const r = roleInfo(ownerId, role); return r ? { ...r.perms, actions: r.actions } : P({}); };
 // what /api/me tells the app (to hide menu items): the role's name and permission per area
-export const memberRole = (ownerId, role) => { const r = roleInfo(ownerId, role); return { roleName: r?.name || 'Team member', perms: r?.perms || P({}) }; };
+export const memberRole = (ownerId, role) => { const r = roleInfo(ownerId, role); return { roleName: r?.name || 'Team member', perms: r?.perms || P({}), actions: r?.actions || null }; };
 const roleLabel = (ownerId, role) => { const r = roleInfo(ownerId, role); return r ? `${r.name} — ${r.desc}` : 'Team member — custom role'; };
 // someone managing the team through a custom role can't hand out more than they have themselves
 const within = (mine, perms) => !mine || AREA_KEYS.every((k) => RANK[perms?.[k] || 'none'] <= RANK[mine[k] || 'none']);
@@ -215,13 +242,53 @@ export function enterWorkspace(actor, ownerId, p = null) {
   return am?.role === 'agency' && p?.agencyImp ? agencyEntry(actor, owner, p, am) : null;
 }
 
-const view = (m) => ({ id: m.id, email: m.email, name: m.userId ? T.users.get(m.userId)?.name || '' : '', role: m.role, roleName: roleInfo(m.ownerId, m.role)?.name || 'Team member', funnelIds: m.funnelIds || null, status: m.status, at: m.at, acceptedAt: m.acceptedAt || null, lastSeenAt: m.lastSeenAt || null, invitedBy: m.invitedBy || null });
+const view = (m) => ({ id: m.id, email: m.email, name: m.userId ? T.users.get(m.userId)?.name || '' : '', twoFactor: !!(m.userId && T.users.get(m.userId)?.totpEnabled), role: m.role, roleName: roleInfo(m.ownerId, m.role)?.name || 'Team member', funnelIds: m.funnelIds || null, status: m.status, at: m.at, acceptedAt: m.acceptedAt || null, lastSeenAt: m.lastSeenAt || null, invitedBy: m.invitedBy || null });
 const bizName = (u) => u.settings?.businessName || u.name || u.email;
 
 // owners, an agency running the account, and members whose custom role can edit the team
 const canManage = (req) => !req.actor || req.role === 'agency' || req.customPerms?.team === 'edit';
 
-export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
+// ---------- the team's 2-step rule ----------
+// The owner can require 2-step verification for everyone working in the account (team members and agency staff);
+// someone without it can still open their own account to switch it on, but not this one (index.js auth step).
+export const team2faBlocks = (owner, actor) => !!owner?.settings?.team?.require2fa && !actor?.totpEnabled;
+
+// ---------- handing the account to a team member ----------
+// The account (its data, plan and billing) stays where it is; the two logins swap. The new owner signs in to this
+// account with their own email and password; the old owner's login moves to the member's (empty) personal account,
+// and stays on this team as an Admin. Memberships of other teams follow each person. Everyone is signed out.
+const IDENTITY = ['email', 'name', 'hash', 'passwordSet', 'emailVerified', 'googleId', 'totpEnabled', 'totpSecret', 'totpStep', 'role'];
+export function transferBlock(owner, m) {
+  if (!m || m.ownerId !== owner.id || m.status !== 'active' || !m.userId) return 'Pick someone who has joined your team';
+  if (['agency', 'clients'].includes(m.role)) return 'An agency can’t take over the account';
+  const u = T.users.get(m.userId);
+  if (!u) return 'Pick someone who has joined your team';
+  if (!u.emailVerified) return 'They need to verify their email first';
+  // their own account becomes the old owner's: it has to be unused
+  if (u.agencyId || isAgencyAccount(u) || T.funnels.exists({ userId: u.id }) || T.orders.exists({ userId: u.id }) || T.leads.exists({ userId: u.id }) || T.products.exists({ userId: u.id }) || (u.billing?.subscriptionId && ['active', 'past_due'].includes(u.billing.status)))
+    return 'They use their own account for a business too — ask them to join with an email that has no account of its own';
+  return null;
+}
+function swapOwner(owner, m) {
+  const a = owner.id, b = m.userId;
+  tx(() => {
+    const A = T.users.get(a), B = T.users.get(b);
+    const idA = Object.fromEntries(IDENTITY.map((k) => [k, A[k]])), idB = Object.fromEntries(IDENTITY.map((k) => [k, B[k]]));
+    const put = (x, id) => { for (const k of IDENTITY) { if (id[k] === undefined) delete x[k]; else x[k] = id[k]; } x.pv = (x.pv || 0) + 1; };
+    // email is unique: park one first
+    T.users.update(b, (x) => { x.email = `swap-${b}@transfer.invalid`; });
+    T.users.update(a, (x) => put(x, idB));
+    T.users.update(b, (x) => put(x, idA));
+    // each person's memberships of other teams follow them; this team's membership becomes the old owner's (Admin)
+    const others = (uid1) => T.members.all({ userId: uid1 }).filter((x) => x.ownerId !== a);
+    const ofA = others(a), ofB = others(b);
+    for (const x of ofA) T.members.update(x.id, (y) => { y.userId = b; });
+    for (const x of ofB) T.members.update(x.id, (y) => { y.userId = a; });
+    T.members.update(m.id, (y) => { y.email = idA.email; y.role = 'admin'; delete y.funnelIds; y.transferredAt = Date.now(); });
+  });
+}
+
+export function registerTeam(app, { auth, sign, rateLimit, isTest, checkCode }) {
   const inviteLimiter = rateLimit({ windowMs: 3600000, max: isTest ? 1000 : 30, key: (req) => req.user.id, message: 'Too many invites — please try again later.' });
   const sendInvite = async (req, owner, m, token) => {
     const who = req.actor?.name || owner.name;
@@ -231,9 +298,37 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     return link;
   };
 
+  // the owner requires 2-step verification for everyone on the team (they need it on themselves first)
+  app.put('/api/team/security', auth, (req, res) => {
+    if (req.actor) return res.status(403).json({ error: 'Only the owner can change this' });
+    const on = !!req.body?.require2fa;
+    if (on && !req.user.totpEnabled) return res.status(400).json({ error: 'Turn on 2-step verification for yourself first (Settings → Security)' });
+    const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, team: { ...(x.settings?.team || {}), require2fa: on } }; });
+    const without = T.members.all({ ownerId: u.id, status: 'active' }).filter((m) => m.userId && !T.users.get(m.userId)?.totpEnabled).length;
+    res.json({ require2fa: on, without });
+  });
+  // hand the account to a team member (password, and the 2-step code when it's on)
+  app.post('/api/team/transfer', auth, inviteLimiter, (req, res) => {
+    if (req.actor || req.impersonator) return res.status(403).json({ error: 'Only the owner can hand over the account' });
+    const owner = req.user, b = req.body || {};
+    // who and the confirmation first (nothing secret), then the password and the 2-step code
+    const m = T.members.get(b.memberId);
+    const no = transferBlock(owner, m);
+    if (no) return res.status(400).json({ error: no });
+    if (b.confirm !== 'TRANSFER') return res.status(400).json({ error: 'Type TRANSFER to confirm' });
+    if (owner.passwordSet !== false && !bcrypt.compareSync(String(b.password || ''), owner.hash)) return res.status(403).json({ error: 'Your password is incorrect' });
+    if (owner.totpEnabled) { const bad = checkCode(owner, b.code); if (bad) return res.status(bad.status).json(bad.body); }
+    const was = owner.email, to = m.email;
+    swapOwner(owner, m);
+    const biz = bizName(T.users.get(owner.id));
+    for (const [who, text] of [[to, `You are now the owner of ${biz}. Sign in with your usual email and password; the account, its plan and billing are yours.`], [was, `You handed ${biz} to ${to}. You're still on the team as an Admin: sign in with your usual email and password and switch to ${biz}.`]])
+      sendMail({ to: who, subject: `${biz} has a new owner`, text: `Hi,\n\n${text}\n\nIf you didn't expect this, reply to this email right away.` }).catch(() => {});
+    res.json({ ok: true, signedOut: true });
+  });
+
   // the owner's team (owners and admins)
   app.get('/api/team/members', auth, (req, res) => {
-    res.json({ owner: { name: req.user.name, email: req.user.email }, members: T.members.all({ ownerId: req.user.id }, { order: 'at' }).map(view), roles: rolesFor(req.user), customRoles: T.roles.all({ userId: req.user.id }, { order: 'at' }).map((r) => ({ id: r.id, name: r.name })), max: TEAM_MAX, canManage: canManage(req) });
+    res.json({ isOwner: !req.actor, owner: { name: req.user.name, email: req.user.email, twoFactor: !!req.user.totpEnabled }, require2fa: !!req.user.settings?.team?.require2fa, members: T.members.all({ ownerId: req.user.id }, { order: 'at' }).map((m) => ({ ...view(m), ...(req.actor ? {} : { canOwn: !transferBlock(req.user, m) }) })), roles: rolesFor(req.user), customRoles: T.roles.all({ userId: req.user.id }, { order: 'at' }).map((r) => ({ id: r.id, name: r.name })), max: TEAM_MAX, canManage: canManage(req) });
   });
   app.post('/api/team/invite', auth, inviteLimiter, async (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 200);
@@ -296,6 +391,7 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     const own = req.user.id;
     res.json({
       areas: AREAS.map(({ key, label, desc, levels }) => ({ key, label, desc, levels })),
+      actions: ACTIONS.map(({ key, label, desc }) => ({ key, label, desc })),
       roles: [
         ...Object.keys(rolesFor(req.user)).map((k) => roleView(own, { ...roleInfo(own, k), note: PRESET_NOTES[k] })),
         ...T.roles.all({ userId: own }, { order: 'at' }).map((r) => roleView(own, { ...roleInfo(own, r.id), at: r.at, updatedAt: r.updatedAt || null })),
@@ -313,7 +409,10 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     const p = 'perms' in b || !cur ? cleanPerms(b.perms) : { perms: cur.perms };
     if (p.error) { res.status(400).json({ error: p.error }); return null; }
     if (!within(req.customPerms, p.perms)) { res.status(403).json({ error: 'You can’t give a role more access than you have' }); return null; }
-    return { name, perms: p.perms };
+    const a = 'actions' in b || !cur ? cleanActions(b.actions) : { actions: { ...ALL_ACTIONS, ...(cur.actions || {}) } };
+    if (a.error) { res.status(400).json({ error: a.error }); return null; }
+    if (ACTION_KEYS.some((k) => a.actions[k] && !canDo(req, k))) { res.status(403).json({ error: 'You can’t give a role more access than you have' }); return null; }
+    return { name, perms: p.perms, actions: a.actions };
   };
   const ownRole = (req, res) => {
     const r = T.roles.get(req.params.rid);
@@ -333,7 +432,7 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     const cur = ownRole(req, res); if (!cur) return;
     const v = roleBody(req, res, cur); if (!v) return;
     // takes effect on everyone's next request: the auth middleware reads the role each time
-    const r = T.roles.update(cur.id, (x) => { x.name = v.name; x.perms = v.perms; x.updatedAt = Date.now(); });
+    const r = T.roles.update(cur.id, (x) => { x.name = v.name; x.perms = v.perms; x.actions = v.actions; x.updatedAt = Date.now(); });
     res.json(roleView(req.user.id, { ...roleInfo(req.user.id, r.id), at: r.at, updatedAt: r.updatedAt }));
   });
   // deleting a role people have: they move to the replacement role (replaceWith, in the body or the query)

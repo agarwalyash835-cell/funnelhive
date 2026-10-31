@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Panel, Icon, toast } from '../ui';
+import { DataRequests } from './DataRequests';
 
 // Settings → Business & legal: who the seller is (needed before a funnel can be published), the consent banner
 // and form consent (India's DPDP Act), the grievance officer, and the generated Privacy / Terms / Refund / Contact pages
@@ -38,6 +39,7 @@ export function PrivacyPanel() {
       <div className="legal-links">{pages.map(([k, l]) => <a key={k} className="btn ghost sm" href={`${v.pages}/${k}`} target="_blank" rel="noreferrer"><Icon name="external" size={13} /> {l}</a>)}</div>
       <p className="hint">These pages update automatically from your business, invoice and support details (a funnel’s own legal details, in the editor, override them). Link them in your page footers and paste them into Razorpay / Stripe when asked for your website policies. To honour an erasure request, open the contact and use the 🗑 button.</p>
     </Panel>
+    <DataRequests pages={v.pages} />
     </div>
   );
 }
