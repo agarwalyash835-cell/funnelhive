@@ -5,5 +5,7 @@
 const meta = typeof document !== 'undefined' ? document.querySelector('meta[name="ff-tier"]') : null;
 export const tier = meta?.getAttribute('content') || 'app';
 export const isSuper = tier === 'super';
+// the agency address: its own sign-in (agencies only, by invitation), no marketing pages
+export const isAgencyTier = tier === 'agency';
 export const superUrl = meta?.getAttribute('data-super') || '';
 export const appUrl = meta?.getAttribute('data-app') || '';

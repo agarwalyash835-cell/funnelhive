@@ -56,7 +56,7 @@ import { stripeCreds, isoOf, SYMBOL, startStripePayment, startStripeSubscription
 import { fxRate } from './fx.js';
 import { registerLegal, publicPrivacy, privacyOf, consentLine, legalMissing } from './legal.js';
 import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
-import { registerAgency, logRequest, brandFor, brandForHost } from './agency.js';
+import { registerAgency, logRequest, brandFor, brandForHost, isAgencyAccount } from './agency.js';
 import { cleanSkin } from './skins.js';
 import { registerWhiteLabel, sendBranded, agencySite, brandedIndex } from './whitelabel.js';
 import { agencyGate, registerAgencyAccess } from './agency-access.js';
@@ -284,9 +284,16 @@ function superLoginCheck(req, user) {
   if (!user.totpEnabled) return { status: 403, body: { error: 'Turn on 2-step verification in the app (Settings → Security) before signing in to the admin panel', code: 'ADMIN_2FA_REQUIRED' } };
   return checkCode(user, req.body.code);
 }
+// the agency address: agencies (and their staff) only, and only by invitation (the platform creates agencies in the
+// admin panel); everyone else is pointed to the app address
+const appHostName = () => String(process.env.APP_URL || '').replace(/^https?:\/\//, '').replace(/\/+$/, '') || 'the app';
+const NOT_AGENCY = () => ({ status: 403, body: { error: `This address is for agencies. Sign in at ${appHostName()} instead.`, code: 'NOT_AGENCY' } });
+const INVITE_ONLY = () => ({ status: 403, body: { error: `Agency accounts are by invitation. To use the app for your own business, sign up at ${appHostName()}.`, code: 'AGENCY_INVITE_ONLY' } });
+const agencyLoginCheck = (req, user) => (tierOf(req) === 'agency' && !isAgencyAccount(user) ? NOT_AGENCY() : null);
 
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const { email, password, name } = req.body;
+  if (tierOf(req) === 'agency') { const no = INVITE_ONLY(); return res.status(no.status).json(no.body); }
   if (!email || !EMAIL_RE.test(email)) return res.status(400).json({ error: 'A valid email and a password of 8+ characters are required' });
   const weak = weakPassword(password);
   if (weak) return res.status(400).json({ error: weak });
@@ -310,7 +317,8 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   const user = T.users.find({ email });
   if (!user || !bcrypt.compareSync(String(req.body.password || ''), user.hash)) { if (email) loginLock.fail(email); return res.status(401).json({ error: 'Invalid email or password' }); }
   if (tierOf(req) === 'super') { const bad = superLoginCheck(req, user); if (bad) return res.status(bad.status).json(bad.body); }
-  else if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
+  else if (tierOf(req) === 'agency') { const bad = agencyLoginCheck(req, user); if (bad) return res.status(bad.status).json(bad.body); }
+  if (tierOf(req) !== 'super' && user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
   loginLock.clear(email);
   res.json({ token: signIn(req, user), user: pubUser(user) });
 });
@@ -320,6 +328,8 @@ app.post('/api/auth/google', authLimiter, wrap(async (req, res) => {
   let g;
   try { g = await verifyGoogleToken(req.body.credential); } catch (e) { return res.status(401).json({ error: e.message }); }
   let user = T.users.find({ email: g.email });
+  const bad = !user && tierOf(req) === 'agency' ? INVITE_ONLY() : agencyLoginCheck(req, user);
+  if (bad) return res.status(bad.status).json(bad.body);
   if (!user) {
     if (!platform().signupsOpen) return res.status(403).json({ error: 'New sign-ups are paused right now — please check back soon.' });
     const bad = await signupGuard(req, g.email, { google: true });
@@ -355,7 +365,7 @@ app.post('/api/auth/verify', authLimiter, (req, res) => {
 // Always answers OK so the endpoint can't be used to discover which emails have accounts
 app.post('/api/auth/forgot', authLimiter, wrap(async (req, res) => {
   const user = T.users.find({ email: String(req.body.email || '').toLowerCase() });
-  if (user) {
+  if (user && !agencyLoginCheck(req, user)) {
     const token = userToken(user);
     user.resetHash = hashToken(token);
     user.resetExp = Date.now() + 60 * 60000;
@@ -371,6 +381,8 @@ app.post('/api/auth/reset', authLimiter, (req, res) => {
   if (weak) return res.status(400).json({ error: weak });
   const user = userByToken(token, 'resetHash', 'resetExp');
   if (!user) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+  const notAgency = agencyLoginCheck(req, user);
+  if (notAgency) return res.status(notAgency.status).json(notAgency.body);
   // with 2-step login on, the reset link alone isn't enough: the authenticator code is needed too
   if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
   user.hash = bcrypt.hashSync(password, 10);

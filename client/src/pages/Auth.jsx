@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api, setToken } from '../api';
 import { Icon } from '../ui';
 import { agencyHost } from '../agencyHost';
+import { isAgencyTier, appUrl } from '../tier';
 
 const PERKS = ['Hive AI builds your entire funnel from one chat', '100+ proven templates: sales, VSL & webinar funnels', 'One-click upsells, order bumps & cross-sells', 'Razorpay checkout with UPI, coupons & cart recovery', 'CRM, email + WhatsApp automations, A/B tests'];
+
+const AGENCY_PERKS = ['Open any client’s account in one click, with a reason on record', 'Your logo, colours and domain on every client screen', 'Client managers who see only the accounts you give them', 'Reports and access logs for every client'];
 
 export function AuthShell({ children }) {
   // an agency's own domain: its brand from the first paint (agencyHost.js), no platform perks, trial or prices
@@ -17,6 +20,10 @@ export function AuthShell({ children }) {
         {ag ? <>
           <h1>Welcome to {wl?.brand || ag.brand}</h1>
           <div className="auth-quote">{wl?.supportEmail ? <>Need help? <a href={`mailto:${wl.supportEmail}`} style={{ color: 'inherit' }}>{wl.supportEmail}</a></> : null}<small>{wl?.termsUrl && <a href={wl.termsUrl} rel="noopener" style={{ color: 'inherit' }}>Terms</a>}{wl?.termsUrl && wl?.privacyUrl ? ' · ' : ''}{wl?.privacyUrl && <a href={wl.privacyUrl} rel="noopener" style={{ color: 'inherit' }}>Privacy</a>}</small></div>
+        </> : isAgencyTier ? <>
+          <h1>For agencies — <span>every client, one login.</span></h1>
+          <ul>{AGENCY_PERKS.map((p) => <li key={p}><Icon name="check" size={16} />{p}</li>)}</ul>
+          <div className="auth-quote">Agency accounts are by invitation.<small>Your clients sign in at their own address, in your brand</small></div>
         </> : <>
           <h1>Build funnels that sell — <span>in minutes, not weeks.</span></h1>
           <ul>{PERKS.map((p) => <li key={p}><Icon name="check" size={16} />{p}</li>)}</ul>
@@ -34,8 +41,8 @@ const nextPath = () => { const n = new URLSearchParams(location.search).get('nex
 export default function Auth({ admin = false }) {
   const ag = admin ? null : agencyHost();
   // on an agency's domain: log in first; signing up only where the server allows it there (/api/site signupsOpen)
-  const [mode, setMode] = useState(() => (admin || ag || new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register'));
-  const [canSignUp, setCanSignUp] = useState(!ag && !admin);
+  const [mode, setMode] = useState(() => (admin || ag || isAgencyTier || new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register'));
+  const [canSignUp, setCanSignUp] = useState(!ag && !admin && !isAgencyTier);
   useEffect(() => { if (ag) fetch('/api/site').then((r) => r.json()).then((s) => setCanSignUp(!!s.signupsOpen)).catch(() => {}); }, []);
   const [f, setF] = useState({ name: '', email: new URLSearchParams(location.search).get('email') || '', password: '', code: '' });
   const [needCode, setNeedCode] = useState(false);
@@ -108,8 +115,8 @@ export default function Auth({ admin = false }) {
     setBusy(false);
   };
 
-  const title = mode === 'forgot' ? 'Reset your password' : needCode ? '2-step verification' : admin ? 'Platform admin' : mode === 'login' ? 'Welcome back' : 'Create your free account';
-  const sub = admin && !needCode ? 'Sign in with your admin account. You’ll need your authenticator app.' : mode === 'forgot' ? 'Enter your account email and we’ll send you a reset link.' : needCode ? 'Enter the 6-digit code from your authenticator app.' : mode === 'login' ? (ag ? `Log in to your ${ag.brand} account.` : 'Log in to manage your funnels.') : ag ? `Create your ${ag.brand} account.` : '14-day free trial · no credit card needed. Your first funnel is 60 seconds away.';
+  const title = mode === 'forgot' ? 'Reset your password' : needCode ? '2-step verification' : admin ? 'Platform admin' : isAgencyTier && mode === 'login' ? 'Agency sign-in' : mode === 'login' ? 'Welcome back' : 'Create your free account';
+  const sub = admin && !needCode ? 'Sign in with your admin account. You’ll need your authenticator app.' : isAgencyTier && mode === 'login' && !needCode ? 'Sign in to manage your clients.' : mode === 'forgot' ? 'Enter your account email and we’ll send you a reset link.' : needCode ? 'Enter the 6-digit code from your authenticator app.' : mode === 'login' ? (ag ? `Log in to your ${ag.brand} account.` : 'Log in to manage your funnels.') : ag ? `Create your ${ag.brand} account.` : '14-day free trial · no credit card needed. Your first funnel is 60 seconds away.';
 
   return (
     <AuthShell>
@@ -136,6 +143,7 @@ export default function Auth({ admin = false }) {
         <button className="btn primary lg block" disabled={busy}>{busy ? <span className="spin" /> : mode === 'forgot' ? 'Send reset link' : needCode ? 'Verify & log in' : mode === 'login' ? 'Log in' : 'Create account'}</button>
         {admin ? null : mode === 'forgot'
           ? <p className="switch"><a onClick={() => go('login')}>← Back to log in</a></p>
+          : isAgencyTier ? <p className="switch">Running your own business? <a href={`${appUrl}/login?mode=login`}>Sign in to the app</a></p>
           : (mode !== 'login' || canSignUp) && <p className="switch">{mode === 'login' ? `New to ${ag?.brand || 'FunnelHive'}?` : 'Already have an account?'} <a onClick={() => go(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Create an account' : 'Log in'}</a></p>}
       </form>
     </AuthShell>

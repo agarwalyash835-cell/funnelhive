@@ -18,6 +18,7 @@ import { mailEnabled } from './mail.js';
 import { sendBranded, agencyForHost } from './whitelabel.js';
 import { randomToken, hashToken } from './security.js';
 import { notify } from './notify.js';
+import { agencyHost } from './tiers.js';
 import { termsOf, termsView as unifiedTermsView, termsPatch, setTerms, isReseller, clientsOf as clientsOfAgency } from './agency-terms.js';
 
 const DAY = 86400000;
@@ -210,14 +211,21 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     const r = createAccount({ email: b.email, name: b.name, business: b.business, partner, planId: b.planId, by: `admin:${req.user.email}` });
     if (r.error) return res.status(r.status || 400).json({ error: r.error });
     let u = r.user;
-    if (b.type === 'partner') {
+    if (b.type === 'agency') {
+      // an agency: runs its clients' accounts on the platform's plans; it signs in on the agency address
+      setTerms(u.id, (t) => termsPatch(t, { kind: 'agency', maxClients: b.maxClients || null, addons: b.addons, seatCap: b.seatCap ?? null }));
+      if (b.comp) u = T.users.update(u.id, (x) => { x.billing = { ...x.billing, status: 'comped', compedFor: 'agency', compedAt: Date.now() }; });
+    }
+    else if (b.type === 'partner') {
       setTerms(u.id, (t) => termsPatch(t, { kind: 'reseller', perAccount: b.perAccount ?? 499, creditRate: b.creditRate ?? 25, maxClients: b.maxAccounts ?? b.maxClients ?? 50, addons: b.addons, seatCap: b.seatCap ?? null }));
       u = T.users.update(u.id, (x) => { x.billing = { ...x.billing, status: 'comped', compedFor: 'partner' }; });
     }
     else if (b.comp && !partner) u = T.users.update(u.id, (x) => { x.billing = { ...x.billing, status: 'comped', compedAt: Date.now() }; });
-    const link = await sendWelcome(u, r.token, base(req), partner);
-    audit(req, u.id, 'create_account', `${b.type === 'partner' ? 'partner' : 'user'} ${u.email}${partner ? ` under ${partner.email}` : ''}`);
-    res.status(201).json({ id: u.id, email: u.email, type: b.type === 'partner' ? 'partner' : 'user', partnerId: partner?.id || null, ...(link ? { link } : {}), ...(isTest ? { token: r.token } : {}) });
+    const type = ['partner', 'agency'].includes(b.type) ? b.type : 'user';
+    // agencies and partners set their password on the agency address, once the platform has one
+    const link = await sendWelcome(u, r.token, type !== 'user' && agencyHost() ? `https://${agencyHost()}` : base(req), partner);
+    audit(req, u.id, 'create_account', `${type} ${u.email}${partner ? ` under ${partner.email}` : ''}`);
+    res.status(201).json({ id: u.id, email: u.email, type, partnerId: partner?.id || null, ...(link ? { link } : {}), ...(isTest ? { token: r.token } : {}) });
   }));
   // move an end user under a partner, to another partner, or make it independent again
   app.put('/api/admin/users/:uid/partner', auth, (req, res) => {

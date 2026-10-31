@@ -257,7 +257,7 @@ export function AdminPartners() {
           try { const r = await api(`/admin/users?q=${encodeURIComponent(email.trim())}`); const u = r.users.find((x) => x.email === email.trim().toLowerCase()) || r.users[0]; if (!u) return toast('No account with that email'); setTerms({ enabled: false, perAccount: 499, creditRate: 25, maxAccounts: 50, id: u.id, who: u.email }); } catch (e) { toast(e.message); }
         }}>Existing account → partner</button>
         <button className="btn ghost sm" onClick={() => setCreate({ type: 'user' })}><Icon name="plus" size={14} /> End-user account</button>
-        <button className="btn primary sm" onClick={() => setCreate({ type: 'partner', perAccount: 499, creditRate: 25, maxAccounts: 50 })}><Icon name="plus" size={14} /> New partner</button>
+        <button className="btn ghost sm" onClick={() => setCreate({ type: 'agency', maxClients: '', comp: false })}><Icon name="plus" size={14} /> New agency</button><button className="btn primary sm" onClick={() => setCreate({ type: 'partner', perAccount: 499, creditRate: 25, maxAccounts: 50 })}><Icon name="plus" size={14} /> New partner</button>
       </div>}>
         {!list ? <div className="skeleton" /> : !list.length ? <Empty icon="layers" title="No partners yet" text="Create a partner, or switch on reselling for an agency below. Partners sell their own plans to the accounts they create and pay you wholesale from a prepaid wallet." /> : (
           <div className="tbl-wrap"><table className="tbl">
@@ -330,9 +330,9 @@ function CreateAccount({ v0, partners, onClose, onDone }) {
     } catch (e) { toast(e.message); }
     setBusy(false);
   };
-  const partner = v.type === 'partner';
+  const partner = v.type === 'partner', agency = v.type === 'agency';
   return (
-    <Modal title={partner ? 'New partner (white-label admin)' : 'New end-user account'} onClose={onClose} width={560}>
+    <Modal title={partner ? 'New partner (white-label admin)' : agency ? 'New agency (invitation)' : 'New end-user account'} onClose={onClose} width={560}>
       <div className="m-body">
         <div className="form2">
           <div className="fld"><label>Business name</label><input value={v.business} onChange={(e) => setV({ ...v, business: e.target.value })} /></div>
@@ -345,13 +345,18 @@ function CreateAccount({ v0, partners, onClose, onDone }) {
             <div className="fld"><label>₹ per 100 AI credits</label><input type="number" min="0" value={v.creditRate} onChange={(e) => setV({ ...v, creditRate: e.target.value })} /></div>
             <div className="fld"><label>Max sub-accounts</label><input type="number" min="1" value={v.maxAccounts} onChange={(e) => setV({ ...v, maxAccounts: e.target.value })} /></div>
           </div>
+        ) : agency ? (
+          <>
+            <div className="fld"><label>Max client accounts <small className="muted">· empty = what the Agency plan includes</small></label><input type="number" min="1" value={v.maxClients} onChange={(e) => setV({ ...v, maxClients: e.target.value })} /></div>
+            <label className="tog"><input type="checkbox" checked={v.comp} onChange={(e) => setV({ ...v, comp: e.target.checked })} /><span />Free account (no trial end)</label>
+          </>
         ) : (
           <>
             <div className="fld"><label>Belongs to</label><select value={v.partnerId} onChange={(e) => setV({ ...v, partnerId: e.target.value })}><option value="">The platform directly</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.brand || p.email} (partner)</option>)}</select></div>
             {!v.partnerId && <label className="tog"><input type="checkbox" checked={v.comp} onChange={(e) => setV({ ...v, comp: e.target.checked })} /><span />Free account (no trial end)</label>}
           </>
         )}
-        <p className="hint">The owner gets an email with a link to set their password.{partner ? ' They can then add white-label branding and their own Razorpay, create plans and sell sub-accounts.' : ''}</p>
+        <p className="hint">The owner gets an email with a link to set their password.{partner ? ' They can then add white-label branding and their own Razorpay, create plans and sell sub-accounts.' : agency ? ' The link opens the agency sign-in address, where they set a password and add their clients.' : ''}</p>
         <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || !v.email} onClick={save}>{busy ? 'Creating…' : 'Create'}</button></div>
       </div>
     </Modal>

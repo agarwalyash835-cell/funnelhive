@@ -2,7 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { loggedIn } from './api';
-import { isSuper, superUrl } from './tier';
+import { isSuper, isAgencyTier, superUrl } from './tier';
 import { agencyHost } from './agencyHost';
 import ErrorBoundary, { initMonitoring } from './ErrorBoundary';
 // Live funnel pages are in the first download; every other screen loads its own chunk when opened,
@@ -152,8 +152,8 @@ const app = isSuper ? superApp : onDomain ? (
         <Route path="/reset" element={L(Reset)} />
         <Route path="/team/accept" element={L(AcceptInvite)} />
         {/* an agency’s own domain: its login page, never the platform’s landing page, prices or admin screens */}
-        <Route path="/" element={loggedIn() ? L(Dashboard) : agencyHost() ? <Navigate to="/login?mode=login" replace /> : L(Landing)} />
-        <Route path="/pricing" element={agencyHost() ? <Navigate to="/login" replace /> : L(Landing)} />
+        <Route path="/" element={isAgencyTier ? <Navigate to={loggedIn() ? '/agency' : '/login'} replace /> : loggedIn() ? L(Dashboard) : agencyHost() ? <Navigate to="/login?mode=login" replace /> : L(Landing)} />
+        <Route path="/pricing" element={agencyHost() || isAgencyTier ? <Navigate to="/login" replace /> : L(Landing)} />
         <Route path="/terms" element={L(Terms)} />
         <Route path="/privacy" element={L(Privacy)} />
         <Route path="/refunds" element={L(Refunds)} />

@@ -33,6 +33,10 @@ export { clientsOf };
 
 // ---------- plans & limits ----------
 export const isAgencyPlan = (u) => /^agency_/.test(u?.billing?.interval || u?.billing?.pending?.interval || '');
+// an agency: terms from the platform, the Agency plan, or client accounts under it
+const isAgency = (u) => !!u && !u.agencyId && !!(termsOf(u) || isAgencyPlan(u) || clientsOf(u.id).length);
+// who may sign in on the agency address (tiers.js): an agency, or staff on an agency's team
+export const isAgencyAccount = (u) => isAgency(u) || (!!u && T.members.all({ userId: u.id, status: 'active' }).some((m) => m.role !== 'agency' && isAgency(T.users.get(m.ownerId))));
 export function clientLimit(u) {
   if (!u) return 0;
   if (isAdmin(u)) return 1000;

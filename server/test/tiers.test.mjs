@@ -70,7 +70,16 @@ test('an app token is refused on the super host, and agency and app sign-ins are
   assert.equal((await api('/me', 'GET', null, seller, APP)).status, 200);
   assert.equal((await api('/me', 'GET', null, seller, SUPER)).status, 401);
   assert.equal((await api('/me', 'GET', null, seller, AGENCY)).status, 401);
-  const ag = (await login('seller@shop.test', 'secret123', AGENCY)).data.token;
+  // a seller can't sign in on the agency address at all; it's pointed to the app
+  const notAgency = await login('seller@shop.test', 'secret123', AGENCY);
+  assert.equal(notAgency.status, 403); assert.equal(notAgency.data.code, 'NOT_AGENCY'); assert.match(notAgency.data.error, /app\.test/); assert.ok(!notAgency.data.token);
+  // an agency the platform invited sets its password through the link, on the agency address
+  const inv = await api('/admin/accounts', 'POST', { type: 'agency', email: 'invited@agency-tier.test', name: 'Ira', business: 'Ira Digital' }, T.bossSuper, SUPER);
+  assert.equal(inv.status, 201, JSON.stringify(inv.data)); assert.equal(inv.data.type, 'agency');
+  assert.match(srv.log(), /https:\/\/agency\.test\/reset\?token=/, 'the invitation links to the agency address');
+  const set = await api('/auth/reset', 'POST', { token: inv.data.token, password: 'secret123' }, null, AGENCY);
+  assert.equal(set.status, 200, JSON.stringify(set.data)); assert.equal(jwt.decode(set.data.token).aud, 'agency');
+  const ag = (await login('invited@agency-tier.test', 'secret123', AGENCY)).data.token;
   assert.equal(jwt.decode(ag).aud, 'agency');
   assert.equal((await api('/me', 'GET', null, ag, AGENCY)).status, 200);
   assert.equal((await api('/me', 'GET', null, ag, APP)).status, 401);
@@ -190,9 +199,7 @@ test('audit rows: admin actions, partner admin and agency client changes', async
 });
 
 test('an agency working on its address opens a client there: the client session belongs to the agency address', async () => {
-  const e = 'owner@agency-tier.test';
-  await register(api, e); await verify(e);
-  const ag = (await login(e, 'secret123', AGENCY)).data.token;
+  const ag = (await login('invited@agency-tier.test', 'secret123', AGENCY)).data.token;
   assert.equal(jwt.decode(ag).aud, 'agency');
   const c = await api('/agency/clients', 'POST', { business: 'Tier Client' }, ag, AGENCY);
   assert.equal(c.status, 201, JSON.stringify(c.data));
@@ -205,4 +212,20 @@ test('an agency working on its address opens a client there: the client session 
   const again = await api(`/agency/clients/${c.data.id}/enter`, 'POST', { reason: 'Checking the store setup' }, ag, AGENCY);
   assert.equal(again.status, 200, JSON.stringify(again.data));
   assert.equal((await api('/me', 'GET', null, again.data.token, AGENCY)).status, 200);
+});
+
+test('the agency address is by invitation: no sign-ups there, and only agencies get reset links', async () => {
+  const reg = await api('/auth/register', 'POST', { email: 'newbie@agency-tier.test', password: 'secret123', name: 'Newbie' }, null, AGENCY);
+  assert.equal(reg.status, 403); assert.equal(reg.data.code, 'AGENCY_INVITE_ONLY'); assert.ok(!reg.data.token);
+  // signing up on the app address still works
+  assert.equal((await api('/auth/register', 'POST', { email: 'newbie@agency-tier.test', password: 'secret123', name: 'Newbie' }, null, APP)).status, 200);
+  // "forgot password" on the agency address answers the same, but only an agency gets a link
+  const before = srv.log().length;
+  assert.equal((await api('/auth/forgot', 'POST', { email: 'newbie@agency-tier.test' }, null, AGENCY)).status, 200);
+  assert.doesNotMatch(srv.log().slice(before), /To: newbie@agency-tier\.test[\s\S]*?reset\?token=/);
+  assert.equal((await api('/auth/forgot', 'POST', { email: 'invited@agency-tier.test' }, null, AGENCY)).status, 200);
+  assert.match(srv.log().slice(before), /To: invited@agency-tier\.test[\s\S]*?reset\?token=/);
+  // the app page on the agency address says which address it is (the browser shows the agency sign-in)
+  const page = await fetch(`${srv.base}/login`, { headers: AGENCY }).then((r) => r.text()).catch(() => '');
+  if (page.includes('ff-tier')) assert.match(page, /name="ff-tier" content="agency"/);
 });
