@@ -89,13 +89,21 @@ useConnectHosts(bucketOrigins);
 useMailSettings(() => { const m = platform().mail; return m.keyEnc ? { key: decrypt(m.keyEnc), provider: m.provider || 'resend', from: m.from } : null; });
 useVideoStorageSettings(() => { const s = platform().videoStorage; return s.endpoint && s.bucket && s.key && s.secretEnc ? { ...s, secret: decrypt(s.secretEnc) } : null; });
 
-// Owners are the accounts listed in ADMIN_EMAILS (once their email is verified) or given the admin role
-export function isAdmin(u) {
-  if (!u) return false;
-  if (u.role === 'admin') return true;
-  const list = (process.env.ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-  return list.includes(String(u.email).toLowerCase()) && u.emailVerified === true;
+// Platform admins: the accounts listed in ADMIN_EMAILS, or given an admin role in the admin panel — either way only
+// once their email is verified (an account whose email nobody has proven never holds admin rights).
+//   owner    ADMIN_EMAILS, or role 'admin': everything
+//   support  role 'support': can look at every account and log in as a seller, but can't make admins, delete
+//            accounts, restore backups or change platform settings
+const adminEmails = () => (process.env.ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+export function adminLevel(u) {
+  if (!u || u.emailVerified !== true) return null;
+  if (adminEmails().includes(String(u.email).toLowerCase())) return 'owner';
+  if (u.role === 'admin') return 'owner';
+  if (u.role === 'support') return 'support';
+  return null;
 }
+export const isAdmin = (u) => !!adminLevel(u);
+export const isOwnerAdmin = (u) => adminLevel(u) === 'owner';
 
 // GST place of supply: state names and their GST codes
 export const STATES = {

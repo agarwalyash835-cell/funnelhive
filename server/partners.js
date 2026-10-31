@@ -10,6 +10,7 @@
 import bcrypt from 'bcryptjs';
 import { T, q, tx, uid, JOBS } from './db.js';
 import { platform, platformRzp, isAdmin } from './platform.js';
+import { adminCheck, audit } from './admin-guard.js';
 import { rzpCreds, createOrder, validPayment } from './razorpay.js';
 import { accessFor, usageSummary, resalePlan } from './billing.js';
 import { issueInvoice, invoiceUrl } from './sales.js';
@@ -142,7 +143,7 @@ export function partnerJob(now = Date.now()) {
 export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl }) {
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 30, key: (req) => req.user.id });
   const base = (req) => process.env.APP_URL || appUrl(req);
-  const adminOnly = (req, res) => { if (!isAdmin(req.user) || req.impersonator || req.actor) { res.status(403).json({ error: 'Admins only' }); return false; } if (!req.user.totpEnabled) { res.status(403).json({ error: 'Turn on two-factor authentication (Settings → Security) to use the admin panel', code: 'ADMIN_2FA_REQUIRED' }); return false; } return true; };
+  const adminOnly = (req, res) => { const bad = adminCheck(req); if (bad) { res.status(bad.status).json(bad.body); return false; } return true; }; // admin-guard.js
   const partnerOnly = (req, res) => { if (req.actor || req.apiKey) { res.status(403).json({ error: 'Only the partner account’s owner can do this' }); return false; } if (!isPartner(req.user)) { res.status(403).json({ error: 'Reselling isn’t switched on for this account' }); return false; } return true; };
   const myClient = (req, res) => { const c = T.users.get(req.params.cid); if (!c || c.agencyId !== req.user.id) { res.status(404).json({ error: 'Client account not found' }); return null; } return c; };
 
@@ -168,6 +169,7 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
       // a partner's own workspace is covered by its partnership (it pays through the wallet)
       if (terms.enabled && !['active', 'comped'].includes(x.billing?.status)) x.billing = { ...(x.billing || {}), status: 'comped', compedAt: Date.now(), compedFor: 'partner' };
     });
+    audit(req, p.id, 'partner_terms', JSON.stringify(termsView(u.partner)));
     res.json({ id: u.id, terms: termsView(u.partner), balance: balanceOf(u.id) });
   });
   app.post('/api/admin/partners/:uid/wallet', auth, (req, res) => {
@@ -178,10 +180,11 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     if (!amount || Math.abs(amount) > 10000000) return res.status(400).json({ error: 'Enter an amount (negative to deduct)' });
     ledger(p.id, amount, 'adjust', clip(req.body?.note, 200) || (amount > 0 ? 'Added by the platform' : 'Deducted by the platform'), { by: req.user.email });
     checkHold(p.id);
+    audit(req, p.id, 'partner_wallet', `${amount}${req.body?.note ? ` · ${clip(req.body.note, 200)}` : ''}`);
     res.json({ balance: balanceOf(p.id) });
   });
   // run the partner billing now (it also runs every 6 hours): fees for sub-accounts due, holds checked
-  app.post('/api/admin/partners/bill-now', auth, (req, res) => { if (!adminOnly(req, res)) return; partnerJob(); res.json({ ok: true }); });
+  app.post('/api/admin/partners/bill-now', auth, (req, res) => { if (!adminOnly(req, res)) return; partnerJob(); audit(req, null, 'partner_bill_now'); res.json({ ok: true }); });
   app.get('/api/admin/partners/:uid/clients', auth, (req, res) => {
     if (!adminOnly(req, res)) return;
     const p = T.users.get(req.params.uid);
@@ -200,6 +203,7 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     if (b.type === 'partner') u = T.users.update(u.id, (x) => { x.partner = { enabled: true, perAccount: money(b.perAccount ?? 499), creditRate: money(b.creditRate ?? 25), maxAccounts: int(b.maxAccounts, 1, 10000, 50), since: Date.now() }; x.agencyMaxClients = x.partner.maxAccounts; x.billing = { ...x.billing, status: 'comped', compedFor: 'partner' }; });
     else if (b.comp && !partner) u = T.users.update(u.id, (x) => { x.billing = { ...x.billing, status: 'comped', compedAt: Date.now() }; });
     const link = await sendWelcome(u, r.token, base(req), partner);
+    audit(req, u.id, 'create_account', `${b.type === 'partner' ? 'partner' : 'user'} ${u.email}${partner ? ` under ${partner.email}` : ''}`);
     res.status(201).json({ id: u.id, email: u.email, type: b.type === 'partner' ? 'partner' : 'user', partnerId: partner?.id || null, ...(link ? { link } : {}), ...(isTest ? { token: r.token } : {}) });
   }));
   // move an end user under a partner, to another partner, or make it independent again
@@ -215,6 +219,7 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
       T.users.update(c.id, (x) => { if (to) x.agencyId = to.id; else { delete x.agencyId; delete x.sub; if (!x.billing || x.billing.status === 'suspended') x.billing = { status: 'trialing', trialEndsAt: Date.now() + platform().trialDays * DAY, startedAt: Date.now() }; } });
       if (to) T.members.insert({ id: uid(), ownerId: c.id, userId: to.id, email: to.email, role: 'agency', status: 'active', at: Date.now(), acceptedAt: Date.now() });
     });
+    audit(req, c.id, 'move_account', to ? `to partner ${to.email}` : 'made independent');
     res.json({ ok: true, partnerId: to?.id || null });
   });
 

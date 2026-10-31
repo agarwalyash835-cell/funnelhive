@@ -110,6 +110,35 @@ it running with `pm2 start "npm start" --name funnelhive` or a systemd service.
   3. `server/.env`: `PAGES_URL=https://pages.yourbrand.in`, then restart the app. Existing `/f/…` links on the app
      address keep working.
 
+## Admin and agency addresses (super / agency / app)
+The platform runs on three addresses with separate sign-ins: the admin panel on `SUPER_HOST`
+(e.g. `super.getaihive.in`), agencies on `AGENCY_HOST` (`agency.getaihive.in`) and end users on the app
+(`app.getaihive.in`). A sign-in only works on the address it was made on. Once `SUPER_HOST` is set, the admin panel
+and `/api/admin…` answer only there, that address answers nothing but the admin panel, sign-in and health checks, and
+signing in there needs a platform admin with the 2-step code (sessions last 12 hours). Optional
+`ADMIN_IP_ALLOWLIST` limits it to your networks. Nobody is signed out by any of this; admins sign in again on the
+new address.
+
+Roll it out in this order:
+1. **Deploy with the hosts unset.** Nothing changes for anyone (every token counts as an app token).
+2. **DNS + Caddy.** Add A records for `super.getaihive.in` and `agency.getaihive.in` → the server's IP. Give Caddy
+   `SUPER_DOMAIN=super.getaihive.in` and `AGENCY_DOMAIN=agency.getaihive.in` the same way `APP_DOMAIN` is given
+   (the shell or the `.env` next to `docker-compose.yml`; the Caddyfile already has site blocks for them, above the
+   `https://` catch-all), then `docker compose --profile https up -d caddy`. Check `https://super.getaihive.in/api/health` answers.
+3. **Make sure every admin has 2-step verification on** (Settings → Security in the app) — without it they can't
+   sign in on the admin address.
+4. **Set the app's env** in `server/.env`: `SUPER_HOST=super.getaihive.in`, `AGENCY_HOST=agency.getaihive.in`
+   (and `ADMIN_IP_ALLOWLIST=` if wanted; `APP_URL` must be the app's address — support "log in as seller" opens the
+   seller's account there), then redeploy / restart the app.
+5. **Admins sign in at `https://super.getaihive.in`.** The app's **Admin** menu item now links there.
+
+To undo, clear `SUPER_HOST` / `AGENCY_HOST` and restart: everything answers on the app again (admins sign in again).
+
+Admin levels: `ADMIN_EMAILS` and **Make admin** give an *owner* admin; **Make support admin** gives a *support* admin
+(can view every account and log in as a seller; can't make admins, delete accounts, restore backups, change platform
+settings or partner wallets). With more than one admin, making an admin is a request that **another** admin approves
+(Admin → Audit). Admins can't be opened with "log in as seller". An admin role only counts on a verified email.
+
 ## Security notes
 - **Admin panel:** platform admins must turn on 2-step verification (Settings → Security) before **Admin** opens.
 - Sessions last 14 days and slide while in use; Settings → Security lists each signed-in device and can sign them out.

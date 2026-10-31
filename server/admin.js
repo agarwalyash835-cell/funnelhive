@@ -7,7 +7,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus, restorePending, safetyDir, dir as dataDir } from './db.js';
 import { saveComposio, composioView } from './composio.js';
-import { platform, savePlatform, platformRzp, isAdmin, encrypt, STATES, GSTIN_RE, DEFAULTS, companyMissing } from './platform.js';
+import { platform, savePlatform, platformRzp, isAdmin, adminLevel, encrypt, STATES, GSTIN_RE, DEFAULTS, companyMissing } from './platform.js';
 import { decrypt, mailFrom, platformMailer, platformSend, MAILERS } from './messaging.js';
 import { s3Enabled, storageFromEnv, testStorage, listKeys, getObject, videoBucketReady, videoStorageFromEnv } from './storage.js';
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
@@ -27,18 +27,14 @@ import { embed, embedReady, embedModel, visionModel } from './waknow.js';
 import { checkSarvamKey, sarvamReady } from './sarvam.js';
 import { metaSignupView, saveMetaSignup } from './meta-signup.js';
 import { adminSeller, adminOverview, cleanTallySettings } from './tally.js';
+import { audit, adminMiddleware, allAdmins, adminRequests, requestAdmin, grantAdmin, ADMIN_REQUEST_MS } from './admin-guard.js';
+import { superHost } from './tiers.js';
 
 const startedAt = Date.now();
-const audit = (req, userId, action, detail = '') => T.audit.insert({ id: uid(), actorId: req.impersonator || req.user.id, actor: req.user.email, userId, action, detail: String(detail).slice(0, 500), at: Date.now() });
 
 export function registerAdmin(app, { auth, wrap, signAs }) {
-  // the admin panel needs 2-step login on: a stolen password alone must never reach every seller's account
-  const admin = (req, res, next) => {
-    if (!isAdmin(req.user) || req.impersonator || req.actor) return res.status(403).json({ error: 'Admins only' });
-    if (!req.user.totpEnabled) return res.status(403).json({ error: 'Turn on two-factor authentication (Settings → Security) to use the admin panel', code: 'ADMIN_2FA_REQUIRED' });
-    next();
-  };
-  const A = [auth, admin];
+  // admins only, with 2-step login; support admins can't change much (admin-guard.js)
+  const A = [auth, adminMiddleware];
 
   // ---------- Hive AI usage: which accounts use the most model calls and tokens, and how busy it is right now ----------
   app.get('/api/admin/ai-usage', ...A, (req, res) => {
@@ -175,19 +171,36 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       // the Inventory add-on (inventory.js): stock kept in FunnelHive; off hides it, the stock records are kept
       case 'inventory_on': T.users.update(u.id, (x) => { x.addons = { ...x.addons, inventory: true }; }); break;
       case 'inventory_off': T.users.update(u.id, (x) => { x.addons = { ...x.addons, inventory: false }; }); break;
-      case 'make_admin': T.users.update(u.id, (x) => { x.role = 'admin'; }); break;
+      case 'make_admin': {
+        // level: 'owner' (everything) or 'support' (look and help, no platform changes)
+        const level = req.body.level === 'support' ? 'support' : 'owner';
+        if (u.emailVerified !== true) return res.status(400).json({ error: 'This account’s email isn’t verified yet — an admin needs a verified email' });
+        if (adminLevel(u) === level) return res.status(400).json({ error: 'This account is already an admin' });
+        if (adminLevel(u) === 'owner' && !u.role) return res.status(400).json({ error: 'This account is an admin through the server’s ADMIN_EMAILS' });
+        // another admin on the platform: a second admin has to approve it
+        if (allAdmins().some((a) => a.id !== req.user.id)) {
+          if (adminRequests().some((r) => r.userId === u.id)) return res.status(409).json({ error: 'There’s already a request to make this account an admin' });
+          const r = requestAdmin(req, u, level);
+          audit(req, u.id, 'make_admin_requested', level);
+          return res.json({ ok: true, pending: true, request: { id: r.id, level, at: r.at } });
+        }
+        grantAdmin(u.id, level); detail = level; break;
+      }
       case 'remove_admin': if (u.id === req.user.id) return res.status(400).json({ error: 'You can’t remove your own admin access' }); T.users.update(u.id, (x) => { delete x.role; }); break;
       case 'verify_email': T.users.update(u.id, (x) => { x.emailVerified = true; }); break;
       case 'reset_2fa': T.users.update(u.id, (x) => { x.totpEnabled = false; delete x.totpSecret; }); break;
       case 'sign_out': T.users.update(u.id, (x) => { x.pv = (x.pv || 0) + 1; }); revokeOthers(u.id); break;
       case 'impersonate': {
+        // another admin's account is never opened this way (it would carry their admin rights)
+        if (isAdmin(u)) return res.status(403).json({ error: 'Admin accounts can’t be opened with support access' });
         // why support looked is recorded, and the seller is told (bell, and email when it's set up)
         const reason = String(req.body.reason || '').trim().slice(0, 200);
         if (reason.length < 3) return res.status(400).json({ error: 'Say why you’re opening this account (it’s shown to the seller)' });
         audit(req, u.id, 'impersonate', reason);
         notify(u.id, { kind: 'support', title: 'Support viewed your account', body: reason });
         if (mailEnabled()) sendMail({ to: u.email, subject: 'Support viewed your account', text: `Hi ${u.name},\n\nOur support team opened your account: ${reason}\n\nIf you didn’t expect this, reply to this email.` }).catch((e) => console.error('support email failed', e.message));
-        return res.json({ token: signAs(T.users.get(u.id), req.user.id, req) });
+        // on the admin address, the seller's account opens on the app's address (openAt), where an app token works
+        return res.json({ token: signAs(T.users.get(u.id), req.user.id, req), ...(superHost() ? { openAt: String(process.env.APP_URL || '').replace(/\/+$/, '') } : {}) });
       }
       case 'delete': {
         if (req.body.confirm !== u.email) return res.status(400).json({ error: 'Type the seller’s email to confirm' });
@@ -199,6 +212,33 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       default: return res.status(400).json({ error: 'Unknown action' });
     }
     audit(req, u.id, action, detail);
+    res.json({ ok: true });
+  });
+
+  // ---------- requests to make an account an admin (approved by a second admin) ----------
+  app.get('/api/admin/admin-requests', ...A, (req, res) => res.json(adminRequests().map((r) => ({ ...r, mine: r.by === req.user.id }))));
+  const pendingRequest = (req, res) => {
+    const r = T.platform.get(`adminreq.${req.params.rid}`);
+    if (!r || r.status !== 'pending' || Date.now() - r.at >= ADMIN_REQUEST_MS) { res.status(404).json({ error: 'That request has already been handled or has expired' }); return null; }
+    return r;
+  };
+  app.post('/api/admin/admin-requests/:rid/approve', ...A, (req, res) => {
+    const r = pendingRequest(req, res);
+    if (!r) return;
+    if (r.by === req.user.id) return res.status(403).json({ error: 'Another admin has to approve your own request' });
+    if (r.userId === req.user.id) return res.status(403).json({ error: 'You can’t approve a request about yourself' });
+    const u = T.users.get(r.userId);
+    if (!u || u.emailVerified !== true) return res.status(400).json({ error: 'That account no longer exists or its email isn’t verified' });
+    grantAdmin(u.id, r.level);
+    T.platform.update(r.id, (x) => { x.status = 'approved'; x.decidedBy = req.user.id; x.decidedAt = Date.now(); });
+    audit(req, u.id, 'make_admin_approved', `${r.level}, requested by ${r.byEmail}`);
+    res.json({ ok: true });
+  });
+  app.post('/api/admin/admin-requests/:rid/reject', ...A, (req, res) => {
+    const r = pendingRequest(req, res);
+    if (!r) return;
+    T.platform.update(r.id, (x) => { x.status = 'rejected'; x.decidedBy = req.user.id; x.decidedAt = Date.now(); });
+    audit(req, r.userId, 'make_admin_rejected', `requested by ${r.byEmail}`);
     res.json({ ok: true });
   });
 

@@ -35,7 +35,7 @@ import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerComposio } from './composio.js';
 import { registerHive } from './hive.js';
 import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, creditsShort, usageSummary, AI_COST, pricing } from './billing.js';
-import { platform, isAdmin, brand, publicCompany } from './platform.js';
+import { platform, isAdmin, adminLevel, brand, publicCompany } from './platform.js';
 import { registerAdmin } from './admin.js';
 import { registerAccount } from './account.js';
 import { verifyGoogleToken, googleClientId } from './google.js';
@@ -94,6 +94,7 @@ import { registerWaKnowledge } from './waknow.js';
 import { registerStore, storeFunnel, storeFunnelId, takeStock, STORE_NAME } from './store.js';
 import { registerStoreAi } from './store-ai.js';
 import { registerAffiliates, attributeOrder } from './affiliates.js';
+import { tierGate, tierMeta, tierOf, tokenTier, tierMatches, superHost, superUrl, sessionMsFor, tokenLifeFor } from './tiers.js';
 
 const SECRET = loadSecret(DATA_DIR);
 initMessaging(SECRET);
@@ -107,6 +108,8 @@ const app = express();
 app.set('case sensitive routing', true);
 app.set('trust proxy', process.env.TRUST_PROXY ? (/^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY) : 'loopback, linklocal, uniquelocal');
 app.use(requestMetrics); // request counts and timings (observe.js)
+// super / agency / app addresses (tiers.js): the super host answers only the admin panel; the admin API only there
+app.use(tierGate((req) => spaHtml(req)));
 app.use(pagesSplit); // PAGES_URL: live pages and the dashboard on separate domains (domains.js)
 app.disable('x-powered-by');
 app.use(securityHeaders);
@@ -155,16 +158,19 @@ const DEFAULT_SETTINGS = { businessName: '', currency: '₹', supportWhatsapp: '
 // sid: the signed-in device (sessions, security.js). Inside a signed-in request a new token keeps that request's
 // session (and support access), so a "switch workspace" token is signed out together with the device it came from.
 const sessionCtx = new AsyncLocalStorage();
-const sign = (u, ws, sid) => {
+// aud: the tier (tiers.js) the device signed in on — super / agency / app; the token works only on that tier's address
+const sign = (u, ws, sid, aud) => {
   const ctx = sessionCtx.getStore() || {};
   const imp = !sid || sid === ctx.sid ? ctx.imp : null;
   sid ||= ctx.sid;
-  return jwt.sign({ id: u.id, pv: u.pv || 0, ...(ws ? { ws } : {}), ...(sid ? { sid } : {}), ...(imp ? { imp } : {}) }, SECRET, { expiresIn: imp ? '2h' : '14d' });
+  aud ||= ctx.aud || 'app';
+  return jwt.sign({ id: u.id, pv: u.pv || 0, ...(ws ? { ws } : {}), ...(sid ? { sid } : {}), ...(imp ? { imp } : {}), aud }, SECRET, { expiresIn: imp ? '2h' : tokenLifeFor(aud) });
 };
-// an admin "logging in as" a seller (support): short-lived, its own session (marked as support), and the seller's account shows it
-const signAs = (u, adminId, req) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId, sid: startSession(req, u, { imp: adminId, ms: 2 * 3600000 }) }, SECRET, { expiresIn: '2h' });
-// a new sign-in on this device
-const signIn = (req, u) => sign(u, null, startSession(req, u));
+// an admin "logging in as" a seller (support): short-lived, its own session (marked as support), and the seller's account
+// shows it. It's an app token: support looks at the seller's account on the app's address, not on the admin's.
+const signAs = (u, adminId, req) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId, sid: startSession(req, u, { imp: adminId, ms: 2 * 3600000 }), aud: 'app' }, SECRET, { expiresIn: '2h' });
+// a new sign-in on this device, for the address it signed in on
+const signIn = (req, u) => { const aud = tierOf(req); return sign(u, null, startSession(req, u, { aud, ms: sessionMsFor(aud) }), aud); };
 const pubUser = (u) => ({ id: u.id, email: u.email, name: u.name });
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const withDefaults = (u) => { u.settings = { ...DEFAULT_SETTINGS, ...(u.settings || {}) }; return u; };
@@ -186,10 +192,12 @@ const auth = (req, res, next) => {
       return next();
     }
     p = jwt.verify(t, SECRET);
+    // signed in on another tier's address (an admin token on the app, an app token on the admin panel)
+    if (!tierMatches(p, req)) return res.status(401).json({ error: 'You’re signed in on a different address — please log in here', wrongHost: true });
     req.user = T.users.get(p.id);
     if (!req.user || (p.pv || 0) !== (req.user.pv || 0)) throw new Error();
     if (!sessionOk(p, req.user)) throw new Error(); // signed out on that device (or everywhere)
-    req.sid = p.sid || null; req.tokenWs = p.ws || null; req.tokenIat = p.iat;
+    req.sid = p.sid || null; req.tokenWs = p.ws || null; req.tokenIat = p.iat; req.tokenAud = tokenTier(p);
     if (p.imp) req.impersonator = p.imp;
     if (p.ws) {
       // a team member acting in the owner's workspace: everything below works on the owner's data
@@ -212,7 +220,7 @@ const auth = (req, res, next) => {
   // an account whose trial / subscription has ended is read-only (402 Payment Required)
   const locked = lockedOut(req);
   if (locked) return res.status(402).json({ error: locked, locked: true });
-  sessionCtx.run({ sid: p.sid, imp: p.imp }, next);
+  sessionCtx.run({ sid: p.sid, imp: p.imp, aud: tokenTier(p) }, next);
 };
 // AI features use monthly credits
 const credits = (kind) => (req, res, next) => {
@@ -260,6 +268,13 @@ function checkCode(user, code) {
   return null;
 }
 
+// signing in on the super host (admin panel): platform admins only, and the 2-step code is always needed
+function superLoginCheck(req, user) {
+  if (!isAdmin(user)) return { status: 403, body: { error: 'This address is for the platform’s admins only' } };
+  if (!user.totpEnabled) return { status: 403, body: { error: 'Turn on 2-step verification in the app (Settings → Security) before signing in to the admin panel', code: 'ADMIN_2FA_REQUIRED' } };
+  return checkCode(user, req.body.code);
+}
+
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const { email, password, name } = req.body;
   if (!email || !EMAIL_RE.test(email)) return res.status(400).json({ error: 'A valid email and a password of 8+ characters are required' });
@@ -284,7 +299,8 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   if (m) return res.status(429).json({ error: lockedMsg(m), locked: true });
   const user = T.users.find({ email });
   if (!user || !bcrypt.compareSync(String(req.body.password || ''), user.hash)) { if (email) loginLock.fail(email); return res.status(401).json({ error: 'Invalid email or password' }); }
-  if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
+  if (tierOf(req) === 'super') { const bad = superLoginCheck(req, user); if (bad) return res.status(bad.status).json(bad.body); }
+  else if (user.totpEnabled) { const bad = checkCode(user, req.body.code); if (bad) return res.status(bad.status).json(bad.body); }
   loginLock.clear(email);
   res.json({ token: signIn(req, user), user: pubUser(user) });
 });
@@ -365,7 +381,7 @@ app.post('/api/auth/resend-verification', auth, authLimiter, wrap(async (req, re
 }));
 
 // this device's session (tokens from before sessions existed get one), for signing everything else out
-const sidOf = (req) => req.sid || startSession(req, req.actor || req.user);
+const sidOf = (req) => req.sid || startSession(req, req.actor || req.user, { aud: req.tokenAud, ms: sessionMsFor(req.tokenAud) });
 // support ("log in as") can look around but never change how the seller signs in
 const notSupport = (req, res, next) => (req.impersonator ? res.status(403).json({ error: 'Support access can’t change sign-in settings' }) : next());
 
@@ -419,7 +435,7 @@ app.post('/api/auth/2fa/disable', auth, notSupport, authLimiter, (req, res) => {
 // idle one is signed out after 14 days. Support ("log in as") sessions are never extended.
 app.post('/api/auth/refresh', auth, (req, res) => {
   if (req.apiKey) return res.status(400).json({ error: 'API keys don’t expire' });
-  if (req.impersonator) return res.json({ token: null });
+  if (req.impersonator || req.tokenAud === 'super') return res.json({ token: null }); // admin sign-ins last 12 hours, not extended
   const me = req.actor || req.user, sid = sidOf(req);
   extendSession(sid);
   res.json({ token: sign(me, req.tokenWs, sid) });
@@ -463,13 +479,15 @@ const demoCount = (userId) => ({
 });
 // the pages a menu can show (pinned / hidden / an agency's default)
 const MENU_PAGES = ['/funnels', '/hive', '/orders', '/reports', '/ads', '/products', '/store', '/school', '/quotes', '/contacts', '/vault', '/automations', '/broadcasts', '/bookings', '/webinars'];
+// the admin panel opens here: anywhere while there's no super host, otherwise only on it
+const adminHere = (req) => isAdmin(req.user) && (!superHost() || req.tokenAud === 'super');
 app.get('/api/me', auth, (req, res) => {
   const s = req.user.settings;
   const funnels = q('SELECT COUNT(*) AS n, COALESCE(SUM(json_extract(data, \'$.published\')), 0) AS pub FROM funnels WHERE userId = ?').get(req.user.id);
   res.json({
     ...pubUser(req.actor || req.user), hasDemo: !!q('SELECT 1 FROM events WHERE userId = ? AND demo = 1 LIMIT 1').get(req.user.id) || T.orders.exists({ userId: req.user.id, demo: 1 }) || T.leads.exists({ userId: req.user.id, demo: 1 }),
-    aiEnabled: aiEnabled(), ...(!req.actor && isAdmin(req.user) ? { aiProvider: aiProvider() } : {}), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
-    billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && isAdmin(req.user), brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
+    aiEnabled: aiEnabled(), ...(!req.actor && adminHere(req) ? { aiProvider: aiProvider() } : {}), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
+    billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && adminHere(req), ...(!req.actor && adminHere(req) ? { adminLevel: adminLevel(req.user) } : {}), adminUrl: !req.actor && !req.impersonator && isAdmin(req.user) && superHost() && req.tokenAud !== 'super' ? superUrl() : null, brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
     uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
     impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
     workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, ...memberRole(req.user.id, req.role), custom: !!req.customPerms, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
@@ -2000,6 +2018,8 @@ if (JOBS && !isTest) { setInterval(() => indiaMartJob().catch((e) => console.err
 const CLIENT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../client');
 const dist = path.join(CLIENT, 'dist');
 const indexHtml = fs.existsSync(path.join(dist, 'index.html')) ? fs.readFileSync(path.join(dist, 'index.html'), 'utf8') : null;
+// the app's page, telling the browser which address (tier) it's on — the super host shows only the admin panel
+function spaHtml(req) { return indexHtml && indexHtml.replace('<!--ff-head-->', () => tierMeta(req)); }
 let ssr = null;
 const ssrEntry = path.join(CLIENT, 'dist-ssr', 'entry-server.js');
 if (fs.existsSync(ssrEntry)) {
@@ -2116,14 +2136,17 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
 registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned });
 registerStoreAi(app, { auth, rateLimit, isTest, credits });
 
+// tests only (NODE_ENV=test): every registered route, for the cross-account check (test/cross-tenant.test.mjs)
+if (isTest) app.get('/api/__test/routes', (req, res) => res.json(app._router.stack.filter((l) => l.route).flatMap((l) => [].concat(l.route.path).filter((p) => typeof p === 'string').map((path) => ({ path, methods: Object.keys(l.route.methods) })))));
+
 // an API path nobody answered is a JSON 404, never the app's HTML page
-app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+app.use('/api',(req, res) => res.status(404).json({ error: 'Not found' }));
 
 if (indexHtml) {
   // the build's files carry a content hash in their names (/assets/index-AbC123.js): cache them for a year;
   // everything else (index.html, favicon…) is revalidated so a new deploy shows up straight away
   app.use(express.static(dist, { index: false, setHeaders: (res, file) => { if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); else if (/(learn|counter)-sw\.js$/.test(file)) res.setHeader('Cache-Control', 'no-cache'); } })); // the members-area and counter apps' service workers update at once
-  app.get('*', (_, res) => res.set('Cache-Control', 'no-cache').type('html').send(indexHtml));
+  app.get('*', (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(spaHtml(req)));
 }
 
 const port = process.env.PORT || 4000;
