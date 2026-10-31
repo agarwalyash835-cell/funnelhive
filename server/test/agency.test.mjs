@@ -44,11 +44,14 @@ test('white-label: brand shows for the agency, its clients and on its own app do
   assert.equal(r.whiteLabel.domain, 'app.growth.in');
   assert.equal((await api('/me', 'GET', null, A)).data.brand, 'GrowthOS');
   assert.equal((await api('/me', 'GET', null, client.token)).data.brand, 'GrowthOS', 'inside a client account');
+  // its own app domain gets the brand and a certificate only once DNS proves it's theirs (whitelabel.test.mjs)
+  assert.equal(r.domainProof.status, 'pending');
   const site = await (await fetch(`${srv.base}/api/site`, { headers: { 'x-forwarded-host': 'app.growth.in' } })).json();
-  assert.equal(site.brand, 'GrowthOS');
-  assert.equal((await fetch(`${srv.base}/api/domains/tls-check?domain=app.growth.in`)).status, 200, 'HTTPS certificate allowed');
+  assert.notEqual(site.brand, 'GrowthOS');
+  assert.equal((await fetch(`${srv.base}/api/domains/tls-check?domain=app.growth.in`)).status, 404, 'no HTTPS certificate yet');
+  // an unproven claim doesn't block another account from claiming (and proving) the domain
   const other = (await register(api)).token;
-  assert.equal((await api('/agency/white-label', 'PUT', { brand: 'X', domain: 'app.growth.in' }, other)).status, 409);
+  assert.equal((await api('/agency/white-label', 'PUT', { brand: 'X', domain: 'app.growth.in' }, other)).status, 200);
 });
 
 test('snapshots: copy a funnel with its automation and product to a client; export/import; share links', async () => {

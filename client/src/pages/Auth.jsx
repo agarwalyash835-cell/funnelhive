@@ -1,19 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, setToken } from '../api';
 import { Icon } from '../ui';
+import { agencyHost } from '../agencyHost';
 
 const PERKS = ['Hive AI builds your entire funnel from one chat', '100+ proven templates: sales, VSL & webinar funnels', 'One-click upsells, order bumps & cross-sells', 'Razorpay checkout with UPI, coupons & cart recovery', 'CRM, email + WhatsApp automations, A/B tests'];
 
 export function AuthShell({ children }) {
-  const [wl, setWl] = useState(null);
+  // an agency's own domain: its brand from the first paint (agencyHost.js), no platform perks, trial or prices
+  const ag = agencyHost();
+  const [wl, setWl] = useState(ag);
   useEffect(() => { fetch('/api/site').then((r) => r.json()).then((s) => { if (s.whiteLabel) { setWl(s.whiteLabel); document.title = s.whiteLabel.brand; } }).catch(() => {}); }, []);
   return (
     <div className="auth">
       <div className="auth-art" style={wl?.primary ? { background: `linear-gradient(160deg, ${wl.primary}, #111827)` } : undefined}>
         <a href="/" className="brand light">{wl?.logo ? <img className="logo img" src={wl.logo} alt="" /> : <span className="logo"><Icon name="bolt" size={18} /></span>}{wl?.brand || 'FunnelHive'}</a>
-        <h1>Build funnels that sell — <span>in minutes, not weeks.</span></h1>
-        <ul>{PERKS.map((p) => <li key={p}><Icon name="check" size={16} />{p}</li>)}</ul>
-        <div className="auth-quote">14-day free trial with every feature. No credit card needed to start.<small>GST invoices · cancel any time</small></div>
+        {ag ? <>
+          <h1>Welcome to {wl?.brand || ag.brand}</h1>
+          <div className="auth-quote">{wl?.supportEmail ? <>Need help? <a href={`mailto:${wl.supportEmail}`} style={{ color: 'inherit' }}>{wl.supportEmail}</a></> : null}<small>{wl?.termsUrl && <a href={wl.termsUrl} rel="noopener" style={{ color: 'inherit' }}>Terms</a>}{wl?.termsUrl && wl?.privacyUrl ? ' · ' : ''}{wl?.privacyUrl && <a href={wl.privacyUrl} rel="noopener" style={{ color: 'inherit' }}>Privacy</a>}</small></div>
+        </> : <>
+          <h1>Build funnels that sell — <span>in minutes, not weeks.</span></h1>
+          <ul>{PERKS.map((p) => <li key={p}><Icon name="check" size={16} />{p}</li>)}</ul>
+          <div className="auth-quote">14-day free trial with every feature. No credit card needed to start.<small>GST invoices · cancel any time</small></div>
+        </>}
       </div>
       <div className="auth-form">{children}</div>
     </div>
@@ -23,7 +31,11 @@ export function AuthShell({ children }) {
 // after signing in, go back where the visitor came from (e.g. a team invitation) — same-site paths only
 const nextPath = () => { const n = new URLSearchParams(location.search).get('next') || '/'; return /^\/(?![/\\])/.test(n) ? n : '/'; };
 export default function Auth() {
-  const [mode, setMode] = useState(() => (new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register'));
+  const ag = agencyHost();
+  // on an agency's domain: log in first; signing up only where the server allows it there (/api/site signupsOpen)
+  const [mode, setMode] = useState(() => (ag || new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register'));
+  const [canSignUp, setCanSignUp] = useState(!ag);
+  useEffect(() => { if (ag) fetch('/api/site').then((r) => r.json()).then((s) => setCanSignUp(!!s.signupsOpen)).catch(() => {}); }, []);
   const [f, setF] = useState({ name: '', email: new URLSearchParams(location.search).get('email') || '', password: '', code: '' });
   const [needCode, setNeedCode] = useState(false);
   const [err, setErr] = useState('');
@@ -96,7 +108,7 @@ export default function Auth() {
   };
 
   const title = mode === 'forgot' ? 'Reset your password' : needCode ? '2-step verification' : mode === 'login' ? 'Welcome back' : 'Create your free account';
-  const sub = mode === 'forgot' ? 'Enter your account email and we’ll send you a reset link.' : needCode ? 'Enter the 6-digit code from your authenticator app.' : mode === 'login' ? 'Log in to manage your funnels.' : '14-day free trial · no credit card needed. Your first funnel is 60 seconds away.';
+  const sub = mode === 'forgot' ? 'Enter your account email and we’ll send you a reset link.' : needCode ? 'Enter the 6-digit code from your authenticator app.' : mode === 'login' ? (ag ? `Log in to your ${ag.brand} account.` : 'Log in to manage your funnels.') : ag ? `Create your ${ag.brand} account.` : '14-day free trial · no credit card needed. Your first funnel is 60 seconds away.';
 
   return (
     <AuthShell>
@@ -123,7 +135,7 @@ export default function Auth() {
         <button className="btn primary lg block" disabled={busy}>{busy ? <span className="spin" /> : mode === 'forgot' ? 'Send reset link' : needCode ? 'Verify & log in' : mode === 'login' ? 'Log in' : 'Create account'}</button>
         {mode === 'forgot'
           ? <p className="switch"><a onClick={() => go('login')}>← Back to log in</a></p>
-          : <p className="switch">{mode === 'login' ? 'New to FunnelHive?' : 'Already have an account?'} <a onClick={() => go(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Create an account' : 'Log in'}</a></p>}
+          : (mode !== 'login' || canSignUp) && <p className="switch">{mode === 'login' ? `New to ${ag?.brand || 'FunnelHive'}?` : 'Already have an account?'} <a onClick={() => go(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Create an account' : 'Log in'}</a></p>}
       </form>
     </AuthShell>
   );

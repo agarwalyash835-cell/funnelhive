@@ -20,6 +20,8 @@ const fakeDown = (domain) => { try { return fs.readFileSync(process.env.DOMAINS_
 // Two-part public suffixes: brand.co.in is a whole (apex) domain, like brand.in — it can't take a CNAME
 const MULTI_SUFFIXES = new Set(['co.in', 'org.in', 'net.in', 'firm.in', 'gen.in', 'ind.in', 'ac.in', 'edu.in', 'gov.in', 'res.in', 'co.uk', 'org.uk', 'me.uk', 'ltd.uk', 'plc.uk', 'ac.uk', 'gov.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'org.nz', 'com.sg', 'edu.sg', 'com.my', 'co.za', 'com.br', 'com.ar', 'com.mx', 'co.jp', 'co.kr', 'com.cn', 'com.hk', 'com.tw', 'co.id', 'com.ph', 'com.pk', 'com.bd', 'com.np', 'com.lk', 'co.ke', 'com.ng', 'com.tr', 'com.sa', 'co.il', 'com.eg']);
 export const isApex = (domain) => { const p = domain.split('.'); return p.length === (MULTI_SUFFIXES.has(p.slice(-2).join('.')) ? 3 : 2); };
+// the whole (registrable) domain a host belongs to: app.brand.co.in → brand.co.in
+export const registrableDomain = (domain) => { const p = String(domain || '').split('.'); return p.slice(-(MULTI_SUFFIXES.has(p.slice(-2).join('.')) ? 3 : 2)).join('.'); };
 // a live domain is only given up after repeated failed checks over a whole day (one DNS blip never takes a site down)
 const LAPSE_FAILS = 3, LAPSE_MS = 24 * 3600000;
 
@@ -63,6 +65,9 @@ export function pagesSplit(req, res, next) {
   next();
 }
 
+// { domain, token } → { txt, route }: the ownership TXT record and the CNAME / A record pointing here (agency app
+// domains are proven the same way — whitelabel.js)
+export async function checkDomainDns(d) { return check(d); }
 async function check(d) {
   const r = { txt: false, route: false };
   if (fakeDns()) { r.txt = r.route = !fakeDown(d.domain); return r; }
@@ -104,16 +109,18 @@ async function verify(d) {
 }
 
 const view = (d) => { const { userId, ...x } = d; return x; };
+// the DNS records that connect a domain: { domain, token } → [{ type, name, value, why }]
+export function dnsRecords(d, { what = 'your funnel', www = true } = {}) {
+  const target = cnameTarget(), ip = serverIp();
+  const txt = { type: 'TXT', name: `_funnelhive.${d.domain}`, value: `ff-verify=${d.token}`, why: 'Proves the domain is yours' };
+  if (!isApex(d.domain)) return [txt, { type: 'CNAME', name: d.domain, value: target || '(your server address — ask your administrator to set APP_URL)', why: `Sends visitors to ${what}` }];
+  // a whole domain (brand.in, brand.co.in) can't take a CNAME: it needs an A record; www follows it to the same funnel
+  return [txt,
+    { type: 'A', name: d.domain, value: ip || '(this server’s IP address — ask your administrator to set SERVER_IP)', why: `Sends visitors to ${what}` },
+    ...(www ? [{ type: 'CNAME', name: `www.${d.domain}`, value: target || d.domain, why: `Optional: www.${d.domain} opens the same funnel`, optional: true }] : [])];
+}
 export function registerDomains(app, { auth }) {
-  const records = (d) => {
-    const target = cnameTarget(), ip = serverIp();
-    const txt = { type: 'TXT', name: `_funnelhive.${d.domain}`, value: `ff-verify=${d.token}`, why: 'Proves the domain is yours' };
-    if (!isApex(d.domain)) return [txt, { type: 'CNAME', name: d.domain, value: target || '(your server address — ask your administrator to set APP_URL)', why: 'Sends visitors to your funnel' }];
-    // a whole domain (brand.in, brand.co.in) can't take a CNAME: it needs an A record; www follows it to the same funnel
-    return [txt,
-      { type: 'A', name: d.domain, value: ip || '(this server’s IP address — ask your administrator to set SERVER_IP)', why: 'Sends visitors to your funnel' },
-      { type: 'CNAME', name: `www.${d.domain}`, value: target || d.domain, why: `Optional: www.${d.domain} opens the same funnel`, optional: true }];
-  };
+  const records = (d) => dnsRecords(d);
   const out = (d) => ({ ...view(d), records: records(d) });
   const own = (req, res) => { const d = T.domains.get(req.params.did); if (!d || d.userId !== req.user.id) { res.status(404).json({ error: 'Domain not found' }); return null; } return d; };
   const ownFunnel = (req, id) => { const f = id && T.funnels.get(id); return f && f.userId === req.user.id ? f : null; };

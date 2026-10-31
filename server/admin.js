@@ -22,7 +22,8 @@ import { randomToken, hashToken, revokeOthers } from './security.js';
 import { decryptBuffer, isEncrypted, recoveryKey } from './backup-crypt.js';
 import { HEARTBEATS, validHeartbeat, heartbeatUrl, heartbeatFromEnv, monitorStatus, ping, appHealthy } from './monitor.js';
 import { notify } from './notify.js';
-import { sendMail, mailEnabled, appUrl } from './mail.js';
+import { mailEnabled, appUrl } from './mail.js';
+import { sendBranded } from './whitelabel.js';
 import { embed, embedReady, embedModel, visionModel } from './waknow.js';
 import { checkSarvamKey, sarvamReady } from './sarvam.js';
 import { metaSignupView, saveMetaSignup } from './meta-signup.js';
@@ -186,7 +187,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         if (reason.length < 3) return res.status(400).json({ error: 'Say why you’re opening this account (it’s shown to the seller)' });
         audit(req, u.id, 'impersonate', reason);
         notify(u.id, { kind: 'support', title: 'Support viewed your account', body: reason });
-        if (mailEnabled()) sendMail({ to: u.email, subject: 'Support viewed your account', text: `Hi ${u.name},\n\nOur support team opened your account: ${reason}\n\nIf you didn’t expect this, reply to this email.` }).catch((e) => console.error('support email failed', e.message));
+        // in the account's brand (an agency's clients never see the platform's name — whitelabel.js)
+        if (mailEnabled()) sendBranded(u, null, (b) => ({ to: u.email, subject: 'Support viewed your account', text: `Hi ${u.name},\n\n${b.agencyId ? `${b.name} support` : 'Our support team'} opened your account: ${reason}\n\nIf you didn’t expect this, reply to this email.` })).catch((e) => console.error('support email failed', e.message));
         return res.json({ token: signAs(T.users.get(u.id), req.user.id, req) });
       }
       case 'delete': {

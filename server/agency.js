@@ -15,8 +15,9 @@ import { totals, sources } from './analytics.js';
 import { copyProduct } from './products.js';
 import { funnelLimitError } from './limits.js';
 import { randomToken, hashToken } from './security.js';
-import { sendMail, appUrl, mailEnabled } from './mail.js';
+import { appUrl, mailEnabled } from './mail.js';
 import { isPlatformHost } from './domains.js';
+import { agencyForHost, verifiedDomainOf, domainTakenByOther, syncDomainProof, domainView, sendBranded } from './whitelabel.js';
 
 const DAY = 86400000;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -44,16 +45,15 @@ export const clientsOf = (agencyId) => q("SELECT data FROM users WHERE json_extr
 export function brandFor(u) {
   const owner = u?.agencyId ? T.users.get(u.agencyId) : u;
   const w = owner?.settings?.whiteLabel;
-  return w?.brand ? { brand: w.brand, logo: w.logo || '', primary: w.primary || '', supportEmail: w.supportEmail || '', hidePowered: !!w.hidePowered, agency: true } : null;
+  return w?.brand ? { brand: w.brand, logo: w.logo || '', primary: w.primary || '', supportEmail: w.supportEmail || '', hidePowered: !!w.hidePowered, agency: true,
+    legalName: w.legalName || '', address: w.address || '', supportPhone: w.supportPhone || '', termsUrl: w.termsUrl || '', privacyUrl: w.privacyUrl || '', domain: verifiedDomainOf(owner) || '' } : null;
 }
 const DOMAIN_RE = /^(?=.{4,253}$)([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}$/;
-// an agency's own app domain (app.agency.com) — login page and dashboard in their brand
+// an agency's own app domain (app.agency.com) — login page and dashboard in their brand, once DNS proves it's
+// theirs (whitelabel.js); until then the domain gets no brand and no HTTPS certificate
 export function brandForHost(host) {
-  const h = String(host || '').toLowerCase().split(':')[0];
-  if (!h || !DOMAIN_RE.test(h)) return null;
-  const row = q("SELECT data FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ?").get(h);
-  const u = row && JSON.parse(row.data);
-  return u ? { ...brandFor(u), domain: h } : null;
+  const u = agencyForHost(host);
+  return u ? brandFor(u) : null;
 }
 export const isAgencyDomain = (host) => !!brandForHost(host);
 
@@ -159,9 +159,10 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     // the new email isn't proven until the client opens the link sent to it (the reset marks it verified): until
     // then it can't pick up admin rights or be linked by a Google sign-in as if the agency owned that inbox
     T.users.update(c.id, (x) => { x.email = email; x.emailVerified = false; x.resetHash = hashToken(token); x.resetExp = Date.now() + 7 * DAY; x.invitedAt = Date.now(); });
-    const b = brandFor(req.user)?.brand || platform().brand;
-    await sendMail({ to: email, subject: `Your ${b} account is ready`, text: `Hi,\n\n${req.user.settings?.whiteLabel?.brand || req.user.settings?.businessName || req.user.name} has set up your ${b} account for ${c.settings?.businessName || ''}.\n\nChoose your password to log in (link valid for 7 days):\n${process.env.APP_URL || appUrl(req)}/reset?token=${token}\n` }).catch(() => {});
-    res.json({ ok: true, ...(process.env.NODE_ENV === 'test' ? { token } : {}), ...(mailEnabled() ? {} : { link: `${process.env.APP_URL || appUrl(req)}/reset?token=${token}` }) });
+    // in the agency's brand, the link on its own app domain once that's verified (whitelabel.js)
+    let link = '';
+    await sendBranded(c, req, (b) => { link = `${b.linkBase}/reset?token=${token}`; return { to: email, subject: `Your ${b.name} account is ready`, text: `Hi,\n\n${req.user.settings?.whiteLabel?.brand || req.user.settings?.businessName || req.user.name} has set up your ${b.name} account for ${c.settings?.businessName || ''}.\n\nChoose your password to log in (link valid for 7 days):\n${link}\n` }; }).catch(() => {});
+    res.json({ ok: true, ...(process.env.NODE_ENV === 'test' ? { token } : {}), ...(mailEnabled() ? {} : { link }) });
   });
   // hand the account over: the client becomes independent (their own trial / plan); the agency stays on its team
   app.post('/api/agency/clients/:cid/detach', auth, (req, res) => {
@@ -191,16 +192,22 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     if (req.actor || req.apiKey) return res.status(403).json({ error: 'Only the agency owner can change the white-label' });
     if (!clientLimit(req.user)) return res.status(402).json({ error: 'White-label comes with the Agency plan', upgrade: true });
     const b = req.body || {};
-    const w = { brand: clip(b.brand, 40), logo: clip(b.logo, 500), primary: /^#[0-9a-f]{6}$/i.test(b.primary || '') ? b.primary : '', supportEmail: clip(b.supportEmail, 200), hidePowered: !!b.hidePowered, domain: clip(b.domain, 253).toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '') };
+    const w = { brand: clip(b.brand, 40), logo: clip(b.logo, 500), primary: /^#[0-9a-f]{6}$/i.test(b.primary || '') ? b.primary : '', supportEmail: clip(b.supportEmail, 200), hidePowered: !!b.hidePowered, domain: clip(b.domain, 253).toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''),
+      // the agency's own legal details, shown on its domain instead of the platform's
+      legalName: clip(b.legalName, 120), address: clip(b.address, 300), supportPhone: clip(b.supportPhone, 30), termsUrl: clip(b.termsUrl, 500), privacyUrl: clip(b.privacyUrl, 500) };
+    for (const k of ['termsUrl', 'privacyUrl']) if (w[k] && !/^https:\/\/[^\s"'<>]+$/.test(w[k])) return res.status(400).json({ error: 'Terms and privacy links must start with https://' });
+    if (w.supportPhone && !/^\+?[0-9 ()-]{6,30}$/.test(w.supportPhone)) return res.status(400).json({ error: 'Enter a valid support phone number' });
     if (w.logo && !/^(https:\/\/|\/uploads\/)[^\s"'<>]+$/.test(w.logo)) return res.status(400).json({ error: 'The logo must be an https:// image link or an uploaded image' });
     if (w.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(w.supportEmail)) return res.status(400).json({ error: 'Enter a valid support email' });
     if (w.domain && !DOMAIN_RE.test(w.domain)) return res.status(400).json({ error: 'Enter a domain like app.youragency.com' });
     // the platform's own login page can't be rebranded, and a domain already serving a seller's funnel isn't free
     if (w.domain && isPlatformHost(w.domain)) return res.status(400).json({ error: 'Use your own domain, like app.youragency.com' });
     if (w.domain && T.domains.exists({ domain: w.domain })) return res.status(409).json({ error: 'That domain is connected to a funnel — use another subdomain for your app' });
-    if (w.domain) { const other = brandForHost(w.domain); if (other && q("SELECT id FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ?").get(w.domain)?.id !== req.user.id) return res.status(409).json({ error: 'That domain is used by another account' }); }
-    const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, whiteLabel: w }; });
-    res.json({ whiteLabel: u.settings.whiteLabel, dns: w.domain ? { type: 'CNAME', name: w.domain, value: new URL(process.env.APP_URL || 'https://app.example.com').hostname } : null });
+    // another account's claim blocks the domain only once DNS has proven it theirs (an unproven claim can't squat it)
+    if (w.domain && domainTakenByOther(w.domain, req.user.id)) return res.status(409).json({ error: 'That domain is used by another account' });
+    T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, whiteLabel: w }; });
+    const u = syncDomainProof(req.user.id); // a new domain starts a new DNS proof
+    res.json({ whiteLabel: u.settings.whiteLabel, dns: w.domain ? { type: 'CNAME', name: w.domain, value: new URL(process.env.APP_URL || 'https://app.example.com').hostname } : null, domainProof: domainView(u) });
   });
 
   // ---- snapshots & sharing ----

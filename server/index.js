@@ -57,6 +57,7 @@ import { fxRate } from './fx.js';
 import { registerLegal, publicPrivacy, privacyOf, consentLine, legalMissing } from './legal.js';
 import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
 import { registerAgency, logRequest, brandFor, brandForHost } from './agency.js';
+import { registerWhiteLabel, sendBranded, agencySite, brandedIndex } from './whitelabel.js';
 import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
 import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
@@ -238,7 +239,8 @@ function userByToken(token, hashField, expField) {
 async function sendVerification(req, user) {
   const token = userToken(user);
   T.users.update(user.id, (u) => { u.verifyHash = hashToken(token); u.verifyExp = Date.now() + 3 * DAY; });
-  await sendMail({ to: user.email, subject: `Verify your ${brand()} email`, text: `Hi ${user.name},\n\nConfirm your email address by opening this link:\n${appUrl(req)}/verify?token=${token}\n\nThe link is valid for 3 days.` }).catch((e) => console.error('verification email failed', e.message));
+  // in the account's brand (its agency's, with the link on the agency's domain — whitelabel.js)
+  await sendBranded(T.users.get(user.id) || user, req, (b) => ({ to: user.email, subject: `Verify your ${b.name} email`, text: `Hi ${user.name},\n\nConfirm your email address by opening this link:\n${b.linkBase}/verify?token=${token}\n\nThe link is valid for 3 days.` })).catch((e) => console.error('verification email failed', e.message));
 }
 
 // Too many wrong passwords for one email, or wrong 2-step codes for one account (shared by all processes):
@@ -334,7 +336,7 @@ app.post('/api/auth/forgot', authLimiter, wrap(async (req, res) => {
     user.resetHash = hashToken(token);
     user.resetExp = Date.now() + 60 * 60000;
     saveUser(user);
-    await sendMail({ to: user.email, subject: `Reset your ${brand()} password`, text: `Hi ${user.name},\n\nReset your password here (valid for 1 hour):\n${appUrl(req)}/reset?token=${token}\n\nIf you didn't ask for this, you can ignore this email.` }).catch((e) => console.error('reset email failed', e.message));
+    await sendBranded(user, req, (b) => ({ to: user.email, subject: `Reset your ${b.name} password`, text: `Hi ${user.name},\n\nReset your password here (valid for 1 hour):\n${b.linkBase}/reset?token=${token}\n\nIf you didn't ask for this, you can ignore this email.` })).catch((e) => console.error('reset email failed', e.message));
   }
   res.json({ ok: true, emailConfigured: mailEnabled() });
 }));
@@ -388,7 +390,8 @@ app.post('/api/auth/2fa/setup', auth, notSupport, (req, res) => {
   if (req.user.totpEnabled) return res.status(400).json({ error: '2-step verification is already on' });
   req.user.totpPending = newTotpSecret();
   saveUser(req.user);
-  res.json({ secret: req.user.totpPending, otpauth: otpauthUrl(req.user.totpPending, req.user.email) });
+  // the authenticator app lists it under the brand the person signs in to (their agency's, for its clients)
+  res.json({ secret: req.user.totpPending, otpauth: otpauthUrl(req.user.totpPending, req.user.email, (brandFor(req.user) || brandForHost(req.hostname))?.brand || platform().brand) });
 });
 app.post('/api/auth/2fa/enable', auth, notSupport, authLimiter, (req, res) => {
   const step = req.user.totpPending ? totpStep(req.user.totpPending, req.body.code) : null;
@@ -1064,7 +1067,11 @@ app.get('/api/site', (req, res) => {
   const p = platform(), pr = pricing();
   const wl = brandForHost(req.hostname); // an agency's own app domain: their brand on the login page
   // sentryDsn: the public DSN (safe to show — it only lets anyone send reports) for the browser's error reports
-  res.json({ ...(wl ? { whiteLabel: wl } : {}), sentryDsn: /^https:\/\/[^\s"'<>]+$/.test(process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN || '') ? process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN : null, pagesUrl: process.env.PAGES_URL || '', brand: wl?.brand || p.brand, googleClientId: googleClientId() || null, turnstileSiteKey: turnstileSiteKey(), trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: publicCompany() });
+  const common = { sentryDsn: /^https:\/\/[^\s"'<>]+$/.test(process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN || '') ? process.env.SENTRY_DSN_PUBLIC || process.env.SENTRY_DSN : null, pagesUrl: process.env.PAGES_URL || '', turnstileSiteKey: turnstileSiteKey() };
+  // on an agency's verified domain: its brand and legal details only — no platform company, GSTIN or prices; new
+  // sign-ups only where they become the agency's (partner) sub-accounts
+  if (wl) return res.json(agencySite(wl, { ...common, signupsOpen: !!(p.signupsOpen && partnerForHost(req.hostname, brandForHost)) }));
+  res.json({ ...common, brand: p.brand, googleClientId: googleClientId() || null, trialDays: p.trialDays, aiCredits: p.aiCredits, signupsOpen: p.signupsOpen, prices: { monthly: pr.monthly.amount, yearly: pr.yearly.amount, yearlyPerMonth: pr.yearly.perMonth, yearlySaves: pr.yearlySaves }, gstRegistered: !!p.company.gstin, company: publicCompany() });
 });
 
 // ---------- templates ----------
@@ -1256,6 +1263,7 @@ registerApi(app, { auth });
 registerAdSpend(app, { auth, wrap });
 registerReports(app, { auth });
 registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signFor: sign });
+registerWhiteLabel(app, { auth, rateLimit, isTest }); // agency app-domain proof, sender, per-host title / manifest (whitelabel.js)
 registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
 registerFulfilment(app, { auth, appUrl });
 registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret: SECRET });
@@ -2123,7 +2131,7 @@ if (indexHtml) {
   // the build's files carry a content hash in their names (/assets/index-AbC123.js): cache them for a year;
   // everything else (index.html, favicon…) is revalidated so a new deploy shows up straight away
   app.use(express.static(dist, { index: false, setHeaders: (res, file) => { if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); else if (/(learn|counter)-sw\.js$/.test(file)) res.setHeader('Cache-Control', 'no-cache'); } })); // the members-area and counter apps' service workers update at once
-  app.get('*', (_, res) => res.set('Cache-Control', 'no-cache').type('html').send(indexHtml));
+  app.get('*', (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(brandedIndex(indexHtml, req))); // the brand of the domain it's opened on
 }
 
 const port = process.env.PORT || 4000;
