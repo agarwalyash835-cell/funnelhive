@@ -382,3 +382,21 @@ test('returns and exchanges: asked from the order page after delivery, within th
   assert.equal((await api('/store', 'PUT', { returns: { days: 7, exchange: true } }, A)).status, 200);
   assert.equal((await api(`/store/listings/${L.tea.id}`, 'PUT', { sizes: [] }, A)).status, 200);
 });
+
+test('back in stock: a buyer waiting on a sold-out product gets one email when it has stock again', async () => {
+  // run the mug out of stock
+  const left = await stockOf(mug.id);
+  if (left !== 0) assert.equal((await api('/inventory/moves', 'POST', { itemId: mug.id, kind: left > 0 ? 'RETURN_OUT' : 'OPENING', qty: Math.abs(left) }, A)).status, 200);
+  assert.equal(await stockOf(mug.id), 0);
+  const ask = (b) => pub(`/p/${L.mug.id}/notify`, b);
+  assert.equal((await ask({ email: 'nope' })).status, 400);
+  assert.equal((await ask({ email: 'Kiran@X.in' })).status, 200);
+  assert.equal((await ask({ email: 'kiran@x.in' })).status, 200, 'the same address again is one waiter');
+  assert.match((await pub(`/p/${L.tea.id}/notify`, { email: 'kiran@x.in' })).data.error, /in stock/, 'only for sold-out products');
+  assert.equal((await api('/store', 'GET', null, A)).data.waiting[L.mug.id], 1, 'the seller sees who’s waiting');
+  assert.equal((await api('/__test/back-in-stock', 'POST', {})).data.sent, 0, 'still sold out: nothing sent');
+  assert.equal((await api('/inventory/moves', 'POST', { itemId: mug.id, kind: 'OPENING', qty: 2 }, A)).status, 200);
+  assert.equal((await api('/__test/back-in-stock', 'POST', {})).data.sent, 1);
+  assert.equal((await api('/__test/back-in-stock', 'POST', {})).data.sent, 0, 'once only');
+  assert.equal((await api('/store', 'GET', null, A)).data.waiting[L.mug.id], undefined);
+});

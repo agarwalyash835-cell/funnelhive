@@ -94,7 +94,7 @@ export default function StoreSettings() {
       <Panel title={t('Catalog')} actions={options.length > 0 && <div className="st-add"><select value={pick} onChange={(e) => setPick(e.target.value)}><option value="">{t('Add to store…')}</option>{options.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}</select><button className="btn primary sm" disabled={!pick} onClick={add}>{t('Add')}</button></div>}>
         {!d.inventory && <p className="hint">{t('Physical stock items appear here when the Inventory add-on is on.')}</p>}
         {!d.listings.length ? <Empty icon="tag" title={t('Nothing for sale yet')} text={t('Add your Products (downloads, courses) or Inventory items to the store.')} /> : (
-          <div className="st-list">{d.listings.map((l) => <ListingRow key={l.id} l={l} name={nameOf(l)} item={l.kind === 'item' ? d.items.find((i) => i.id === l.refId) : null} cats={s.categories || []}
+          <div className="st-list">{d.listings.map((l) => <ListingRow key={l.id} l={l} waiting={d.waiting?.[l.id] || 0} name={nameOf(l)} item={l.kind === 'item' ? d.items.find((i) => i.id === l.refId) : null} cats={s.categories || []}
             onSaved={(x) => setD({ ...d, listings: d.listings.map((y) => (y.id === x.id ? x : y)) })}
             onDelete={async () => { if (!(await confirmDialog({ title: t('Remove from store?'), text: t('The product or stock item itself is kept.') }))) return; await api(`/store/listings/${l.id}`, 'DELETE'); setD({ ...d, listings: d.listings.filter((y) => y.id !== l.id) }); }} />)}</div>
         )}
@@ -162,7 +162,7 @@ function StoreReviews() {
 
 const listOf = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((s) => s.trim()).filter(Boolean);
 
-function ListingRow({ l, name, item, cats, onSaved, onDelete }) {
+function ListingRow({ l, name, item, cats, onSaved, onDelete, waiting = 0 }) {
   const [x, setX] = useState(l);
   const [open, setOpen] = useState(false);
   const set = (p) => setX({ ...x, ...p });
@@ -180,7 +180,7 @@ function ListingRow({ l, name, item, cats, onSaved, onDelete }) {
     <div className={`st-row${x.visible === false ? ' off' : ''}`}>
       <div className="st-row-head" onClick={() => setOpen(!open)}>
         {x.images?.[0] ? <img src={x.images[0]} alt="" /> : <span className="st-ph" />}
-        <div><b>{x.title || name}</b><small className="muted">{l.kind === 'product' ? t('Digital') : `${t('Stock')}: ${item?.stock ?? '—'}`} · {price != null ? inr(price) : t('no price')}{x.category ? ` · ${x.category}` : ''}</small></div>
+        <div><b>{x.title || name}</b><small className="muted">{l.kind === 'product' ? t('Digital') : `${t('Stock')}: ${item?.stock ?? '—'}`} · {price != null ? inr(price) : t('no price')}{x.category ? ` · ${x.category}` : ''}{waiting > 0 ? ` · ${t('{n} waiting for restock', { n: waiting })}` : ''}</small></div>
         <label className="fcheck" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={x.visible !== false} onChange={(e) => save({ visible: e.target.checked })} />{t('Visible')}</label>
       </div>
       {open && <div className="st-set">

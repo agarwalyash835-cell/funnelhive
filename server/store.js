@@ -24,7 +24,7 @@ import { THEME_IDS, cleanThemeOptions, cleanPolicyPages, cleanListingExtras, POL
 import { isDemoHandle, demoStore, demoListings, demoQuote, demoArt } from './store-demos.js';
 import { waRequired, waPhoneOk } from './hive-wa.js';
 import { notify } from './notify.js';
-import { registerStoreOrders, reviewStats, trackKey, publicReview } from './store-orders.js';
+import { registerStoreOrders, reviewStats, trackKey, publicReview, waitingCounts } from './store-orders.js';
 import { registerStoreFeeds } from './store-feeds.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -241,7 +241,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
   // ---- the seller ----
   app.get('/api/store', auth, (req, res) => {
     const s = ensure(req.user);
-    res.json({ store: sellerView(req, s), listings: listingsFor(req.user.id), products: productsFor(req.user), items: itemsFor(req.user), inventory: inventoryOn(req.user) });
+    res.json({ store: sellerView(req, s), listings: listingsFor(req.user.id), products: productsFor(req.user), items: itemsFor(req.user), inventory: inventoryOn(req.user), waiting: waitingCounts(req.user.id) });
   });
   app.put('/api/store', auth, (req, res) => {
     const s = ensure(req.user);
@@ -541,5 +541,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     });
   }
 
-  registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId });
+  // a stock item's units in stock (null for downloads) — for back-in-stock alerts
+  const stockOfListing = (l, owner) => { const r = resolve(l, owner); return r && r.item ? Math.floor(r.stock) : null; };
+  registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId, stockOfListing });
 }

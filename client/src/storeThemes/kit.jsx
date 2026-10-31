@@ -588,6 +588,7 @@ export function ProductPage({ id }) {
             {l.kind !== 'digital' && !l.soldOut && <div className="sv-qty"><button type="button" onClick={() => setQty(Math.max(1, qty - 1))} aria-label="−">−</button><span>{qty}</span><button type="button" onClick={() => setQty(Math.min(max, qty + 1))} aria-label="+">+</button></div>}
             <AddButton l={l} qty={qty} className="big" size={size || undefined} needSize={() => setAskSize(true)} />
           </div>
+          {l.soldOut && l.kind !== 'digital' && <BackInStock l={l} />}
           {inCart > 0 && <Link className="sv-incart" to={link('/cart')}><Icon n="check" size={16} />{t('inCart')} · {inCart} — {t('viewCart')}</Link>}
           {theme.assist?.product && <Assist product={l.title} />}
           {s.pincode && l.kind !== 'digital' && <PincodeCheck />}
@@ -759,5 +760,28 @@ function OrderReturns({ o, url, reload }) {
         </div>
       ))}</div>}
     </section>
+  );
+}
+
+// a sold-out product: leave an email and get one note when it's back (server store-orders.js)
+function BackInStock({ l }) {
+  const { base, t, s } = useStore();
+  const [email, setEmail] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const send = async (e) => {
+    e.preventDefault(); setBusy(true); setMsg('');
+    const r = await fetch(`${base}/p/${encodeURIComponent(l.id)}/notify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }).then((x) => x.json()).catch(() => ({ error: 'Network problem — please try again' }));
+    setBusy(false);
+    setMsg(r.error || t('bisDone'));
+    if (!r.error) setEmail('');
+  };
+  return (
+    <form className="sv-bis-form" onSubmit={send}>
+      <b>{t('bisTitle')}</b>
+      <small>{t('bisSub')}</small>
+      <div><input type="email" required placeholder={t('bisPh')} value={email} onChange={(e) => setEmail(e.target.value)} aria-label={t('bisPh')} /><button type="submit" className="sv-btn" disabled={busy || s.demo}>{t('bisBtn')}</button></div>
+      {msg && <p className={msg === t('bisDone') ? 'sv-ok' : 'st-err'}>{msg}</p>}
+    </form>
   );
 }

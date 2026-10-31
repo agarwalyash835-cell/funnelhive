@@ -922,3 +922,10 @@ p.sv-byline { font-size: 15px; margin: -2px 0 10px; }
 .sv-oret-req.st-approved em, .sv-oret-req.st-received em, .sv-oret-req.st-closed em { background: color-mix(in srgb, #16a34a 16%, var(--st-surface)); color: #166534; }
 .sv-oret-req.st-rejected em { background: color-mix(in srgb, #dc2626 12%, var(--st-surface)); color: #991b1b; }
 .sv-oret-req p { grid-column: 1 / -1; margin: 2px 0 0; font-size: 13.5px; }
+
+/* back in stock: a sold-out product's "email me" box */
+.sv-bis-form { display: grid; gap: 6px; padding: 14px 16px; margin-top: 10px; border-radius: var(--st-radius); background: var(--st-brand-soft); }
+.sv-bis-form small { color: var(--st-soft); }
+.sv-bis-form div { display: flex; gap: 8px; }
+.sv-bis-form input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--st-line); border-radius: var(--st-radius-sm); font: inherit; background: var(--st-surface); color: var(--st-ink); }
+.sv-bis-form p { margin: 0; }

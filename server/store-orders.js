@@ -5,7 +5,7 @@
 //     review per product per order. The seller sees them all (Store → Reviews) and can hide one; never written by AI.
 //   - listings show the real average and count of the visible reviews (reviewStats, used by store.js).
 import crypto from 'node:crypto';
-import { T, q, uid } from './db.js';
+import { T, q, uid, JOBS } from './db.js';
 import { notify } from './notify.js';
 import { sendEmail } from './messaging.js';
 
@@ -91,9 +91,55 @@ function orderView(o, s) {
   };
 }
 
-// deps from store.js: { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId }
-export function registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId }) {
+// ---------- back in stock ----------
+// A buyer on a sold-out product leaves an email; when the product has stock again they get one email with its link,
+// from the seller (a background job, and on demand in tests). Nothing else is ever sent to that address from here.
+export const waitingCounts = (userId) => Object.fromEntries(q('SELECT listingId, COUNT(*) AS n FROM swatch WHERE userId = ? AND sentAt IS NULL GROUP BY listingId').all(userId).map((r) => [r.listingId, r.n]));
+let stockFn = null; // (listing, owner) → units in stock, or null when it isn't a stock item (store.js)
+export async function sendBackInStock() {
+  let sent = 0;
+  for (const { listingId } of q('SELECT DISTINCT listingId FROM swatch WHERE sentAt IS NULL').all()) {
+    const l = T.slistings.get(listingId), owner = l && T.users.get(l.userId), s = owner && T.stores.find({ userId: owner.id });
+    if (!l || !owner || !s?.enabled || l.visible === false) continue;
+    const left = stockFn ? stockFn(l, owner) : null;
+    if (!(left > 0)) continue;
+    const base = String(process.env.PAGES_URL || process.env.APP_URL || '').replace(/\/+$/, '');
+    const link = base && s.handle ? `${base}/s/${s.handle}/p/${l.id}` : '';
+    const title = l.title || T.iitems.get(l.refId)?.name || 'The product you wanted';
+    const biz = s.name || owner.settings?.businessName || owner.name || 'the store';
+    for (const w of q('SELECT data FROM swatch WHERE listingId = ? AND sentAt IS NULL').all(listingId).map((r) => JSON.parse(r.data))) {
+      T.swatch.update(w.id, (x) => { x.sentAt = Date.now(); });
+      sendEmail(owner, { to: w.email, subject: `${title} is back in stock`, text: `Hi,\n\nGood news — ${title} is back in stock at ${biz}.${link ? `\n\nGet it here before it sells out again: ${link}` : ''}\n\nYou asked us to tell you once, so this is the only email about it.\n\n— ${biz}` }).catch(() => {});
+      sent++;
+    }
+  }
+  return sent;
+}
+
+const lim0 = (rateLimit, isTest) => rateLimit({ windowMs: 3600000, max: isTest ? 2000 : 20, key: (req) => `${req.ip}:swatch`, message: 'Too many tries — please try again later.' });
+// deps from store.js: { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId, stockOfListing }
+export function registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId, stockOfListing }) {
   SECRET = secret;
+  stockFn = stockOfListing;
+  // body: { email } — only for a product that's sold out right now
+  app.post('/api/s/:handle/p/:lid/notify', lim0(rateLimit, isTest), (req, res) => {
+    const o = openStore(req, res, { buying: true, quote: true });
+    if (!o) return;
+    if (o.demo) return res.json({ ok: true, demo: true });
+    const l = T.slistings.get(clip(req.params.lid, 60));
+    if (!l || l.userId !== o.s.userId || l.visible === false) return res.status(404).json({ error: 'This product isn’t available' });
+    const email = clip(req.body?.email, 200).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter your email address' });
+    const left = stockOfListing(l, o.owner);
+    if (left == null || left > 0) return res.status(400).json({ error: 'This product is in stock — you can buy it now' });
+    if (T.swatch.count({ listingId: l.id }) >= 5000) return res.json({ ok: true });
+    const ex = T.swatch.find({ listingId: l.id, email });
+    if (ex) T.swatch.update(ex.id, (x) => { delete x.sentAt; x.at = Date.now(); });
+    else T.swatch.insert({ id: uid(), userId: o.s.userId, listingId: l.id, email, at: Date.now() });
+    res.json({ ok: true });
+  });
+  if (isTest) app.post('/api/__test/back-in-stock', async (req, res) => res.json({ sent: await sendBackInStock() }));
+  else if (JOBS) setInterval(() => { sendBackInStock().catch((e) => console.error('back-in-stock emails failed', e.message)); }, 10 * 60000).unref();
   const lim = rateLimit({ windowMs: 60000, max: isTest ? 2000 : 30, key: (req) => `${req.ip}:so`, message: 'Too many tries — please wait a minute and try again.' });
   // the order, when the key matches and it belongs to this store
   const theOrder = (req, res) => {
