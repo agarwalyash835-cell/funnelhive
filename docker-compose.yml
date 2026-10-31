@@ -49,6 +49,9 @@ services:
       OLD_PAGES_DOMAIN: ${OLD_PAGES_DOMAIN:-old-pages.localhost}
       # the marketing site (website/), e.g. yourbrand.in
       SITE_DOMAIN: ${SITE_DOMAIN:-site.localhost}
+      # the admin panel and the agencies' address (match SUPER_HOST / AGENCY_HOST in server/.env; see DEPLOY.md)
+      SUPER_DOMAIN: ${SUPER_DOMAIN:-super.localhost}
+      AGENCY_DOMAIN: ${AGENCY_DOMAIN:-agency.localhost}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./website:/srv/site:ro

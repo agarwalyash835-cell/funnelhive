@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, fmtDate, impersonate } from '../api';
+import { isSuper, appUrl } from '../tier';
 import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { AreaChart } from '../charts';
 import { AdminPartners } from '../partnerKit';
@@ -21,7 +22,7 @@ export default function Admin() {
   if (isAdminUser === false) return <Layout title="Page not found"><Panel><p className="muted">This page doesn’t exist. <Link to="/">Go to your dashboard</Link></p></Panel></Layout>;
   if (tfa === false) return (
     <Layout title="Admin" subtitle="Your platform: revenue, sellers and settings.">
-      <Panel title="Two-factor authentication needed"><p>Turn on two-factor authentication to use the admin panel.</p><Link className="btn primary" to="/settings#security">Open Settings → Security</Link></Panel>
+      <Panel title="Two-factor authentication needed"><p>Turn on two-factor authentication to use the admin panel.</p>{isSuper ? <a className="btn primary" href={`${appUrl}/settings#security`}>Open Settings → Security in the app</a> : <Link className="btn primary" to="/settings#security">Open Settings → Security</Link>}</Panel>
     </Layout>
   );
   if (tfa == null) return <Layout title="Admin"><div className="skeleton" /></Layout>;
@@ -240,7 +241,8 @@ function SellerModal({ id, onClose, onChange }) {
   const act = async (action, extra = {}, msg) => {
     try {
       const r = await api(`/admin/users/${id}/action`, 'POST', { action, ...extra });
-      if (r.token) return impersonate(r.token);
+      if (r.token) return impersonate(r.token, r.openAt);
+      if (r.pending) { toast('Request saved — another admin has to approve it (Admin → Audit shows it)'); load(); return; }
       if (r.deleted) { toast('Seller deleted'); onChange(); return onClose(); }
       toast(msg || 'Done'); load(); onChange();
     } catch (e) { toast(e.message); }
@@ -286,7 +288,7 @@ function SellerModal({ id, onClose, onChange }) {
             {u.twoFactor && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Turn off 2-step verification for this seller?', confirm: 'Turn off', danger: true })) && act('reset_2fa')}>Reset 2-step</button>}
             <button className="btn ghost sm" onClick={() => act('sign_out', {}, 'Signed out everywhere')}>Sign out everywhere</button>
             <button className="btn ghost sm" onClick={resetLink}>Create password-reset link</button>
-            {u.admin ? <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Remove admin access?', confirm: 'Remove', danger: true })) && act('remove_admin')}>Remove admin</button> : <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: `Make ${u.email} a platform admin?`, text: 'They will see all sellers and revenue.', confirm: 'Make admin' })) && act('make_admin')}>Make admin</button>}
+            {u.admin ? <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Remove admin access?', confirm: 'Remove', danger: true })) && act('remove_admin')}>Remove admin</button> : <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: `Make ${u.email} a platform admin?`, text: 'They will see all sellers and revenue.', confirm: 'Make admin' })) && act('make_admin', { level: 'owner' })}>Make admin</button>}{!u.admin && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: `Make ${u.email} a support admin?`, text: 'They can see every account and log in as a seller, but can’t change platform settings, make admins or delete accounts.', confirm: 'Make support admin' })) && act('make_admin', { level: 'support' })}>Make support admin</button>}
             <button className="btn ghost sm danger" onClick={async () => { const e = await promptDialog({ title: 'Delete seller', text: 'This permanently deletes the seller and all their data (invoices are kept). Type their email to confirm:', label: u.email, confirmWord: u.email, confirm: 'Delete', danger: true }); if (e) act('delete', { confirm: e }); }}><Icon name="trash" size={14} /> Delete</button>
           </div>
         </div>
@@ -711,15 +713,33 @@ function PlatformSettings() {
   );
 }
 
+// requests to make an account an admin: another admin approves them
+function AdminRequests() {
+  const [list, setList] = useState([]);
+  const load = () => api('/admin/admin-requests').then(setList).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  const decide = async (r, how) => { try { await api(`/admin/admin-requests/${r.id.replace('adminreq.', '')}/${how}`, 'POST'); toast(how === 'approve' ? 'Approved' : 'Rejected'); load(); } catch (e) { toast(e.message); } };
+  if (!list.length) return null;
+  return (
+    <Panel title="Waiting for a second admin" pad={false}>
+      <table className="tbl compact"><thead><tr><th>Account</th><th>Level</th><th>Asked by</th><th>When</th><th /></tr></thead>
+        <tbody>{list.map((r) => <tr key={r.id}><td>{r.email}</td><td>{r.level}</td><td>{r.byEmail}</td><td className="muted sm">{fmtDate(r.at)}</td><td className="r">{!r.mine && <button className="btn primary sm" onClick={() => decide(r, 'approve')}>Approve</button>} <button className="btn ghost sm" onClick={() => decide(r, 'reject')}>{r.mine ? 'Cancel' : 'Reject'}</button></td></tr>)}</tbody></table>
+    </Panel>
+  );
+}
+
 function Audit() {
   const [list, setList] = useState(null);
   useEffect(() => { api('/admin/audit').then(setList).catch(loadFailed); }, []);
   if (!list) return <div className="skeleton" />;
   return (
+    <>
+    <AdminRequests />
     <Panel title="Every change made by an admin" pad={false}>
       {list.length ? <table className="tbl compact"><thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Seller</th><th>Detail</th></tr></thead>
         <tbody>{list.map((a) => <tr key={a.id}><td className="muted sm">{fmtDate(a.at)} · {new Date(a.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td><td>{a.actor}</td><td className="strong">{a.action.replace(/_/g, ' ')}</td><td className="mono">{a.userId || '—'}</td><td className="muted sm">{a.detail}</td></tr>)}</tbody></table>
         : <p className="muted sm" style={{ padding: 18 }}>Nothing yet.</p>}
     </Panel>
+    </>
   );
 }

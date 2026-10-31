@@ -17,6 +17,7 @@ import { funnelLimitError } from './limits.js';
 import { randomToken, hashToken } from './security.js';
 import { sendMail, appUrl, mailEnabled } from './mail.js';
 import { isPlatformHost } from './domains.js';
+import { audit } from './admin-guard.js';
 
 const DAY = 86400000;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -147,6 +148,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
       // the agency works in the account as its manager
       T.members.insert({ id: uid(), ownerId: id, userId: req.user.id, email: req.user.email, role: 'agency', status: 'active', at: Date.now(), acceptedAt: Date.now() });
     });
+    audit(req, id, 'agency_client_create', business);
     res.status(201).json({ id, business, token: signFor(req.user, id) });
   });
   // the client logs in to their own account: a link to set a password, sent to their email
@@ -159,6 +161,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     // the new email isn't proven until the client opens the link sent to it (the reset marks it verified): until
     // then it can't pick up admin rights or be linked by a Google sign-in as if the agency owned that inbox
     T.users.update(c.id, (x) => { x.email = email; x.emailVerified = false; x.resetHash = hashToken(token); x.resetExp = Date.now() + 7 * DAY; x.invitedAt = Date.now(); });
+    audit(req, c.id, 'agency_client_invite', email);
     const b = brandFor(req.user)?.brand || platform().brand;
     await sendMail({ to: email, subject: `Your ${b} account is ready`, text: `Hi,\n\n${req.user.settings?.whiteLabel?.brand || req.user.settings?.businessName || req.user.name} has set up your ${b} account for ${c.settings?.businessName || ''}.\n\nChoose your password to log in (link valid for 7 days):\n${process.env.APP_URL || appUrl(req)}/reset?token=${token}\n` }).catch(() => {});
     res.json({ ok: true, ...(process.env.NODE_ENV === 'test' ? { token } : {}), ...(mailEnabled() ? {} : { link: `${process.env.APP_URL || appUrl(req)}/reset?token=${token}` }) });
@@ -169,11 +172,13 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     if (!c.passwordSet) return res.status(400).json({ error: 'Invite the client to log in first, so someone owns the account' });
     T.users.update(c.id, (x) => { delete x.agencyId; x.billing = newBilling(); });
     q("UPDATE members SET data = json_set(data, '$.role', 'admin') WHERE json_extract(data, '$.ownerId') = ? AND json_extract(data, '$.userId') = ?").run(c.id, req.user.id);
+    audit(req, c.id, 'agency_client_detach', c.email);
     res.json({ ok: true });
   });
   app.delete('/api/agency/clients/:cid', auth, (req, res) => {
     const c = myClient(req, res); if (!c) return;
     if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
+    audit(req, c.id, 'agency_client_delete', c.settings?.businessName || c.email);
     deleteAccount(c.id);
     res.json({ ok: true });
   });

@@ -6,12 +6,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { brandForHost } from './agency.js';
 import { T, uid, JOBS } from './db.js';
+import { superHost, agencyHost } from './tiers.js';
 
 const HOST_RE = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch { return ''; } };
 export const cnameTarget = () => (process.env.CNAME_TARGET || hostOf(process.env.APP_URL || '')).toLowerCase().replace(/\.$/, '');
 const serverIp = () => (process.env.SERVER_IP || '').trim();
-const appHosts = () => new Set(['localhost', '127.0.0.1', '::1', hostOf(process.env.APP_URL || ''), hostOf(process.env.PAGES_URL || ''), cnameTarget(), ...(process.env.APP_HOSTS || '').split(',')].map((s) => s.trim().toLowerCase()).filter(Boolean));
+// SUPER_HOST / AGENCY_HOST (tiers.js): the admin and agency addresses are the platform's own too
+const appHosts = () => new Set(['localhost', '127.0.0.1', '::1', hostOf(process.env.APP_URL || ''), hostOf(process.env.PAGES_URL || ''), cnameTarget(), superHost(), agencyHost(), ...(process.env.APP_HOSTS || '').split(',')].map((s) => s.trim().toLowerCase()).filter(Boolean));
 // the platform's own addresses and anything under or above them (app.x.tech, pages.x.tech, x.tech) — never a seller's or agency's
 export const isPlatformHost = (d) => [...appHosts()].some((h) => h && !['localhost', '127.0.0.1', '::1'].includes(h) && (d === h || d.endsWith(`.${h}`) || h.endsWith(`.${d}`)));
 const fakeDns = () => process.env.DOMAINS_FAKE_DNS === '1'; // tests only
@@ -154,7 +156,8 @@ export function registerDomains(app, { auth }) {
   });
   // Caddy on_demand_tls "ask" endpoint: only issue certificates for connected domains
   // (the www / bare twin of a connected domain too, so its redirect works over HTTPS)
-  app.get('/api/domains/tls-check', (req, res) => { const h = normalizeDomain(req.query.domain); res.status(activeDomain(h) || wwwTwin(h) || brandForHost(h) ? 200 : 404).end(); });
+  // (and the platform's admin and agency addresses, SUPER_HOST / AGENCY_HOST, should Caddy ask about them)
+  app.get('/api/domains/tls-check', (req, res) => { const h = normalizeDomain(req.query.domain); res.status(activeDomain(h) || wwwTwin(h) || brandForHost(h) || (h && (h === superHost() || h === agencyHost())) ? 200 : 404).end(); });
 
   // re-check pending domains in the background for 3 days after they're added (or after they lapsed),
   // and live ones once a day — every 6 hours while failing, so a lapse is confirmed or cleared within a day

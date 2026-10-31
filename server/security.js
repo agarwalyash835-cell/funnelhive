@@ -80,9 +80,10 @@ const device = (ua) => {
   return o ? `${b} on ${o}` : b;
 };
 export const SESSION_MS = 14 * 86400000;
-export function startSession(req, u, { imp = null, ms = SESSION_MS } = {}) {
+// aud: the tier the device signed in on (tiers.js: super / agency / app)
+export function startSession(req, u, { imp = null, ms = SESSION_MS, aud = 'app' } = {}) {
   const now = Date.now();
-  return T.sessions.insert({ id: uid(), userId: u.id, createdAt: now, lastSeenAt: now, expiresAt: now + ms, ip: ipShort(req.ip), device: device(req.headers['user-agent']), ...(imp ? { imp } : {}) }).id;
+  return T.sessions.insert({ id: uid(), userId: u.id, createdAt: now, lastSeenAt: now, expiresAt: now + (ms || SESSION_MS), ip: ipShort(req.ip), device: device(req.headers['user-agent']), aud, ...(imp ? { imp } : {}) }).id;
 }
 // a token's session: still signed in? (tokens from before sessions existed have no sid — accepted until they
 // expire or "sign out everywhere else" is used, which sets u.legacyBefore)
@@ -90,10 +91,12 @@ export function sessionOk(p, u) {
   if (!p.sid) return !(u.legacyBefore && (p.iat + 1) * 1000 <= u.legacyBefore);
   const s = T.sessions.get(p.sid);
   if (!s || s.userId !== u.id || s.revokedAt || s.expiresAt < Date.now()) return false;
+  if ((s.aud || 'app') !== (p.aud || 'app')) return false; // a token and its session are always the same tier
   if (Date.now() - s.lastSeenAt > 10 * 60000) T.sessions.update(s.id, (x) => { x.lastSeenAt = Date.now(); });
   return true;
 }
-export const extendSession = (sid) => T.sessions.update(sid, (s) => { if (!s.imp) s.expiresAt = Date.now() + SESSION_MS; });
+// support sessions and admin (super) sessions keep their fixed length
+export const extendSession = (sid) => T.sessions.update(sid, (s) => { if (!s.imp && s.aud !== 'super') s.expiresAt = Date.now() + SESSION_MS; });
 export const revokeSession = (sid, userId) => T.sessions.update(sid, (s) => (s.userId === userId && !s.revokedAt ? Object.assign(s, { revokedAt: Date.now() }) : s));
 // every session but keep (null: all), and tokens from before sessions existed
 export function revokeOthers(userId, keep = null) {

@@ -1,7 +1,19 @@
+import { superUrl } from './tier';
+
 const tok = () => localStorage.getItem('ff_token');
+const payload = (t) => { try { return JSON.parse(atob(String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch { return null; } };
+
+// Support access opened from the admin address (super host): the admin panel sends the seller's support token here
+// in the address's #fragment (never sent to a server). Only a support token (imp) is taken — a link can't sign
+// someone into another account.
+if (typeof location !== 'undefined' && location.hash.startsWith('#ff_support=')) {
+  const t = decodeURIComponent(location.hash.slice('#ff_support='.length));
+  history.replaceState(null, '', location.pathname + location.search);
+  if (payload(t)?.imp) { localStorage.setItem('ff_admin_token', '@super'); localStorage.setItem('ff_token', t); }
+}
 
 // Sessions slide: a token older than a day is swapped for a fresh one (the server signs idle devices out after 14 days)
-const issuedAt = (t) => { try { return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).iat * 1000; } catch { return 0; } };
+const issuedAt = (t) => (payload(t)?.iat || 0) * 1000;
 let refreshing = null;
 function refresh() {
   const t = tok();
@@ -45,8 +57,18 @@ export const logout = () => {
 export const loggedIn = () => !!tok();
 
 // "Log in as" a seller (admins, for support) and back
-export const impersonate = (token) => { localStorage.setItem('ff_admin_token', tok()); setToken(token); location.href = '/'; };
-export const stopImpersonating = () => { const t = localStorage.getItem('ff_admin_token'); localStorage.removeItem('ff_admin_token'); if (t) setToken(t); location.href = '/admin'; };
+// openAt: on the admin address, the seller's account opens on the app's address in a new tab
+export const impersonate = (token, openAt) => {
+  if (openAt) { window.open(`${openAt}/#ff_support=${encodeURIComponent(token)}`, '_blank', 'noopener'); return; }
+  localStorage.setItem('ff_admin_token', tok()); setToken(token); location.href = '/';
+};
+export const stopImpersonating = () => {
+  const t = localStorage.getItem('ff_admin_token');
+  localStorage.removeItem('ff_admin_token');
+  if (t === '@super') { localStorage.removeItem('ff_token'); location.href = superUrl ? `${superUrl}/admin` : '/login'; return; }
+  if (t) setToken(t);
+  location.href = '/admin';
+};
 
 // Razorpay Checkout is loaded only when someone actually pays
 export const loadRazorpay = () => (window.Razorpay ? Promise.resolve() : new Promise((resolve, reject) => {

@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { loggedIn } from './api';
+import { isSuper, superUrl } from './tier';
 import ErrorBoundary, { initMonitoring } from './ErrorBoundary';
 // Live funnel pages are in the first download; every other screen loads its own chunk when opened,
 // so a buyer opening a funnel never downloads the dashboard.
@@ -102,7 +103,24 @@ function LangRoot({ children }) {
 const onDomain = typeof window !== 'undefined' && !!window.__FF_DOMAIN__;
 const onFunnel = onDomain || /^\/(f|learn|cert|affiliate)\/[^/]/.test(location.pathname);
 
-const app = onDomain ? (
+// the admin address (super host, server tiers.js): its own sign-in and the admin panel, nothing else
+const superApp = (
+  <LangRoot>
+  <BrowserRouter>
+    <AppToaster />
+    <Screens variant="app">
+      <Routes>
+        <Route path="/login" element={L(Auth, { admin: true })} />
+        <Route path="/admin" element={P(Admin)} />
+        <Route path="/admin/invoices/:id" element={P(Invoice, { admin: true })} />
+        <Route path="*" element={<Navigate to={loggedIn() ? '/admin' : '/login'} replace />} />
+      </Routes>
+    </Screens>
+  </BrowserRouter>
+  </LangRoot>
+);
+
+const app = isSuper ? superApp : onDomain ? (
   <BrowserRouter>
     <Screens variant="page">
       <Routes>
@@ -173,8 +191,8 @@ const app = onDomain ? (
         <Route path="/hive" element={P(Hive)} />
         <Route path="/billing" element={P(Billing)} />
         <Route path="/billing/invoices/:id" element={P(Invoice)} />
-        <Route path="/admin" element={P(Admin)} />
-        <Route path="/admin/invoices/:id" element={P(Invoice, { admin: true })} />
+        {!superUrl && <Route path="/admin" element={P(Admin)} />}
+        {!superUrl && <Route path="/admin/invoices/:id" element={P(Invoice, { admin: true })} />}
         <Route path="/ai" element={<Navigate to="/hive" replace />} />
         <Route path="/automations/:id?" element={P(Automations)} />
         <Route path="/templates" element={P(TemplateGallery)} />

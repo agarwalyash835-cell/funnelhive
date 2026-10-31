@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
 import { api, meCache, logout, stopImpersonating, fmtDate } from './api';
+import { isSuper } from './tier';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
 import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft } from 'lucide-react';
 
@@ -216,6 +217,7 @@ function ProfileMenu({ me, onGo }) {
       {open && (
         <div className="me-menu" role="menu">
           {ACCOUNT.filter((to) => allowed(to, me)).map((to) => <Link key={to} role="menuitem" to={to} onClick={go}><Icon name={PAGES[to][0]} size={15} />{t(PAGES[to][1])}</Link>)}
+          {me?.adminUrl && <a role="menuitem" href={`${me.adminUrl}/admin`}><Icon name="shield" size={15} />{t('Admin')}</a>}
           <hr />
           <button type="button" role="menuitem" onClick={() => { toggleLook(); setOpen(false); }}><Icon name="palette" size={15} />{t(currentLook() === 'glass' ? 'Switch to the standard look' : 'Switch to Liquid Glass')}</button>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new Event('ff:jump')); }}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
@@ -358,6 +360,21 @@ export function Layout({ title, subtitle, actions, children, wide }) {
   useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); }).catch(() => {}); }, []);
   useEffect(() => { applyUiLang(); }, []);
   useEffect(() => { const h = (e) => setPaywall(e.detail || {}); window.addEventListener('ff:paywall', h); return () => window.removeEventListener('ff:paywall', h); }, []);
+  // the admin address (tiers): only the admin panel — no seller menu, notifications or funnel search
+  if (isSuper) return (
+    <div className="app mini super-admin">
+      <main className="main" style={{ marginLeft: 0 }}>
+        <header className="topbar">
+          <div className="tb-title">{title && <h1>{title}</h1>}{subtitle && <p>{subtitle}</p>}</div>
+          <div className="tb-actions">{actions}</div>
+          {me && <span className="muted sm" title={me.email}>{me.email}{me.adminLevel === 'support' ? ' · support' : ''}</span>}
+          <button type="button" className="btn ghost sm" onClick={logout}><Icon name="logout" size={15} />{t('Log out')}</button>
+        </header>
+        {loadFail && <div className="app-banner bad" role="alert"><span>Part of this page didn’t load — check your connection.</span><button onClick={() => location.reload()}>Reload</button></div>}
+        <div className={`content ${wide ? 'wide' : ''}`}>{typeof children === 'function' ? children(me) : children}</div>
+      </main>
+    </div>
+  );
   return (
     <div className={`app ${mini ? 'mini' : ''}`}>
       <aside className={`side ${open ? 'open' : ''}`}>
