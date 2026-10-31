@@ -13,11 +13,12 @@ const MB = 1024 * 1024;
 
 const trialing = (u) => { const a = accessFor(u); return !a.admin && (a.status === 'trialing' || a.status === 'expired' && a.planStatus === 'trialing'); };
 export function limitsFor(u) {
-  const p = { ...LIMIT_DEFAULTS, ...(platform().limits || {}) }, o = u?.limits || {}, trial = trialing(u);
+  // o: set by the platform admin for this account; pl: from the plan its agency sells it (partners.js applyPlanPerks)
+  const p = { ...LIMIT_DEFAULTS, ...(platform().limits || {}) }, o = u?.limits || {}, pl = u?.planLimits || {}, trial = trialing(u);
   return {
     trial,
-    funnels: o.funnels ?? (trial ? p.funnelsTrial : p.funnels),
-    storageMB: o.storageMB ?? (trial ? p.storageMBTrial : p.storageMB),
+    funnels: o.funnels ?? pl.funnels ?? (trial ? p.funnelsTrial : p.funnels),
+    storageMB: o.storageMB ?? pl.storageMB ?? (trial ? p.storageMBTrial : p.storageMB),
     broadcastDaily: trial ? p.broadcastTrialDaily : null, // null: only the shared sender's own cap
     vaultMB: o.vaultMB ?? (trial ? p.vaultMBTrial : p.vaultMB), // the vault's files (vault.js)
   };

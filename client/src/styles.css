@@ -2732,6 +2732,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .pt-row { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr)) auto auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--c-line); border-radius: 12px; margin-bottom: 8px; }
 .pt-row.pack { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; }
 .pt-row .fld { margin: 0; }
+/* a plan's add-ons and caps: a second line across the whole row */
+.pt-row-more { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)); gap: 8px; align-items: end; }
+@media (max-width: 720px) { .pt-row-more { grid-template-columns: 1fr 1fr; } }
 .pt-def { display: flex; gap: 6px; align-items: center; font-size: 12.5px; padding-bottom: 10px; white-space: nowrap; }
 .pt-cost { padding-bottom: 12px; }
 @media (max-width: 760px) { .pt-row, .pt-row.pack { grid-template-columns: 1fr 1fr; } }

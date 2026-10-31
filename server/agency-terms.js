@@ -88,7 +88,8 @@ export const clientsOf = (agencyId) => (agencyId ? T.users.all({ agencyId }) : [
 // team seats in a client account: refused when its agency set a cap (the agency's own row doesn't count)
 export function seatCapError(owner) {
   if (!owner?.agencyId) return null;
-  const cap = termsOf(T.users.get(owner.agencyId))?.seatCap;
+  // the client's plan sets it (partners.js applyPlanPerks), else the agency's terms
+  const cap = owner.planLimits?.seats ?? termsOf(T.users.get(owner.agencyId))?.seatCap;
   if (!cap) return null;
   const used = T.members.all({ ownerId: owner.id }).filter((m) => m.role !== 'agency').length;
   return used >= cap ? `This account’s plan includes ${cap} team seat${cap > 1 ? 's' : ''} — ask your agency for more` : null;

@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs';
 import { T, q, tx, uid, JOBS } from './db.js';
 import { platform, platformRzp, isAdmin } from './platform.js';
 import { adminCheck, audit } from './admin-guard.js';
-import { rzpCreds, createOrder, validPayment } from './razorpay.js';
+import { rzpCreds, createOrder, validPayment, call as rzpCall } from './razorpay.js';
 import { accessFor, usageSummary, resalePlan } from './billing.js';
 import { issueInvoice, invoiceUrl } from './sales.js';
 import { mailEnabled } from './mail.js';
@@ -19,12 +19,13 @@ import { sendBranded, agencyForHost } from './whitelabel.js';
 import { randomToken, hashToken } from './security.js';
 import { notify } from './notify.js';
 import { agencyHost } from './tiers.js';
-import { termsOf, termsView as unifiedTermsView, termsPatch, setTerms, isReseller, clientsOf as clientsOfAgency } from './agency-terms.js';
+import { termsOf, termsView as unifiedTermsView, termsPatch, setTerms, isReseller, clientsOf as clientsOfAgency, AGENCY_ADDONS } from './agency-terms.js';
 
 const DAY = 86400000;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const r2 = (n) => Math.round(n * 100) / 100;
 const int = (v, lo, hi, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+const cap = (v, lo, hi) => (v === null || v === undefined || v === '' ? null : int(v, lo, hi, null)); // empty = no cap
 const money = (n) => Math.min(10000000, Math.max(0, r2(Number(n) || 0)));
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const FEE_DAYS = 30;
@@ -60,6 +61,9 @@ export function cleanResale(b = {}) {
   const plans = (Array.isArray(b.plans) ? b.plans : []).slice(0, 8).map((p) => ({
     id: clip(p?.id, 20) || uid().slice(0, 10), name: clip(p?.name, 40), about: clip(p?.about, 160),
     monthly: money(p?.monthly), yearly: money(p?.yearly), credits: int(p?.credits, 0, 1000000, 0), trialDays: int(p?.trialDays, 0, 60, 0),
+    // what else the plan gives: add-ons switched on, and caps (empty = the platform's usual limits)
+    addons: Array.isArray(p?.addons) ? [...new Set(p.addons.filter((k) => AGENCY_ADDONS.includes(k)))] : [],
+    limits: { funnels: cap(p?.limits?.funnels, 1, 100000), storageMB: cap(p?.limits?.storageMB, 50, 1000000), seats: cap(p?.limits?.seats, 1, 1000) },
   })).filter((p) => p.name && (p.monthly > 0 || p.yearly > 0));
   const packs = (Array.isArray(b.packs) ? b.packs : []).slice(0, 6).map((p) => ({ id: clip(p?.id, 20) || uid().slice(0, 10), credits: int(p?.credits, 1, 1000000, 0), price: money(p?.price) })).filter((p) => p.credits > 0 && p.price > 0);
   return { plans, packs, defaultPlan: plans.some((p) => p.id === b.defaultPlan) ? b.defaultPlan : plans[0]?.id || '' };
@@ -67,6 +71,7 @@ export function cleanResale(b = {}) {
 const resaleOf = (partner) => partner?.settings?.resale || { plans: [], packs: [], defaultPlan: '' };
 
 // a sub-account's plan state as its owner and its partner see it
+export const autopayView = (c) => (c?.autopay ? { status: c.autopay.status, planId: c.autopay.planId, interval: c.autopay.interval, amount: c.autopay.amount, nextAt: c.autopay.nextAt || null } : null);
 export function subView(c, partner = T.users.get(c.agencyId)) {
   const s = c.sub;
   if (!s) return null;
@@ -85,7 +90,7 @@ export function setSubPlan(clientId, partner, { planId, status = 'trialing', int
     if (status === 'trialing') x.sub.trialEndsAt = now + (Number(days) || plan.trialDays || 14) * DAY;
     if (status === 'active') x.sub.periodEnd = Math.max(now, x.sub.periodEnd || 0) + (Number(days) || (ivl === 'yearly' ? 365 : 30)) * DAY;
   });
-  return { sub: subView(c, partner) };
+  return { sub: subView(applyPlanPerks(c.id, partner), partner) };
 }
 
 // a new sub-account with an owner login (set-password link by email); used by the partner and the super admin
@@ -130,6 +135,83 @@ export function attachSignup(userId, partner) {
   T.members.insert({ id: uid(), ownerId: userId, userId: partner.id, email: partner.email, role: 'agency', status: 'active', at: now, acceptedAt: now });
   const plan = resaleOf(partner).defaultPlan;
   if (plan) setSubPlan(userId, partner, { planId: plan, status: 'trialing' });
+}
+
+// ---------- what a plan gives beyond AI credits ----------
+// The plan's add-ons are switched on (and the ones a previous plan gave switched off again), and its caps on funnels,
+// storage and team seats apply (limits.js, agency-terms.js seatCapError). Run whenever a client's plan or the plan
+// itself changes; a client with no plan keeps only what its agency switched on by hand.
+export function applyPlanPerks(clientId, partner = null) {
+  return T.users.update(clientId, (x) => {
+    const plan = resalePlan(x, partner || T.users.get(x.agencyId));
+    const was = x.planAddons || [], now = plan?.addons || [];
+    x.addons = { ...(x.addons || {}) };
+    for (const k of was) if (!now.includes(k)) x.addons[k] = false;
+    for (const k of now) x.addons[k] = true;
+    x.planAddons = now;
+    x.planLimits = Object.fromEntries(Object.entries(plan?.limits || {}).filter(([, v]) => v != null));
+  });
+}
+
+// ---------- auto-pay: a client's plan renewed by a Razorpay subscription on its partner's own account ----------
+// No webhook for the partner to set up: verify records the first payment, and autopayJob reads each subscription's
+// paid invoices every few hours (and when the client opens Plan & billing), recording each new one as a sale once.
+// The auto-pay lives in client.autopay, apart from client.sub, so an unfinished checkout never changes the plan.
+export const AUTOPAY_END = ['cancelled', 'completed', 'expired', 'halted'];
+export const autopayOn = (c) => !!c?.autopay?.id && !AUTOPAY_END.includes(c.autopay.status) && c.autopay.status !== 'created';
+async function rzpPlanFor(creds, partner, plan, ivl) {
+  const amount = ivl === 'yearly' ? plan.yearly : plan.monthly, key = `${creds.keyId}:${plan.id}:${ivl}`;
+  const known = partner.settings?.resaleRzpPlans?.[key];
+  if (known?.amount === amount) return known.id;
+  // Razorpay plans can't be edited: a new price is a new plan (clients already on auto-pay keep theirs)
+  const r = await rzpCall(creds, 'POST', '/plans', { period: ivl, interval: 1, item: { name: `${plan.name} (${ivl})`.slice(0, 60), amount: Math.round(amount * 100), currency: 'INR' } });
+  T.users.update(partner.id, (x) => { x.settings = { ...x.settings, resaleRzpPlans: { ...(x.settings?.resaleRzpPlans || {}), [key]: { id: r.id, amount } } }; });
+  return r.id;
+}
+export async function syncAutopay(clientId) {
+  const c = T.users.get(clientId), ap = c?.autopay;
+  if (!ap?.id || AUTOPAY_END.includes(ap.status)) return;
+  const p = T.users.get(c.agencyId), creds = rzpCreds(p);
+  if (!isPartner(p) || !creds) return;
+  const sub = await rzpCall(creds, 'GET', `/subscriptions/${ap.id}`);
+  const inv = await rzpCall(creds, 'GET', `/invoices?subscription_id=${ap.id}&count=100`).catch(() => ({ items: [] }));
+  for (const i of (inv.items || []).filter((x) => x.status === 'paid' && x.payment_id).reverse()) {
+    // claim the invoice first, so verify and the job running at once record it a single time
+    let fresh = false;
+    T.users.update(c.id, (x) => { const done = x.autopay?.invoices || []; if (x.autopay?.id === ap.id && !done.includes(i.id)) { x.autopay.invoices = [...done, i.id].slice(-60); fresh = true; } });
+    if (!fresh) continue;
+    const plan = resaleOf(p).plans.find((x) => x.id === ap.planId);
+    const charge = { kind: 'plan', planId: ap.planId, interval: ap.interval, amount: r2((i.amount_paid ?? i.amount ?? ap.amount * 100) / 100), label: `${plan?.name || 'Plan'} plan — ${ap.interval === 'yearly' ? '1 year' : '1 month'} (auto-pay)` };
+    const pay = T.payments.insert({ id: uid(), userId: p.id, clientId: c.id, funnelId: null, kind: 'partner_sale', autopay: ap.id, charge, status: 'created', at: Date.now(), base: process.env.APP_URL || '' });
+    confirmSale(pay, i.payment_id);
+  }
+  T.users.update(c.id, (x) => { if (x.autopay?.id === ap.id) Object.assign(x.autopay, { status: sub.status === 'created' ? ap.status : sub.status, nextAt: sub.charge_at ? sub.charge_at * 1000 : null, syncedAt: Date.now() }); });
+}
+export async function autopayJob() {
+  for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.autopay.id') IS NOT NULL").all()) {
+    const c = JSON.parse(row.data);
+    if (autopayOn(c)) await syncAutopay(c.id).catch((e) => console.error('auto-pay sync failed', c.id, e.message));
+  }
+}
+
+// ---------- reminders: a client paying by hand hears 3 days before its plan (or trial) ends ----------
+export async function renewalReminders(now = Date.now()) {
+  let sent = 0;
+  for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.sub.planId') IS NOT NULL AND json_extract(data, '$.agencyId') IS NOT NULL").all()) {
+    const c = JSON.parse(row.data), s = c.sub;
+    if (autopayOn(c)) continue;
+    const end = s.status === 'active' ? s.periodEnd : s.status === 'trialing' ? s.trialEndsAt : 0;
+    if (!end || end - now > 3 * DAY || end < now || s.remindedFor === end) continue;
+    const p = T.users.get(c.agencyId);
+    if (!isPartner(p)) continue;
+    T.users.update(c.id, (x) => { x.sub.remindedFor = end; });
+    const plan = resalePlan(c, p), when = new Date(end).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', timeZone: 'Asia/Kolkata' });
+    const what = s.status === 'trialing' ? 'Your free trial' : `Your ${plan?.name ? `${plan.name} ` : ''}plan`;
+    notify(c.id, { kind: 'payment_failed', title: `${what} ends on ${when}`, body: 'Renew in Plan & billing, or switch on auto-pay, to keep your account running.', link: '/billing' });
+    await sendBranded(p, null, (b) => ({ to: c.email, subject: `${what} ends on ${when}`, text: `Hi ${c.name},\n\n${what} for ${c.settings?.businessName || c.name} ends on ${when}.\n\nRenew it, or switch on auto-pay so you never have to think about it:\n${(b.agencyId && b.linkBase) || process.env.APP_URL || ''}/billing\n\n— ${b.name}` })).catch(() => {});
+    sent++;
+  }
+  return sent;
 }
 
 // ---------- the platform bills partners: per active sub-account, every 30 days ----------
@@ -253,7 +335,7 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     res.json({
       enabled: true, terms: termsView(req.user), balance: balanceOf(req.user.id), resale: resaleOf(req.user), payments: !!rzpCreds(req.user), canTopUp: !!platformRzp(),
       ledger: T.partnerLedger.all({ partnerId: req.user.id }, { order: 'at', desc: true, limit: 50 }).map(({ partnerId, ...l }) => l),
-      clients: cl.map((c) => ({ id: c.id, business: c.settings?.businessName || c.name, email: c.passwordSet || c.invitedAt ? c.email : null, sub: subView(c, req.user), credits: usageSummary(c) })),
+      clients: cl.map((c) => ({ id: c.id, business: c.settings?.businessName || c.name, email: c.passwordSet || c.invitedAt ? c.email : null, sub: subView(c, req.user), autopay: autopayOn(c) ? autopayView(c) : null, credits: usageSummary(c) })),
       revenue30: r2(revenue),
     });
   });
@@ -263,7 +345,11 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     const inUse = new Set(clientsOf(req.user.id).map((c) => c.sub?.planId).filter(Boolean));
     const gone = [...inUse].filter((id) => !r.plans.some((p) => p.id === id));
     if (gone.length) return res.status(400).json({ error: 'A plan you’re removing still has clients on it — move them to another plan first' });
+    const allowed = termsOf(req.user).addons || [];
+    const no = r.plans.flatMap((p) => p.addons).find((k) => !allowed.includes(k));
+    if (no) return res.status(403).json({ error: `Your agency plan doesn’t include the ${no} add-on for clients — contact support`, addon: no });
     const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, resale: r }; });
+    for (const c of clientsOf(req.user.id)) if (c.sub?.planId) applyPlanPerks(c.id, u);
     res.json({ resale: u.settings.resale });
   });
   app.post('/api/partner/accounts', auth, wrap(async (req, res) => {
@@ -280,7 +366,7 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
   app.put('/api/partner/clients/:cid/plan', auth, (req, res) => {
     if (!partnerOnly(req, res)) return;
     const c = myClient(req, res); if (!c) return;
-    if (req.body?.planId === null) { T.users.update(c.id, (x) => { delete x.sub; }); return res.json({ sub: null }); }
+    if (req.body?.planId === null) { T.users.update(c.id, (x) => { delete x.sub; }); applyPlanPerks(c.id, req.user); return res.json({ sub: null }); }
     const r = setSubPlan(c.id, req.user, req.body || {});
     if (r.error) return res.status(400).json(r);
     res.json(r);
@@ -328,7 +414,9 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     const p = partnerOf(req);
     if (!isPartner(p)) return res.json({ resold: false });
     const r = resaleOf(p);
-    res.json({ resold: true, brand: p.settings?.whiteLabel?.brand || p.settings?.businessName || p.name, supportEmail: p.settings?.whiteLabel?.supportEmail || p.email, plans: r.plans, packs: r.packs, sub: subView(req.user, p), credits: usageSummary(req.user), canPay: !!rzpCreds(p) });
+    const c = req.user;
+    if (autopayOn(c) && Date.now() - (c.autopay.syncedAt || 0) > 15 * 60000) syncAutopay(c.id).catch(() => {});
+    res.json({ autopay: autopayView(c), canAutopay: !!rzpCreds(p), resold: true, brand: p.settings?.whiteLabel?.brand || p.settings?.businessName || p.name, supportEmail: p.settings?.whiteLabel?.supportEmail || p.email, plans: r.plans, packs: r.packs, sub: subView(req.user, p), credits: usageSummary(req.user), canPay: !!rzpCreds(p) });
   });
   app.post('/api/partner-billing/pay', auth, limiter, wrap(async (req, res) => {
     if (req.actor && req.role !== 'admin') return res.status(403).json({ error: 'Only the account owner or an admin can pay' });
@@ -360,6 +448,50 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     if (!creds || oid !== pay.rzpOrderId || !validPayment(creds.secret, oid, pid, sig)) return res.status(400).json({ error: 'We couldn’t confirm this payment — if money was deducted it will be refunded' });
     res.json(confirmSale(pay, pid));
   });
+  // auto-pay: the client approves a Razorpay subscription (card, or UPI AutoPay) on its partner's account
+  const payer = (req, res) => { if (req.actor && req.role !== 'admin') { res.status(403).json({ error: 'Only the account owner or an admin can pay' }); return null; } const p = partnerOf(req); if (!isPartner(p)) { res.status(404).json({ error: 'Not available' }); return null; } return p; };
+  app.post('/api/partner-billing/autopay', auth, limiter, wrap(async (req, res) => {
+    const p = payer(req, res); if (!p) return;
+    const creds = rzpCreds(p);
+    if (!creds) return res.status(400).json({ error: 'Online payment isn’t set up yet — please contact your provider' });
+    const pl = resaleOf(p).plans.find((x) => x.id === req.body?.planId);
+    if (!pl) return res.status(404).json({ error: 'Plan not found' });
+    const ivl = req.body?.interval === 'yearly' && pl.yearly > 0 ? 'yearly' : 'monthly', amount = ivl === 'yearly' ? pl.yearly : pl.monthly;
+    if (!(amount > 0)) return res.status(400).json({ error: 'That plan isn’t sold for this period' });
+    const c = req.user, s = c.sub;
+    if (autopayOn(c)) return res.status(409).json({ error: 'Auto-pay is already on — turn it off first to change plans' });
+    // time already paid for (or a trial) on this plan is honoured: the first debit waits for it
+    const paidTo = s?.planId === pl.id && accessFor(c).ok ? (s.status === 'active' ? s.periodEnd || 0 : s.status === 'trialing' ? s.trialEndsAt || 0 : 0) : 0;
+    const later = paidTo > Date.now() + DAY;
+    let sub;
+    try {
+      sub = await rzpCall(creds, 'POST', '/subscriptions', { plan_id: await rzpPlanFor(creds, p, pl, ivl), total_count: ivl === 'yearly' ? 10 : 120, quantity: 1, customer_notify: 1, ...(later ? { start_at: Math.floor(paidTo / 1000) } : {}), notes: { clientId: c.id, partnerId: p.id, planId: pl.id, interval: ivl } });
+    } catch (e) { console.error('Partner auto-pay subscription failed', e.message); return res.status(502).json({ error: 'Couldn’t reach Razorpay — please try again in a minute.' }); }
+    T.users.update(c.id, (x) => { x.autopay = { id: sub.id, planId: pl.id, interval: ivl, amount, status: 'created', at: Date.now(), invoices: [] }; });
+    const brand = p.settings?.whiteLabel?.brand || p.settings?.businessName || p.name;
+    res.json({ key: creds.keyId, subscription_id: sub.id, name: brand, description: `${pl.name} · ₹${amount.toLocaleString('en-IN')} every ${ivl === 'yearly' ? 'year' : 'month'}${later ? ` · first charge on ${new Date(paidTo).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}`, prefill: { email: c.email, name: c.name }, startsLater: later });
+  }));
+  app.post('/api/partner-billing/autopay/verify', auth, limiter, wrap(async (req, res) => {
+    const p = payer(req, res); if (!p) return;
+    const creds = rzpCreds(p), { razorpay_payment_id: pid, razorpay_subscription_id: sid, razorpay_signature: sig } = req.body || {};
+    // a subscription's checkout signs "payment_id|subscription_id"
+    if (!creds || !sid || sid !== req.user.autopay?.id || !validPayment(creds.secret, pid, sid, sig)) return res.status(400).json({ error: 'We couldn’t confirm auto-pay — if money was deducted it will be refunded' });
+    T.users.update(req.user.id, (x) => { if (x.autopay.status === 'created') x.autopay.status = 'authenticated'; x.autopay.approvedAt = Date.now(); });
+    await syncAutopay(req.user.id).catch((e) => console.error('auto-pay sync failed', e.message));
+    const c = T.users.get(req.user.id);
+    res.json({ ok: true, autopay: autopayView(c), sub: subView(c, p) });
+  }));
+  // stop future debits; the time already paid for stays
+  app.post('/api/partner-billing/autopay/cancel', auth, limiter, wrap(async (req, res) => {
+    const p = payer(req, res); if (!p) return;
+    const ap = req.user.autopay;
+    if (!ap?.id || AUTOPAY_END.includes(ap.status)) return res.status(404).json({ error: 'Auto-pay isn’t on' });
+    const creds = rzpCreds(p);
+    if (creds && ap.status !== 'created') { try { await rzpCall(creds, 'POST', `/subscriptions/${ap.id}/cancel`, { cancel_at_cycle_end: 0 }); } catch (e) { return res.status(502).json({ error: 'Couldn’t reach Razorpay — please try again in a minute.' }); } }
+    const c = T.users.update(req.user.id, (x) => { x.autopay.status = 'cancelled'; x.autopay.cancelledAt = Date.now(); });
+    res.json({ autopay: autopayView(c) });
+  }));
+  if (isTest) app.post('/api/__test/partner-jobs', wrap(async (req, res) => { await autopayJob(); res.json({ reminders: await renewalReminders(Number(req.body?.now) || Date.now()) }); }));
 }
 
 // a sub-account paid its partner: extend the plan or add the credits, and record the sale (with an invoice in the
@@ -381,6 +513,7 @@ export function confirmSale(pay, paymentId) {
     return { order, p, c };
   });
   if (r.again) return r.result;
+  if (pay.charge.kind === 'plan') applyPlanPerks(r.c.id, r.p);
   const inv = issueInvoice(r.p, r.order, [{ index: 0, name: r.order.items[0].name, kind: 'main', amount: r.order.total }], { paymentId });
   const result = { ok: true, sub: subView(T.users.get(r.c.id), r.p), credits: usageSummary(T.users.get(r.c.id)), ...(inv ? { invoice: invoiceUrl(pay.base || '', inv) } : {}) };
   T.payments.update(pay.id, (x) => { x.result = result; });
@@ -388,4 +521,5 @@ export function confirmSale(pay, paymentId) {
   return result;
 }
 
-if (JOBS && process.env.NODE_ENV !== 'test') { setTimeout(() => partnerJob(), 90000).unref(); setInterval(() => partnerJob(), 6 * 3600000).unref(); }
+const partnerJobs = () => { partnerJob(); autopayJob().catch((e) => console.error('auto-pay job failed', e.message)); renewalReminders().catch((e) => console.error('renewal reminders failed', e.message)); };
+if (JOBS && process.env.NODE_ENV !== 'test') { setTimeout(partnerJobs, 90000).unref(); setInterval(partnerJobs, 6 * 3600000).unref(); }

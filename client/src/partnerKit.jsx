@@ -15,6 +15,23 @@ async function checkout(start, verifyPath, onDone) {
   });
   rz.open();
 }
+// Razorpay Checkout for a subscription (auto-pay): the client approves recurring debits on card or UPI AutoPay
+async function subscribe(start, onDone) {
+  try { await loadRazorpay(); } catch (e) { toast(e.message); return; }
+  const rz = new window.Razorpay({
+    key: start.key, subscription_id: start.subscription_id, name: start.name, description: start.description, prefill: start.prefill,
+    handler: async (r) => { try { onDone(await api('/partner-billing/autopay/verify', 'POST', r)); } catch (e) { toast(e.message); } },
+  });
+  rz.open();
+}
+const ADDON_NAMES = { tally: 'Tally', inventory: 'Inventory' };
+// what a plan gives besides AI credits, in a few words
+const perks = (p) => [
+  ...(p.addons || []).map((k) => ADDON_NAMES[k] || k),
+  p.limits?.funnels != null && `${num(p.limits.funnels)} funnel${p.limits.funnels === 1 ? '' : 's'}`,
+  p.limits?.seats != null && `${num(p.limits.seats)} team seat${p.limits.seats === 1 ? '' : 's'}`,
+  p.limits?.storageMB != null && `${Math.round(p.limits.storageMB / 1024 * 10) / 10} GB storage`,
+].filter(Boolean).join(' · ');
 const STATUS = { trialing: ['Trial', 'info'], active: ['Active', 'ok'], comped: ['Free', 'ok'], expired: ['Expired', 'bad'] };
 const subPill = (s) => { if (!s) return <span className="pill">Covered by you</span>; const st = s.access?.ok ? s.status : 'expired'; const [l, c] = STATUS[st] || [st, '']; return <span className={`pill ${c}`}>{l}</span>; };
 const KIND = { topup: 'Top-up', account_fee: 'Account fee', ai_credits: 'AI credits', adjust: 'Adjustment' };
@@ -52,6 +69,7 @@ export function PartnerConsole({ onChanged }) {
               <span className="pt-plan-h"><b>{p.name}</b>{d.resale.defaultPlan === p.id && <small className="pill info">Default for sign-ups</small>}</span>
               <span className="pt-price">{p.monthly > 0 ? <>{inr(p.monthly)}<small>/month</small></> : null}{p.yearly > 0 && <small className="muted"> · {inr(p.yearly)}/year</small>}</span>
               <small className="muted">{num(p.credits)} AI credits a month{p.trialDays ? ` · ${p.trialDays}-day trial` : ''}</small>
+              {perks(p) && <small className="muted">{perks(p)}</small>}
               <small className="pt-margin">Your margin ≈ {inr(Math.max(0, p.monthly - d.terms.perAccount - (p.credits * d.terms.creditRate) / 100))}/month at full AI use</small>
             </div>
           ))}
@@ -68,7 +86,7 @@ export function PartnerConsole({ onChanged }) {
                 <td><b>{c.business}</b><small className="sub-t">{c.email || 'not invited yet'}</small></td>
                 <td>{c.sub?.plan?.name || '—'}</td>
                 <td>{subPill(c.sub)}</td>
-                <td>{c.sub?.status === 'trialing' ? fmtDate(c.sub.trialEndsAt) : c.sub?.periodEnd ? fmtDate(c.sub.periodEnd) : '—'}</td>
+                <td>{c.sub?.status === 'trialing' ? fmtDate(c.sub.trialEndsAt) : c.sub?.periodEnd ? fmtDate(c.sub.periodEnd) : '—'}{c.autopay && <small className="pill ok" style={{ marginLeft: 6 }}>Auto-pay</small>}</td>
                 <td className="r">{num(c.credits.used)}{c.credits.limit != null ? ` / ${num(c.credits.limit)}` : ''}</td>
                 <td className="r nowrap"><button className="btn ghost sm" onClick={() => setPlanFor(c)}>Change plan</button></td>
               </tr>
@@ -109,6 +127,13 @@ function ResaleEditor({ v: v0, terms, onClose, onSaved }) {
             <div className="fld"><label>Trial days</label><input type="number" min="0" max="60" value={p.trialDays || 0} onChange={(e) => setPlan(i, { trialDays: e.target.value })} /></div>
             <label className="pt-def" title="New sign-ups on your app domain start on this plan"><input type="radio" checked={(v.defaultPlan || v.plans[0]?.id) === (p.id || `new${i}`)} onChange={() => setV({ ...v, defaultPlan: p.id || `new${i}` })} /> Default</label>
             <button className="btn ghost sm" aria-label="Remove plan" onClick={() => setV({ ...v, plans: v.plans.filter((_, j) => j !== i) })}><Icon name="x" size={14} /></button>
+            <div className="pt-row-more">
+              {(terms.addons || []).length > 0 && <div className="fld"><label>Add-ons included</label>
+                <div className="chips">{terms.addons.map((k) => { const on = (p.addons || []).includes(k); return <button key={k} type="button" className={on ? 'on' : ''} aria-pressed={on} onClick={() => setPlan(i, { addons: on ? p.addons.filter((x) => x !== k) : [...(p.addons || []), k] })}>{ADDON_NAMES[k] || k}</button>; })}</div></div>}
+              <div className="fld"><label>Max funnels</label><input type="number" min="1" value={p.limits?.funnels ?? ''} placeholder="no cap" onChange={(e) => setPlan(i, { limits: { ...p.limits, funnels: e.target.value } })} /></div>
+              <div className="fld"><label>Team seats</label><input type="number" min="1" value={p.limits?.seats ?? ''} placeholder="no cap" onChange={(e) => setPlan(i, { limits: { ...p.limits, seats: e.target.value } })} /></div>
+              <div className="fld"><label>Storage (GB)</label><input type="number" min="0.1" step="0.5" value={p.limits?.storageMB != null && p.limits.storageMB !== '' ? Math.round(p.limits.storageMB / 1024 * 10) / 10 : ''} placeholder="no cap" onChange={(e) => setPlan(i, { limits: { ...p.limits, storageMB: e.target.value === '' ? '' : Math.round(Number(e.target.value) * 1024) } })} /></div>
+            </div>
           </div>
         ))}
         {v.plans.length < 8 && <button className="btn ghost sm" onClick={() => setV({ ...v, plans: [...v.plans, { name: '', monthly: 0, yearly: 0, credits: 300, trialDays: 7 }] })}><Icon name="plus" size={14} /> Add plan</button>}
@@ -191,6 +216,12 @@ export function ResoldBilling() {
   if (!d.resold) return null;
   const s = d.sub, a = s?.access;
   const buy = async (body) => { try { const st = await api('/partner-billing/pay', 'POST', body); checkout(st, '/partner-billing/verify', () => { toast('Payment received — thank you!'); load(); }); } catch (e) { toast(e.message); } };
+  const ap = d.autopay && !['cancelled', 'completed', 'expired', 'halted', 'created'].includes(d.autopay.status) ? d.autopay : null;
+  const autopay = async (body) => { try { const st = await api('/partner-billing/autopay', 'POST', body); subscribe(st, () => { toast(st.startsLater ? 'Auto-pay is on — the first charge waits until your paid time ends' : 'Auto-pay is on — thank you!'); load(); }); } catch (e) { toast(e.message); } };
+  const stopAutopay = async () => {
+    if (!(await confirmDialog({ title: 'Turn off auto-pay?', text: `No more automatic charges. Your plan stays active until ${fmtDate(s?.periodEnd || s?.trialEndsAt)}; renew by hand after that.`, confirm: 'Turn off', danger: true }))) return;
+    try { await api('/partner-billing/autopay/cancel', 'POST', {}); toast('Auto-pay turned off'); load(); } catch (e) { toast(e.message); }
+  };
   const hasYear = d.plans.some((p) => p.yearly > 0);
   return (
     <>
@@ -199,6 +230,7 @@ export function ResoldBilling() {
         <div><b>{s ? `${s.plan?.name || 'Your'} plan · ${STATUS[a?.ok ? s.status : 'expired']?.[0] || s.status}` : `Covered by ${d.brand}`}</b>
           <small>{!s ? 'Billing is handled by your provider.' : s.status === 'trialing' ? `Free trial until ${fmtDate(s.trialEndsAt)}` : s.periodEnd ? `${a?.ok ? 'Paid until' : 'Ended on'} ${fmtDate(s.periodEnd)}` : s.status === 'comped' ? 'Free — no renewal needed' : ''}{a?.reason ? ` — ${a.reason}` : ''}</small></div>
       </section>
+      {ap && <div className="note-bar"><span><b>Auto-pay is on</b> · {inr(ap.amount)} every {ap.interval === 'yearly' ? 'year' : 'month'}{ap.nextAt ? ` · next charge ${fmtDate(ap.nextAt)}` : ''}</span><button className="link-btn" onClick={stopAutopay}>Turn off</button></div>}
       <div className="kpis k4">
         <div className="kpi"><span className="kpi-l">AI credits this month</span><b className="kpi-v">{num(d.credits.used)}<small>{d.credits.limit != null ? ` / ${num(d.credits.limit)}` : ''}</small></b></div>
         <div className="kpi"><span className="kpi-l">Extra credits</span><b className="kpi-v">{num(s?.extraCredits || 0)}</b><div className="kpi-f"><small>from packs — used after your plan’s credits</small></div></div>
@@ -212,8 +244,12 @@ export function ResoldBilling() {
                 <span className="pt-plan-h"><b>{p.name}</b>{mine && <small className="pill ok">Your plan</small>}</span>
                 <span className="pt-price">{inr(price)}<small>/{ivl === 'yearly' && p.yearly > 0 ? 'year' : 'month'}</small></span>
                 <small className="muted">{num(p.credits)} AI credits a month</small>
+                {perks(p) && <small className="muted">{perks(p)}</small>}
                 {p.about && <small className="muted">{p.about}</small>}
-                <button className="btn primary sm" disabled={!d.canPay || !(price > 0)} onClick={() => buy({ planId: p.id, interval: ivl === 'yearly' && p.yearly > 0 ? 'yearly' : 'monthly' })}>{mine && a?.ok ? 'Renew' : mine ? 'Renew now' : 'Choose'}</button>
+                {mine && ap ? <small className="pill ok">On auto-pay</small> : <>
+                  <button className="btn primary sm" disabled={!d.canPay || !(price > 0)} onClick={() => buy({ planId: p.id, interval: ivl === 'yearly' && p.yearly > 0 ? 'yearly' : 'monthly' })}>{mine && a?.ok ? 'Renew' : mine ? 'Renew now' : 'Choose'}</button>
+                  {d.canAutopay && !ap && price > 0 && <button className="btn ghost sm" title="Charged automatically every period by card or UPI AutoPay; turn it off any time" onClick={() => autopay({ planId: p.id, interval: ivl === 'yearly' && p.yearly > 0 ? 'yearly' : 'monthly' })}>Pay automatically</button>}
+                </>}
               </div>
             );
           })}</div>
