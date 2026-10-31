@@ -17,6 +17,7 @@ import './app-products.css';
 import './app-refresh.css';
 import './glass.css';
 import './skins.css';
+import './skins-more.css';
 import { bootSkin } from './skins';
 import './cod.css';
 

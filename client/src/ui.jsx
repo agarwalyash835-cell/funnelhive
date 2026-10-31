@@ -380,7 +380,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
     </div>
   );
   return (
-    <div className={`app ${mini || sk.layout === 'rail' ? 'mini' : ''} lay-${sk.layout}`}>
+    <div className={`app ${mini || sk.layout === 'rail' ? 'mini' : ''} lay-${sk.layout}${sk.band ? ' lay-band' : ''}`}>
       <aside className={`side ${open ? 'open' : ''}`}>
         <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}<span className="brand-n">{me?.brand || BRAND}</span><button type="button" className="side-fold" onClick={fold} title={t(mini ? 'Show the menu (Ctrl+B)' : 'Fold the menu to icons (Ctrl+B)')} aria-label={t(mini ? 'Show the menu' : 'Fold the menu')}><Icon name="panel" size={16} /></button></div>
         <button type="button" className="side-jump" onClick={() => window.dispatchEvent(new Event('ff:jump'))}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
