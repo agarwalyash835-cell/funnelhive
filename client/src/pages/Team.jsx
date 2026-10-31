@@ -10,7 +10,7 @@ export const shareLink = (link, email, again) => {
   navigator.clipboard?.writeText(link).then(() => toast(`Email isn’t set up yet — invite link for ${email} copied. Send it to them yourself.`), () => promptDialog({ title: 'Invite link', text: `Email isn’t set up yet. Send this invite link to ${email}:`, value: link, readOnly: true, confirm: 'Done', cancel: null }));
 };
 
-const ROLE_NAME = { admin: 'Admin', marketer: 'Marketer', sales: 'Sales & support', viewer: 'Viewer', agency: 'Agency (manages this account)' };
+const ROLE_NAME = { admin: 'Admin', marketer: 'Marketer', sales: 'Sales & support', viewer: 'Viewer', agency: 'Agency (manages this account)', clients: 'Client manager' };
 // built-in roles first, then the owner's custom roles
 const roleOptions = (d) => [...Object.keys(d.roles).map((k) => <option key={k} value={k}>{ROLE_NAME[k]}</option>), ...(d.customRoles?.length ? [<optgroup key="c" label="Custom roles">{d.customRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</optgroup>] : [])];
 
@@ -113,7 +113,9 @@ export function WorkspaceSwitch({ me }) {
   const [open, setOpen] = useState(false);
   if (!me?.workspace && !me?.teams) return null;
   const toggle = async () => { if (!list) setList(await api('/team/workspaces').catch(() => null)); setOpen(!open); };
-  const go = async (ownerId) => { try { const r = await api('/team/switch', 'POST', { ownerId }); setToken(r.token); location.href = '/'; } catch (e) { toast(e.message); } };
+  const go = async (ownerId) => { try {
+    // a client account you manage as its agency opens from the Agency page (with a reason the client sees)
+    if (list?.teams.find((x) => x.ownerId === ownerId)?.role === 'agency') { location.href = `/agency?open=${encodeURIComponent(ownerId)}`; return; } const r = await api('/team/switch', 'POST', { ownerId }); setToken(r.token); location.href = '/'; } catch (e) { toast(e.message); } };
   return (
     <div className="ws-switch">
       <button className="ws-cur" onClick={toggle}><Icon name="users" size={14} /><span>{me.workspace ? me.workspace.name : 'My workspace'}{me.workspace && <small>{me.workspace.roleName || ROLE_NAME[me.workspace.role]}</small>}</span><Icon name="chevron" size={14} /></button>

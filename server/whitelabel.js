@@ -39,11 +39,11 @@ export function verifiedDomainOf(u) {
 export function agencyForHost(host) {
   const h = String(host || '').toLowerCase().split(':')[0];
   if (!h || !HOST_RE.test(h)) return null;
-  const rows = q("SELECT data FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ?").all(h).map((r) => JSON.parse(r.data));
+  const rows = T.users.all({ wlDomain: h }); // indexed (db.js users.wlDomain)
   return rows.find((u) => u.settings?.whiteLabel?.brand && verifiedDomainOf(u) === h) || null;
 }
 // another account has already proven this domain
-export const domainTakenByOther = (domain, userId) => q("SELECT data FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ? AND id != ?").all(domain, userId).some((r) => verifiedDomainOf(JSON.parse(r.data)) === domain);
+export const domainTakenByOther = (domain, userId) => T.users.all({ wlDomain: String(domain).toLowerCase() }).some((u) => u.id !== userId && verifiedDomainOf(u) === domain);
 
 // after the white-label is saved: a new (or removed) domain starts (or drops) its proof
 export function syncDomainProof(userId) {

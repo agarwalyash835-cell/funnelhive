@@ -95,8 +95,8 @@ export function sessionOk(p, u) {
   if (Date.now() - s.lastSeenAt > 10 * 60000) T.sessions.update(s.id, (x) => { x.lastSeenAt = Date.now(); });
   return true;
 }
-// support sessions and admin (super) sessions keep their fixed length
-export const extendSession = (sid) => T.sessions.update(sid, (s) => { if (!s.imp && s.aud !== 'super') s.expiresAt = Date.now() + SESSION_MS; });
+// support sessions, agency access and admin (super) sessions keep their fixed length
+export const extendSession = (sid) => T.sessions.update(sid, (s) => { if (!s.imp && !s.agencyImp && s.aud !== 'super') s.expiresAt = Date.now() + SESSION_MS; });
 export const revokeSession = (sid, userId) => T.sessions.update(sid, (s) => (s.userId === userId && !s.revokedAt ? Object.assign(s, { revokedAt: Date.now() }) : s));
 // every session but keep (null: all), and tokens from before sessions existed
 export function revokeOthers(userId, keep = null) {

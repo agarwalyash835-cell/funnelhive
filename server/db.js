@@ -80,7 +80,9 @@ export const testOrder = (o) => o.mode === 'test' || (!o.provider && !o.demo && 
 export const paidOrder = (o) => !testOrder(o) && !['cod', 'cancelled'].includes(o.status);
 const orderInr = (o) => Math.round((Number(o.total) || 0) * (Number(o.fx) || 1) * 100) / 100;
 const SCHEMA = {
-  users: { cols: { email: (u) => lower(u.email), plan: (u) => u.billing?.status || null, createdAt: 0 }, unique: [['email']], index: [['createdAt']] },
+  // agencyId: a client account's agency (one level); wlDomain: an agency's own app domain (white-label), so
+  // "whose clients" and "whose domain" are index lookups instead of scanning every account's JSON
+  users: { cols: { email: (u) => lower(u.email), plan: (u) => u.billing?.status || null, createdAt: 0, agencyId: 0, wlDomain: (u) => lower(u.settings?.whiteLabel?.domain) }, unique: [['email']], index: [['createdAt'], ['agencyId'], ['wlDomain']] },
   funnels: { cols: { userId: 0, slug: 0, updatedAt: 0 }, unique: [['slug']], index: [['userId', 'updatedAt']] },
   revisions: { cols: { funnelId: 0, userId: 0, at: 0 }, index: [['funnelId', 'at']] },
   leads: { cols: { userId: 0, funnelId: 0, ckey: (l) => contactKey(l.email, l.phone), visitor: 0, source: 0, at: 0, demo: (r) => bool(r.demo) }, index: [['userId', 'at'], ['funnelId', 'at'], ['userId', 'ckey'], ['visitor'], ['userId', 'ckey', 'funnelId', 'at']] }, // the last: the paged contacts list, from the index alone

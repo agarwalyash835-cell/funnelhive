@@ -188,3 +188,21 @@ test('audit rows: admin actions, partner admin and agency client changes', async
   assert.equal(del.userId, c2.id); assert.equal(del.actor, 'seller@shop.test');
   assert.equal(log.find((a) => a.action === 'make_admin_approved').actor, 'boss2@root.test');
 });
+
+test('an agency working on its address opens a client there: the client session belongs to the agency address', async () => {
+  const e = 'owner@agency-tier.test';
+  await register(api, e); await verify(e);
+  const ag = (await login(e, 'secret123', AGENCY)).data.token;
+  assert.equal(jwt.decode(ag).aud, 'agency');
+  const c = await api('/agency/clients', 'POST', { business: 'Tier Client' }, ag, AGENCY);
+  assert.equal(c.status, 201, JSON.stringify(c.data));
+  assert.equal(jwt.decode(c.data.token).aud, 'agency');
+  const inClient = await api('/me', 'GET', null, c.data.token, AGENCY);
+  assert.equal(inClient.status, 200);
+  assert.equal(inClient.data.workspace?.ownerId, c.data.id, 'working inside the client account');
+  assert.ok(inClient.data.agencyAccess, 'marked as agency access');
+  assert.equal((await api('/me', 'GET', null, c.data.token, APP)).status, 401, 'not usable on the app address');
+  const again = await api(`/agency/clients/${c.data.id}/enter`, 'POST', { reason: 'Checking the store setup' }, ag, AGENCY);
+  assert.equal(again.status, 200, JSON.stringify(again.data));
+  assert.equal((await api('/me', 'GET', null, again.data.token, AGENCY)).status, 200);
+});

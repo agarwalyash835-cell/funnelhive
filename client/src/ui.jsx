@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
-import { api, meCache, logout, stopImpersonating, fmtDate } from './api';
+import { api, meCache, logout, stopImpersonating, leaveClient, fmtDate } from './api';
 import { isSuper } from './tier';
 import { agencyHost } from './agencyHost';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
@@ -142,6 +142,7 @@ const allowed = (to, me) => {
   if ((to === '/inventory' || to === '/counter') && !me?.nav?.inventory) return false;
   // a sub-account (a client of an agency / partner) has no agency tools of its own; its billing page shows its plan
   if (!me?.workspace) return !(to === '/agency' && me?.billing?.agencyManaged) && !(to === '/billing' && me?.billing?.agencyManaged && !me?.billing?.resold);
+  if (me.workspace.role === 'clients') return to === '/agency'; // an agency's client manager: only the Agency page
   if (to === '/billing' || to === '/agency') return false;
   if (me.workspace.funnelIds) return to === '/' || to === '/funnels'; // limited to some funnels: nothing account-wide
   if (me.workspace.custom) { // a custom role: the pages its areas can at least view (the server enforces it)
@@ -399,6 +400,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
         </header>
         {loadFail && <div className="app-banner bad" role="alert"><span>Part of this page didn’t load — check your connection.</span><button onClick={() => location.reload()}>Reload</button></div>}
         {me?.workspace && <div className="app-banner info ws"><Icon name="users" size={15} /><span>{tx('You’re working in the {name} workspace as {role}.', { name: <b>{me.workspace.name}</b>, role: (t(({ admin: 'an admin', marketer: 'a marketer', sales: 'sales & support', viewer: 'a viewer', agency: 'their agency' })[me.workspace.role] || '') || me.workspace.roleName || '') })}</span></div>}
+        {me?.agencyAccess && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('{agency} is working in this account ({mode}) until {time}: “{reason}”. The owner sees this visit.', { agency: <b>{me.agencyAccess.by ? `${me.agencyAccess.by} · ${me.agencyAccess.agency}` : me.agencyAccess.agency}</b>, mode: me.agencyAccess.mode === 'read' ? t('read-only') : t('full access'), time: new Date(me.agencyAccess.expiresAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }), reason: me.agencyAccess.reason })}</span><button onClick={leaveClient}>{t('Back to agency')}</button></div>}
         {me?.impersonating && <div className="app-banner imp"><Icon name="eye" size={15} /><span>{tx('You’re signed in as {email} (support view).', { email: <b>{me.email}</b> })}</span><button onClick={stopImpersonating}>{t('Back to admin')}</button></div>}
         {me?.announcement && <div className="app-banner info"><Icon name="bolt" size={15} />{me.announcement}</div>}
         {me?.billing && !me.billing.ok && <div className="app-banner bad"><Icon name="clock" size={15} />{me.billing.reason || t('Your account is read-only.')}{me.billing.status !== 'suspended' && <span>{me.billing.pagesLive ? t(' Your live pages stay up until {date}.', { date: fmtDate(me.billing.pagesOfflineAt) }) : t(' Your live pages are offline.')}</span>}{me.billing.status !== 'suspended' && <Link to="/billing">{t('Choose a plan')}</Link>}</div>}

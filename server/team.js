@@ -9,8 +9,11 @@
 // A member can also be limited to some funnels (funnelIds, "this project only"): see scopeAllows.
 import { T, q, uid, tx } from './db.js';
 import { randomToken, hashToken } from './security.js';
-import { mailEnabled } from './mail.js';
+import { sendMail, appUrl, mailEnabled } from './mail.js';
+import { brand } from './platform.js';
 import { sendBranded } from './whitelabel.js';
+import { agencyEntry } from './agency-access.js';
+import { termsOf, clientsOf, seatCapError } from './agency-terms.js';
 
 export const ROLE_NAMES = { agency: 'Agency' };
 export const ROLES = {
@@ -18,7 +21,12 @@ export const ROLES = {
   marketer: 'Marketer — funnels, AI, automations, broadcasts, contacts, products',
   sales: 'Sales & support — contacts, orders, shipping, bookings',
   viewer: 'Viewer — read-only reports',
+  // agency staff: works on the agency's client accounts (all, or the ones assigned to them) and nothing else
+  clients: 'Client manager — opens and manages the agency’s client accounts',
 };
+// the Client manager role is offered only to agencies (not to their clients, not to sellers without clients)
+export const isAgencyAccount = (u) => !!u && !u.agencyId && (!!termsOf(u) || /^agency_/.test(u.billing?.interval || '') || clientsOf(u.id).length > 0);
+const rolesFor = (owner) => (isAgencyAccount(owner) ? ROLES : Object.fromEntries(Object.entries(ROLES).filter(([k]) => k !== 'clients')));
 // API keys and MCP tokens a team member created for the owner's account stop working when they leave the team
 const revokeKeysBy = (ownerId, userId) => { for (const t of ['apikeys', 'mcptokens']) q(`DELETE FROM ${t} WHERE userId = ? AND json_extract(data, '$.by') = ?`).run(ownerId, userId); };
 const TEAM_MAX = Number(process.env.TEAM_MAX || 25);
@@ -45,6 +53,8 @@ export function allows(role, method, path, perms) {
   if (ANY.test(path)) return true;
   // an agency managing its client's account: everything but platform admin, the account itself and billing
   if (role === 'agency') return !/^\/api\/(admin|auth\/|account|billing)/.test(path);
+  // a client manager in the agency's own workspace: the agency page and its client accounts only
+  if (role === 'clients') return /^\/api\/agency(\/|$)/.test(path);
   if (!BUILT_IN.has(role)) return !!perms && customAllows(perms, method, path);
   if (OWNER_ONLY.test(path)) return ['/api/team/members', '/api/team/roles'].includes(path) && method === 'GET' && role === 'admin';
   if (role === 'admin') return true;
@@ -125,12 +135,14 @@ export const PRESETS = {
   sales: P({ inbox: 'edit', dashboard: 'view', funnels: 'view', crm: 'edit', orders: 'edit', products: 'view', bookings: 'edit', webinars: 'view', quotes: 'edit', automations: 'view', broadcasts: 'view', files: 'edit', ads: 'view', counter: 'edit' }),
   viewer: P({ dashboard: 'view', funnels: 'view', crm: 'view', orders: 'view', products: 'view', bookings: 'view', webinars: 'view', quotes: 'view', automations: 'view', broadcasts: 'view', ads: 'view' }),
   agency: allLevel('edit'),
+  clients: P({}),
 };
 const PRESET_NOTES = {
   admin: 'Sees the team but can’t change it. No billing or account deletion.',
   marketer: 'No settings, secrets or refunds.',
   sales: 'Orders: shipping and COD only, no refunds. Products: can grant buyer access. School: students and community. Counter: stock, counter bills, returns and stock entries — not the Tally books, settings, rate lists, credit limits or BOMs.',
   viewer: 'Read-only. Contact details and the vault stay hidden.',
+  clients: 'Only the Agency page: opens client accounts (with a reason, for 2 hours) — all of them, or the ones you assign. Nothing in your own account.',
 };
 const BUILT_IN = new Set(Object.keys(ROLES));
 const MAX_ROLES = 50;
@@ -190,11 +202,17 @@ function cleanFunnelIds(ownerId, v) {
   return { ids };
 }
 
-// The auth middleware's workspace step: returns the owner to act as, or an error
-export function enterWorkspace(actor, ownerId) {
+// The auth middleware's workspace step: returns the owner to act as, or null. p: the token's claims. An agency
+// (or its client managers) gets into a client account only through an agency-access session (agency-access.js).
+export function enterWorkspace(actor, ownerId, p = null) {
   const m = T.members.find({ ownerId, userId: actor.id, status: 'active' });
-  const owner = m && T.users.get(ownerId);
-  return owner ? { owner, member: m } : null;
+  const owner = T.users.get(ownerId);
+  if (!owner) return null;
+  if (m && m.role !== 'agency') return { owner, member: m };
+  if (m) return agencyEntry(actor, owner, p, m);
+  // a client manager has no row in the client's team: the agency's own row lets them in
+  const am = owner.agencyId && T.members.find({ ownerId, userId: owner.agencyId, status: 'active' });
+  return am?.role === 'agency' && p?.agencyImp ? agencyEntry(actor, owner, p, am) : null;
 }
 
 const view = (m) => ({ id: m.id, email: m.email, name: m.userId ? T.users.get(m.userId)?.name || '' : '', role: m.role, roleName: roleInfo(m.ownerId, m.role)?.name || 'Team member', funnelIds: m.funnelIds || null, status: m.status, at: m.at, acceptedAt: m.acceptedAt || null, lastSeenAt: m.lastSeenAt || null, invitedBy: m.invitedBy || null });
@@ -215,14 +233,16 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
 
   // the owner's team (owners and admins)
   app.get('/api/team/members', auth, (req, res) => {
-    res.json({ owner: { name: req.user.name, email: req.user.email }, members: T.members.all({ ownerId: req.user.id }, { order: 'at' }).map(view), roles: ROLES, customRoles: T.roles.all({ userId: req.user.id }, { order: 'at' }).map((r) => ({ id: r.id, name: r.name })), max: TEAM_MAX, canManage: canManage(req) });
+    res.json({ owner: { name: req.user.name, email: req.user.email }, members: T.members.all({ ownerId: req.user.id }, { order: 'at' }).map(view), roles: rolesFor(req.user), customRoles: T.roles.all({ userId: req.user.id }, { order: 'at' }).map((r) => ({ id: r.id, name: r.name })), max: TEAM_MAX, canManage: canManage(req) });
   });
   app.post('/api/team/invite', auth, inviteLimiter, async (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 200);
     const role = req.body?.role;
     if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
-    if (!roleInfo(req.user.id, role) || role === 'agency') return res.status(400).json({ error: 'Pick a role' });
+    if (!roleInfo(req.user.id, role) || role === 'agency' || (role === 'clients' && !isAgencyAccount(req.user))) return res.status(400).json({ error: 'Pick a role' });
     if (!within(req.customPerms, roleInfo(req.user.id, role).perms)) return res.status(403).json({ error: 'You can’t give someone more access than you have' });
+    const capped = seatCapError(req.user); // a client account whose agency caps team seats
+    if (capped) return res.status(400).json({ error: capped, seatCap: true });
     const scope = cleanFunnelIds(req.user.id, req.body?.funnelIds);
     if (scope.error) return res.status(400).json({ error: scope.error });
     if (email === req.user.email) return res.status(400).json({ error: 'That’s you — you already own this workspace' });
@@ -244,7 +264,7 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
   app.put('/api/team/members/:mid', auth, (req, res) => {
     const m = ownMember(req, res); if (!m) return;
     const b = req.body || {};
-    if (('role' in b || !('funnelIds' in b)) && (!roleInfo(req.user.id, b.role) || b.role === 'agency')) return res.status(400).json({ error: 'Pick a role' });
+    if (('role' in b || !('funnelIds' in b)) && (!roleInfo(req.user.id, b.role) || b.role === 'agency' || (b.role === 'clients' && !isAgencyAccount(req.user)))) return res.status(400).json({ error: 'Pick a role' });
     if ('role' in b && !within(req.customPerms, roleInfo(req.user.id, b.role).perms)) return res.status(403).json({ error: 'You can’t give someone more access than you have' });
     const scope = 'funnelIds' in b ? cleanFunnelIds(req.user.id, b.funnelIds) : null;
     if (scope?.error) return res.status(400).json({ error: scope.error });
@@ -277,7 +297,7 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     res.json({
       areas: AREAS.map(({ key, label, desc, levels }) => ({ key, label, desc, levels })),
       roles: [
-        ...Object.keys(ROLES).map((k) => roleView(own, { ...roleInfo(own, k), note: PRESET_NOTES[k] })),
+        ...Object.keys(rolesFor(req.user)).map((k) => roleView(own, { ...roleInfo(own, k), note: PRESET_NOTES[k] })),
         ...T.roles.all({ userId: own }, { order: 'at' }).map((r) => roleView(own, { ...roleInfo(own, r.id), at: r.at, updatedAt: r.updatedAt || null })),
       ],
       canManage: canManage(req),
@@ -363,6 +383,8 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     const me = req.actor || req.user;
     const to = req.body?.ownerId || null;
     if (!to || to === me.id) return res.json({ token: sign(me), ownerId: null });
+    // a client account the agency manages: opened from the Agency page, with a reason (agency-access.js)
+    if (T.members.find({ ownerId: to, userId: me.id, status: 'active' })?.role === 'agency') return res.status(403).json({ error: 'Open client accounts from the Agency page — you’ll be asked why (your client sees it)', agencyEntry: true, clientId: to });
     if (!enterWorkspace(me, to)) return res.status(403).json({ error: 'You’re not on that team any more' });
     res.json({ token: sign(me, to), ownerId: to });
   });

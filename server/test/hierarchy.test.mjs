@@ -113,7 +113,10 @@ test('team members never reach billing, partner tools, admin or team management 
 
 test('nobody reaches another branch of the tree', async () => {
   // the partner works inside its own sub-accounts; a plain agency or another seller can't switch into them
-  assert.ok(ok((await api('/team/switch', 'POST', { ownerId: subId }, A.partner)).status), 'the partner opens its sub-account');
+  // the partner opens its sub-account from the Agency page with a reason; a plain switch is refused
+  assert.equal((await api('/team/switch', 'POST', { ownerId: subId }, A.partner)).data.agencyEntry, true);
+  assert.ok(ok((await api(`/agency/clients/${subId}/enter`, 'POST', { reason: 'monthly check' }, A.partner)).status), 'the partner opens its sub-account');
+  for (const who of ['agency', 'seller', 'sub', 'partnerStaff']) assert.ok(!ok(await status(who, 'POST', `/agency/clients/${who === 'sub' ? otherSubId : subId}/enter`, { reason: 'just looking' })), `${who} can’t enter a sub-account`);
   for (const who of ['agency', 'seller', 'sub']) assert.ok(!ok(await status(who, 'POST', '/team/switch', { ownerId: who === 'sub' ? otherSubId : subId })), `${who} can’t switch into a sub-account`);
   assert.ok(!ok(await status('sub', 'POST', '/team/switch', { ownerId: partnerId })), 'a sub-account can’t open its partner');
   // a sub-account owner can't touch a sibling's plan, and the partner can't touch another partner's accounts
@@ -125,4 +128,12 @@ test('nobody reaches another branch of the tree', async () => {
   assert.equal((await api(`/partner/clients/${subId}/credits`, 'POST', { credits: 5 }, P2)).status, 404);
   assert.equal((await api('/partner', 'GET', null, P2)).data.clients.length, 0);
   assert.equal((await api('/team/switch', 'POST', { ownerId: subId }, P2)).status >= 400, true);
+  // another agency can't open, report on, delete or look into this partner's clients
+  for (const [m, p, b] of [['POST', `/agency/clients/${subId}/enter`, { reason: 'curious' }], ['POST', `/agency/clients/${subId}/report-link`, {}], ['DELETE', `/agency/clients/${subId}`, { confirm: 'DELETE' }], ['POST', `/agency/clients/${subId}/invite`, { email: 'x@x.test' }], ['PUT', `/agency/clients/${subId}/addons`, { tally: true }]]) {
+    assert.equal((await api(p, m, b, P2)).status, 404, `${m} ${p}`);
+  }
+  assert.ok(!(await api('/agency', 'GET', null, P2)).data.clients.some((c) => c.id === subId));
+  // an agency-access token for one client doesn't open another
+  const t = (await api(`/agency/clients/${subId}/enter`, 'POST', { reason: 'check' }, A.partner)).data.token;
+  assert.equal((await api('/team/switch', 'POST', { ownerId: otherSubId }, t)).status, 403);
 });
