@@ -150,7 +150,7 @@ function StoreReviews() {
       <div key={r.id} className={`st-row${r.hidden ? ' off' : ''}`}><div className="st-row-head">
         <div><b>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)} · {r.product || t('(removed)')}</b>
           <small className="muted">{r.name}{r.size ? ` · ${r.size}` : ''} · #{r.orderId} · {new Date(r.at).toLocaleDateString('en-IN')}{r.hidden ? ` · ${t('Hidden')}` : ''}</small>
-          {r.text && <p style={{ margin: '4px 0 0' }}>{r.text}</p>}</div>
+          {r.text && <p style={{ margin: '4px 0 0' }}>{r.text}</p>}{r.photo && <a href={r.photo} target="_blank" rel="noreferrer"><img src={r.photo} alt="" width="64" height="64" style={{ objectFit: 'cover', borderRadius: 6, marginTop: 6 }} /></a>}</div>
         <button type="button" className="btn sm" onClick={() => toggle(r)}>{r.hidden ? t('Show') : t('Hide')}</button>
       </div></div>
     ))}</div>

@@ -6,7 +6,7 @@ import { stripeDialog } from '../stripePay';
 import { themeOf } from '../storeThemes/index.js';
 import { themeVars, fontHref, fontOf, sectionsOf, cartTotal } from '../storeThemes/tokens.js';
 import { label } from '../storeThemes/i18n.js';
-import { StoreCtx, SECTIONS, Announcement, Header, Footer, WhatsAppButton, CartBar, ProductPage, PolicyPage, OrderPage, getJson } from '../storeThemes/kit.jsx';
+import { StoreCtx, SECTIONS, Announcement, Header, Footer, WhatsAppButton, CartBar, ProductPage, PolicyPage, OrderPage, TrackLookup, getJson } from '../storeThemes/kit.jsx';
 import '../store.css';
 import '../storeThemes/storeThemes.css';
 
@@ -99,7 +99,7 @@ export default function Store() {
     document.documentElement.style.background = vars['--st-bg'];
     return () => { document.documentElement.style.background = ''; };
   }, [font, view, vars]);
-  const isHome = !rest.match(/^(p\/|cart|policy\/|order\/)/);
+  const isHome = !rest.match(/^(p\/|cart|policy\/|order\/|track)/);
   useEffect(() => { if (view && isHome) setMeta(opts.seo?.title || (view.s.tagline ? `${view.s.name} — ${view.s.tagline}` : view.s.name), opts.seo?.description || view.s.tagline || view.s.about); }, [view, isHome]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toastMsg) return undefined; const x = setTimeout(() => setToast(''), 2200); return () => clearTimeout(x); }, [toastMsg]);
   if (!data) return <div className="st-page"><div className="st-wrap"><div className="st-skel" /></div></div>;
@@ -117,7 +117,7 @@ export default function Store() {
     goCat: (c) => { setCat(c); setQ(''); if (!isHome) navigate(link('')); setTimeout(() => document.getElementById('sv-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   };
   const m = rest.match(/^p\/([\w-]+)/), pol = rest.match(/^policy\/(\w+)/), ord = rest.match(/^order\/([\w-]+)/);
-  const onCart = rest.startsWith('cart');
+  const onCart = rest.startsWith('cart'), onTrack = rest === 'track';
   const home = link('');
   return (
     <StoreCtx.Provider value={ctx}>
@@ -128,13 +128,14 @@ export default function Store() {
         {!s.enabled && <div className="st-note">{t('preview')}</div>}
         <main className="sv-main">
           {ord ? <OrderPage id={ord[1]} k={sp.get('k')} />
+            : onTrack ? <TrackLookup />
             : m ? <ProductPage id={m[1]} />
             : pol ? <PolicyPage k={pol[1]} />
             : onCart ? <div className="sv-wrap sv-cartwrap">{s.demo && <div className="sv-democheck"><b>{t('demoCheckout')}</b><a className="sv-btn" href={`/login?from=${encodeURIComponent(handle)}`}>{t('demoCta')}</a></div>}<Cart base={base} data={{ ...data, store: s, listings }} cart={cart} home={home} /></div>
             : <div className="sv-home">{sectionsOf(theme, opts).map((k) => { const C = SECTIONS[k]; return C ? <C key={k} /> : null; })}</div>}
         </main>
         <Footer />
-        {!onCart && !m && !ord && <CartBar />}
+        {!onCart && !m && !ord && !onTrack && <CartBar />}
         <WhatsAppButton product={m ? byId[m[1]]?.title : ''} />
         {toastMsg && <div className="sv-toast" role="status">{toastMsg}{toastMsg !== t('pickSize') && <> · <Link to={link('/cart')}>{t('viewCart')}</Link></>}</div>}
       </div>

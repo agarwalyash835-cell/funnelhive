@@ -93,6 +93,7 @@ import { registerMetaSignup } from './meta-signup.js';
 import { registerWaKnowledge } from './waknow.js';
 import { registerStore, storeFunnel, storeFunnelId, takeStock, STORE_NAME } from './store.js';
 import { registerStoreAi } from './store-ai.js';
+import { trackUrl } from './store-orders.js';
 import { registerAffiliates, attributeOrder } from './affiliates.js';
 
 const SECRET = loadSecret(DATA_DIR);
@@ -861,6 +862,17 @@ async function saveImage(userId, buf, type, small = null) {
   if (small) fs.writeFileSync(path.join(dir, `${base}.v-800.webp`), small);
   addStorage(userId, bytes);
   return { url: `/uploads/${userId}/${name}`, bytes: buf.length };
+}
+// a buyer's review photo (a data URL; JPG, PNG or WebP up to 2 MB), stored with the seller's images → { url } or { error }
+async function saveReviewPhoto(userId, data) {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,/.exec(String(data || ''));
+  if (!m) return { error: 'Please add a JPG, PNG or WebP photo' };
+  const buf = Buffer.from(String(data).slice(m[0].length), 'base64'), ext = IMG_TYPES[m[1]];
+  if (!buf.length || buf.length > 2 * 1024 * 1024) return { error: 'The photo must be 2 MB or smaller' };
+  if (!MAGIC[ext].every((b, i) => buf[i] === b) || (ext === 'webp' && buf.toString('latin1', 8, 12) !== 'WEBP')) return { error: 'That file does not look like a valid image' };
+  const owner = T.users.get(userId);
+  if (!owner || storageLimitError(owner, buf.length)) return { error: 'Photos can’t be added to reviews here right now — your words and stars are enough' };
+  return { url: (await saveImage(userId, buf, m[1])).url };
 }
 // AI images: made from a description, then stored like an upload (credits checked up front, charged on success)
 app.post('/api/ai/image', auth, rateLimit({ windowMs: 60000, max: isTest ? 100 : 6, key: (req) => req.user.id, message: 'You’re making images quickly — wait a minute and try again.' }), credits('image'), wrap(async (req, res) => {
@@ -1679,7 +1691,7 @@ function recordOrder(f, charge, buyer, { orderId, preview, payment, verified = f
       if (grants.length && order.email) access = deliver({ f, owner, email: order.email, name: order.name, phone: order.phone, grants, orderId: order.id, base, invoiceUrl: invoice, notify: !delivered });
       else if (invoice && order.email) {
         const biz = owner.settings?.businessName || f.name;
-        sendEmail(owner, { to: order.email, subject: `Your invoice from ${biz}`, text: `Hi ${String(order.name || '').split(/\s+/)[0] || 'there'},\n\nThank you for your purchase. Your invoice: ${invoice}\n\n— ${biz}` }).catch((e) => console.error('invoice email failed', e.message));
+        sendEmail(owner, { to: order.email, subject: `Your invoice from ${biz}`, text: `Hi ${String(order.name || '').split(/\s+/)[0] || 'there'},\n\nThank you for your purchase. Your invoice: ${invoice}${trackUrl(order) ? `\nTrack your order: ${trackUrl(order)}` : ''}\n\n— ${biz}` }).catch((e) => console.error('invoice email failed', e.message));
       }
       trackServer(f.userId, { name: 'Purchase', funnelId: f.id, id: items[0].txn, value: charge.total, currency: funnelIso(f), orderId: order.id, items: items.map((it) => ({ id: it.productId || `${f.id}:${it.kind}`, name: it.name, price: it.price })), buyer: order, tk: buyer.tk });
     } else if (cod) {
@@ -2113,7 +2125,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
 }
 
 // the storefront (/s/<handle>): its API, checkout for a whole cart, and its page with title / link-preview tags
-registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned });
+registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret: SECRET, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned, saveReviewPhoto });
 registerStoreAi(app, { auth, rateLimit, isTest, credits });
 
 // an API path nobody answered is a JSON 404, never the app's HTML page

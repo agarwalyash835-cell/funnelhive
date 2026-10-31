@@ -25,6 +25,7 @@ const IC = {
   pin: 'M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11Zm0-9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
   arrow: 'M5 12h14M13 6l6 6-6 6',
   seal: 'M12 3l2.2 1.6 2.7-.1.8 2.6 2.2 1.6-.9 2.6.9 2.6-2.2 1.6-.8 2.6-2.7-.1L12 21l-2.2-1.6-2.7.1-.8-2.6-2.2-1.6.9-2.6-.9-2.6 2.2-1.6.8-2.6 2.7.1L12 3Zm-3 9 2 2 4-4',
+  camera: 'M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Zm8 9a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z',
   gem: 'M6 4h12l3 5-9 11L3 9l3-5Zm-3 5h18M9 4l3 16M15 4l-3 16',
   tool: 'M14.5 5.5a4 4 0 0 0 5 5L12 18l-3 3-3-3 3-3 7.5-7.5Zm0 0L17 3M4 4l6 6',
   cross: 'M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z',
@@ -179,7 +180,7 @@ export function Footer() {
       <div className="sv-foot-in">
         <div className="sv-foot-brand"><b>{s.name}</b>{s.tagline && <p>{s.tagline}</p>}{opts.credentials && <p className="sv-cred">{opts.credentials}</p>}<PayBadges /></div>
         {cats.length > 0 && <div><h4>{t('shop')}</h4>{cats.slice(0, 6).map((c) => <button type="button" key={c} onClick={() => goCat(c)}>{c}</button>)}</div>}
-        {pol.length > 0 && <div><h4>{t('help')}</h4>{pol.map((p) => (p.to ? <Link key={p.k} to={p.to}>{t(p.k)}</Link> : <a key={p.k} href={p.href} target="_blank" rel="noreferrer">{t(p.k)}</a>))}</div>}
+        {(pol.length > 0 || !s.demo) && <div><h4>{t('help')}</h4>{!s.demo && <Link to={link('/track')}>{t('trackOrder')}</Link>}{pol.map((p) => (p.to ? <Link key={p.k} to={p.to}>{t(p.k)}</Link> : <a key={p.k} href={p.href} target="_blank" rel="noreferrer">{t(p.k)}</a>))}</div>}
       </div>
       <div className="sv-foot-base"><span>© {year} {s.name}</span><LangToggle /><a className="sv-made" href="/">{t('madeWith')}</a></div>
     </footer>
@@ -641,7 +642,7 @@ function ProductReviews({ list, l }) {
   return (
     <section className="sv-sec sv-previews" id="reviews">
       <div className="sv-sec-head"><h2 className="sv-h2">{t('customerReviews')} <span className="sv-count">{l.reviews || list.length}</span></h2>{l.rating ? <Stars r={l.rating} n={l.reviews} /> : null}</div>
-      <ul>{list.map((r) => <li key={r.id}><Starline n={r.rating} />{r.text && <p>{r.text}</p>}<small><b>{r.name}</b> · {t('verifiedBuyer')}{r.size ? ` · ${t('sizeOf', { s: r.size })}` : ''} · {day(r.at)}</small></li>)}</ul>
+      <ul>{list.map((r) => <li key={r.id}><Starline n={r.rating} />{r.text && <p>{r.text}</p>}{r.photo && <a className="sv-revphoto" href={r.photo} target="_blank" rel="noreferrer"><img src={r.photo} alt="" loading="lazy" /></a>}<small><b>{r.name}</b> · {t('verifiedBuyer')}{r.size ? ` · ${t('sizeOf', { s: r.size })}` : ''} · {day(r.at)}</small></li>)}</ul>
     </section>
   );
 }
@@ -672,15 +673,51 @@ export function OrderPage({ id, k }) {
       {o.review.length > 0 && <OrderReviews o={o} url={url} onDone={(lid) => setD({ ...d, order: { ...o, review: o.review.map((x) => (x.listingId === lid ? { ...x, done: true } : x)) } })} />}
       <div className="sv-block sv-oitems">
         <ul>{o.items.map((it, i) => <li key={i}><span>{it.name}</span><b>{rupees(it.price)}</b></li>)}</ul>
-        {o.shipping > 0 && <p><span>{t('shippingLbl')}</span><b>{rupees(o.shipping)}</b></p>}
+        {o.shipping > 0 && <p><span>{t('shippingLbl')}</span><b>{rupees(o.shipping)}</b></p>}{o.codFee > 0 && <p><span>{t('codFeeLbl')}</span><b>{rupees(o.codFee)}</b></p>}
         <p className="tot"><span>{t('totalLbl')}</span><b>{rupees(o.total)}</b></p>
-        <small className="sv-tax">{o.payment.method === 'cod' && !o.payment.paid ? <>{o.payment.advance ? `${t('advancePaid', { p: rupees(o.payment.advance) })} · ` : ''}{t('codDue', { p: rupees(o.payment.due) })}</> : t('paidOnline')}</small>
+        <small className="sv-tax">{o.payment.method === 'cod' && !o.payment.paid ? <>{o.payment.advance ? `${t('advancePaid', { p: rupees(o.payment.advance) })} · ` : ''}{t('codDue', { p: rupees(o.payment.due) })}</> : t(o.payment.method === 'cod' ? 'paidCod' : 'paidOnline')}</small>
       </div>
       {s.whatsapp && <a className="sv-wa-inline" href={waLink(s.whatsapp, t('helpWa', { id: o.id }))} target="_blank" rel="noreferrer"><WaGlyph />{t('needHelp')}</a>}
     </div>
   );
 }
-// rate each product in a delivered order: 1–5 stars, then a few optional words
+// ---------- "Track your order": /s/<handle>/track — order number + phone opens the order page ----------
+export function TrackLookup() {
+  const { base, t, navigate, setMeta, s } = useStore();
+  const [f, setF] = useState({ order: '', phone: '', busy: false, err: '' });
+  useEffect(() => { setMeta(`${t('trackOrder')} · ${s.name}`, ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const find = async (e) => {
+    e.preventDefault();
+    setF((x) => ({ ...x, busy: true, err: '' }));
+    const r = await fetch(`${base}/track`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order: f.order.trim(), phone: f.phone }) })
+      .then((x) => x.json()).catch(() => ({ error: 'Network problem — please try again' }));
+    if (r.track) return navigate(r.track);
+    setF((x) => ({ ...x, busy: false, err: r.error || 'Not found' }));
+  };
+  return (
+    <form className="sv-wrap sv-order sv-track" onSubmit={find}>
+      <h1 className="sv-h2">{t('trackOrder')}</h1>
+      <p className="sv-sub">{t('trackSub')}</p>
+      <label>{t('orderNoLbl')}<input required maxLength={40} placeholder="#" value={f.order} onChange={(e) => setF({ ...f, order: e.target.value })} /></label>
+      <label>{t('orderPhoneLbl')}<input required type="tel" inputMode="numeric" maxLength={15} placeholder="98765 43210" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></label>
+      {f.err && <small className="st-err">{f.err}</small>}
+      <button type="submit" className="sv-btn" disabled={f.busy}>{t('findOrder')}</button>
+    </form>
+  );
+}
+// a review photo, made phone-friendly before it's sent: at most 1200px on the long side, as a JPEG data URL
+const shrinkPhoto = (file) => new Promise((ok, fail) => {
+  const img = new Image(), src = URL.createObjectURL(file);
+  img.onload = () => {
+    const k = Math.min(1, 1200 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(src); ok(c.toDataURL('image/jpeg', 0.82));
+  };
+  img.onerror = () => { URL.revokeObjectURL(src); fail(new Error('bad image')); };
+  img.src = src;
+});
+// rate each product in a delivered order: 1–5 stars, then a few optional words (and a photo, if they like)
 function OrderReviews({ o, url, onDone }) {
   const { t } = useStore();
   const [form, setForm] = useState({}); // listingId → { rating, text, busy, err, edit }
@@ -688,7 +725,7 @@ function OrderReviews({ o, url, onDone }) {
   const post = async (lid) => {
     const f = form[lid] || {};
     put(lid, { busy: true, err: '' });
-    const r = await fetch(url.replace('?', '/review?'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listingId: lid, rating: f.rating, text: f.text || '' }) })
+    const r = await fetch(url.replace('?', '/review?'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listingId: lid, rating: f.rating, text: f.text || '', ...(f.photo ? { photo: f.photo } : {}) }) })
       .then((x) => x.json()).catch(() => ({ error: 'Network problem — please try again' }));
     put(lid, { busy: false, err: r.error || '', edit: !!r.error });
     if (!r.error) onDone(lid);
@@ -704,7 +741,7 @@ function OrderReviews({ o, url, onDone }) {
             <b>{x.title}</b>
             {x.done && !f.edit ? <p className="sv-ok">{t('reviewThanks')} <button type="button" className="sv-more" onClick={() => put(x.listingId, { edit: true })}>{t('editReview')}</button></p> : <>
               <div className="sv-rate" role="radiogroup" aria-label={t('rateTitle')}>{[1, 2, 3, 4, 5].map((n) => <button type="button" key={n} role="radio" aria-checked={f.rating === n} aria-label={t('starsN', { n })} className={n <= (f.rating || 0) ? 'on' : ''} onClick={() => put(x.listingId, { rating: n })}>★</button>)}</div>
-              {f.rating > 0 && <><textarea rows={2} maxLength={600} placeholder={t('reviewPh')} value={f.text || ''} onChange={(e) => put(x.listingId, { text: e.target.value })} /><button type="button" className="sv-btn" disabled={f.busy} onClick={() => post(x.listingId)}>{t('postReview')}</button></>}
+              {f.rating > 0 && <><textarea rows={2} maxLength={600} placeholder={t('reviewPh')} value={f.text || ''} onChange={(e) => put(x.listingId, { text: e.target.value })} /><label className="sv-rphoto">{f.photo ? <img src={f.photo} alt="" width="48" height="48" /> : <Icon n="camera" size={18} />}<span>{t(f.photo ? 'changePhoto' : 'addPhoto')}</span><input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) shrinkPhoto(file).then((photo) => put(x.listingId, { photo, err: '' })).catch(() => put(x.listingId, { err: t('photoBad') })); }} /></label><button type="button" className="sv-btn" disabled={f.busy} onClick={() => post(x.listingId)}>{t('postReview')}</button></>}
               {f.err && <small className="st-err">{f.err}</small>}
             </>}
           </div>

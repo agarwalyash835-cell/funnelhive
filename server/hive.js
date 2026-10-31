@@ -351,6 +351,17 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: () => 'Checked your products',
   },
   {
+    name: 'list_reviews', description: 'Star ratings and reviews buyers left on the seller’s store products (only buyers whose order was delivered can review): product, stars, words, buyer’s short name, date, hidden. Read-only — never write or invent reviews; the seller hides one in Store → Reviews.',
+    schema: S({ listingId: str('Only this store product (optional)') }),
+    run: async (ctx, a) => {
+      const d = await ctx.call('GET', '/store/reviews');
+      const rows = (d.reviews || []).filter((r) => !a.listingId || r.listingId === a.listingId);
+      const avg = rows.length ? Math.round((rows.reduce((n, r) => n + r.rating, 0) / rows.length) * 10) / 10 : null;
+      return { count: rows.length, average: avg, reviews: rows.slice(0, 50).map((r) => ({ product: r.product, rating: r.rating, text: r.text, by: r.name, at: new Date(r.at).toISOString().slice(0, 10), hidden: r.hidden })) };
+    },
+    summary: (r) => `Read ${r.count} review${r.count === 1 ? '' : 's'}`,
+  },
+  {
     name: 'create_product',
     description: 'Create a digital product delivered automatically after payment (or as a free lead magnet): name, description, links [{label,url}], a course outline as lessons [{title, section, body, videoUrl, dripDays}], accessDays (0 = lifetime). A BUNDLE: includes = ids of existing products (list_products) that buying this one also unlocks — e.g. three courses sold together. Files are uploaded by the seller in Products. Attach it with configure_checkout productId (or an opt-in’s productId for a lead magnet).',
     schema: S({ name: str('Product name'), description: str('One line'), links: arr('[{ label, url }]'), lessons: arr('[{ title, section, body, videoUrl, dripDays }]'), includes: arr('Product ids this bundle unlocks', { type: 'string' }), accessDays: num('0 = lifetime') }, ['name']),
@@ -874,7 +885,7 @@ Reply style: short, warm and professional (no slang or nicknames for the user, e
 const CORE_TOOLS = ['list_funnels', 'get_funnel', 'create_funnel', 'list_templates', 'create_funnel_from_template', 'get_page', 'update_section', 'remove_section', 'move_section', 'replace_page', 'add_step', 'remove_step', 'reorder_steps', 'update_funnel', 'publish_funnel', 'duplicate_funnel', 'get_sales', 'get_analytics', 'write_marketing_copy'];
 export const TOOL_GROUPS = {
   sections: { about: 'add new sections to a page (hero, testimonials, FAQ, pricing, video, forms, timers…)', tools: ['add_section'], re: /\b(sections?|add|insert|block|testimonials?|faq|pricing|hero|video|form|countdown|timer|gallery|banner|logos?|reviews?|guarantee|bonus|page|design|layout)\b/i },
-  selling: { about: 'checkout, prices, products, coupons, order bumps, payment plans, A/B tests', tools: ['configure_checkout', 'list_products', 'create_product', 'create_coupon', 'list_coupons', 'split_test'], re: /\b(checkout|prices?|pricing|pay(ment)?s?|products?|coupons?|discount|bump|upsell|downsell|emi|instal+ments?|cod|cash on delivery|subscriptions?|membership|sell|a\/b|split|variant|razorpay|stripe|upi)\b|[₹$€£]/i },
+  selling: { about: 'checkout, prices, products, coupons, order bumps, payment plans, A/B tests, buyers’ product reviews', tools: ['configure_checkout', 'list_products', 'create_product', 'create_coupon', 'list_coupons', 'split_test', 'list_reviews'], re: /\b(ratings?|reviews?|checkout|prices?|pricing|pay(ment)?s?|products?|coupons?|discount|bump|upsell|downsell|emi|instal+ments?|cod|cash on delivery|subscriptions?|membership|sell|a\/b|split|variant|razorpay|stripe|upi)\b|[₹$€£]/i },
   crm: { about: 'contacts, leads, CRM fields and pipelines, tags', tools: ['find_contacts', 'update_contact', 'tag_contacts', 'find_duplicate_contacts', 'merge_contacts', 'list_pipelines', 'list_crm_fields', 'create_pipeline', 'setup_crm'], re: /\b(crm|contacts?|leads?|pipelines?|stages?|tags?|customers?|prospects?|fields?|deals?|patients?|students?|buyers?)\b/i },
   automations: { about: 'automations: follow-up email / WhatsApp sequences, reminders, webhooks', tools: ['list_automations', 'create_automation', 'update_automation', 'list_pipelines', 'connect_webhook'], re: /\b(automat\w*|follow[- ]?ups?|whats ?app|emails?|sequences?|remind\w*|webhooks?|nurture|drip|trigger\w*|workflows?)\b/i },
   broadcasts: { about: 'broadcasts: one-off emails / WhatsApp to a list', tools: ['draft_broadcast', 'send_broadcast', 'find_contacts'], re: /\b(broadcasts?|blast|newsletter|announce\w*|send (it )?to (all|my|everyone|the list))\b/i },

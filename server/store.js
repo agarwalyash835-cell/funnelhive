@@ -218,7 +218,7 @@ export function priceCart(store, owner, body, { couponFor, discountFor }) {
 }
 
 // ---------- routes ----------
-export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned }) {
+export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secret, recordOrder, finalizePayment, couponFor, discountFor, buyerOf, indexHtml, codAdvanceFor, startCodAdvance, saveAbandoned, saveReviewPhoto }) {
   const pvKey = (s) => crypto.createHmac('sha256', secret).update(`store.${s.id}`).digest('base64url').slice(0, 16);
   const storeUrl = (req, s) => `${(process.env.PAGES_URL || appUrl(req)).replace(/\/+$/, '')}/s/${s.handle}`;
   const sellerView = (req, s) => ({
@@ -535,5 +535,5 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
     });
   }
 
-  registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId });
+  registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId, saveReviewPhoto });
 }

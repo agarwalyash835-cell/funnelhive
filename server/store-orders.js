@@ -31,7 +31,7 @@ export function reviewStats(userId) {
 }
 // a buyer's name as shown under a review: "Ravi K."
 const shortName = (n) => { const p = clip(n, 80).split(/\s+/).filter(Boolean); return p.length ? `${p[0]}${p[1] ? ` ${p[1][0].toUpperCase()}.` : ''}` : 'A buyer'; };
-export const publicReview = (r) => ({ id: r.id, rating: r.rating, text: r.text || '', name: r.name, at: r.at, size: r.size || '' });
+export const publicReview = (r) => ({ id: r.id, rating: r.rating, text: r.text || '', name: r.name, at: r.at, size: r.size || '', ...(r.photo ? { photo: r.photo } : {}) });
 
 const FINAL_BAD = ['cancelled', 'refunded'];
 const productLines = (o) => (o.items || []).filter((it) => it.kind === 'store' && it.listingId);
@@ -47,6 +47,7 @@ function orderView(o, s) {
     id: o.id, at: o.at, name: String(o.name || '').split(/\s+/)[0] || '',
     items: (o.items || []).filter((it) => it.kind !== 'shipping' && it.kind !== 'cod_fee').map((it) => ({ name: it.name, price: it.price, ...(it.listingId ? { listingId: it.listingId } : {}) })),
     shipping: (o.items || []).filter((it) => it.kind === 'shipping').reduce((n, it) => n + it.price, 0),
+    codFee: (o.items || []).filter((it) => it.kind === 'cod_fee').reduce((n, it) => n + it.price, 0),
     total: o.status === 'cancelled' ? o.cancelledAmount || 0 : o.total,
     // how it's paid: online, cash on delivery (with an advance paid online, if any), or not at all yet
     payment: o.status === 'cod' ? { method: 'cod', due: Math.max(0, Math.round(((Number(o.total) || 0) - (o.prepaid?.amount || 0)) * 100) / 100), ...(o.prepaid?.amount ? { advance: o.prepaid.amount } : {}) }
@@ -64,8 +65,8 @@ function orderView(o, s) {
   };
 }
 
-// deps from store.js: { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId }
-export function registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId }) {
+// deps from store.js: { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId, saveReviewPhoto }
+export function registerStoreOrders(app, { auth, rateLimit, isTest, secret, openStore, publicStore, storeFunnelId, saveReviewPhoto }) {
   SECRET = secret;
   const lim = rateLimit({ windowMs: 60000, max: isTest ? 2000 : 30, key: (req) => `${req.ip}:so`, message: 'Too many tries — please wait a minute and try again.' });
   // the order, when the key matches and it belongs to this store
@@ -83,8 +84,22 @@ export function registerStoreOrders(app, { auth, rateLimit, isTest, secret, open
     if (!x) return;
     res.set('Cache-Control', 'no-store').json({ store: publicStore(x.s, x.owner), order: orderView(x.ord, x.s) });
   });
-  // body: { listingId, rating 1–5, text } — again for the same product replaces the earlier review
-  app.post('/api/s/:handle/order/:oid/review', lim, (req, res) => {
+  // "Track your order" on the store: body { order, phone } — the order number and the phone it was placed with
+  // must both match, then it hands back the order page's link. Same answer for a wrong number or a wrong phone.
+  const lookLim = rateLimit({ windowMs: 60000, max: isTest ? 2000 : 8, key: (req) => `${req.ip}:sotrack`, message: 'Too many tries — please wait a minute and try again.' });
+  const last10 = (p) => String(p || '').replace(/\D/g, '').slice(-10);
+  app.post('/api/s/:handle/track', lookLim, (req, res) => {
+    const o = openStore(req, res);
+    if (!o) return;
+    const id = clip(req.body?.order, 40).replace(/^#/, ''), ph = last10(req.body?.phone);
+    const ord = !o.demo && id && ph.length === 10 && T.orders.get(id);
+    if (!ord || ord.funnelId !== storeFunnelId(o.s.userId) || last10(ord.phone) !== ph) return res.status(404).json({ error: 'No order matches that number and phone — check your order message, or ask us on WhatsApp' });
+    res.json({ track: `/s/${o.s.handle}/order/${ord.id}?k=${trackKey(ord.id)}` });
+  });
+
+  // body: { listingId, rating 1–5, text, photo? (a data URL) } — again for the same product replaces the earlier review
+  // (keeping its photo unless a new one comes)
+  app.post('/api/s/:handle/order/:oid/review', lim, async (req, res) => {
     const x = theOrder(req, res);
     if (!x) return;
     const o = x.ord;
@@ -95,10 +110,16 @@ export function registerStoreOrders(app, { auth, rateLimit, isTest, secret, open
     const rating = Math.round(Number(req.body?.rating));
     if (!(rating >= 1 && rating <= 5)) return res.status(400).json({ error: 'Choose 1 to 5 stars' });
     const text = clip(req.body?.text, 600);
+    let photo = null;
+    if (req.body?.photo) {
+      const up = await saveReviewPhoto(o.userId, req.body.photo).catch(() => ({ error: 'The photo couldn’t be saved — please try again' }));
+      if (up.error) return res.status(400).json({ error: up.error });
+      photo = up.url;
+    }
     const ex = T.sreviews.find({ orderId: o.id, listingId: lid });
     const r = ex
-      ? T.sreviews.update(ex.id, (v) => Object.assign(v, { rating, text, editedAt: Date.now() }))
-      : T.sreviews.insert({ id: uid(), userId: o.userId, listingId: lid, orderId: o.id, rating, text, name: shortName(o.name), ...(line.size ? { size: line.size } : {}), hidden: false, at: Date.now() });
+      ? T.sreviews.update(ex.id, (v) => Object.assign(v, { rating, text, editedAt: Date.now() }, photo ? { photo } : {}))
+      : T.sreviews.insert({ id: uid(), userId: o.userId, listingId: lid, orderId: o.id, rating, text, name: shortName(o.name), ...(line.size ? { size: line.size } : {}), ...(photo ? { photo } : {}), hidden: false, at: Date.now() });
     res.json({ review: publicReview(r) });
   });
 

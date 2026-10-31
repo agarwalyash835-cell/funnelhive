@@ -882,6 +882,12 @@ p.sv-byline { font-size: 15px; margin: -2px 0 10px; }
 .sv-oitems ul { list-style: none; margin: 0 0 6px; padding: 0; }
 .sv-oitems li, .sv-oitems p { display: flex; justify-content: space-between; gap: 12px; margin: 0; padding: 8px 0; border-bottom: 1px solid var(--st-line); }
 .sv-oitems p.tot { border-bottom: 0; font-size: 17px; }
+.sv-track { max-width: 440px; }
+.sv-rphoto { display: inline-flex; align-items: center; gap: 8px; margin: 8px 12px 8px 0; font-size: 13px; cursor: pointer; color: var(--st-muted); }
+.sv-rphoto img { width: 48px; height: 48px; object-fit: cover; border-radius: var(--st-radius-sm); }
+.sv-revphoto img { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: var(--st-radius-sm); margin: 6px 0; }
+.sv-track label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
+.sv-track input { font: inherit; font-weight: 400; padding: 11px 12px; border: 1px solid var(--st-line); border-radius: var(--st-radius-sm); background: var(--st-surface); color: inherit; }
 .sv-orate { padding: 18px; border-radius: var(--st-radius); background: var(--st-surface); border: 1px solid var(--st-line); }
 .sv-orate h3 { margin: 0; }
 .sv-orate > .sv-tax { display: block; margin: 4px 0 12px; }

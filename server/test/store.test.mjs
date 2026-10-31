@@ -291,6 +291,13 @@ test('the buyer’s order page: only with its key, shows where the order is; rev
   const re = await rv({ listingId: L.tea.id, rating: 4, text: 'Strong and fresh, will order again' });
   assert.deepEqual([re.data.review.rating, re.data.review.name], [4, 'Sunita R.']);
   assert.equal((await rv({ listingId: L.ebook.id, rating: 2 })).status, 200);
+  // one photo with a review, stored like the seller's images; a script dressed up as a photo is refused
+  const png = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]).toString('base64')}`;
+  assert.equal((await rv({ listingId: L.ebook.id, rating: 2, photo: `data:image/png;base64,${Buffer.from('<script>').toString('base64')}` })).status, 400);
+  assert.equal((await rv({ listingId: L.ebook.id, rating: 2, photo: 'data:text/html;base64,PHA+' })).status, 400);
+  const withPic = await rv({ listingId: L.ebook.id, rating: 3, photo: png });
+  assert.match(withPic.data.review.photo, /^\/uploads\/.+\.png$/);
+  assert.equal((await rv({ listingId: L.ebook.id, rating: 4 })).data.review.photo, withPic.data.review.photo, 'an edit without a photo keeps the photo');
   assert.equal((await page(m[2])).data.order.review.every((x) => x.done), true);
   // the product shows the real average, count and the review itself
   let p = (await pub(`/p/${L.tea.id}`)).data;
@@ -307,6 +314,13 @@ test('the buyer’s order page: only with its key, shows where the order is; rev
   assert.deepEqual([p.listing.rating, p.listing.reviews, p.reviews.length], [undefined, undefined, 0]);
   // another store's address doesn't open this order
   assert.equal((await api(`/s/demo-grocery/order/${r.orderId}?k=${m[2]}`)).status, 404);
+  // "Track your order": the order number and the phone it was placed with, together, hand back the page's link
+  const look = (b) => pub('/track', b);
+  assert.equal((await look({ order: `#${r.orderId}`, phone: '+91 98765-43210' })).data.track, r.track);
+  assert.equal((await look({ order: r.orderId, phone: '9876543211' })).status, 404, 'wrong phone');
+  assert.equal((await look({ order: r.orderId })).status, 404, 'no phone');
+  assert.equal((await look({ order: 'nope', phone: '9876543210' })).status, 404);
+  assert.equal((await api('/s/demo-grocery/track', 'POST', { order: r.orderId, phone: '9876543210' })).status, 404, 'not from another store');
 });
 
 test('product feeds for Google and Meta, and the store sitemap: open stores only, live prices and stock', async () => {

@@ -52,6 +52,7 @@ const en = {
   trackOrder: 'Track your order', yourOrder: 'Your order', orderNo: 'Order #{id}', placedOn: 'Placed on {d}', stPlaced: 'Order placed', stShipped: 'Shipped', stOut: 'Out for delivery', stDelivered: 'Delivered', stCancelled: 'Cancelled', stReturned: 'Returned to us', stRefunded: 'Refunded', stReady: 'Ready — check your email for downloads',
   trackWith: 'Track with {c}', awbNo: 'Tracking no. {n}', paidOnline: 'Paid online', codDue: 'Pay {p} in cash on delivery', advancePaid: '{p} paid online', subtotalLbl: 'Items', shippingLbl: 'Shipping', totalLbl: 'Total', needHelp: 'Need help with this order?', helpWa: 'Hi! I have a question about my order #{id}.',
   rateTitle: 'How was it?', rateSub: 'Your rating helps other shoppers — it takes a few seconds.', reviewPh: 'What did you like? (optional)', postReview: 'Post review', reviewThanks: 'Thanks for your review!', editReview: 'Edit', starsN: '{n} stars', customerReviews: 'Customer reviews', verifiedBuyer: 'Verified buyer', noReviewsYet: 'No reviews yet',
+  trackSub: 'Enter your order number and the phone number you ordered with.', orderNoLbl: 'Order number', orderPhoneLbl: 'Phone number', findOrder: 'Find my order', paidCod: 'Paid in cash on delivery', codFeeLbl: 'Cash on delivery fee', addPhoto: 'Add a photo (optional)', changePhoto: 'Change photo', photoBad: 'That photo couldn’t be read — try another',
 };
 const hi = {
   search: 'खोजें', searchPh: 'प्रोडक्ट खोजें', cart: 'कार्ट', bag: 'बैग', addToCart: 'कार्ट में डालें', addToBag: 'बैग में डालें', add: 'जोड़ें', soldOut: 'स्टॉक ख़त्म',
@@ -102,6 +103,7 @@ const hi = {
   trackOrder: 'ऑर्डर ट्रैक करें', yourOrder: 'आपका ऑर्डर', orderNo: 'ऑर्डर #{id}', placedOn: '{d} को दिया गया', stPlaced: 'ऑर्डर मिला', stShipped: 'भेज दिया गया', stOut: 'डिलीवरी के लिए निकला', stDelivered: 'डिलीवर हो गया', stCancelled: 'रद्द', stReturned: 'हमें वापस आया', stRefunded: 'पैसे वापस', stReady: 'तैयार — डाउनलोड के लिए ईमेल देखें',
   trackWith: '{c} पर ट्रैक करें', awbNo: 'ट्रैकिंग नंबर {n}', paidOnline: 'ऑनलाइन भुगतान हो गया', codDue: 'डिलीवरी पर {p} नकद दें', advancePaid: '{p} ऑनलाइन दिए', subtotalLbl: 'सामान', shippingLbl: 'शिपिंग', totalLbl: 'कुल', needHelp: 'इस ऑर्डर में मदद चाहिए?', helpWa: 'नमस्ते! मेरे ऑर्डर #{id} के बारे में सवाल है।',
   rateTitle: 'कैसा लगा?', rateSub: 'आपकी रेटिंग दूसरे ग्राहकों की मदद करती है — बस कुछ सेकंड लगेंगे।', reviewPh: 'क्या पसंद आया? (ज़रूरी नहीं)', postReview: 'रिव्यू भेजें', reviewThanks: 'रिव्यू के लिए धन्यवाद!', editReview: 'बदलें', starsN: '{n} स्टार', customerReviews: 'ग्राहकों के रिव्यू', verifiedBuyer: 'असली ख़रीदार', noReviewsYet: 'अभी कोई रिव्यू नहीं',
+  trackSub: 'अपना ऑर्डर नंबर और ऑर्डर करते समय दिया फ़ोन नंबर डालें।', orderNoLbl: 'ऑर्डर नंबर', orderPhoneLbl: 'फ़ोन नंबर', findOrder: 'मेरा ऑर्डर खोजें', paidCod: 'डिलीवरी पर नकद दिया', codFeeLbl: 'कैश ऑन डिलीवरी शुल्क', addPhoto: 'फ़ोटो जोड़ें (ज़रूरी नहीं)', changePhoto: 'फ़ोटो बदलें', photoBad: 'यह फ़ोटो खुल नहीं पाई — दूसरी चुनें',
 };
 export const LABELS = { en, hi };
 export const LANGS = [['en', 'EN'], ['hi', 'हिं']];
