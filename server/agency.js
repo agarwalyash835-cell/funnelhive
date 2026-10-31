@@ -159,7 +159,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
   // some clients). Not an API key, not support, not from inside a client account. owner: owner-only actions.
   const agencyCtx = (req, res, { owner = false } = {}) => {
     const no = (s, error) => { res.status(s).json({ error }); return null; };
-    if (req.apiKey) return no(403, 'API keys can’t manage client accounts');
+    if (req.apiKey) return no(404, 'Client account not found'); // API keys don't manage client accounts
     if (req.agencyAccess) return no(403, 'Go back to your agency to manage client accounts');
     if (req.user.agencyId) return no(404, 'This page doesn’t exist.'); // a sub-account has no agency tools
     if (!req.actor) return { agency: req.user, actor: req.user, staff: null };
