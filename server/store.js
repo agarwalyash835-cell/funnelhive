@@ -90,6 +90,12 @@ export function cleanStore(b, cur = {}) {
     if (!Number.isFinite(fee) || fee < 0 || fee > 10000) return { error: 'COD fee must be 0 or more' };
     out.cod = { enabled: !!c.enabled, fee: Math.round(fee) };
   }
+  // returns and exchanges buyers can ask for from their order page (store-orders.js): days after delivery, 0 = none
+  if ('returns' in b) {
+    const r = b.returns || {}, days = Math.round(Number(r.days ?? 7));
+    if (!Number.isFinite(days) || days < 0 || days > 90) return { error: 'The return window is 0 to 90 days' };
+    out.returns = { days, exchange: r.exchange !== false };
+  }
   if ('theme' in b) { if (!THEME_IDS.includes(b.theme)) return { error: 'Choose one of the store themes' }; out.theme = b.theme; }
   if ('themeOptions' in b) { const o = cleanThemeOptions(b.themeOptions); if (o.error) return o; out.themeOptions = o; }
   if ('policyPages' in b) out.policyPages = cleanPolicyPages(b.policyPages || {}, cur.policyPages || {});

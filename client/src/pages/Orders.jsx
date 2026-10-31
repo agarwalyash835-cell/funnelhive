@@ -37,6 +37,7 @@ export default function Orders() {
   const [open, setOpen] = useState(null);
   const [refund, setRefund] = useState(null);
   const [ship, setShip] = useState(null);
+  const [ret, setRet] = useState(null); // a buyer's return / exchange request (store orders)
   // a connected courier (Settings → Shipping): ship from here, one order or several
   const shipCfg = useShipping();
   const srOn = !!shipCfg?.shiprocket?.connected;
@@ -151,6 +152,7 @@ export default function Orders() {
       {o.status === 'cod' && <button className="btn soft sm" title={t('Cash collected — issue the invoice and deliver')} onClick={() => codAct(o, 'paid')}>{t('Paid')}</button>}
       {o.status === 'cod' && ['pending', 'unconfirmed'].includes(o.codStatus) && <button className="btn ghost sm" title={t('Send the confirmation message again')} onClick={() => codAct(o, 'resend')}>{t('Resend')}</button>}
       {o.status === 'cod' && <button className="icon-btn" title={t('Cancel this COD order')} onClick={() => codAct(o, 'cancel')}><Icon name="x" size={15} /></button>}
+      {(o.returns || []).some((x) => ['requested', 'approved', 'received'].includes(x.status)) && <button className="btn soft sm" title={t('A return or exchange the buyer asked for')} onClick={() => setRet(o)}>{(o.returns || []).some((x) => x.status === 'requested') ? t('Return asked') : t('Return')}</button>}
       {!['refunded', 'cod', 'cancelled'].includes(o.status) && <button className="icon-btn" title={t('Refund')} onClick={() => setRefund(o)}><Icon name="refund" size={15} /></button>}
     </div>
   );
@@ -225,6 +227,7 @@ export default function Orders() {
       {ship && <ShipModal o={ship} onClose={() => setShip(null)} onDone={() => { setShip(null); load(); }} />}
       {courier && <CourierShipModal o={courier} onClose={() => setCourier(null)} onDone={() => { setCourier(null); load(); }} />}
       {bulk && <BulkShipModal ids={sel} onClose={() => setBulk(false)} onDone={() => { setBulk(false); setSel([]); load(); }} />}
+      {ret && <ReturnsModal o={ret} onClose={() => setRet(null)} onRefund={() => { setRefund(ret); setRet(null); }} onDone={load} />}
       {refund && <RefundModal o={refund} onClose={() => setRefund(null)} onDone={() => { setRefund(null); load(); }} />}
     </Layout>
   );
@@ -399,5 +402,43 @@ function CodBox({ o, onSaved }) {
         {!rto && ['cod', 'cancelled'].includes(o.status) && <button className="btn ghost sm" onClick={() => act('rto')}>{t('Returned to origin (RTO)')}</button>}
       </div>
     </section>
+  );
+}
+
+
+// a buyer's return / exchange requests on a store order: approve, reject with a note they'll read, mark the parcel received
+const RET_STATUS = { requested: ['Waiting for you', 'warn'], approved: ['Approved', 'ok'], rejected: ['Rejected', 'bad'], received: ['Received', 'ok'], closed: ['Closed', ''] };
+const RET_REASON = { size: 'Wrong size or fit', damaged: 'Arrived damaged', wrong: 'Wrong item sent', different: 'Not as described', mind: 'Changed their mind', other: 'Something else' };
+function ReturnsModal({ o, onClose, onRefund, onDone }) {
+  const [list, setList] = useState(o.returns || []);
+  const [note, setNote] = useState({});
+  const [busy, setBusy] = useState('');
+  const act = async (r, status) => {
+    setBusy(r.id + status);
+    try { const x = await api(`/orders/${o.id}/returns/${r.id}`, 'PUT', { status, note: note[r.id] || '' }); setList(x.returns); onDone(); toast(t('Saved — the buyer is told by email')); } catch (e) { toast(e.message); }
+    setBusy('');
+  };
+  return (
+    <Modal title={t('Returns and exchanges · #{id}', { id: o.id })} onClose={onClose} width={620}>
+      <div className="ret-list">{list.map((r) => { const [lbl, cls] = RET_STATUS[r.status] || [r.status, '']; return (
+        <div key={r.id} className="ret-item">
+          <div className="row"><b>{r.kind === 'exchange' ? t('Exchange') : t('Return')}</b><span className={`pill ${cls}`}>{t(lbl)}</span><small className="muted">{ago(r.at)}</small></div>
+          <p>{(r.names || []).join(', ')}{r.size ? ` → ${t('size')} ${r.size}` : ''}</p>
+          <p className="muted sm">{t(RET_REASON[r.reason] || r.reason)}{r.note ? ` — “${r.note}”` : ''}</p>
+          {r.sellerNote && <p className="sm">{t('Your note')}: {r.sellerNote}</p>}
+          {['requested', 'approved', 'received'].includes(r.status) && <>
+            <textarea rows={2} maxLength={500} placeholder={t('A note for the buyer (needed to reject) — e.g. pickup date, or why not')} value={note[r.id] || ''} onChange={(e) => setNote({ ...note, [r.id]: e.target.value })} />
+            <div className="row">
+              {r.status === 'requested' && <button className="btn primary sm" disabled={!!busy} onClick={() => act(r, 'approved')}>{t('Approve')}</button>}
+              {r.status === 'requested' && <button className="btn ghost sm" disabled={!!busy} onClick={() => act(r, 'rejected')}>{t('Reject')}</button>}
+              {r.status === 'approved' && <button className="btn primary sm" disabled={!!busy} onClick={() => act(r, 'received')}>{t('Mark the parcel received')}</button>}
+              {r.kind === 'return' && ['approved', 'received'].includes(r.status) && !['refunded', 'cod', 'cancelled'].includes(o.status) && <button className="btn ghost sm" onClick={onRefund}>{t('Refund these items')}</button>}
+              {['approved', 'received'].includes(r.status) && <button className="btn ghost sm" disabled={!!busy} onClick={() => act(r, 'closed')}>{t('Close')}</button>}
+            </div>
+          </>}
+        </div>
+      ); })}</div>
+      <p className="hint">{t('Refunds go through Refund as usual, so stock, invoices and credit notes stay right. For an exchange, ship the new size as a fresh order or note it here.')}</p>
+    </Modal>
   );
 }

@@ -27,7 +27,7 @@ export default function StoreSettings() {
   const save = async () => {
     setBusy(true);
     try {
-      const r = await api('/store', 'PUT', { enabled: !!s.enabled, handle: s.handle || '', name: s.name, tagline: s.tagline, about: s.about, color: s.color, logo: s.logo, categories: String(s.cats || '').split(',').map((x) => x.trim()).filter(Boolean), shipping: { fee: Number(s.shipping?.fee) || 0, freeAbove: Number(s.shipping?.freeAbove) || 0 }, cod: { enabled: !!s.cod?.enabled, fee: Number(s.cod?.fee) || 0 }, policies: s.policies || {}, theme: s.theme || 'classic', themeOptions: s.themeOptions || {}, policyPages: s.policyPages || {} });
+      const r = await api('/store', 'PUT', { enabled: !!s.enabled, handle: s.handle || '', name: s.name, tagline: s.tagline, about: s.about, color: s.color, logo: s.logo, categories: String(s.cats || '').split(',').map((x) => x.trim()).filter(Boolean), shipping: { fee: Number(s.shipping?.fee) || 0, freeAbove: Number(s.shipping?.freeAbove) || 0 }, cod: { enabled: !!s.cod?.enabled, fee: Number(s.cod?.fee) || 0 }, returns: { days: Number(s.returns?.days ?? 7) || 0, exchange: s.returns?.exchange !== false }, policies: s.policies || {}, theme: s.theme || 'classic', themeOptions: s.themeOptions || {}, policyPages: s.policyPages || {} });
       setD({ ...d, store: r.store }); setS({ ...r.store, cats: (r.store.categories || []).join(', ') });
       toast(t('Store saved'));
     } catch (e) { toast(e.message); }
@@ -79,6 +79,9 @@ export default function StoreSettings() {
           <label>{t('Free shipping above (₹)')}<input type="number" min={0} value={s.shipping?.freeAbove || ''} placeholder={t('never')} onChange={(e) => set({ shipping: { ...s.shipping, freeAbove: e.target.value } })} /></label>
           <label className="fcheck"><input type="checkbox" checked={!!s.cod?.enabled} onChange={(e) => set({ cod: { ...s.cod, enabled: e.target.checked } })} /><span><b>{t('Cash on Delivery')}</b><small className="muted"> · {t('PIN codes and risk rules: Settings → Cash on Delivery')}</small></span></label>
           {s.cod?.enabled && <label>{t('COD fee (₹)')}<input type="number" min={0} value={s.cod?.fee || ''} placeholder="0" onChange={(e) => set({ cod: { ...s.cod, fee: e.target.value } })} /></label>}
+          <h4 className="st-full">{t('Returns and exchanges')}</h4>
+          <label>{t('Days after delivery a buyer can ask')}<input type="number" min={0} max={90} value={s.returns?.days ?? 7} onChange={(e) => set({ returns: { ...s.returns, days: e.target.value } })} /><small className="muted">{t('0 = no returns online. Buyers ask from their order page; you approve or reject in Orders.')}</small></label>
+          <label className="fcheck"><input type="checkbox" checked={s.returns?.exchange !== false} onChange={(e) => set({ returns: { ...s.returns, exchange: e.target.checked } })} /><span><b>{t('Offer exchanges')}</b><small className="muted"> · {t('buyers can ask for another size instead of their money back')}</small></span></label>
           <h4 className="st-full">{t('Policy links')}</h4>
           {[['refund', 'Refund policy'], ['shipping', 'Shipping policy'], ['terms', 'Terms'], ['privacy', 'Privacy policy'], ['contact', 'Contact page']].map(([k, l]) => <label key={k}>{t(l)}<input value={pol[k] || ''} placeholder="https://" onChange={(e) => set({ policies: { ...pol, [k]: e.target.value } })} /></label>)}
           <div className="st-full"><button className="btn primary" disabled={busy} onClick={save}>{busy ? t('Saving…') : t('Save')}</button></div>

@@ -902,3 +902,23 @@ p.sv-byline { font-size: 15px; margin: -2px 0 10px; }
 .sv-previews li p { margin: 0; line-height: 1.5; }
 .sv-previews li small { color: var(--st-soft); font-size: 12.5px; }
 .sv-previews .sv-sec-head { align-items: center; }
+
+/* the buyer's return / exchange request (order page) */
+.sv-oret { padding: 18px; border-radius: var(--st-radius); background: var(--st-surface); border: 1px solid var(--st-line); display: grid; gap: 10px; }
+.sv-oret h3 { margin: 0; }
+.sv-oret-lines { display: grid; gap: 6px; }
+.sv-check { display: flex; align-items: center; gap: 8px; font-size: 14.5px; }
+.sv-check input { width: 18px; height: 18px; accent-color: var(--st-brand); }
+.sv-seg { display: inline-flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--st-brand-soft); justify-self: start; }
+.sv-seg button { border: 0; background: none; padding: 7px 16px; border-radius: 999px; font: inherit; font-weight: 600; color: var(--st-ink); cursor: pointer; }
+.sv-seg button.on { background: var(--st-surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .1); }
+.sv-fld { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.sv-fld select, .sv-oret textarea { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--st-line); border-radius: var(--st-radius-sm); font: inherit; font-weight: 400; background: var(--st-bg); color: var(--st-ink); }
+.sv-oret > .sv-btn { justify-self: start; }
+.sv-oret-reqs { display: grid; gap: 8px; margin-top: 4px; }
+.sv-oret-req { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 10px 12px; border-radius: var(--st-radius-sm); background: var(--st-bg); }
+.sv-oret-req small { display: block; color: var(--st-soft); font-size: 12.5px; }
+.sv-oret-req em { font-style: normal; font-size: 12.5px; font-weight: 700; align-self: start; padding: 3px 9px; border-radius: 999px; background: var(--st-brand-soft); }
+.sv-oret-req.st-approved em, .sv-oret-req.st-received em, .sv-oret-req.st-closed em { background: color-mix(in srgb, #16a34a 16%, var(--st-surface)); color: #166534; }
+.sv-oret-req.st-rejected em { background: color-mix(in srgb, #dc2626 12%, var(--st-surface)); color: #991b1b; }
+.sv-oret-req p { grid-column: 1 / -1; margin: 2px 0 0; font-size: 13.5px; }

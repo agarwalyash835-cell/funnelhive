@@ -343,3 +343,42 @@ test('product feeds for Google and Meta, and the store sitemap: open stores only
   assert.equal((await get('/feed/meta.csv')).status, 404);
   assert.equal((await api('/store', 'PUT', { enabled: true }, A)).status, 200);
 });
+
+test('returns and exchanges: asked from the order page after delivery, within the window; the seller approves or rejects', async () => {
+  assert.equal((await api('/inventory/moves', 'POST', { itemId: tea.id, kind: 'OPENING', qty: 5 }, A)).status, 200);
+  assert.equal((await api(`/store/listings/${L.tea.id}`, 'PUT', { sizes: ['250g', '500g'] }, A)).status, 200);
+  const r = await payCart({ cart: [{ id: L.tea.id, qty: 1, size: '250g' }, { id: L.ebook.id, qty: 1 }], address: MH, name: 'Neha Shah', email: 'neha@x.in' });
+  const k = String(r.track).split('k=')[1];
+  const page = async () => (await pub(`/order/${r.orderId}?k=${k}`)).data.order;
+  const ask = (b) => pub(`/order/${r.orderId}/return?k=${k}`, b);
+  assert.deepEqual([(await page()).returns.days, (await page()).returns.lines.length], [7, 0], 'nothing to return before delivery');
+  assert.match((await ask({ items: [0], kind: 'return', reason: 'size' })).data.error, /once your order is delivered/);
+  await api(`/orders/${r.orderId}/fulfil`, 'POST', { status: 'shipped', courier: 'Delhivery', tracking: 'AWB9' }, A);
+  await api(`/orders/${r.orderId}/fulfil`, 'POST', { status: 'delivered' }, A);
+  const p = await page();
+  assert.deepEqual(p.returns.lines.map((l) => [l.index, l.sizes || null]), [[0, ['250g', '500g']], [1, null]]);
+  // checks: products in this order, a reason, a size to swap to, a note for "something else"
+  assert.equal((await ask({ items: [7], kind: 'return', reason: 'size' })).status, 400);
+  assert.equal((await ask({ items: [0], kind: 'return' })).status, 400);
+  assert.match((await ask({ items: [0], kind: 'exchange', reason: 'size', size: 'XXL' })).data.error, /Choose the size/);
+  assert.match((await ask({ items: [0], kind: 'return', reason: 'other' })).data.error, /Add a few words/);
+  const ex = await ask({ items: [0], kind: 'exchange', reason: 'size', size: '500g', note: 'Need the bigger pack' });
+  assert.equal(ex.status, 200, JSON.stringify(ex.data));
+  assert.deepEqual([ex.data.request.status, ex.data.request.size, ex.data.request.kind], ['requested', '500g', 'exchange']);
+  assert.deepEqual((await page()).returns.lines.map((l) => l.index), [1], 'an open request takes its line off the list');
+  assert.equal((await ask({ items: [0], kind: 'return', reason: 'damaged' })).status, 400, 'not twice');
+  // the seller sees it on the order; rejecting needs a note; another seller can't touch it
+  const o = await orderOf(r.orderId);
+  const rid = o.returns[0].id;
+  assert.equal((await api(`/orders/${r.orderId}/returns/${rid}`, 'PUT', { status: 'approved' }, B)).status, 404);
+  assert.match((await api(`/orders/${r.orderId}/returns/${rid}`, 'PUT', { status: 'rejected' }, A)).data.error, /Tell the buyer why/);
+  const ok = await api(`/orders/${r.orderId}/returns/${rid}`, 'PUT', { status: 'approved', note: 'Our courier picks it up tomorrow' }, A);
+  assert.equal(ok.data.returns[0].status, 'approved');
+  assert.deepEqual([(await page()).returns.requests[0].status, (await page()).returns.requests[0].sellerNote], ['approved', 'Our courier picks it up tomorrow']);
+  // a store that turns returns off takes no new requests
+  assert.equal((await api('/store', 'PUT', { returns: { days: 0 } }, A)).status, 200);
+  assert.match((await ask({ items: [1], kind: 'return', reason: 'mind' })).data.error, /doesn’t take returns online/);
+  assert.equal((await api('/store', 'PUT', { returns: { days: 120 } }, A)).status, 400);
+  assert.equal((await api('/store', 'PUT', { returns: { days: 7, exchange: true } }, A)).status, 200);
+  assert.equal((await api(`/store/listings/${L.tea.id}`, 'PUT', { sizes: [] }, A)).status, 200);
+});

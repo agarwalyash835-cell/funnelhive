@@ -670,6 +670,7 @@ export function OrderPage({ id, k }) {
         : <ol className="sv-timeline">{steps.map(([key, at], i) => <li key={key} className={i < reached ? 'done' : ''}><span aria-hidden="true">{i < reached ? '✓' : i + 1}</span><b>{t(key)}</b>{i < reached && at ? <small>{day(at)}</small> : null}</li>)}</ol>}
       {o.shipped && !bad && <div className="sv-oship">{o.shipped.courier && <b>{o.shipped.courier}</b>}{o.shipped.tracking && <span>{t('awbNo', { n: o.shipped.tracking })}</span>}{o.shipped.url && <a className="sv-btn ghost" href={o.shipped.url} target="_blank" rel="noreferrer">{t('trackWith', { c: o.shipped.courier || 'courier' })}</a>}</div>}
       {o.review.length > 0 && <OrderReviews o={o} url={url} onDone={(lid) => setD({ ...d, order: { ...o, review: o.review.map((x) => (x.listingId === lid ? { ...x, done: true } : x)) } })} />}
+      {o.returns && o.returns.days > 0 && (o.returns.lines.length > 0 || o.returns.requests.length > 0 || o.returns.until) && <OrderReturns o={o} url={url} reload={() => getJson(url).then(setD)} />}
       <div className="sv-block sv-oitems">
         <ul>{o.items.map((it, i) => <li key={i}><span>{it.name}</span><b>{rupees(it.price)}</b></li>)}</ul>
         {o.shipping > 0 && <p><span>{t('shippingLbl')}</span><b>{rupees(o.shipping)}</b></p>}
@@ -710,6 +711,53 @@ function OrderReviews({ o, url, onDone }) {
           </div>
         </div>
       ); })}
+    </section>
+  );
+}
+
+// ask for a return or an exchange after delivery (the store's window, server store-orders.js), and see the replies
+function OrderReturns({ o, url, reload }) {
+  const { t, lang } = useStore();
+  const R = o.returns;
+  const [pick, setPick] = useState([]);
+  const [kind, setKind] = useState('return');
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+  const [size, setSize] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const day = (at) => new Date(at).toLocaleDateString(lang === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' });
+  const sizes = [...new Set(R.lines.filter((l) => pick.includes(l.index)).flatMap((l) => l.sizes || []))];
+  const send = async () => {
+    setBusy(true); setMsg('');
+    const r = await fetch(url.replace('?', '/return?'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: pick, kind, reason, note, size }) })
+      .then((x) => x.json()).catch(() => ({ error: 'Network problem — please try again' }));
+    setBusy(false);
+    if (r.error) return setMsg(r.error);
+    setPick([]); setReason(''); setNote(''); setSize(''); setMsg(t('retSent')); reload();
+  };
+  return (
+    <section className="sv-block sv-oret">
+      <h3>{t('retTitle')}</h3>
+      {R.lines.length > 0 ? <>
+        <p className="sv-tax">{t('retSub', { d: day(R.until) })}</p>
+        <div className="sv-oret-lines">{R.lines.map((l) => <label key={l.index} className="sv-check"><input type="checkbox" checked={pick.includes(l.index)} onChange={(e) => setPick(e.target.checked ? [...pick, l.index] : pick.filter((x) => x !== l.index))} />{l.name}</label>)}</div>
+        {pick.length > 0 && <>
+          {R.exchange && <div className="sv-seg" role="radiogroup">{[['return', 'retKind'], ['exchange', 'excKind']].map(([k, lbl]) => <button type="button" key={k} role="radio" aria-checked={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{t(lbl)}</button>)}</div>}
+          {kind === 'exchange' && sizes.length > 0 && <label className="sv-fld">{t('retSize')}<select value={size} onChange={(e) => setSize(e.target.value)}><option value="">—</option>{sizes.map((z) => <option key={z}>{z}</option>)}</select></label>}
+          <label className="sv-fld">{t('retWhy')}<select value={reason} onChange={(e) => setReason(e.target.value)}><option value="">—</option>{Object.keys(R.reasons).map((k) => <option key={k} value={k}>{t(`rsn_${k}`)}</option>)}</select></label>
+          <textarea rows={2} maxLength={500} placeholder={t('retNote')} value={note} onChange={(e) => setNote(e.target.value)} />
+          <button type="button" className="sv-btn" disabled={busy || !reason} onClick={send}>{t('retSend')}</button>
+        </>}
+      </> : R.until && <p className="sv-tax">{t('retClosed', { d: day(R.until) })}</p>}
+      {msg && <p className={msg === t('retSent') ? 'sv-ok' : 'st-err'}>{msg}</p>}
+      {R.requests.length > 0 && <div className="sv-oret-reqs"><b>{t('retYours')}</b>{R.requests.map((q) => (
+        <div key={q.id} className={`sv-oret-req st-${q.status}`}>
+          <span><b>{t(q.kind === 'exchange' ? 'excKind' : 'retKind')}</b> · {q.names.join(', ')}{q.size ? ` → ${q.size}` : ''}<small>{t(`rsn_${q.reason}`)} · {day(q.at)}</small></span>
+          <em>{t(`rs_${q.status}`)}</em>
+          {q.sellerNote && <p>{q.sellerNote}</p>}
+        </div>
+      ))}</div>}
     </section>
   );
 }
