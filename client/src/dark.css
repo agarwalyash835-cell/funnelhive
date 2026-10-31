@@ -1,0 +1,62 @@
+/* =====================================================================
+   DARK MODE — <html data-mode="dark">, set only while the dashboard is on screen (skins.js useDashboardMode), never
+   on funnel, store, quote or booking pages. It retunes the design tokens; the hard-coded colours in the dashboard's
+   stylesheets go through --dk-* variables that fall back to the original colour, so light mode is untouched:
+     --dk-mix   how much of a light background shows over the dark surface (100% = the colour itself)
+     --dk-bmix  the same for coloured borders
+     --dk-lift  how much of a dark, saturated text colour stays (the rest is white, so it reads on dark)
+     --dk-ink / --dk-muted / --dk-line   grey text and lines → the dark palette's
+   Each skin keeps its accent, fonts, corners and layout; the accent is mixed in where a skin had light tints.
+   Loaded after the skins, with a stronger selector, so it wins over a skin's own tokens.
+   ===================================================================== */
+:root[data-mode='dark'], :root[data-mode='dark'][data-skin] {
+  color-scheme: dark;
+  --c-bg: #121214; --c-surface: #1b1b1f; --c-surface-2: #222227;
+  --c-ink: #ececf0; --c-ink-2: #c9c9d1; --c-ink-3: #a9a9b3; --c-muted: #9d9da8;
+  --c-line: #303037; --c-line-2: #28282e; --c-line-strong: #3f3f47;
+  --c-accent-soft: color-mix(in srgb, var(--c-accent) 20%, #1b1b1f);
+  --c-accent-tint: color-mix(in srgb, var(--c-accent) 12%, #1b1b1f);
+  --c-accent-ink: color-mix(in srgb, var(--c-accent) 55%, #fff);
+  /* buttons keep white text: the skin's accent, darkened enough to read */
+  --c-act: color-mix(in srgb, var(--c-accent) 62%, #000); --c-act-hover: color-mix(in srgb, var(--c-accent) 72%, #000);
+  --c-ok: #4ade80; --c-ok-soft: #12271a; --c-warn: #fbbf24; --c-warn-soft: #2a2210; --c-bad: #fb923c; --c-bad-soft: #2f1a10;
+  --c-side: #17171a; --c-side-2: #26262c; --c-side-ink: #b9b9c3;
+  --sh-1: 0 1px 0 rgba(0, 0, 0, .3); --sh-2: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 20px -10px rgba(0, 0, 0, .6); --sh-3: 0 24px 60px -20px rgba(0, 0, 0, .8);
+  --dk-mix: 9%; --dk-bmix: 28%; --dk-lift: 55%;
+  --dk-ink: var(--c-ink); --dk-muted: var(--c-muted); --dk-line: var(--c-line);
+}
+/* what a light-on-light rule assumed: hovers and rings drawn in translucent black vanish on dark */
+:root[data-mode='dark'] .side nav a:hover { background: var(--c-side-2); }
+:root[data-mode='dark'] .pill { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); }
+:root[data-mode='dark'] .m-box { border-color: var(--c-line); box-shadow: 0 0 0 1px rgba(0, 0, 0, .4), var(--sh-3); }
+:root[data-mode='dark'] .btn.primary:active:not(:disabled) { box-shadow: none; }
+:root[data-mode='dark'] input::placeholder, :root[data-mode='dark'] textarea::placeholder { color: #7c7c87; }
+:root[data-mode='dark'] img:not([src$='.svg']) { filter: none; }
+/* the funnel page inside the editor (and any page preview) is the buyer's page: the light tokens again inside it
+   (initial = unset, so every var(--dk-…, original) falls back to the original colour) */
+:root[data-mode='dark'] .page {
+  color-scheme: light;
+  --c-bg: #f6f5f2; --c-surface: #ffffff; --c-surface-2: #faf9f7; --c-ink: #1c1917; --c-ink-2: #44403c; --c-muted: #6e6863;
+  --c-line: #e7e5e2; --c-line-2: #efedea; --c-accent-soft: #fdf3dc;
+  --dk-mix: initial; --dk-bmix: initial; --dk-lift: initial; --dk-ink: initial; --dk-muted: initial; --dk-line: initial; --dk-accent: initial;
+}
+:root[data-mode='dark'], :root[data-mode='dark'][data-skin] { --dk-accent: var(--c-accent-ink); }
+/* the plain button is filled with the ink colour (light in dark mode): dark text on it. :where keeps it weaker than
+   .btn.primary and the other variants, which set their own text colour */
+:where(:root[data-mode='dark']) .btn { color: #141416; }
+/* Glass sets its own tokens on the app's containers: smoked glass over a dark colour field instead of frosted white */
+:root[data-mode='dark'].glass :is(.app, .auth, .ed-top, .ed-left, .ed-right) {
+  --g-fill: rgba(32, 32, 40, .62); --g-fill-2: rgba(32, 32, 40, .42); --g-fill-strong: rgba(32, 32, 40, .82);
+  --g-edge: rgba(255, 255, 255, .09); --g-hair: rgba(255, 255, 255, .08);
+  --g-spec: inset 0 1px 0 rgba(255, 255, 255, .07); --g-shadow: 0 1px 1px rgba(0, 0, 0, .3), 0 10px 30px -12px rgba(0, 0, 0, .65);
+  --c-surface: #1e1e25; --c-surface-2: var(--g-fill-2); --c-line: var(--g-hair); --c-line-2: rgba(255, 255, 255, .05);
+  --c-accent-soft: rgba(245, 165, 36, .18); --c-ok-soft: rgba(74, 222, 128, .12); --c-warn-soft: rgba(251, 191, 36, .14); --c-bad-soft: rgba(251, 146, 60, .14);
+}
+:root[data-mode='dark'].glass .app::before, :root[data-mode='dark'].glass .auth-form::before {
+  background:
+    radial-gradient(42% 38% at 12% 8%, rgba(245, 165, 36, .16), transparent 70%),
+    radial-gradient(38% 34% at 92% 6%, rgba(124, 92, 252, .16), transparent 70%),
+    radial-gradient(46% 40% at 78% 92%, rgba(56, 189, 248, .10), transparent 70%),
+    linear-gradient(160deg, #16151b, #121216 45%, #17141c);
+}
+:root[data-mode='dark'].glass .app, :root[data-mode='dark'].glass .auth { background: #121216; }

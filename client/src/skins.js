@@ -6,6 +6,8 @@
 //           'float' (the menu as a floating card), 'right' (the menu on the right); band: a colour band behind titles
 //   dock:   a floating quick-action bar at the bottom (search, new funnel, bookings, Hive)
 //   sw:     the swatch colours for the picker [background, surface, accent, ink]; thumb: the picker's drawing if not the layout
+import { useLayoutEffect } from 'react';
+
 export const SKINS = {
   classic: { name: 'Classic', blurb: 'Warm neutrals with a honey accent — the default.', layout: 'side', sw: ['#f6f5f2', '#ffffff', '#f5a524', '#1c1917'] },
   softwash: { name: 'Soft Wash', blurb: 'A calm peach-to-sage wash, tabs across the top and a floating action bar.', layout: 'top', dock: true, sw: ['#f3ece4', '#fffdfa', '#e2643c', '#1f1d1a'] },
@@ -42,6 +44,29 @@ export function applySkin(id) {
   window.dispatchEvent(new Event('ff:skin'));
   return k;
 }
+// ---------- light / dark (dark.css) ----------
+// Each person's own (/api/me mode; this browser keeps the last one so the first paint is right). Only the dashboard
+// goes dark: its screens call useDashboardMode, and leaving them (a funnel, store or booking page) puts light back.
+const MODE_KEY = 'ff_mode';
+export const MODES = { light: 'Light', dark: 'Dark', system: 'Match my device' };
+export const savedMode = () => { try { const m = localStorage.getItem(MODE_KEY); return MODES[m] ? m : 'light'; } catch { return 'light'; } };
+const darkNow = (m) => m === 'dark' || (m === 'system' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+export function setMode(m) {
+  if (!MODES[m]) return;
+  try { localStorage.setItem(MODE_KEY, m); } catch { /* private mode */ }
+  window.dispatchEvent(new Event('ff:mode'));
+}
+export function useDashboardMode() {
+  useLayoutEffect(() => {
+    const root = document.documentElement, mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const paint = () => { if (darkNow(savedMode())) root.dataset.mode = 'dark'; else delete root.dataset.mode; };
+    paint();
+    window.addEventListener('ff:mode', paint);
+    mq?.addEventListener?.('change', paint);
+    return () => { window.removeEventListener('ff:mode', paint); mq?.removeEventListener?.('change', paint); delete root.dataset.mode; };
+  }, []);
+}
+
 // before React draws: the last skin this browser used (the old glass switch counts)
 export function bootSkin() {
   let k = 'classic';

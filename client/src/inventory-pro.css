@@ -11,7 +11,7 @@
 .ip-none { padding: 14px 20px; margin: 0; }
 .ip-pad { padding: 12px 20px 0; }
 
-.ip-card { border: 1px solid var(--c-line, #e7e5e4); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: linear-gradient(180deg, rgba(245, 165, 36, .035), transparent 60%); }
+.ip-card { border: 1px solid var(--c-line, var(--dk-line, #e7e5e4)); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: linear-gradient(180deg, rgba(245, 165, 36, .035), transparent 60%); }
 .ip-card:last-child { margin-bottom: 0; }
 .ip-card-h { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; }
 .ip-card-h small { grid-column: 1; overflow: hidden; text-overflow: ellipsis; }
@@ -40,16 +40,16 @@
 
 .ip-counter { display: grid; gap: 4px; margin-bottom: 8px; }
 .ip-billopts { padding: 12px 0 0; }
-.ip-credit { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; background: #fdf6e3; color: #92400e; }
-.ip-credit.bad { background: #fde4e1; color: #b91c1c; font-weight: 600; }
-.ip-total { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, #fdf0d5, #fdf6e3); box-shadow: inset 0 0 0 1px rgba(180, 83, 9, .14); }
-.ip-total span { flex: 1 1 220px; font-size: 12.5px; color: #78350f; }
+.ip-credit { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, #fdf6e3 var(--dk-mix, 100%), var(--c-surface)); color: color-mix(in srgb, #92400e var(--dk-lift, 100%), #fff); }
+.ip-credit.bad { background: color-mix(in srgb, #fde4e1 var(--dk-mix, 100%), var(--c-surface)); color: color-mix(in srgb, #b91c1c var(--dk-lift, 100%), #fff); font-weight: 600; }
+.ip-total { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, color-mix(in srgb, #fdf0d5 var(--dk-mix, 100%), var(--c-surface)), color-mix(in srgb, #fdf6e3 var(--dk-mix, 100%), var(--c-surface))); box-shadow: inset 0 0 0 1px rgba(180, 83, 9, .14); }
+.ip-total span { flex: 1 1 220px; font-size: 12.5px; color: color-mix(in srgb, #78350f var(--dk-lift, 100%), #fff); }
 .ip-cns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-top: 2px; }
-.ip-cn { border: 0; padding: 1px 6px; border-radius: 6px; background: rgba(220, 38, 38, .07); color: #b91c1c; font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.5; cursor: pointer; }
+.ip-cn { border: 0; padding: 1px 6px; border-radius: 6px; background: rgba(220, 38, 38, .07); color: color-mix(in srgb, #b91c1c var(--dk-lift, 100%), #fff); font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.5; cursor: pointer; }
 .ip-cn:hover { background: rgba(220, 38, 38, .14); }
 .ip-total b { font-size: 22px; font-weight: 780; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 
-.ip-bar { display: block; height: 4px; border-radius: 4px; background: var(--c-line-2, #f0eeeb); margin-top: 4px; overflow: hidden; }
+.ip-bar { display: block; height: 4px; border-radius: 4px; background: var(--c-line-2, color-mix(in srgb, #f0eeeb var(--dk-mix, 100%), var(--c-surface))); margin-top: 4px; overflow: hidden; }
 .ip-bar > i { display: block; height: 100%; background: linear-gradient(90deg, #16a34a, #4ade80); }
 .ip-bar > i.warn { background: linear-gradient(90deg, #f59e0b, #f97316); }
 .ip-bar > i.bad { background: linear-gradient(90deg, #dc2626, #f97316); }
@@ -62,7 +62,7 @@
 }
 
 /* buyer GST details on a counter bill, and the GSTR-1 summary */
-.ip-buyer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 4px; padding: 10px; border: 1px dashed var(--c-line); border-radius: 12px; background: var(--c-surface-2, #faf9f7); }
+.ip-buyer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 4px; padding: 10px; border: 1px dashed var(--c-line); border-radius: 12px; background: var(--c-surface-2, color-mix(in srgb, #faf9f7 var(--dk-mix, 100%), var(--c-surface))); }
 .ip-buyer .full { grid-column: 1 / -1; }
 .ip-gstr { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-top: 8px; font-size: 13px; }
 .ip-gstr .hint { flex-basis: 100%; margin: 4px 0 0; }

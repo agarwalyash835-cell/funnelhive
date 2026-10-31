@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
 import { api, meCache, logout, stopImpersonating, leaveClient, fmtDate, setToken } from './api';
-import { SKINS, applySkin, currentSkin } from './skins';
+import { SKINS, applySkin, currentSkin, useDashboardMode, setMode, savedMode } from './skins';
 import SkinPicker from './skinPicker';
 import { isSuper } from './tier';
 import { agencyHost } from './agencyHost';
@@ -344,6 +344,7 @@ export const sideMini = () => { try { return localStorage.getItem('ff_side_mini'
 export const loadFailed = () => window.dispatchEvent(new Event('ff:loadfail'));
 
 export function Layout({ title, subtitle, actions, children, wide }) {
+  useDashboardMode(); // light / dark (dark.css), only while the dashboard is on screen
   const [me, setMe] = useState(meCache.data);
   const [loadFail, setLoadFail] = useState(false);
   useEffect(() => { const h = () => setLoadFail(true); window.addEventListener('ff:loadfail', h); return () => window.removeEventListener('ff:loadfail', h); }, []);
@@ -356,7 +357,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
     return () => window.removeEventListener('keydown', k);
   }, []);
   const [paywall, setPaywall] = useState(null);
-  useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); if (!isSuper) applySkin(m.skin || 'classic'); }).catch(() => {}); }, []);
+  useEffect(() => { (Date.now() - meCache.at < 30000 ? Promise.resolve(meCache.data) : api('/me').then((m) => { Object.assign(meCache, { data: m, at: Date.now() }); return m; })).then((m) => { setMe(m); if (m.brand) document.title = m.brand; if (m.whiteLabel?.primary) document.documentElement.style.setProperty('--primary', m.whiteLabel.primary); if (m.pagesUrl) window.__PAGES_URL__ = m.pagesUrl; if (m.mode && m.mode !== savedMode()) setMode(m.mode); window.__FF_BIZ_TZ__ = m.settings?.timezone || 'Asia/Kolkata'; if (m.uiLang) setUiLang(m.uiLang); if (!isSuper) applySkin(m.skin || 'classic'); }).catch(() => {}); }, []);
   // the skin picker (profile menu → Change skin…) and the skin's layout
   const [skin, setSkin] = useState(currentSkin);
   const [skinOpen, setSkinOpen] = useState(false);

@@ -20,6 +20,7 @@ import './skins.css';
 import './skins-more.css';
 import { bootSkin } from './skins';
 import './cod.css';
+import './dark.css'; // last: dark mode wins over the skins
 
 const named = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })));
 const Toaster = named(() => import('./ui'), 'Toaster');

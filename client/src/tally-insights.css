@@ -6,15 +6,15 @@
 /* the cards double as the chooser for the list below */
 .ti-cards { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .ti-card { font: inherit; color: inherit; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
-.ti-card:hover { border-color: var(--c-line-strong, #d6d3d1); transform: translateY(-1px); }
+.ti-card:hover { border-color: var(--c-line-strong, var(--dk-line, #d6d3d1)); transform: translateY(-1px); }
 .ti-card:focus-visible { outline: 2px solid var(--c-accent-2, #d97706); outline-offset: 2px; }
-.ti-card.on { border-color: #f3c46b; background: linear-gradient(180deg, #fff8ea, var(--c-surface) 75%); box-shadow: 0 0 0 3px rgba(245, 158, 11, .14), var(--sh-1); }
+.ti-card.on { border-color: color-mix(in srgb, #f3c46b var(--dk-bmix, 100%), var(--c-surface)); background: linear-gradient(180deg, color-mix(in srgb, #fff8ea var(--dk-mix, 100%), var(--c-surface)), var(--c-surface) 75%); box-shadow: 0 0 0 3px rgba(245, 158, 11, .14), var(--sh-1); }
 .ti-card.on::after { height: 3px; }
 
 .ti-tbl td { vertical-align: middle; }
 .ti-tbl .pill { white-space: nowrap; }
-.ti-qty { display: inline-block; padding: 2px 9px; border-radius: 99px; color: #7c4a03; background: linear-gradient(135deg, #fde9bd, #fbd38d); box-shadow: inset 0 0 0 1px rgba(180, 83, 9, .16); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ti-stuck { color: #b45309; font-variant-numeric: tabular-nums; }
+.ti-qty { display: inline-block; padding: 2px 9px; border-radius: 99px; color: color-mix(in srgb, #7c4a03 var(--dk-lift, 100%), #fff); background: linear-gradient(135deg, color-mix(in srgb, #fde9bd var(--dk-mix, 100%), var(--c-surface)), color-mix(in srgb, #fbd38d var(--dk-mix, 100%), var(--c-surface))); box-shadow: inset 0 0 0 1px rgba(180, 83, 9, .16); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ti-stuck { color: color-mix(in srgb, #b45309 var(--dk-lift, 100%), #fff); font-variant-numeric: tabular-nums; }
 
 /* purchase-order drafts: one card per supplier */
 .ti-pos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
@@ -28,7 +28,7 @@
 .ti-po-items li > span { overflow-wrap: anywhere; }
 .ti-po-items li b { font-variant-numeric: tabular-nums; }
 .ti-po-items .pill { margin-left: 6px; font-size: 11px; padding: 1px 7px; }
-.ti-po-msg { margin: 0; max-height: 170px; overflow: auto; padding: 10px 12px; border-radius: var(--r, 10px); background: #fdf8ee; border: 1px solid #f3e3c3; font-family: inherit; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--c-ink-2); }
+.ti-po-msg { margin: 0; max-height: 170px; overflow: auto; padding: 10px 12px; border-radius: var(--r, 10px); background: color-mix(in srgb, #fdf8ee var(--dk-mix, 100%), var(--c-surface)); border: 1px solid color-mix(in srgb, #f3e3c3 var(--dk-bmix, 100%), var(--c-surface)); font-family: inherit; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--c-ink-2); }
 .ti-po footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ti-wa { color: #fff; background: #16a34a; border-color: #16a34a; text-decoration: none; }
 .ti-wa:hover { background: #15803d; border-color: #15803d; color: #fff; }

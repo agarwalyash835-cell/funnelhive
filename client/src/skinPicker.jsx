@@ -2,7 +2,8 @@
 // at once — Keep saves it (your own pick, or with onPick: the agency's default for its clients), Cancel puts back
 // the one you had.
 import { useState } from 'react';
-import { SKIN_LIST, applySkin, currentSkin } from './skins';
+import { SKIN_LIST, applySkin, currentSkin, MODES, savedMode, setMode } from './skins';
+import { api } from './api';
 import { t } from './appI18n';
 
 // a tiny dashboard drawn in the skin's own colours and layout
@@ -23,9 +24,13 @@ export default function SkinPicker({ value, onPick, onClose, title }) {
   const [pick, setPick] = useState(value || before);
   const choose = (id) => { setPick(id); if (!onPick) applySkin(id); };
   const cancel = () => { if (!onPick) applySkin(before); onClose(); };
+  // light / dark: your own, saved straight away (not for an agency choosing its clients' skin)
+  const [mode, setM] = useState(savedMode);
+  const pickMode = (m) => { setM(m); setMode(m); api('/settings', 'PUT', { mode: m }).catch(() => {}); };
   return (
     <div className="sk-picker">
       <p className="hint top">{title || t('Pick how your dashboard looks. It changes right away so you can see it — press Keep to save it for your login.')}</p>
+      {!onPick && <div className="row sk-mode"><span className="muted sm">{t('Mode')}</span><span className="seg sm" role="radiogroup" aria-label={t('Light or dark')}>{Object.entries(MODES).map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={mode === k} className={mode === k ? 'on' : ''} onClick={() => pickMode(k)}>{t(l)}</button>)}</span><small className="muted">{t('Your funnels, store and other pages for buyers stay light.')}</small></div>}
       <div className="sk-grid" role="radiogroup" aria-label={t('Skins')}>
         {SKIN_LIST.map((s) => (
           <button type="button" key={s.id} role="radio" aria-checked={pick === s.id} className={`sk-card${pick === s.id ? ' on' : ''}`} onClick={() => choose(s.id)}>

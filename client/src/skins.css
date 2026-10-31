@@ -19,7 +19,7 @@ html[data-skin='softwash'] {
   --primary: #b34724;
 }
 html[data-skin='softwash'] body {
-  background: radial-gradient(1200px 700px at 8% -10%, #f8d9c6 0%, transparent 60%), radial-gradient(900px 600px at 100% 10%, #e3ead6 0%, transparent 55%), radial-gradient(900px 700px at 60% 110%, #efe2f0 0%, transparent 55%), #f3ece4;
+  background: radial-gradient(1200px 700px at 8% -10%, color-mix(in srgb, #f8d9c6 var(--dk-mix, 100%), var(--c-surface)) 0%, transparent 60%), radial-gradient(900px 600px at 100% 10%, color-mix(in srgb, #e3ead6 var(--dk-mix, 100%), var(--c-surface)) 0%, transparent 55%), radial-gradient(900px 700px at 60% 110%, color-mix(in srgb, #efe2f0 var(--dk-mix, 100%), var(--c-surface)) 0%, transparent 55%), color-mix(in srgb, #f3ece4 var(--dk-mix, 100%), var(--c-surface));
   background-attachment: fixed;
 }
 html[data-skin='softwash'] .main { background: none; }
@@ -31,7 +31,7 @@ html[data-skin='softwash'] .seg, html[data-skin='softwash'] .seg button { border
 /* tabs across the top on wide screens; phones keep the slide-out menu */
 @media (min-width: 1000px) {
   .app.lay-top { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .app.lay-top .side { position: sticky; top: 0; z-index: 30; height: auto; flex-direction: row; align-items: center; gap: 18px; padding: 12px 28px; border: 0; background: rgba(243, 236, 228, .8); backdrop-filter: saturate(1.4) blur(14px); }
+  .app.lay-top .side { position: sticky; top: 0; z-index: 30; height: auto; flex-direction: row; align-items: center; gap: 18px; padding: 12px 28px; border: 0; background: color-mix(in srgb, rgba(243, 236, 228, .8) var(--dk-mix, 100%), var(--c-surface)); backdrop-filter: saturate(1.4) blur(14px); }
   .app.lay-top .brand { padding: 0; flex: none; }
   .app.lay-top .side-fold, .app.lay-top .side-jump, .app.lay-top .nav-gh, .app.lay-top .nav-more, .app.lay-top .ai-status, .app.lay-top .trial-chip { display: none; }
   .app.lay-top .side nav { flex-direction: row; flex: 1; min-width: 0; margin: 0; overflow-x: auto; overflow-y: hidden; gap: 2px; scrollbar-width: none; }
@@ -60,7 +60,7 @@ html[data-skin='softwash'] .seg, html[data-skin='softwash'] .seg button { border
 :is(html[data-skin='midnight'], html[data-skin='graphite']) .side .brand { color: #fff; }
 :is(html[data-skin='midnight'], html[data-skin='graphite']) .side nav a:hover,
 :is(html[data-skin='midnight'], html[data-skin='graphite']) .side nav a.active { background: var(--c-side-2); color: #fff; }
-:is(html[data-skin='midnight'], html[data-skin='graphite']) .nav-gh { color: #8f9ab1; }
+:is(html[data-skin='midnight'], html[data-skin='graphite']) .nav-gh { color: var(--dk-muted, #8f9ab1); }
 :is(html[data-skin='midnight'], html[data-skin='graphite']) .nav-gh:hover { color: #fff; }
 :is(html[data-skin='midnight'], html[data-skin='graphite']) .nav-more-b { color: #c9d1e1; border-color: #34405c; }
 :is(html[data-skin='midnight'], html[data-skin='graphite']) .side-jump { background: var(--c-side-2); border-color: #2c3650; color: #c9d1e1; }
@@ -151,7 +151,7 @@ html[data-skin='graphite'] .btn { height: 32px; }
 .sk-thumb.lay-top .sk-nav b { width: 18px; height: 5px; }
 .sk-thumb.lay-rail { grid-template-columns: 12% 1fr; }
 .sk-thumb.lay-rail .sk-nav { background: var(--k-ink); padding: 10px 4px; }
-.sk-thumb.lay-rail .sk-nav b { height: 7px; width: 7px; margin: 0 auto; border-radius: 50%; background: rgba(255, 255, 255, .35); }
+.sk-thumb.lay-rail .sk-nav b { height: 7px; width: 7px; margin: 0 auto; border-radius: 50%; background: color-mix(in srgb, rgba(255, 255, 255, .35) var(--dk-mix, 100%), var(--c-surface)); }
 .sk-thumb.lay-rail .sk-nav b.on { background: var(--k-accent); }
 .sk-thumb.lay-frame { background: var(--k-ink); }
 .sk-thumb.lay-frame .sk-nav { background: transparent; }
@@ -166,4 +166,4 @@ html[data-skin='graphite'] .btn { height: 32px; }
 :is(html[data-skin='midnight'], html[data-skin='graphite']) .nav-n { color: #c9d1e1; }
 /* Glass: secondary text and the warning pill a step darker over its frosted panels */
 html[data-skin='glass'] { --c-muted: #625c57; }
-html[data-skin='glass'] .pill.warn { color: #7c4a06; }
+html[data-skin='glass'] .pill.warn { color: color-mix(in srgb, #7c4a06 var(--dk-lift, 100%), #fff); }

@@ -69,7 +69,7 @@ html[data-skin='ocean'] {
 }
 html[data-skin='ocean'] .main { background: none; }
 html[data-skin='ocean'] .panel, html[data-skin='ocean'] .kpi { border-color: transparent; box-shadow: var(--sh-1), var(--sh-2); }
-html[data-skin='ocean'] .side nav a.active { background: var(--c-side-2); box-shadow: none; color: var(--c-accent); }
+html[data-skin='ocean'] .side nav a.active { background: var(--c-side-2); box-shadow: none; color: var(--dk-accent, var(--c-accent)); }
 
 /* ---------- 2 Forest Ledger: deep green menu, a green band, ledger-ruled tables ---------- */
 html[data-skin='forest'] {
@@ -128,9 +128,9 @@ html[data-skin='mono'] {
 html[data-skin='mono'] :is(h1, h2, h3, .brand-n, .kpi-v, .nav-gh, .tbl th) { font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace; letter-spacing: -.02em; }
 html[data-skin='mono'] .main { background: none; }
 html[data-skin='mono'] .side nav a { border-radius: 0; }
-html[data-skin='mono'] .side nav a.active { background: none; box-shadow: none; text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 2px; color: #000; }
+html[data-skin='mono'] .side nav a.active { background: none; box-shadow: none; text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 2px; color: var(--dk-ink, #000); }
 html[data-skin='mono'] .side { border-right: 1px solid #0a0a0a; }
-html[data-skin='mono'] .tbl td { border-bottom-color: #e5e5e5; }
+html[data-skin='mono'] .tbl td { border-bottom-color: var(--dk-line, #e5e5e5); }
 
 /* ---------- 6 Bold Block: neo-brutalist — thick borders, hard shadows, a loud yellow ---------- */
 html[data-skin='brutal'] {
@@ -144,11 +144,11 @@ html[data-skin='brutal'] .main { background: none; }
 html[data-skin='brutal'] .panel, html[data-skin='brutal'] .kpi { border: 2px solid #111; box-shadow: var(--sh-1); }
 html[data-skin='brutal'] .btn { border: 2px solid #111; box-shadow: 3px 3px 0 #111; font-weight: 700; }
 html[data-skin='brutal'] .btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #111; }
-html[data-skin='brutal'] .btn.primary { background: #ffd60a; color: #111; }
-html[data-skin='brutal'] .btn.primary:hover { background: #ffe14d; }
+html[data-skin='brutal'] .btn.primary { background: color-mix(in srgb, #ffd60a var(--dk-mix, 100%), var(--c-surface)); color: var(--dk-ink, #111); }
+html[data-skin='brutal'] .btn.primary:hover { background: color-mix(in srgb, #ffe14d var(--dk-mix, 100%), var(--c-surface)); }
 html[data-skin='brutal'] .side { border-right: 2px solid #111; }
 html[data-skin='brutal'] .side nav a { font-weight: 600; }
-html[data-skin='brutal'] .side nav a.active { background: #fff; box-shadow: 3px 3px 0 #111; border: 2px solid #111; }
+html[data-skin='brutal'] .side nav a.active { background: color-mix(in srgb, #fff var(--dk-mix, 100%), var(--c-surface)); box-shadow: 3px 3px 0 #111; border: 2px solid #111; }
 html[data-skin='brutal'] :is(h1, h2, .kpi-v) { font-weight: 800; letter-spacing: -.03em; }
 
 /* ---------- 7 Royal: navy and gold, serif headings, a wide stately menu ---------- */
@@ -198,7 +198,7 @@ html[data-skin='sunset'] .panel, html[data-skin='sunset'] .kpi { box-shadow: 0 1
   html[data-skin='sunset'] .app.lay-top .side { background: linear-gradient(110deg, #e8593c 0%, #c43d72 45%, #5b2a96 100%); backdrop-filter: none; }
   html[data-skin='sunset'] .app.lay-top .side .brand, html[data-skin='sunset'] .app.lay-top .side nav a { color: #fff; }
   html[data-skin='sunset'] .app.lay-top .side nav a:hover { background: rgba(255, 255, 255, .18); }
-  html[data-skin='sunset'] .app.lay-top .side nav a.active { background: #fff; color: var(--c-act); }
+  html[data-skin='sunset'] .app.lay-top .side nav a.active { background: color-mix(in srgb, #fff var(--dk-mix, 100%), var(--c-surface)); color: var(--c-act); }
   html[data-skin='sunset'] .app.lay-top .side-foot, html[data-skin='sunset'] .app.lay-top .side-foot * { color: #fff; }
   html[data-skin='sunset'] .app.lay-top .main::before { height: 150px; }
 }
@@ -238,7 +238,7 @@ html[data-skin='compact'] {
   --r-sm: 5px; --r: 6px; --r-lg: 8px; --sh-1: none; --primary: #1d4ed8;
 }
 html[data-skin='compact'] .main { background: none; }
-html[data-skin='compact'] .side nav a.active { box-shadow: inset 2px 0 0 var(--c-accent-2); color: var(--c-accent); }
+html[data-skin='compact'] .side nav a.active { box-shadow: inset 2px 0 0 var(--c-accent-2); color: var(--dk-accent, var(--c-accent)); }
 
 /* ---------- 13 Editorial: a magazine — serif text, hairline rules, underlined top tabs ---------- */
 html[data-skin='editorial'] {
@@ -270,7 +270,7 @@ html[data-skin='lavender'] {
   --r-sm: 12px; --r: 16px; --r-lg: 22px;
   --sh-1: 0 1px 2px rgba(30, 24, 56, .04); --sh-2: 0 16px 36px -24px rgba(91, 63, 196, .4); --primary: #5b3fc4;
 }
-html[data-skin='lavender'] body { background: radial-gradient(900px 600px at 0% 0%, #e9e2fc, transparent 60%), radial-gradient(800px 500px at 100% 100%, #f7e3f1, transparent 60%), #f3f0fb; background-attachment: fixed; }
+html[data-skin='lavender'] body { background: radial-gradient(900px 600px at 0% 0%, color-mix(in srgb, #e9e2fc var(--dk-mix, 100%), var(--c-surface)), transparent 60%), radial-gradient(800px 500px at 100% 100%, color-mix(in srgb, #f7e3f1 var(--dk-mix, 100%), var(--c-surface)), transparent 60%), color-mix(in srgb, #f3f0fb var(--dk-mix, 100%), var(--c-surface)); background-attachment: fixed; }
 html[data-skin='lavender'] .main { background: none; }
 html[data-skin='lavender'] .panel, html[data-skin='lavender'] .kpi { border-color: transparent; box-shadow: var(--sh-1), var(--sh-2); }
 html[data-skin='lavender'] .side nav a.active { box-shadow: none; color: var(--c-act); }
@@ -281,20 +281,20 @@ html[data-skin='lavender'] .side nav a.active { box-shadow: none; color: var(--c
 .sk-thumb.lay-right { grid-template-columns: 1fr 26%; }
 .sk-thumb.lay-right .sk-nav { order: 2; }
 .sk-thumb.lay-band .sk-body { background: linear-gradient(var(--k-accent) 0 34px, transparent 34px); }
-.sk-thumb.lay-band .sk-h { background: #fff; }
+.sk-thumb.lay-band .sk-h { background: color-mix(in srgb, #fff var(--dk-mix, 100%), var(--c-surface)); }
 .sk-thumb.lay-darkside .sk-nav { background: var(--k-ink); }
 .sk-thumb.lay-darkside .sk-nav b { background: rgba(255, 255, 255, .3); }
 .sk-thumb.lay-darkside .sk-nav b.on { background: var(--k-accent); }
 .sk-thumb.lay-bandtop { grid-template-columns: 1fr; grid-template-rows: 16px 1fr; }
 .sk-thumb.lay-bandtop .sk-nav { display: flex; gap: 4px; padding: 5px 8px; align-items: center; background: linear-gradient(110deg, #e8593c, #c43d72, #5b2a96); }
-.sk-thumb.lay-bandtop .sk-nav b { width: 18px; height: 5px; background: rgba(255, 255, 255, .6); }
+.sk-thumb.lay-bandtop .sk-nav b { width: 18px; height: 5px; background: color-mix(in srgb, rgba(255, 255, 255, .6) var(--dk-mix, 100%), var(--c-surface)); }
 .sk-thumb.lay-lightrail { grid-template-columns: 12% 1fr; }
 .sk-thumb.lay-lightrail .sk-nav { padding: 10px 4px; background: var(--k-surface); }
 .sk-thumb.lay-lightrail .sk-nav b { height: 7px; width: 7px; margin: 0 auto; border-radius: 50%; }
 .sk-thumb.lay-brutal { border: 2px solid #111; }
-.sk-thumb.lay-brutal .sk-nav { background: #ffd60a; }
+.sk-thumb.lay-brutal .sk-nav { background: color-mix(in srgb, #ffd60a var(--dk-mix, 100%), var(--c-surface)); }
 .sk-thumb.lay-brutal .sk-cards b, .sk-thumb.lay-brutal .sk-wide { border: 1.5px solid #111; box-shadow: 2px 2px 0 #111; }
-.sk-thumb.lay-mono .sk-nav { border-right: 1px solid #111; background: #fff; }
+.sk-thumb.lay-mono .sk-nav { border-right: 1px solid #111; background: color-mix(in srgb, #fff var(--dk-mix, 100%), var(--c-surface)); }
 .sk-thumb.lay-mono .sk-cards b, .sk-thumb.lay-mono .sk-wide { border: 1px solid #111; box-shadow: none; border-radius: 0; }
 
 /* dark menus: their own background (app-polish.css paints a light glow on .side that would otherwise win) */

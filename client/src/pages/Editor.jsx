@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useDashboardMode } from '../skins';
 import { createPortal } from 'react-dom';
 import { ChevronUp, ChevronDown, Copy as CopyIcon, Trash2, EyeOff } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
@@ -564,6 +565,7 @@ function useDnd(onDrop, onBegin) {
 }
 
 export default function Editor() {
+  useDashboardMode(); // the editor's own chrome follows light / dark; the page being built stays the buyer's (light)
   const { id } = useParams();
   const [f, setF] = useState(null);
   const [me, setMe] = useState(null);

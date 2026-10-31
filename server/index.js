@@ -518,6 +518,7 @@ app.get('/api/me', auth, (req, res) => {
     uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
     // the dashboard's skin: the person's own choice, else their agency's default for clients (skins.js)
     skin: cleanSkin(req.actor ? req.actor.settings?.skin : s.skin) || cleanSkin(brandFor(req.user)?.skin) || null,
+    mode: (req.actor ? req.actor.settings?.mode : s.mode) || 'light', // light / dark / system (dark.css)
     impersonating: !!req.impersonator, agencyAccess: req.agencyAccess ? { agency: req.agencyAccess.agencyName, by: req.agencyAccess.staff ? req.agencyAccess.actorName : null, mode: req.agencyAccess.mode, reason: req.agencyAccess.reason, expiresAt: req.agencyAccess.expiresAt } : null, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
     workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, ...memberRole(req.user.id, req.role), needs2fa: team2faBlocks(req.user, req.actor), custom: !!req.customPerms, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
     perms: req.actor ? memberRole(req.user.id, req.role).perms : null, // a member's access per area (the app hides what they can't open)
@@ -582,6 +583,15 @@ app.put('/api/settings', auth, wrap(async (req, res) => {
       T.users.update(req.actor.id, (x) => { x.settings = { ...(x.settings || {}), skin: k }; });
       if (Object.keys(body).length === 1) return res.json({ ...s, skin: k });
     } else next.skin = k;
+  }
+  // light, dark or follow the device — each person's own, like the skin
+  if ('mode' in body) {
+    const k = ['light', 'dark', 'system'].includes(body.mode) ? body.mode : null;
+    if (!k) return res.status(400).json({ error: 'Pick light, dark or system' });
+    if (req.actor) {
+      T.users.update(req.actor.id, (x) => { x.settings = { ...(x.settings || {}), mode: k }; });
+      if (Object.keys(body).length === 1) return res.json({ ...s, mode: k });
+    } else next.mode = k;
   }
   if (body.payments && typeof body.payments === 'object') {
     next.payments = { ...s.payments };
