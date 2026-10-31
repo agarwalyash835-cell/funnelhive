@@ -57,6 +57,7 @@ import { fxRate } from './fx.js';
 import { registerLegal, publicPrivacy, privacyOf, consentLine, legalMissing } from './legal.js';
 import { registerApi, isApiKey, keyUser, KEY_NEVER } from './api.js';
 import { registerAgency, logRequest, brandFor, brandForHost } from './agency.js';
+import { agencyGate, registerAgencyAccess } from './agency-access.js';
 import { registerAdSpend, withSpend, totalSpend } from './adspend.js';
 import { registerReports } from './reports.js';
 import { deleteAccount as deleteAccountData } from './account.js';
@@ -163,6 +164,9 @@ const sign = (u, ws, sid) => {
 };
 // an admin "logging in as" a seller (support): short-lived, its own session (marked as support), and the seller's account shows it
 const signAs = (u, adminId, req) => jwt.sign({ id: u.id, pv: u.pv || 0, imp: adminId, sid: startSession(req, u, { imp: adminId, ms: 2 * 3600000 }) }, SECRET, { expiresIn: '2h' });
+// an agency (or its client manager) working in a client account: short-lived, its own session started by
+// agency-access.js (session.agencyImp), marked with the agencyImp claim; never refreshed (see agency-access.js)
+const signAgency = (actor, ws, agencyId, sid) => jwt.sign({ id: actor.id, pv: actor.pv || 0, ws, sid, agencyImp: agencyId }, SECRET, { expiresIn: '2h' });
 // a new sign-in on this device
 const signIn = (req, u) => sign(u, null, startSession(req, u));
 const pubUser = (u) => ({ id: u.id, email: u.email, name: u.name });
@@ -193,10 +197,12 @@ const auth = (req, res, next) => {
     if (p.imp) req.impersonator = p.imp;
     if (p.ws) {
       // a team member acting in the owner's workspace: everything below works on the owner's data
-      const w = enterWorkspace(req.user, p.ws);
+      const w = enterWorkspace(req.user, p.ws, p);
       if (!w) return res.status(401).json({ error: 'You no longer have access to that team', workspaceGone: true });
       req.actor = req.user; req.role = w.member.role; req.user = w.owner;
       req.customPerms = customPerms(w.owner.id, req.role); // a custom role: its permission per area (null for built-in roles)
+      const ag = agencyGate(req, res, w); // an agency in a client account: the client's full / read-only / off (agency-access.js)
+      if (ag) return res.status(ag.status).json(ag.body);
       const reqPath = req.originalUrl.split('?')[0].toLowerCase();
       if (!OWN_SESSION.test(reqPath) && !allows(req.role, req.method, reqPath, req.customPerms)) return res.status(403).json({ error: 'Your role on this team doesn’t allow that — ask the owner', role: req.role });
       // limited to some funnels: those funnels and what building them needs, nothing account-wide (team.js)
@@ -419,7 +425,7 @@ app.post('/api/auth/2fa/disable', auth, notSupport, authLimiter, (req, res) => {
 // idle one is signed out after 14 days. Support ("log in as") sessions are never extended.
 app.post('/api/auth/refresh', auth, (req, res) => {
   if (req.apiKey) return res.status(400).json({ error: 'API keys don’t expire' });
-  if (req.impersonator) return res.json({ token: null });
+  if (req.impersonator || req.agencyAccess) return res.json({ token: null });
   const me = req.actor || req.user, sid = sidOf(req);
   extendSession(sid);
   res.json({ token: sign(me, req.tokenWs, sid) });
@@ -471,7 +477,7 @@ app.get('/api/me', auth, (req, res) => {
     aiEnabled: aiEnabled(), ...(!req.actor && isAdmin(req.user) ? { aiProvider: aiProvider() } : {}), mailEnabled: mailEnabled(), emailVerified: (req.actor || req.user).emailVerified !== false, twoFactor: !!(req.actor || req.user).totpEnabled, settings: s,
     billing: req.access || accessFor(req.user), credits: usageSummary(req.user), admin: !req.actor && isAdmin(req.user), brand: (brandFor(req.user) || (req.actor && brandFor(req.actor)))?.brand || platform().brand, whiteLabel: brandFor(req.user) || (req.actor && brandFor(req.actor)) || null, agency: !!(req.user.agencyId || req.user.settings?.whiteLabel?.brand), announcement: platform().announcement || '',
     uiLang: ((req.actor ? req.actor.settings?.uiLang : s.uiLang) === 'hi') ? 'hi' : 'en', // the dashboard's language
-    impersonating: !!req.impersonator, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
+    impersonating: !!req.impersonator, agencyAccess: req.agencyAccess ? { agency: req.agencyAccess.agencyName, by: req.agencyAccess.staff ? req.agencyAccess.actorName : null, mode: req.agencyAccess.mode, reason: req.agencyAccess.reason, expiresAt: req.agencyAccess.expiresAt } : null, pagesUrl: (process.env.PAGES_URL || '').replace(/\/+$/, ''),
     workspace: req.actor ? { ownerId: req.user.id, name: req.user.settings.businessName || req.user.name, role: req.role, ...memberRole(req.user.id, req.role), custom: !!req.customPerms, funnelIds: req.funnelScope ? [...req.funnelScope] : null } : null,
     perms: req.actor ? memberRole(req.user.id, req.role).perms : null, // a member's access per area (the app hides what they can't open)
     teams: T.members.count({ userId: (req.actor || req.user).id, status: 'active' }),
@@ -1255,7 +1261,8 @@ registerLegal(app, { auth, appUrl });
 registerApi(app, { auth });
 registerAdSpend(app, { auth, wrap });
 registerReports(app, { auth });
-registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signFor: sign });
+registerAgency(app, { auth, secret: SECRET, createFunnel, deleteAccount: deleteAccountData, newBilling, signAgency });
+registerAgencyAccess(app, { auth });
 registerWebinars(app, { auth, secret: SECRET, appUrl, pub });
 registerFulfilment(app, { auth, appUrl });
 registerCod(app, { auth, rateLimit, isTest, appUrl, pub, secret: SECRET });

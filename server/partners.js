@@ -16,6 +16,7 @@ import { issueInvoice, invoiceUrl } from './sales.js';
 import { sendMail, mailEnabled } from './mail.js';
 import { randomToken, hashToken } from './security.js';
 import { notify } from './notify.js';
+import { termsOf, termsView as unifiedTermsView, termsPatch, setTerms, isReseller, clientsOf as clientsOfAgency } from './agency-terms.js';
 
 const DAY = 86400000;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -26,9 +27,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const FEE_DAYS = 30;
 
 // ---------- the partner's terms (set by the platform) ----------
-export const isPartner = (u) => !!u?.partner?.enabled;
-const termsView = (p = {}) => ({ enabled: !!p.enabled, perAccount: p.perAccount ?? 0, creditRate: p.creditRate ?? 0, maxAccounts: p.maxAccounts ?? 50, since: p.since || null, hold: p.hold || null });
-export const clientsOf = (partnerId) => q("SELECT data FROM users WHERE json_extract(data, '$.agencyId') = ?").all(partnerId).map((r) => JSON.parse(r.data));
+// A partner is an agency of kind 'reseller'; its terms live in user.agency (agency-terms.js, one place for terms)
+export const isPartner = (u) => isReseller(u);
+const termsView = (u) => unifiedTermsView(u);
+export const clientsOf = clientsOfAgency;
+// accounts the platform has given agency terms (or that run clients / a white-label): the admin's partner list
+const AGENCIES_SQL = "SELECT data FROM users WHERE json_extract(data, '$.agency.kind') IS NOT NULL OR json_extract(data, '$.partner') IS NOT NULL OR json_extract(data, '$.agencyMaxClients') IS NOT NULL OR json_extract(data, '$.settings.whiteLabel.brand') IS NOT NULL";
 
 // ---------- the wallet (₹; credits in, fees and AI usage out) ----------
 export const balanceOf = (partnerId) => r2(q("SELECT COALESCE(SUM(json_extract(data, '$.amount')), 0) AS n FROM partnerLedger WHERE partnerId = ?").get(partnerId).n);
@@ -40,11 +44,12 @@ export function ledger(partnerId, amount, kind, note, extra = {}) {
 function checkHold(partnerId) {
   const p = T.users.get(partnerId);
   if (!isPartner(p)) return;
-  const bal = balanceOf(partnerId), floor = -Math.max(500, (p.partner.perAccount || 0) * 2);
-  if (bal < floor && !p.partner.hold) {
-    T.users.update(partnerId, (x) => { x.partner.hold = Date.now(); });
+  const t = termsOf(p);
+  const bal = balanceOf(partnerId), floor = -Math.max(500, (t.rates.perAccount || 0) * 2);
+  if (bal < floor && !t.hold) {
+    setTerms(partnerId, (x) => { x.hold = Date.now(); });
     notify(partnerId, { kind: 'payment_failed', title: 'Your partner wallet is overdrawn — top it up within 7 days', body: `Balance ₹${bal.toLocaleString('en-IN')}. Your clients’ accounts pause if it isn’t topped up.`, link: '/agency' });
-  } else if (bal >= floor && p.partner.hold) T.users.update(partnerId, (x) => { delete x.partner.hold; });
+  } else if (bal >= floor && t.hold) setTerms(partnerId, (x) => { x.hold = null; });
 }
 
 // ---------- the partner's storefront: plans and AI-credit packs ----------
@@ -109,8 +114,7 @@ async function sendWelcome(u, token, base, partner) {
 export function partnerForHost(host, brandForHost) {
   const b = brandForHost?.(host);
   if (!b) return null;
-  const row = q("SELECT data FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ?").get(String(host).toLowerCase().split(':')[0]);
-  const p = row && JSON.parse(row.data);
+  const p = T.users.find({ wlDomain: String(host).toLowerCase().split(':')[0] });
   return isPartner(p) ? p : null;
 }
 export function attachSignup(userId, partner) {
@@ -123,9 +127,10 @@ export function attachSignup(userId, partner) {
 
 // ---------- the platform bills partners: per active sub-account, every 30 days ----------
 export function partnerJob(now = Date.now()) {
-  for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.partner.enabled') = 1").all()) {
+  for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.partner.enabled') = 1 OR json_extract(data, '$.agency.kind') = 'reseller'").all()) {
     const p = JSON.parse(row.data);
-    const fee = p.partner.perAccount || 0;
+    if (!isPartner(p)) continue;
+    const fee = termsOf(p).rates.perAccount || 0;
     for (const c of clientsOf(p.id)) {
       if (!fee || !accessFor(c, now).ok) continue; // a lapsed sub-account isn't billed
       if (c.partnerFeeAt && now - c.partnerFeeAt < FEE_DAYS * DAY) continue;
@@ -147,29 +152,29 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
   const myClient = (req, res) => { const c = T.users.get(req.params.cid); if (!c || c.agencyId !== req.user.id) { res.status(404).json({ error: 'Client account not found' }); return null; } return c; };
 
   // ---- super admin ----
-  app.get('/api/admin/partners', auth, (req, res) => {
+  // /api/admin/agencies* are the same routes under the unified name (the partner screens keep the old paths)
+  const listAgencies = (req, res) => {
     if (!adminOnly(req, res)) return;
-    const list = q("SELECT data FROM users WHERE json_extract(data, '$.partner.enabled') = 1 OR json_extract(data, '$.agencyMaxClients') IS NOT NULL OR json_extract(data, '$.settings.whiteLabel.brand') IS NOT NULL").all().map((r) => JSON.parse(r.data));
+    const list = q(AGENCIES_SQL).all().map((r) => JSON.parse(r.data)).filter((p) => !p.agencyId);
     res.json(list.map((p) => {
       const cl = clientsOf(p.id);
-      return { id: p.id, email: p.email, name: p.name, brand: p.settings?.whiteLabel?.brand || p.settings?.businessName || '', terms: termsView(p.partner), balance: balanceOf(p.id), clients: cl.length, active: cl.filter((c) => accessFor(c).ok).length, onPlans: cl.filter((c) => c.sub).length };
+      return { id: p.id, email: p.email, name: p.name, brand: p.settings?.whiteLabel?.brand || p.settings?.businessName || '', terms: termsView(p), balance: balanceOf(p.id), clients: cl.length, active: cl.filter((c) => accessFor(c).ok).length, onPlans: cl.filter((c) => c.sub).length };
     }));
-  });
-  app.put('/api/admin/partners/:uid', auth, (req, res) => {
+  };
+  app.get(['/api/admin/partners', '/api/admin/agencies'], auth, listAgencies);
+  // the agency's terms, in one place: kind (agency / reseller), max clients, add-ons it may switch on for its
+  // clients, team seats per client, wholesale rates, status. Old body (enabled, maxAccounts…) still works.
+  const putTerms = (req, res) => {
     if (!adminOnly(req, res)) return;
     const p = T.users.get(req.params.uid);
     if (!p || isAdmin(p)) return res.status(404).json({ error: 'Account not found' });
     if (p.agencyId) return res.status(400).json({ error: 'This is a client of another agency — detach it first' });
-    const b = req.body || {};
-    const terms = { ...(p.partner || {}), enabled: b.enabled !== false, perAccount: money(b.perAccount ?? p.partner?.perAccount ?? 499), creditRate: money(b.creditRate ?? p.partner?.creditRate ?? 25), maxAccounts: int(b.maxAccounts ?? p.partner?.maxAccounts, 1, 10000, 50), since: p.partner?.since || Date.now() };
-    const u = T.users.update(p.id, (x) => {
-      x.partner = terms;
-      x.agencyMaxClients = terms.enabled ? terms.maxAccounts : x.agencyMaxClients;
-      // a partner's own workspace is covered by its partnership (it pays through the wallet)
-      if (terms.enabled && !['active', 'comped'].includes(x.billing?.status)) x.billing = { ...(x.billing || {}), status: 'comped', compedAt: Date.now(), compedFor: 'partner' };
-    });
-    res.json({ id: u.id, terms: termsView(u.partner), balance: balanceOf(u.id) });
-  });
+    const u = setTerms(p.id, (t) => termsPatch(t, req.body || {}));
+    // a partner's own workspace is covered by its partnership (it pays through the wallet)
+    if (isPartner(u) && !['active', 'comped'].includes(u.billing?.status)) T.users.update(u.id, (x) => { x.billing = { ...(x.billing || {}), status: 'comped', compedAt: Date.now(), compedFor: 'partner' }; });
+    res.json({ id: u.id, terms: termsView(T.users.get(u.id)), balance: balanceOf(u.id) });
+  };
+  app.put(['/api/admin/partners/:uid', '/api/admin/agencies/:uid'], auth, putTerms);
   app.post('/api/admin/partners/:uid/wallet', auth, (req, res) => {
     if (!adminOnly(req, res)) return;
     const p = T.users.get(req.params.uid);
@@ -197,7 +202,10 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     const r = createAccount({ email: b.email, name: b.name, business: b.business, partner, planId: b.planId, by: `admin:${req.user.email}` });
     if (r.error) return res.status(r.status || 400).json({ error: r.error });
     let u = r.user;
-    if (b.type === 'partner') u = T.users.update(u.id, (x) => { x.partner = { enabled: true, perAccount: money(b.perAccount ?? 499), creditRate: money(b.creditRate ?? 25), maxAccounts: int(b.maxAccounts, 1, 10000, 50), since: Date.now() }; x.agencyMaxClients = x.partner.maxAccounts; x.billing = { ...x.billing, status: 'comped', compedFor: 'partner' }; });
+    if (b.type === 'partner') {
+      setTerms(u.id, (t) => termsPatch(t, { kind: 'reseller', perAccount: b.perAccount ?? 499, creditRate: b.creditRate ?? 25, maxClients: b.maxAccounts ?? b.maxClients ?? 50, addons: b.addons, seatCap: b.seatCap ?? null }));
+      u = T.users.update(u.id, (x) => { x.billing = { ...x.billing, status: 'comped', compedFor: 'partner' }; });
+    }
     else if (b.comp && !partner) u = T.users.update(u.id, (x) => { x.billing = { ...x.billing, status: 'comped', compedAt: Date.now() }; });
     const link = await sendWelcome(u, r.token, base(req), partner);
     res.status(201).json({ id: u.id, email: u.email, type: b.type === 'partner' ? 'partner' : 'user', partnerId: partner?.id || null, ...(link ? { link } : {}), ...(isTest ? { token: r.token } : {}) });
@@ -225,7 +233,7 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     const cl = clientsOf(req.user.id), since = Date.now() - 30 * DAY;
     const revenue = q("SELECT COALESCE(SUM(total), 0) AS n FROM orders WHERE userId = ? AND json_extract(data, '$.source') = 'partner' AND at >= ? AND paid = 1").get(req.user.id, since).n;
     res.json({
-      enabled: true, terms: termsView(req.user.partner), balance: balanceOf(req.user.id), resale: resaleOf(req.user), payments: !!rzpCreds(req.user), canTopUp: !!platformRzp(),
+      enabled: true, terms: termsView(req.user), balance: balanceOf(req.user.id), resale: resaleOf(req.user), payments: !!rzpCreds(req.user), canTopUp: !!platformRzp(),
       ledger: T.partnerLedger.all({ partnerId: req.user.id }, { order: 'at', desc: true, limit: 50 }).map(({ partnerId, ...l }) => l),
       clients: cl.map((c) => ({ id: c.id, business: c.settings?.businessName || c.name, email: c.passwordSet || c.invitedAt ? c.email : null, sub: subView(c, req.user), credits: usageSummary(c) })),
       revenue30: r2(revenue),
@@ -242,7 +250,7 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
   });
   app.post('/api/partner/accounts', auth, wrap(async (req, res) => {
     if (!partnerOnly(req, res)) return;
-    const max = req.user.partner.maxAccounts || 50;
+    const max = termsOf(req.user).maxClients || 50;
     if (clientsOf(req.user.id).length >= max) return res.status(402).json({ error: `Your partnership includes ${max} accounts — ask us for more` });
     const b = req.body || {};
     const r = createAccount({ email: b.email, name: b.name, business: b.business, partner: req.user, planId: b.planId, by: `partner:${req.user.id}` });
@@ -326,6 +334,7 @@ export function registerPartners(app, { auth, wrap, rateLimit, isTest, appUrl })
     res.json({ payment: pay.id, key: creds.keyId, order_id: o.id, amount: o.amount, currency: 'INR', name: p.settings?.whiteLabel?.brand || p.settings?.businessName || p.name, description: charge.label, prefill: { email: req.user.email, name: req.user.name } });
   }));
   app.post('/api/partner-billing/verify', auth, (req, res) => {
+    if (req.actor && req.role !== 'admin') return res.status(403).json({ error: 'Only the account owner or an admin can pay' }); // as /pay
     const pay = T.payments.get(req.body?.payment);
     if (!pay || pay.kind !== 'partner_sale' || pay.clientId !== req.user.id) return res.status(404).json({ error: 'Payment not found' });
     const p = T.users.get(pay.userId), creds = rzpCreds(p);

@@ -9,7 +9,7 @@
 //   - activity log: who changed what in an account (owner, team member, agency, API key)
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { T, q, tx, uid } from './db.js';
+import { T, q, tx, uid, JOBS } from './db.js';
 import { platform, isAdmin } from './platform.js';
 import { totals, sources } from './analytics.js';
 import { copyProduct } from './products.js';
@@ -17,11 +17,16 @@ import { funnelLimitError } from './limits.js';
 import { randomToken, hashToken } from './security.js';
 import { sendMail, appUrl, mailEnabled } from './mail.js';
 import { isPlatformHost } from './domains.js';
+import { termsOf, clientsOf, AGENCY_ADDONS } from './agency-terms.js';
+import { startAgencyAccess, staffMember, staffCovers, accessMode, logAgency } from './agency-access.js';
+import { notify } from './notify.js';
 
 const DAY = 86400000;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 let SECRET = '';
 const sig = (s) => crypto.createHmac('sha256', SECRET).update(`report:${s}`).digest('base64url').slice(0, 24);
+export const PURGE_DAYS = 30; // a deleted client account is suspended this long (the agency can undo it), then purged
+export { clientsOf };
 
 // ---------- plans & limits ----------
 export const isAgencyPlan = (u) => /^agency_/.test(u?.billing?.interval || u?.billing?.pending?.interval || '');
@@ -30,14 +35,15 @@ export function clientLimit(u) {
   if (isAdmin(u)) return 1000;
   // a client (sub-account) of an agency or partner can't have clients of its own: the hierarchy is one level deep
   if (u.agencyId) return 0;
-  if (u.agencyMaxClients) return u.agencyMaxClients;
+  const t = termsOf(u); // the platform's terms for this agency (agency-terms.js)
+  if (t?.status === 'suspended') return 0;
+  if (t?.maxClients) return t.maxClients;
   const b = u.billing || {}, max = platform().agency?.maxClients ?? 25;
   if (b.status === 'comped') return max;
   if (isAgencyPlan(u) && ['active', 'past_due', 'cancelled'].includes(b.status)) return max;
   if (b.status === 'trialing') return platform().agency?.trialClients ?? 2; // try it before upgrading
   return 0;
 }
-export const clientsOf = (agencyId) => q("SELECT data FROM users WHERE json_extract(data, '$.agencyId') = ?").all(agencyId).map((r) => JSON.parse(r.data));
 
 // ---------- white-label ----------
 // the brand an account sees: its agency's (or its own, for an agency), else the platform's
@@ -51,8 +57,7 @@ const DOMAIN_RE = /^(?=.{4,253}$)([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}$/;
 export function brandForHost(host) {
   const h = String(host || '').toLowerCase().split(':')[0];
   if (!h || !DOMAIN_RE.test(h)) return null;
-  const row = q("SELECT data FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ?").get(h);
-  const u = row && JSON.parse(row.data);
+  const u = T.users.find({ wlDomain: h }); // indexed (db.js users.wlDomain)
   return u ? { ...brandFor(u), domain: h } : null;
 }
 export const isAgencyDomain = (host) => !!brandForHost(host);
@@ -107,7 +112,8 @@ export function logRequest(req, res) {
   if (!req.user || req.method === 'GET' || res.statusCode >= 400) return;
   const path = req.originalUrl.split('?')[0];
   if (NOISY.test(path)) return;
-  const who = req.apiKey ? { kind: 'api', name: `API key · ${req.apiKey.name}` } : req.actor ? { kind: req.role === 'agency' ? 'agency' : 'team', name: req.actor.name, email: req.actor.email } : req.impersonator ? { kind: 'support', name: 'Platform support' } : { kind: 'owner', name: req.user.name, email: req.user.email };
+  const ag = req.agencyAccess;
+  const who = req.apiKey ? { kind: 'api', name: `API key · ${req.apiKey.name}` } : ag ? { kind: 'agency', name: ag.staff ? `${ag.actorName} (${ag.agencyName})` : ag.agencyName } : req.actor ? { kind: req.role === 'agency' ? 'agency' : 'team', name: req.actor.name, email: req.actor.email } : req.impersonator ? { kind: 'support', name: 'Platform support' } : { kind: 'owner', name: req.user.name, email: req.user.email };
   try {
     T.activity.insert({ id: uid(), userId: req.user.id, at: Date.now(), method: req.method, path: path.slice(0, 160), who });
     if (Math.random() < 0.02) q(`DELETE FROM activity WHERE userId = ? AND id NOT IN (SELECT id FROM activity WHERE userId = ? ORDER BY at DESC LIMIT 2000)`).run(req.user.id, req.user.id);
@@ -118,40 +124,104 @@ const WHAT = [[/^POST \/api\/funnels$/, 'Created a funnel'], [/^PUT \/api\/funne
   [/automations/, 'Changed an automation'], [/broadcasts\/.+\/send/, 'Sent a broadcast'], [/broadcasts/, 'Changed a broadcast'], [/^POST \/api\/orders\/.+\/refund/, 'Refunded an order'], [/orders\/.+\/(fulfil|cod)/, 'Updated an order'],
   [/vault\/secrets\/.+\/reveal/, 'Revealed a saved password or note'], [/vault\/secrets/, 'Changed saved passwords'], [/contacts\/.+\/files|vault/, 'Changed vault files'],
   [/^DELETE \/api\/contacts\/[^/]+$/, 'Erased a contact'], [/contacts|pipelines|crm/, 'Updated contacts'], [/products/, 'Changed a product'], [/settings|channels|privacy|google|domains|keys|webhooks/, 'Changed settings'], [/team/, 'Changed the team'], [/calendars|bookings/, 'Changed bookings'], [/webinars/, 'Changed a webinar'], [/coupons/, 'Changed coupons']];
-const describe = (a) => WHAT.find(([re]) => re.test(`${a.method} ${a.path}`))?.[1] || `${a.method} ${a.path.replace('/api/', '')}`;
+// rows the agency-access log wrote carry their own text; reads during agency access read as "Looked at …"
+const describe = (a) => a.what || (a.method === 'GET' ? `Looked at ${a.path.replace('/api/', '').split('/')[0].replace(/-/g, ' ')}` : null) || WHAT.find(([re]) => re.test(`${a.method} ${a.path}`))?.[1] || `${a.method} ${a.path.replace('/api/', '')}`;
 
 // ---------- routes ----------
-export function registerAgency(app, { auth, secret, createFunnel, deleteAccount, newBilling, signFor }) {
+// ---------- deleted client accounts: suspended for PURGE_DAYS, then purged ----------
+let purgeAccount = null; // account.js deleteAccount, given by registerAgency
+export function purgeDeletedClients(now = Date.now(), del = purgeAccount) {
+  let n = 0;
+  for (const r of q("SELECT id FROM users WHERE json_extract(data, '$.deletion.purgeAt') <= ?").all(now)) {
+    const c = T.users.get(r.id);
+    if (!c?.deletion || c.deletion.purgeAt > now || !del) continue;
+    del(c.id);
+    n++;
+  }
+  return n;
+}
+if (JOBS && process.env.NODE_ENV !== 'test') { setTimeout(() => { try { purgeDeletedClients(); } catch (e) { console.error('client purge failed', e.message); } }, 120000).unref(); setInterval(() => { try { purgeDeletedClients(); } catch (e) { console.error('client purge failed', e.message); } }, 6 * 3600000).unref(); }
+
+// ---------- client report links: expire, and can be revoked (c.report = { v, exp }) ----------
+// token: <client id>.<version>.<expiry, base 36>.<signature>; a new link or a revoke bumps the version
+export const reportToken = (c) => (c?.report?.exp > Date.now() ? `${c.id}.${c.report.v}.${c.report.exp.toString(36)}.${sig(`${c.id}.${c.report.v}.${c.report.exp.toString(36)}`)}` : null);
+export function reportClient(token) {
+  const [cid, v, exp, s] = String(token || '').split('.');
+  if (!cid || !v || !exp || !s || s !== sig(`${cid}.${v}.${exp}`)) return null;
+  const c = T.users.get(cid);
+  return c && !c.deletion && String(c.report?.v) === v && c.report.exp.toString(36) === exp && c.report.exp > Date.now() ? c : null;
+}
+
+export function registerAgency(app, { auth, secret, createFunnel, deleteAccount, newBilling, signAgency }) {
   SECRET = secret;
-  // the agency owner themselves: not a teammate, not an API key (inviting changes the client's login; deleting is for good)
-  const myClient = (req, res) => { const c = T.users.get(req.params.cid); if (!c || c.agencyId !== (req.actor || req.user).id || req.actor || req.apiKey) { res.status(404).json({ error: 'Client account not found' }); return null; } return c; };
-  const reportToken = (cid) => `${cid}.${sig(cid)}`;
+  purgeAccount = deleteAccount;
+  // who is managing clients: the agency's owner, or its client manager (team role 'clients', maybe limited to
+  // some clients). Not an API key, not support, not from inside a client account. owner: owner-only actions.
+  const agencyCtx = (req, res, { owner = false } = {}) => {
+    const no = (s, error) => { res.status(s).json({ error }); return null; };
+    if (req.apiKey) return no(403, 'API keys can’t manage client accounts');
+    if (req.agencyAccess) return no(403, 'Go back to your agency to manage client accounts');
+    if (req.user.agencyId) return no(404, 'This page doesn’t exist.'); // a sub-account has no agency tools
+    if (!req.actor) return { agency: req.user, actor: req.user, staff: null };
+    const sm = req.role === 'clients' ? staffMember(req.user.id, req.actor.id) : null;
+    if (!sm) return no(403, 'Switch to your own account to manage client accounts');
+    if (owner) return no(403, 'Only the agency owner can do this');
+    return { agency: req.user, actor: req.actor, staff: sm };
+  };
+  const myClient = (req, res, opts) => {
+    const ctx = agencyCtx(req, res, opts); if (!ctx) return null;
+    const c = T.users.get(req.params.cid);
+    if (!c || c.agencyId !== ctx.agency.id || (ctx.staff && !staffCovers(ctx.staff, c.id))) { res.status(404).json({ error: 'Client account not found' }); return null; }
+    return { c, ...ctx };
+  };
   const statsOf = (uid0) => { const now = Date.now(); return totals({ userId: uid0 }, now - 30 * DAY, now); };
+  const tok = (c) => reportToken(c);
 
   app.get('/api/agency', auth, (req, res) => {
-    if (req.actor) return res.status(403).json({ error: 'Switch to your own account to manage client accounts' });
-    if (req.user.agencyId) return res.status(404).json({ error: 'This page doesn’t exist.' }); // a sub-account has no agency tools
-    const list = clientsOf(req.user.id).map((c) => ({ id: c.id, business: c.settings?.businessName || c.name, name: c.name, email: c.passwordSet ? c.email : null, invited: !!c.invitedAt, createdAt: c.createdAt, funnels: T.funnels.count({ userId: c.id }), stats: statsOf(c.id), report: `/report/${reportToken(c.id)}` }));
-    res.json({ limit: clientLimit(req.user), used: list.length, plan: isAgencyPlan(req.user) ? 'agency' : req.user.billing?.status, clients: list, whiteLabel: req.user.settings?.whiteLabel || {}, clientMenu: req.user.settings?.clientMenu || null });
+    const ctx = agencyCtx(req, res); if (!ctx) return;
+    const a = ctx.agency, t = termsOf(a);
+    const list = clientsOf(a.id).filter((c) => !ctx.staff || staffCovers(ctx.staff, c.id)).map((c) => ({
+      id: c.id, business: c.settings?.businessName || c.name, name: c.name, email: c.passwordSet ? c.email : null, invited: !!c.invitedAt, ownLogin: !!c.passwordSet, createdAt: c.createdAt,
+      funnels: T.funnels.count({ userId: c.id }), stats: statsOf(c.id), access: accessMode(c), addons: { tally: !!c.addons?.tally, inventory: !!c.addons?.inventory },
+      report: tok(c) ? `/report/${tok(c)}` : null, reportExpires: tok(c) ? c.report.exp : null, deletion: c.deletion ? { at: c.deletion.at, purgeAt: c.deletion.purgeAt } : null,
+    }));
+    const staff = ctx.staff ? null : T.members.all({ ownerId: a.id }).filter((m) => m.role === 'clients').map((m) => ({ id: m.id, email: m.email, name: m.userId ? T.users.get(m.userId)?.name || '' : '', status: m.status, clientIds: m.clientIds || null }));
+    res.json({ limit: clientLimit(a), used: clientsOf(a.id).length, plan: isAgencyPlan(a) ? 'agency' : a.billing?.status, clients: list, whiteLabel: ctx.staff ? {} : a.settings?.whiteLabel || {}, clientMenu: a.settings?.clientMenu || null,
+      terms: t ? { kind: t.kind, maxClients: t.maxClients, addons: t.addons, seatCap: t.seatCap, status: t.status } : null, staff, me: ctx.staff ? { role: 'clients', clientIds: ctx.staff.clientIds || null } : { role: 'owner' } });
   });
   app.post('/api/agency/clients', auth, (req, res) => {
-    if (req.actor || req.apiKey) return res.status(403).json({ error: 'Only the agency owner can add client accounts' });
-    const n = clientsOf(req.user.id).length, limit = clientLimit(req.user);
-    if (n >= limit) return res.status(402).json({ error: limit ? `Your plan includes ${limit} client accounts — contact support for more` : 'Client accounts come with the Agency plan — upgrade in Plan & billing', upgrade: true });
+    const ctx = agencyCtx(req, res); if (!ctx) return;
+    if (ctx.staff?.clientIds?.length) return res.status(403).json({ error: 'You manage only the clients assigned to you — ask the agency owner to add one' });
+    const a = ctx.agency;
+    const n = clientsOf(a.id).length, limit = clientLimit(a);
+    if (n >= limit) return res.status(402).json({ error: limit ? `Your plan includes ${limit} client accounts — contact support for more` : termsOf(a)?.status === 'suspended' ? 'Your agency tools are switched off — contact support' : 'Client accounts come with the Agency plan — upgrade in Plan & billing', upgrade: true });
     const business = clip(req.body?.business, 80);
     if (!business) return res.status(400).json({ error: 'Enter the client’s business name' });
     const id = uid();
-    const c = { id, email: `client-${id}@clients.invalid`, name: clip(req.body?.name, 80) || business, hash: bcrypt.hashSync(randomToken(), 8), passwordSet: false, settings: { businessName: business }, emailVerified: true, pv: 0, createdAt: Date.now(), agencyId: req.user.id, billing: { status: 'agency', startedAt: Date.now() } };
+    const c = { id, email: `client-${id}@clients.invalid`, name: clip(req.body?.name, 80) || business, hash: bcrypt.hashSync(randomToken(), 8), passwordSet: false, settings: { businessName: business }, emailVerified: true, pv: 0, createdAt: Date.now(), agencyId: a.id, billing: { status: 'agency', startedAt: Date.now() } };
     tx(() => {
       T.users.insert(c);
       // the agency works in the account as its manager
-      T.members.insert({ id: uid(), ownerId: id, userId: req.user.id, email: req.user.email, role: 'agency', status: 'active', at: Date.now(), acceptedAt: Date.now() });
+      T.members.insert({ id: uid(), ownerId: id, userId: a.id, email: a.email, role: 'agency', status: 'active', at: Date.now(), acceptedAt: Date.now() });
     });
-    res.status(201).json({ id, business, token: signFor(req.user, id) });
+    // straight in to set it up: an agency-access session like any other (reason recorded)
+    const r = startAgencyAccess(req, { actor: ctx.actor, agency: a, client: T.users.get(id), reason: 'Setting up the new account', sign: signAgency });
+    res.status(201).json({ id, business, ...(r.token ? { token: r.token, expiresAt: r.expiresAt } : {}) });
   });
-  // the client logs in to their own account: a link to set a password, sent to their email
+  // open a client account: a reason (the client sees it), 2 hours, logged (agency-access.js)
+  app.post('/api/agency/clients/:cid/enter', auth, (req, res) => {
+    const x = myClient(req, res); if (!x) return;
+    const r = startAgencyAccess(req, { actor: x.actor, agency: x.agency, client: x.c, reason: req.body?.reason, sign: signAgency });
+    if (r.error) return res.status(r.status).json({ error: r.error, ...(r.agencyAccessOff ? { agencyAccessOff: true } : {}) });
+    res.json(r);
+  });
+  // the client logs in to their own account: a link to set a password, sent to their email. Only while the
+  // account has no login of its own — after that the email is the client's (changing it would lock them out)
   app.post('/api/agency/clients/:cid/invite', auth, async (req, res) => {
-    const c = myClient(req, res); if (!c) return;
+    const x = myClient(req, res, { owner: true }); if (!x) return;
+    const c = x.c;
+    if (c.passwordSet) return res.status(409).json({ error: 'The client already logs in with their own email — they can change it in their own Settings', ownLogin: true });
+    if (c.deletion) return res.status(409).json({ error: 'This account is scheduled for deletion — restore it first' });
     const email = clip(req.body?.email, 200).toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter the client’s email address' });
     if (email !== c.email && T.users.exists({ email })) return res.status(409).json({ error: 'That email already has an account — invite it from the client account’s Team settings instead' });
@@ -165,30 +235,81 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
   });
   // hand the account over: the client becomes independent (their own trial / plan); the agency stays on its team
   app.post('/api/agency/clients/:cid/detach', auth, (req, res) => {
-    const c = myClient(req, res); if (!c) return;
+    const x = myClient(req, res, { owner: true }); if (!x) return;
+    const c = x.c;
     if (!c.passwordSet) return res.status(400).json({ error: 'Invite the client to log in first, so someone owns the account' });
-    T.users.update(c.id, (x) => { delete x.agencyId; x.billing = newBilling(); });
+    if (c.deletion) return res.status(409).json({ error: 'This account is scheduled for deletion — restore it first' });
+    T.users.update(c.id, (u) => { delete u.agencyId; delete u.report; u.billing = newBilling(); });
     q("UPDATE members SET data = json_set(data, '$.role', 'admin') WHERE json_extract(data, '$.ownerId') = ? AND json_extract(data, '$.userId') = ?").run(c.id, req.user.id);
     res.json({ ok: true });
   });
+  // deleting a client: suspended now (its pages go offline, it can't be used), purged after PURGE_DAYS by the
+  // job above; the client is told and the agency can undo it until then
   app.delete('/api/agency/clients/:cid', auth, (req, res) => {
-    const c = myClient(req, res); if (!c) return;
+    const x = myClient(req, res, { owner: true }); if (!x) return;
+    const c = x.c;
     if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
-    deleteAccount(c.id);
+    if (c.deletion) return res.json({ ok: true, purgeAt: c.deletion.purgeAt });
+    const now = Date.now(), purgeAt = now + PURGE_DAYS * DAY;
+    T.users.update(c.id, (u) => { u.deletion = { at: now, purgeAt, by: req.user.id }; delete u.report; });
+    const when = new Date(purgeAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    notify(c.id, { kind: 'agency', title: 'Your agency is closing this account', body: `It is paused now and will be deleted with all its data on ${when}. Contact your agency if this is a mistake.` });
+    logAgency(c.id, { agencyName: brandFor(req.user)?.brand || req.user.settings?.businessName || req.user.name, staff: false }, { method: 'DELETE', path: '/api/agency/clients', what: `Scheduled this account for deletion on ${when}` });
+    res.json({ ok: true, purgeAt });
+  });
+  app.post('/api/agency/clients/:cid/restore', auth, (req, res) => {
+    const x = myClient(req, res, { owner: true }); if (!x) return;
+    if (!x.c.deletion) return res.status(400).json({ error: 'This account isn’t scheduled for deletion' });
+    T.users.update(x.c.id, (u) => { delete u.deletion; });
+    notify(x.c.id, { kind: 'agency', title: 'Your account is back', body: 'Your agency cancelled the deletion — everything works again.' });
+    logAgency(x.c.id, { agencyName: brandFor(req.user)?.brand || req.user.settings?.businessName || req.user.name, staff: false }, { method: 'POST', path: '/api/agency/clients/restore', what: 'Cancelled the deletion of this account' });
     res.json({ ok: true });
+  });
+  // the client report link: a new one (the old stops working), valid 7–365 days; or turned off
+  app.post('/api/agency/clients/:cid/report-link', auth, (req, res) => {
+    const x = myClient(req, res); if (!x) return;
+    if (x.c.deletion) return res.status(409).json({ error: 'This account is scheduled for deletion' });
+    const days = Math.min(365, Math.max(1, Math.round(Number(req.body?.days) || 30)));
+    const c = T.users.update(x.c.id, (u) => { u.report = { v: (u.report?.v || 0) + 1, exp: Date.now() + days * DAY }; });
+    res.json({ url: `/report/${reportToken(c)}`, expiresAt: c.report.exp });
+  });
+  app.delete('/api/agency/clients/:cid/report-link', auth, (req, res) => {
+    const x = myClient(req, res); if (!x) return;
+    T.users.update(x.c.id, (u) => { u.report = { v: (u.report?.v || 0) + 1, exp: 0 }; });
+    res.json({ ok: true });
+  });
+  // add-ons the platform lets this agency switch on for its clients (terms.addons)
+  app.put('/api/agency/clients/:cid/addons', auth, (req, res) => {
+    const x = myClient(req, res, { owner: true }); if (!x) return;
+    const allowed = termsOf(req.user)?.addons || [], b = req.body || {};
+    const keys = Object.keys(b).filter((k) => AGENCY_ADDONS.includes(k));
+    if (!keys.length) return res.status(400).json({ error: `Pick an add-on: ${AGENCY_ADDONS.join(', ')}` });
+    const no = keys.find((k) => !allowed.includes(k));
+    if (no) return res.status(403).json({ error: `Your agency plan doesn’t include the ${no} add-on for clients — contact support`, addon: no });
+    const c = T.users.update(x.c.id, (u) => { u.addons = { ...(u.addons || {}) }; for (const k of keys) u.addons[k] = !!b[k]; });
+    res.json({ addons: { tally: !!c.addons?.tally, inventory: !!c.addons?.inventory } });
+  });
+  // a client manager: all clients, or only the ones assigned (clientIds; empty = all)
+  app.put('/api/agency/staff/:mid', auth, (req, res) => {
+    const ctx = agencyCtx(req, res, { owner: true }); if (!ctx) return;
+    const m = T.members.get(req.params.mid);
+    if (!m || m.ownerId !== ctx.agency.id || m.role !== 'clients') return res.status(404).json({ error: 'Not one of your client managers' });
+    const ids = req.body?.clientIds;
+    if (ids != null && (!Array.isArray(ids) || ids.length > 1000 || ids.some((id) => T.users.get(id)?.agencyId !== ctx.agency.id))) return res.status(400).json({ error: 'Pick clients of your agency' });
+    const u = T.members.update(m.id, (x) => { if (ids?.length) x.clientIds = [...new Set(ids)]; else delete x.clientIds; });
+    res.json({ id: u.id, clientIds: u.clientIds || null });
   });
   // the menu new and existing client accounts start with (they can still change their own); null = by their industry
   const CLIENT_PAGES = ['/funnels', '/hive', '/orders', '/reports', '/ads', '/products', '/school', '/quotes', '/contacts', '/vault', '/automations', '/broadcasts', '/bookings', '/webinars'];
   app.put('/api/agency/client-menu', auth, (req, res) => {
-    if (req.actor || req.apiKey) return res.status(403).json({ error: 'Only the agency owner can set the client menu' });
-    if (req.user.agencyId) return res.status(404).json({ error: 'This page doesn’t exist.' });
+    if (!agencyCtx(req, res, { owner: true })) return;
     const pages = req.body?.pages;
     const menu = Array.isArray(pages) && pages.length ? [...new Set(pages.filter((x) => CLIENT_PAGES.includes(x)))] : null;
     T.users.update(req.user.id, (x) => { x.settings = { ...(x.settings || {}), clientMenu: menu }; });
     res.json({ clientMenu: menu });
   });
   app.put('/api/agency/white-label', auth, (req, res) => {
-    if (req.actor || req.apiKey) return res.status(403).json({ error: 'Only the agency owner can change the white-label' });
+    if (!agencyCtx(req, res, { owner: true })) return;
     if (!clientLimit(req.user)) return res.status(402).json({ error: 'White-label comes with the Agency plan', upgrade: true });
     const b = req.body || {};
     const w = { brand: clip(b.brand, 40), logo: clip(b.logo, 500), primary: /^#[0-9a-f]{6}$/i.test(b.primary || '') ? b.primary : '', supportEmail: clip(b.supportEmail, 200), hidePowered: !!b.hidePowered, domain: clip(b.domain, 253).toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '') };
@@ -198,7 +319,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     // the platform's own login page can't be rebranded, and a domain already serving a seller's funnel isn't free
     if (w.domain && isPlatformHost(w.domain)) return res.status(400).json({ error: 'Use your own domain, like app.youragency.com' });
     if (w.domain && T.domains.exists({ domain: w.domain })) return res.status(409).json({ error: 'That domain is connected to a funnel — use another subdomain for your app' });
-    if (w.domain) { const other = brandForHost(w.domain); if (other && q("SELECT id FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ?").get(w.domain)?.id !== req.user.id) return res.status(409).json({ error: 'That domain is used by another account' }); }
+    if (w.domain) { const other = T.users.find({ wlDomain: w.domain }); if (other && other.id !== req.user.id) return res.status(409).json({ error: 'That domain is used by another account' }); }
     const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, whiteLabel: w }; });
     res.json({ whiteLabel: u.settings.whiteLabel, dns: w.domain ? { type: 'CNAME', name: w.domain, value: new URL(process.env.APP_URL || 'https://app.example.com').hostname } : null });
   });
@@ -251,9 +372,8 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
 
   // ---- client report (public, read-only, signed) ----
   app.get('/api/report/:token', (req, res) => {
-    const [cid, s] = String(req.params.token).split('.');
-    const c = cid && s === sig(cid) ? T.users.get(cid) : null;
-    if (!c) return res.status(404).json({ error: 'Report not found' });
+    const c = reportClient(req.params.token);
+    if (!c) return res.status(404).json({ error: 'This report link has expired or was turned off — ask for a new one' });
     const days = Math.min(365, Math.max(7, Number(req.query.days) || 30)), now = Date.now();
     const b = brandFor(c);
     res.set('Cache-Control', 'no-store').json({

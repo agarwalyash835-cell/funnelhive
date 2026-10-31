@@ -17,6 +17,7 @@ import { call as rzpCall } from './razorpay.js';
 import { sendMail } from './mail.js';
 import { registerIntlBilling, applyStripeSub, cancelStripeSub, platformStripe, isAbroad, currencyFor, intlPrices } from './billing-intl.js';
 import { stripe as stripeCall } from './stripe.js';
+import { termsOf, isReseller } from './agency-terms.js';
 import { TZ_OFFSET, DAY } from './time.js';
 
 sql.exec('CREATE TABLE IF NOT EXISTS usage (k TEXT PRIMARY KEY, userId TEXT NOT NULL, month TEXT NOT NULL, ai INTEGER NOT NULL DEFAULT 0)');
@@ -28,13 +29,15 @@ export function newBilling(now = Date.now()) {
 export function accessFor(u, now = Date.now()) {
   if (!u) return { ok: false, status: 'none', pagesLive: false };
   if (isAdmin(u)) return { ok: true, status: 'admin', pagesLive: true, admin: true };
+  // a client account its agency deleted: suspended until it's purged, or the agency undoes it (agency.js)
+  if (u.deletion) return { ok: false, status: 'suspended', pagesLive: false, deletion: { purgeAt: u.deletion.purgeAt }, reason: 'This account is scheduled for deletion by your agency — please contact them.' };
   // a client account of an agency: covered by the agency's plan
   if (u.agencyId && u.billing?.status !== 'suspended') {
     const a = T.users.get(u.agencyId);
     const x = accessFor(a, now);
     // sold by a partner on one of its own plans (partners.js): the account's own plan decides, as long as the
     // partner itself is in good standing (a wallet on hold for over 7 days pauses its accounts)
-    if (u.sub && a?.partner?.enabled) return resoldAccess(u, a, x, now);
+    if (u.sub && isReseller(a)) return resoldAccess(u, a, x, now);
     return { ...x, agencyManaged: true, agency: a?.settings?.whiteLabel?.brand || a?.settings?.businessName || a?.name || '', ...(x.ok ? {} : { reason: 'Your agency’s plan has ended — please contact them.' }) };
   }
   if (!u.billing) {
@@ -70,7 +73,8 @@ function resoldAccess(u, a, x, now) {
   const s = u.sub, p = platform();
   const brand = a.settings?.whiteLabel?.brand || a.settings?.businessName || a.name || '';
   let ok, endsAt = null, reason = '';
-  if (!x.ok || (a.partner.hold && now - a.partner.hold > 7 * DAY)) { ok = false; reason = `Your account with ${brand} is paused — please contact them.`; }
+  const hold = termsOf(a)?.hold;
+  if (!x.ok || (hold && now - hold > 7 * DAY)) { ok = false; reason = `Your account with ${brand} is paused — please contact them.`; }
   else switch (s.status) {
     case 'comped': ok = true; break;
     case 'trialing': endsAt = s.trialEndsAt || 0; ok = now < endsAt; break;
@@ -134,14 +138,14 @@ export function spendCredits(u, n) {
 // the partner's wallet pays the platform for them at its wholesale rate (one ledger row per partner per day)
 function resoldUsage(u, n, before, month) {
   const a = T.users.get(u.agencyId);
-  if (!a?.partner?.enabled) return;
+  if (!isReseller(a)) return;
   const plan = resalePlan(u, a)?.credits || 0;
   const over = Math.max(0, before + n - plan) - Math.max(0, before - plan);
   if (over > 0) T.users.update(u.id, (x) => {
     x.extraCredits = Math.max(0, (x.extraCredits || 0) - over);
     x.extraTaken = { month, n: (x.extraTaken?.month === month ? x.extraTaken.n : 0) + over };
   });
-  const rate = Number(a.partner.creditRate) || 0;
+  const rate = Number(termsOf(a).rates.creditRate) || 0;
   if (!rate) return;
   const day = new Date(Date.now() + TZ_OFFSET).toISOString().slice(0, 10), id = `ai-${a.id}-${day}`;
   const cost = Math.round(n * rate) / 100; // the rate is ₹ per 100 credits

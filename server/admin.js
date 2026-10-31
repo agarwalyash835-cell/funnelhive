@@ -17,6 +17,7 @@ import { saveIntlSettings, intlSettingsView, platformStripe } from './billing-in
 import { fxRate } from './fx.js';
 import { limitsFor, usageFor, saveLimits, LIMIT_DEFAULTS, turnstileSiteKey, checkTurnstileSecret } from './limits.js';
 import { clientLimit } from './agency.js';
+import { termsOf, setTerms } from './agency-terms.js';
 import { DAY, localDate } from './time.js';
 import { randomToken, hashToken, revokeOthers } from './security.js';
 import { decryptBuffer, isEncrypted, recoveryKey } from './backup-crypt.js';
@@ -130,7 +131,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (!u) return;
     const since = Date.now() - 30 * DAY;
     res.json({
-      ...row(u), tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(u.agencyMaxClients ? { agencyClients: u.agencyMaxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
+      ...row(u), tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(termsOf(u)?.maxClients ? { agencyClients: termsOf(u).maxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
       counts: {
         funnels: T.funnels.count({ userId: u.id }), published: q("SELECT COUNT(*) AS n FROM funnels WHERE userId = ? AND json_extract(data, '$.published') = 1").get(u.id).n,
         contacts: T.crm.count({ userId: u.id }), leads: T.leads.count({ userId: u.id }), automations: T.automations.count({ userId: u.id }), domains: T.domains.count({ userId: u.id }),
@@ -164,7 +165,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
         // an agency's client accounts (empty = what its plan includes)
         const mc = req.body.agencyClients === '' || req.body.agencyClients == null ? null : Math.round(Number(req.body.agencyClients));
         if (mc !== null && !(mc >= 1 && mc <= 10000)) return res.status(400).json({ error: 'Enter a number of client accounts between 1 and 10,000' });
-        T.users.update(u.id, (x) => { if (Object.keys(o).length) x.limits = o; else delete x.limits; if (mc) x.agencyMaxClients = mc; else delete x.agencyMaxClients; });
+        T.users.update(u.id, (x) => { if (Object.keys(o).length) x.limits = o; else delete x.limits; });
+        if (mc || termsOf(u)) setTerms(u.id, (t) => { t.maxClients = mc || null; }); // the agency's terms (agency-terms.js)
         if (mc) o.agencyClients = mc;
         detail = Object.keys(o).length ? JSON.stringify(o) : 'plan default'; break;
       }
