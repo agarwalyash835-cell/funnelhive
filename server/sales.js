@@ -152,16 +152,28 @@ async function refundClaimed(owner, order, idx, { reason, by, restock }) {
   const groups = new Map(); // payment id → item indexes
   for (const i of idx) { const pid = order.items[i].paymentId || ''; groups.set(pid, [...(groups.get(pid) || []), i]); }
   const done = [], errors = [];
+  // a COD order delivered with part paid online first (cod.js advance): its items carry no payment id (the rest was
+  // cash), so the online part goes back through the advance payment — up to what's left of it — and the seller is
+  // told how much to return in cash
+  const adv = order.prepaid?.paymentId && order.codPaidAt && !order.prepaid.retained && order.prepaid.refund?.status !== 'done'
+    ? Math.max(0, Math.round(((Number(order.prepaid.amount) || 0) - (Number(order.prepaid.refundedOnline) || 0)) * 100) / 100) : 0;
+  let advanceBack = 0, cash = 0;
   for (const [pid, list] of groups) {
     const amount = list.reduce((s, i) => s + Number(order.items[i].price || 0), 0);
-    let refundId = null;
+    let refundId = null, via = pid;
     if (pid && amount > 0) {
       const r = await providerRefund(owner, order, pid, amount, reason);
       if (r.error) { errors.push(r.error); continue; }
       refundId = r.id;
-    }
-    done.push({ pid, list, amount, refundId });
+    } else if (!pid && amount > 0 && adv > 0) {
+      const part = Math.min(adv, amount);
+      const r = await providerRefund(owner, order, order.prepaid.paymentId, part, reason || `Order ${order.id} refund — the part paid online`);
+      if (r.error) { errors.push(r.error); continue; }
+      refundId = r.id; via = order.prepaid.paymentId; advanceBack = part; cash = Math.round((amount - part) * 100) / 100;
+    } else if (!pid && amount > 0 && order.codPaidAt) cash += amount;
+    done.push({ pid: via, list, amount, refundId });
   }
+  if (advanceBack > 0) T.orders.update(order.id, (o) => { o.prepaid = { ...o.prepaid, refundedOnline: Math.round(((Number(o.prepaid.refundedOnline) || 0) + advanceBack) * 100) / 100 }; });
   if (!done.length) return { error: errors.join(' · ') };
   let updated = applyRefund(owner, order.id, done.map((d) => ({ items: d.list, amount: d.amount, refundId: d.refundId, paymentId: d.pid || null })), { reason, by, restock });
   // a refunded plan stops billing: its subscription is cancelled straight away (plans.js imports this file, hence the late import)
@@ -173,7 +185,8 @@ async function refundClaimed(owner, order, idx, { reason, by, restock }) {
       updated = T.orders.update(order.id, (o) => { o.plan.cancelledOnRefund = Date.now(); });
     } catch (e) { errors.push(`Refunded, but the subscription couldn’t be cancelled: ${e.message} — cancel it in your payment dashboard`); }
   }
-  return { order: updated, errors };
+  // a COD refund: how much went back online (the advance) and how much the seller hands back in cash
+  return { order: updated, errors, ...(advanceBack > 0 ? { refundedOnline: advanceBack } : {}), ...(cash > 0 ? { cashToReturn: cash } : {}) };
 }
 
 // Records refunds on the order (already refunded at the payment provider): items, totals, access,

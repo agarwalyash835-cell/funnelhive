@@ -351,7 +351,9 @@ function RefundModal({ o, onClose, onDone }) {
     setBusy(true);
     try {
       const r = await api(`/orders/${o.id}/refund`, 'POST', { items: pick, reason, restock });
-      toast(r.errors?.length ? `Partly done: ${r.errors.join(' · ')}` : `Refunded ${money(amount, o)}`);
+      // a COD order paid partly online: the online part went back automatically, the rest is cash to hand back
+      const split = r.cashToReturn ? ` — ${money(r.refundedOnline || 0, o)} back to their card/UPI; give ${money(r.cashToReturn, o)} back in cash` : '';
+      toast(r.errors?.length ? `Partly done: ${r.errors.join(' · ')}` : `Refunded ${money(amount, o)}${split}`);
       onDone();
     } catch (e) { toast(e.message); setBusy(false); }
   };

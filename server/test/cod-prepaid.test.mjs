@@ -136,6 +136,19 @@ test('the advance paid → a COD order with codDue; delivered → one invoice fo
   assert.match(inv[0].note, /Paid in advance ₹99 · collected on delivery ₹400/);
 });
 
+test('a refund after delivery sends the advance back through the online payment; the rest is cash the seller returns', async () => {
+  const o = await order(paidId);
+  const before = rz.refunds.length;
+  const r = await api(`/orders/${paidId}/refund`, 'POST', { reason: 'Damaged in transit' }, T);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual([r.data.refundedOnline, r.data.cashToReturn], [99, 400]);
+  const back = rz.refunds.slice(before);
+  assert.deepEqual(back.map((x) => [x.payment_id, x.amount]), [[o.prepaid.paymentId, 9900]], 'only the advance, on its own payment');
+  assert.equal((await order(paidId)).prepaid.refundedOnline, 99);
+  assert.equal((await api(`/orders/${paidId}/refund`, 'POST', {}, T)).status, 400, 'nothing left to refund');
+  assert.equal(rz.refunds.length, before + 1, 'never twice');
+});
+
 test('COD rules refuse before anything is charged', async () => {
   await setCod({ maxCod: 300 });
   const before = rz.orders.length;
