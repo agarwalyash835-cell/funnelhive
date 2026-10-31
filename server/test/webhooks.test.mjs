@@ -38,6 +38,7 @@ test('webhooks: signed, retried until delivered, logged', async () => {
     const expected = crypto.createHmac('sha256', s.webhookSecret).update(`${t}.${last.body}`).digest('hex');
     assert.equal(v1, expected, 'signature verifies with the account secret');
     assert.equal(last.headers['x-funnelhive-event'], 'lead.created');
+    for (const k of ['event', 'delivery', 'signature']) assert.equal(last.headers['x-webhook-' + k], last.headers['x-funnelhive-' + k], 'neutral header names carry the same values');
     const payload = JSON.parse(last.body);
     assert.equal(payload.data.email, 'hook@x.dev');
     assert.equal(payload.id, last.headers['x-funnelhive-delivery'], 'delivery id for idempotency');

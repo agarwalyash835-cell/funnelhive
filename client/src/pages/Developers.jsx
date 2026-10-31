@@ -72,7 +72,7 @@ export default function Developers() {
   -d '{"email":"priya@example.com","name":"Priya","tags":["webinar-lead"]}'`}</pre>
       </Panel>
       <Panel title="Zapier, Pabbly Connect, Make, n8n">
-        <p className="muted sm"><b>Instant triggers</b>: subscribe a URL to an event with <code>POST /api/v1/hooks</code> (Zapier’s REST hooks do this for you); each delivery is <code>{'{ id, event, data, at }'}</code>, signed with the <code>X-FunnelHive-Signature</code> HMAC of your webhook signing secret and retried with back-off. <b>Polling triggers</b>: the <code>/api/v1/*</code> lists with <code>?since=</code>. <b>Actions</b>: any endpoint below. Without a key you can still send every event to one URL from Settings → Webhooks.</p>
+        <p className="muted sm"><b>Instant triggers</b>: subscribe a URL to an event with <code>POST /api/v1/hooks</code> (Zapier’s REST hooks do this for you); each delivery is <code>{'{ id, event, data, at }'}</code>, signed with the <code>X-Webhook-Signature</code> HMAC of your webhook signing secret and retried with back-off. <b>Polling triggers</b>: the <code>/api/v1/*</code> lists with <code>?since=</code>. <b>Actions</b>: any endpoint below. Without a key you can still send every event to one URL from Settings → Webhooks.</p>
         <div className="chips">{EVENTS.map((e) => <span key={e} className="chip mono">{e}</span>)}</div>
       </Panel>
       {EP.map(([group, rows]) => (

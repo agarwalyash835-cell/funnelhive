@@ -1,6 +1,6 @@
 // Outgoing webhooks: persisted queue, retries with backoff, HMAC-SHA256 signatures.
 // Receivers verify:  expected = HMAC_SHA256(secret, `${t}.${rawBody}`)  and compare with v1 in
-// the X-FunnelHive-Signature header ("t=<unix seconds>,v1=<hex>").
+// the X-Webhook-Signature header ("t=<unix seconds>,v1=<hex>"; also sent as X-FunnelHive-Signature for older receivers).
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
@@ -13,6 +13,11 @@ import { T, q, uid, JOBS } from './db.js';
 const SCALE = Number(process.env.WEBHOOK_RETRY_SCALE || 1); // tests shrink the delays
 const BACKOFF = [0, 30e3, 120e3, 600e3, 3600e3, 6 * 3600e3].map((ms) => ms * SCALE);
 const MAX_PER_USER = 500;
+// each delivery's headers: neutral names, plus the X-FunnelHive-* copies older receivers were built on
+const hookHeaders = (event, id, sig) => ({
+  'X-Webhook-Event': event, 'X-Webhook-Delivery': id, 'X-Webhook-Signature': sig,
+  'X-FunnelHive-Event': event, 'X-FunnelHive-Delivery': id, 'X-FunnelHive-Signature': sig,
+});
 
 // ---- SSRF guard: a webhook may never reach this server's own network ----
 // (localhost, private LANs, cloud metadata at 169.254.169.254, …). Tests run receivers on 127.0.0.1.
@@ -156,9 +161,9 @@ export async function attempt(id) {
       try { await checkWebhookUrl(d.url); } catch (e) { r0.blocked = true; throw e; } // re-checked on every send (DNS can change)
       const r = await postPinned(d.url, { // redirects aren't followed: one must not lead to a private address
         headers: {
-          'Content-Type': 'application/json', 'User-Agent': 'FunnelHive-Webhooks/1.0',
-          'X-FunnelHive-Event': d.event, 'X-FunnelHive-Delivery': d.id,
-          'X-FunnelHive-Signature': `t=${ts},v1=${sign(ensureSecret(u), ts, body)}`,
+          'Content-Type': 'application/json', 'User-Agent': 'Webhooks/1.0',
+          // neutral names (white-label clients see these); the old X-FunnelHive-* copies stay for receivers built on them
+          ...hookHeaders(d.event, d.id, `t=${ts},v1=${sign(ensureSecret(u), ts, body)}`),
         },
         body,
       });

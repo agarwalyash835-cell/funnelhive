@@ -108,7 +108,7 @@ export default function Settings() {
               <button className="icon-btn" title={showSecret ? 'Hide' : 'Show'} aria-label={showSecret ? 'Hide' : 'Show'} onClick={() => setShowSecret(!showSecret)}><Icon name="eye" size={15} /></button>
               <button className="icon-btn" title="Copy" aria-label="Copy" onClick={() => { navigator.clipboard?.writeText(s.webhookSecret); toast('Secret copied'); }}><Icon name="copy" size={15} /></button>
               <button className="btn ghost sm" onClick={rotate}>Rotate</button></div>
-            <p className="hint">Verify each request: <code>HMAC-SHA256(secret, t + "." + rawBody)</code> must equal <code>v1</code> in the <code>X-FunnelHive-Signature</code> header (<code>t=…,v1=…</code>). Use <code>X-FunnelHive-Delivery</code> to ignore duplicates.</p>
+            <p className="hint">Verify each request: <code>HMAC-SHA256(secret, t + "." + rawBody)</code> must equal <code>v1</code> in the <code>X-Webhook-Signature</code> header (<code>t=…,v1=…</code>). Use <code>X-Webhook-Delivery</code> to ignore duplicates.</p>
           </div>
           {deliveries.length > 0 && (
             <table className="tbl compact">
