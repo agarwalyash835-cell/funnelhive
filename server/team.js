@@ -9,8 +9,8 @@
 // A member can also be limited to some funnels (funnelIds, "this project only"): see scopeAllows.
 import { T, q, uid, tx } from './db.js';
 import { randomToken, hashToken } from './security.js';
-import { sendMail, appUrl, mailEnabled } from './mail.js';
-import { brand } from './platform.js';
+import { mailEnabled } from './mail.js';
+import { sendBranded } from './whitelabel.js';
 
 export const ROLE_NAMES = { agency: 'Agency' };
 export const ROLES = {
@@ -207,7 +207,10 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
   const inviteLimiter = rateLimit({ windowMs: 3600000, max: isTest ? 1000 : 30, key: (req) => req.user.id, message: 'Too many invites — please try again later.' });
   const sendInvite = async (req, owner, m, token) => {
     const who = req.actor?.name || owner.name;
-    await sendMail({ to: m.email, subject: `${who} invited you to ${bizName(owner)} on ${brand()}`, text: `Hi,\n\n${who} has invited you to join ${bizName(owner)} on ${brand()} as ${roleInfo(m.ownerId, m.role)?.name || 'a team member'}.\n\nAccept the invitation (valid for ${INVITE_DAYS} days):\n${appUrl(req)}/team/accept?token=${token}\n\nIf you don’t have an account yet, you’ll create one with this email address first.` }).catch((e) => console.error('team invite email failed', e.message));
+    // in the workspace's brand (its agency's, with the link on the agency's domain — whitelabel.js); → the link
+    let link = '';
+    await sendBranded(owner, req, (b) => { link = `${b.linkBase}/team/accept?token=${token}`; return { to: m.email, subject: `${who} invited you to ${bizName(owner)} on ${b.name}`, text: `Hi,\n\n${who} has invited you to join ${bizName(owner)} on ${b.name} as ${roleInfo(m.ownerId, m.role)?.name || 'a team member'}.\n\nAccept the invitation (valid for ${INVITE_DAYS} days):\n${link}\n\nIf you don’t have an account yet, you’ll create one with this email address first.` }; }).catch((e) => console.error('team invite email failed', e.message));
+    return link;
   };
 
   // the owner's team (owners and admins)
@@ -228,8 +231,8 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     const token = `${uid()}.${randomToken()}`;
     let m;
     try { m = T.members.insert({ id: token.split('.')[0], ownerId: req.user.id, email, role, status: 'invited', userId: null, ...(scope.ids ? { funnelIds: scope.ids } : {}), inviteHash: hashToken(token), inviteExp: Date.now() + INVITE_DAYS * 86400000, at: Date.now() }); } catch { return res.status(409).json({ error: 'They’re already on your team (or invited)' }); }
-    await sendInvite(req, req.user, m, token);
-    res.json({ ...view(m), ...(isTest ? { token } : {}), ...(mailEnabled() ? {} : { link: `${appUrl(req)}/team/accept?token=${token}` }) });
+    const link = await sendInvite(req, req.user, m, token);
+    res.json({ ...view(m), ...(isTest ? { token } : {}), ...(mailEnabled() ? {} : { link }) });
   });
   // owners change roles and which funnels someone works on, resend, remove
   const ownMember = (req, res) => {
@@ -257,8 +260,8 @@ export function registerTeam(app, { auth, sign, rateLimit, isTest }) {
     if (m.status !== 'invited') return res.status(400).json({ error: 'They’ve already joined' });
     const token = `${m.id}.${randomToken()}`;
     T.members.update(m.id, (x) => { x.inviteHash = hashToken(token); x.inviteExp = Date.now() + INVITE_DAYS * 86400000; });
-    await sendInvite(req, req.user, m, token);
-    res.json({ ok: true, ...(isTest ? { token } : {}), ...(mailEnabled() ? {} : { link: `${appUrl(req)}/team/accept?token=${token}` }) });
+    const link = await sendInvite(req, req.user, m, token);
+    res.json({ ok: true, ...(isTest ? { token } : {}), ...(mailEnabled() ? {} : { link }) });
   });
   app.delete('/api/team/members/:mid', auth, (req, res) => {
     const m = ownMember(req, res); if (!m) return;

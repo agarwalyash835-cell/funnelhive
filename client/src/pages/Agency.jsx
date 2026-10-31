@@ -109,10 +109,23 @@ function ClientMenu({ menu, enabled }) {
   );
 }
 
+// the DNS records to copy (domain proof, or the sender's SPF / DKIM)
+const DnsTable = ({ records }) => (
+  <table className="tbl compact dns-t"><thead><tr><th>Type</th><th>Name / Host</th><th>Value / Points to</th><th /></tr></thead>
+    <tbody>{records.map((r) => <tr key={r.type + r.name + r.value}><td className="mono strong">{r.type}{r.priority != null ? ` · ${r.priority}` : ''}</td><td className="mono">{r.name}{r.why && <small className="muted"> · {r.why}</small>}</td><td className="mono">{r.value}</td><td className="r"><button type="button" className="icon-btn xs" title="Copy" aria-label="Copy" onClick={() => copy(r.value)}><Icon name="copy" size={13} /></button></td></tr>)}</tbody></table>
+);
+const PILL = { active: ['ok', 'Verified'], verified: ['ok', 'Verified'], pending: ['warn', 'Waiting for DNS'], failed: ['bad', 'Not working'] };
+
 function WhiteLabel({ w, enabled }) {
-  const [v, setV] = useState({ brand: '', logo: '', primary: '', supportEmail: '', domain: '', hidePowered: false, ...w });
-  const [dns, setDns] = useState(null);
-  const save = async () => { try { const r = await api('/agency/white-label', 'PUT', v); setV({ ...v, ...r.whiteLabel }); setDns(r.dns); toast('White-label saved — reload to see it'); } catch (e) { toast(e.message); } };
+  const [v, setV] = useState({ brand: '', logo: '', primary: '', supportEmail: '', domain: '', hidePowered: false, legalName: '', address: '', supportPhone: '', termsUrl: '', privacyUrl: '', ...w });
+  const [st, setSt] = useState(null); // { domain: proof + records, sender }
+  const [busy, setBusy] = useState(false);
+  const loadSt = () => api('/agency/white-label/status').then(setSt).catch(() => {});
+  useEffect(() => { if (enabled) loadSt(); }, [enabled]);
+  const check = async () => { setBusy(true); try { setSt(await api('/agency/white-label/verify', 'POST')); } catch (e) { toast(e.message); } setBusy(false); };
+  const save = async () => { try { const r = await api('/agency/white-label', 'PUT', v); setV({ ...v, ...r.whiteLabel }); toast('White-label saved — reload to see it'); if (r.domainProof) await check(); else loadSt(); } catch (e) { toast(e.message); } };
+  const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
+  const d = st?.domain;
   return (
     <Panel title="White-label" actions={<button className="btn primary sm" disabled={!enabled} onClick={save}>Save</button>}>
       <p className="muted sm">Your clients (and your team) see your brand instead of ours — in the dashboard, login page, emails and reports.</p>
@@ -125,9 +138,63 @@ function WhiteLabel({ w, enabled }) {
           <label className="fld full"><span>Your app domain <small className="muted">· optional, e.g. app.youragency.com</small></span><input value={v.domain} onChange={(e) => setV({ ...v, domain: e.target.value })} placeholder="app.youragency.com" /></label>
         </div>
         <label className="tog"><input type="checkbox" checked={!!v.hidePowered} onChange={(e) => setV({ ...v, hidePowered: e.target.checked })} /><span />Hide “Powered by” on client pages and reports</label>
+        <h4 style={{ margin: '18px 0 6px' }}>Your business details</h4>
+        <p className="muted sm">Shown on your app domain’s login, contact and policy pages instead of ours.</p>
+        <div className="form2">
+          <label className="fld"><span>Legal name</span><input value={v.legalName} maxLength={120} onChange={set('legalName')} placeholder="Growth Agency Pvt Ltd" /></label>
+          <label className="fld"><span>Support phone</span><input value={v.supportPhone} maxLength={30} onChange={set('supportPhone')} placeholder="+91 98765 43210" /></label>
+          <label className="fld full"><span>Address</span><input value={v.address} maxLength={300} onChange={set('address')} placeholder="Office, street, city, state, PIN" /></label>
+          <label className="fld"><span>Terms of service link</span><input value={v.termsUrl} onChange={set('termsUrl')} placeholder="https://youragency.com/terms" /></label>
+          <label className="fld"><span>Privacy policy link</span><input value={v.privacyUrl} onChange={set('privacyUrl')} placeholder="https://youragency.com/privacy" /></label>
+        </div>
       </fieldset>
-      {(dns || v.domain) && <p className="hint">Point <b>{v.domain}</b> to this app: add a <code>CNAME</code> record → <code>{dns?.value || new URL(location.origin).hostname}</code>. HTTPS is set up automatically once it resolves.</p>}
+      {d && <div className={`dom ${d.status}`} style={{ marginTop: 16 }}>
+        <div className="dom-h"><b>{d.domain}</b><span className={`pill ${PILL[d.status]?.[0] || ''}`}>{PILL[d.status]?.[1] || d.status}</span></div>
+        {d.status !== 'active' && <p className="hint">Your brand shows on <b>{d.domain}</b> (and it gets HTTPS) only after these records prove it’s yours. Add them where you bought the domain (GoDaddy, Hostinger, BigRock, Namecheap, Cloudflare…). DNS changes can take a few minutes to a few hours; we re-check automatically.</p>}
+        {d.status === 'active' && <p className="hint">Verified — your clients can log in at <a href={`https://${d.domain}`} target="_blank" rel="noreferrer">https://{d.domain}</a>. Keep the CNAME record in place.</p>}
+        {d.status !== 'active' && <DnsTable records={d.records} />}
+        <div className="row"><button type="button" className="btn ghost sm" disabled={busy} onClick={check}><Icon name="refund" size={14} /> {busy ? 'Checking…' : 'Check now'}</button>{d.error && <span className="muted sm">{d.error}{d.checkedAt ? ` · checked ${ago(d.checkedAt)}` : ''}</span>}</div>
+      </div>}
+      {d && <Sender s={st.sender} onChange={setSt} />}
     </Panel>
+  );
+}
+
+// the address emails to your clients come from (sign-in links, invites…): on your verified domain; until it's
+// verified (or if it fails) they come from our address under your brand name
+function Sender({ s, onChange }) {
+  const [v, setV] = useState({ address: s?.address || '', host: s?.smtp?.host || '', port: s?.smtp?.port || 587, user: s?.smtp?.user || '', pass: '', secure: !!s?.smtp?.secure });
+  const [busy, setBusy] = useState(false);
+  const smtp = s?.mode !== 'resend';
+  const save = async (clear) => {
+    setBusy(true);
+    try { onChange(await api('/agency/white-label/sender', 'PUT', clear ? { address: '' } : { address: v.address, ...(smtp ? { smtp: { host: v.host, port: v.port, user: v.user, pass: v.pass, secure: v.secure } } : {}) })); if (clear) setV({ ...v, address: '' }); toast(clear ? 'Sender removed' : 'Sender saved'); } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const check = async () => { setBusy(true); try { onChange(await api('/agency/white-label/verify', 'POST')); } catch (e) { toast(e.message); } setBusy(false); };
+  if (!s?.appDomain) return <p className="hint" style={{ marginTop: 12 }}>Once your app domain is verified you can send your clients’ emails from your own address (like hello@youragency.com). Until then they come from our address under your brand name.</p>;
+  return (
+    <div className={`dom ${s.status}`} style={{ marginTop: 16 }}>
+      <div className="dom-h"><b>Emails from your own address</b>{s.status !== 'none' && <span className={`pill ${PILL[s.status]?.[0] || ''}`}>{PILL[s.status]?.[1] || s.status}</span>}</div>
+      <p className="hint">Sign-in links, password resets and invitations to your clients come from this address. Until it’s verified (or if sending from it fails) they come from our address with your brand name.</p>
+      <div className="form2">
+        <label className="fld full"><span>From address</span><input value={v.address} onChange={(e) => setV({ ...v, address: e.target.value })} placeholder={`hello@${s.appDomain.split('.').slice(-2).join('.')}`} /></label>
+        {smtp && <>
+          <label className="fld"><span>SMTP server <small className="muted">· from your email provider</small></span><input value={v.host} onChange={(e) => setV({ ...v, host: e.target.value })} placeholder="smtp.zoho.in" /></label>
+          <label className="fld"><span>Port</span><input type="number" value={v.port} onChange={(e) => setV({ ...v, port: e.target.value })} /></label>
+          <label className="fld"><span>Username</span><input value={v.user} autoComplete="off" onChange={(e) => setV({ ...v, user: e.target.value })} /></label>
+          <label className="fld"><span>Password {s.smtp && <small className="muted">· leave empty to keep</small>}</span><input type="password" value={v.pass} autoComplete="new-password" onChange={(e) => setV({ ...v, pass: e.target.value })} /></label>
+        </>}
+      </div>
+      {smtp && <label className="tog"><input type="checkbox" checked={v.secure} onChange={(e) => setV({ ...v, secure: e.target.checked })} /><span />SSL/TLS from the start (port 465)</label>}
+      {s.records?.length > 0 && s.status !== 'verified' && <><p className="hint">{smtp ? 'So your emails land in the inbox, add your email provider’s SPF and DKIM records to your domain:' : 'Add these records to your domain so we can send from it (SPF and DKIM):'}</p><DnsTable records={s.records} /></>}
+      <div className="row">
+        <button type="button" className="btn primary sm" disabled={busy || !v.address} onClick={() => save(false)}>Save sender</button>
+        {s.status !== 'none' && <button type="button" className="btn ghost sm" disabled={busy} onClick={check}>{busy ? 'Checking…' : 'Check now'}</button>}
+        {s.status !== 'none' && <button type="button" className="btn ghost sm" disabled={busy} onClick={() => save(true)}>Remove</button>}
+        {s.error && <span className="muted sm">{s.error}</span>}
+      </div>
+    </div>
   );
 }
 

@@ -407,6 +407,8 @@ export function registerBilling(app, { auth, wrap, rateLimit, isTest: test }) {
 
 // ---------- background: catch missed webhooks, remind before the trial ends ----------
 async function notify(u, kind) {
+  // an agency's or partner's client is billed by them: never the platform's plan, prices or brand
+  if (u.agencyId) return;
   const p = platform(), url = `${process.env.APP_URL || ''}/billing`;
   const m = {
     trial3: ['Your free trial ends in 3 days', `Hi ${u.name},\n\nYour ${p.brand} trial ends in 3 days. Choose a plan to keep your funnels, automations and pages running:\n${url}\n\n₹${chargeFor('monthly').toLocaleString('en-IN')}/month or ₹${chargeFor('yearly').toLocaleString('en-IN')}/year.`],

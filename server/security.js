@@ -200,4 +200,8 @@ export function totpStep(secret, code, used = 0) {
   for (const w of [-1, 0, 1]) if (now + w > used && totp(secret, (now + w) * 30000) === c) return now + w;
   return null;
 }
-export const otpauthUrl = (secret, email) => `otpauth://totp/FunnelHive:${encodeURIComponent(email)}?secret=${secret}&issuer=FunnelHive&digits=6&period=30`;
+// issuer: the brand the person signs in to (an agency's, for its clients) — what their authenticator app shows
+export const otpauthUrl = (secret, email, issuer = 'FunnelHive') => {
+  const i = encodeURIComponent(String(issuer).replace(/:/g, ' ').trim() || 'FunnelHive');
+  return `otpauth://totp/${i}:${encodeURIComponent(email)}?secret=${secret}&issuer=${i}&digits=6&period=30`;
+};

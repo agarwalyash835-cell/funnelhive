@@ -14,7 +14,8 @@ import { adminCheck, audit } from './admin-guard.js';
 import { rzpCreds, createOrder, validPayment } from './razorpay.js';
 import { accessFor, usageSummary, resalePlan } from './billing.js';
 import { issueInvoice, invoiceUrl } from './sales.js';
-import { sendMail, mailEnabled } from './mail.js';
+import { mailEnabled } from './mail.js';
+import { sendBranded, agencyForHost } from './whitelabel.js';
 import { randomToken, hashToken } from './security.js';
 import { notify } from './notify.js';
 
@@ -99,10 +100,13 @@ export function createAccount({ email, name, business, partner = null, planId = 
   return { user: T.users.get(id), token };
 }
 async function sendWelcome(u, token, base, partner) {
-  const brand = partner?.settings?.whiteLabel?.brand || platform().brand;
-  const host = partner?.settings?.whiteLabel?.domain ? `https://${partner.settings.whiteLabel.domain}` : base;
-  const link = `${host}/reset?token=${token}`;
-  await sendMail({ to: u.email, subject: `Your ${brand} account is ready`, text: `Hi ${u.name},\n\nYour ${brand} account for ${u.settings?.businessName || u.name} is ready.\n\nChoose your password to sign in (the link works for 7 days):\n${link}\n\n— ${brand}` }).catch(() => {});
+  // in the partner's brand, the link on its own app domain once DNS has proven it (whitelabel.js)
+  let link = '';
+  await sendBranded(partner || u, null, (b) => {
+    const brand = b.name;
+    link = `${(b.agencyId && b.linkBase) || base}/reset?token=${token}`;
+    return { to: u.email, subject: `Your ${brand} account is ready`, text: `Hi ${u.name},\n\nYour ${brand} account for ${u.settings?.businessName || u.name} is ready.\n\nChoose your password to sign in (the link works for 7 days):\n${link}\n\n— ${brand}` };
+  }).catch(() => {});
   return mailEnabled() ? null : link;
 }
 
@@ -110,8 +114,8 @@ async function sendWelcome(u, token, base, partner) {
 export function partnerForHost(host, brandForHost) {
   const b = brandForHost?.(host);
   if (!b) return null;
-  const row = q("SELECT data FROM users WHERE json_extract(data, '$.settings.whiteLabel.domain') = ?").get(String(host).toLowerCase().split(':')[0]);
-  const p = row && JSON.parse(row.data);
+  // the account whose DNS proved the domain (not an unproven claim on it — whitelabel.js)
+  const p = agencyForHost(host);
   return isPartner(p) ? p : null;
 }
 export function attachSignup(userId, partner) {

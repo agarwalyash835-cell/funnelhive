@@ -3,6 +3,7 @@ import { createRoot, hydrateRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { loggedIn } from './api';
 import { isSuper, superUrl } from './tier';
+import { agencyHost } from './agencyHost';
 import ErrorBoundary, { initMonitoring } from './ErrorBoundary';
 // Live funnel pages are in the first download; every other screen loads its own chunk when opened,
 // so a buyer opening a funnel never downloads the dashboard.
@@ -147,8 +148,9 @@ const app = isSuper ? superApp : onDomain ? (
         <Route path="/report/:token" element={L(ClientReport)} />
         <Route path="/reset" element={L(Reset)} />
         <Route path="/team/accept" element={L(AcceptInvite)} />
-        <Route path="/" element={loggedIn() ? L(Dashboard) : L(Landing)} />
-        <Route path="/pricing" element={L(Landing)} />
+        {/* an agency’s own domain: its login page, never the platform’s landing page, prices or admin screens */}
+        <Route path="/" element={loggedIn() ? L(Dashboard) : agencyHost() ? <Navigate to="/login?mode=login" replace /> : L(Landing)} />
+        <Route path="/pricing" element={agencyHost() ? <Navigate to="/login" replace /> : L(Landing)} />
         <Route path="/terms" element={L(Terms)} />
         <Route path="/privacy" element={L(Privacy)} />
         <Route path="/refunds" element={L(Refunds)} />
@@ -191,8 +193,8 @@ const app = isSuper ? superApp : onDomain ? (
         <Route path="/hive" element={P(Hive)} />
         <Route path="/billing" element={P(Billing)} />
         <Route path="/billing/invoices/:id" element={P(Invoice)} />
-        {!superUrl && <Route path="/admin" element={P(Admin)} />}
-        {!superUrl && <Route path="/admin/invoices/:id" element={P(Invoice, { admin: true })} />}
+        {!superUrl && <Route path="/admin" element={agencyHost() ? <Navigate to="/" replace /> : P(Admin)} />}
+        {!superUrl && <Route path="/admin/invoices/:id" element={agencyHost() ? <Navigate to="/" replace /> : P(Invoice, { admin: true })} />}
         <Route path="/ai" element={<Navigate to="/hive" replace />} />
         <Route path="/automations/:id?" element={P(Automations)} />
         <Route path="/templates" element={P(TemplateGallery)} />

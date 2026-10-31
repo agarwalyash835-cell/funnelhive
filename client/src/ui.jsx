@@ -4,6 +4,7 @@ import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
 import { api, meCache, logout, stopImpersonating, fmtDate } from './api';
 import { isSuper } from './tier';
+import { agencyHost } from './agencyHost';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
 import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft } from 'lucide-react';
 
@@ -136,7 +137,7 @@ const NAV_KEY = 'ff_nav';
 const navLocal = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
 const allowed = (to, me) => {
-  if (to === '/admin') return !!me?.admin;
+  if (to === '/admin') return !!me?.admin && !agencyHost(); // never on an agency's own domain
   if (to === '/tally' && !me?.nav?.tally) return false; // an add-on we switch on per account
   if ((to === '/inventory' || to === '/counter') && !me?.nav?.inventory) return false;
   // a sub-account (a client of an agency / partner) has no agency tools of its own; its billing page shows its plan
