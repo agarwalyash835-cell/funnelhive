@@ -1208,7 +1208,7 @@ export default function Editor() {
                 <textarea rows={2} value={input} placeholder={`Ask anything about “${step.name}”…`} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
                 <button className="btn primary" disabled={!input.trim() || thinking}><Icon name="send" size={16} /></button>
               </form>
-              <p className="hint">{me?.aiEnabled ? `FunnelHive AI${me.aiProvider ? ` · ${me.aiProvider}` : ''} — can rewrite copy and redesign pages.` : 'Offline assistant — structural edits only (copywriting and redesigns turn on with full AI).'}</p>
+              <p className="hint">{me?.aiEnabled ? 'Full AI — can rewrite copy and redesign pages.' : 'Offline assistant — structural edits only (copywriting and redesigns turn on with full AI).'}</p>
             </div>
           )}
 

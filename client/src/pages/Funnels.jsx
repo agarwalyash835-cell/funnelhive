@@ -19,7 +19,7 @@ export default function Funnels() {
   const exportF = async (f) => { const r = await fetch(`/api/funnels/${f.id}/export`, { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token')}` } }); if (!r.ok) return toast('Export failed'); const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `${f.slug}.funnelhive.json`; a.click(); };
   const importF = () => {
     const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
-    inp.onchange = async () => { try { const snap = JSON.parse(await inp.files[0].text()); const r = await api('/funnels/import', 'POST', { snapshot: snap }); toast(`Imported “${r.name}”`); load(); } catch (e) { toast(e.message || 'That file isn’t a FunnelHive funnel'); } };
+    inp.onchange = async () => { try { const snap = JSON.parse(await inp.files[0].text()); const r = await api('/funnels/import', 'POST', { snapshot: snap }); toast(`Imported “${r.name}”`); load(); } catch (e) { toast(e.message || 'That file isn’t a funnel export'); } };
     inp.click();
   };
   const dup = async (id) => { await api(`/funnels/${id}/duplicate`, 'POST'); toast('Funnel duplicated'); load(); };

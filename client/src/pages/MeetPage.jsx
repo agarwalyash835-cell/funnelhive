@@ -19,7 +19,7 @@ function Shell({ seller, embed, children }) {
   return (
     <div className="mt">
       <main className="mt-main">{children}</main>
-      <footer className="mt-foot">{seller ? `${seller.name} · ` : ''}Scheduling by <a href="/" target="_blank" rel="noreferrer">FunnelHive</a></footer>
+      {seller && <footer className="mt-foot">{seller.name}</footer>}
     </div>
   );
 }

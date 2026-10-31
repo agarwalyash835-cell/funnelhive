@@ -192,7 +192,7 @@ export default function Settings() {
         <Panel title="AI">
           <div className={`ai-card ${me?.aiEnabled ? 'on' : ''}`}>
             <Icon name="sparkles" size={22} />
-            <div><b>{me?.aiEnabled ? `FunnelHive AI is on${me.aiProvider ? ` · ${me.aiProvider}` : ''}` : 'Running the offline AI assistant'}</b>
+            <div><b>{me?.aiEnabled ? 'Full AI is on' : 'Running the offline AI assistant'}</b>
               <p className="muted sm">{me?.aiEnabled ? 'Funnel generation, AI chat, page edits and marketing agents use this model — with your template library as built-in examples, so new pages follow the same structure and quality.' : 'Chat commands and template matching work offline. AI copywriting and page generation turn on when full AI is enabled for your account.'}</p></div>
           </div>
         </Panel>
@@ -266,7 +266,7 @@ function GoogleAdsOffline() {
   return (
     <div className="srv-track">
       <h4>Google Ads offline conversions <span className={`pill ${st.eligible ? 'ok' : ''}`}>{st.eligible} in the last 90 days</span></h4>
-      <p className="muted sm">Many sales close after a call — the lead came from a Google ad, the payment days later. FunnelHive credits each sale to the ad click that brought the person in (from the sale itself, or their earlier lead or booking) so Google Ads can optimise for real revenue, not just form fills.</p>
+      <p className="muted sm">Many sales close after a call — the lead came from a Google ad, the payment days later. We credit each sale to the ad click that brought the person in (from the sale itself, or their earlier lead or booking) so Google Ads can optimise for real revenue, not just form fills.</p>
       <label className="full">Scheduled upload address <small className="muted">· secret — anyone with it can read these conversions</small>
         <div className="row"><input readOnly value={st.feedUrl} onFocus={(e) => e.target.select()} />
           <button className="icon-btn" title="Copy" aria-label="Copy the address" onClick={() => { navigator.clipboard?.writeText(st.feedUrl); toast('Address copied'); }}><Icon name="copy" size={15} /></button>
@@ -358,7 +358,7 @@ function InvoicingPanel({ s, setS }) {
             <label>Invoice number prefix<input value={v.prefix} onChange={(e) => set({ prefix: e.target.value })} placeholder="INV" /><small className="hint">Numbers look like {v.prefix || 'INV'}/2026-27/0001 and restart every financial year.</small></label>
             <label>Email on invoices<input value={v.email} onChange={(e) => set({ email: e.target.value })} placeholder="accounts@yourbrand.in" /></label>
           </div>
-          <p className="hint">E-invoicing: if your turnover is above ₹5 crore you must also generate e-invoices (IRN) on the government portal — FunnelHive makes the e-invoice JSON for your B2B invoices (Orders → order → GST, or the counter bill’s GST button) — upload it on the IRP portal and paste the IRN back; it then prints on the invoice. E-invoices and e-way bills need your PIN code above.</p>
+          <p className="hint">E-invoicing: if your turnover is above ₹5 crore you must also generate e-invoices (IRN) on the government portal — we make the e-invoice JSON for your B2B invoices (Orders → order → GST, or the counter bill’s GST button) — upload it on the IRP portal and paste the IRN back; it then prints on the invoice. E-invoices and e-way bills need your PIN code above.</p>
           <div className="row"><button className="btn primary" onClick={() => save({ enabled: true })}>Save invoice settings</button><span className="hint">Business buyers can add their GSTIN at checkout once a GSTIN is saved here.</span></div>
         </>
       )}

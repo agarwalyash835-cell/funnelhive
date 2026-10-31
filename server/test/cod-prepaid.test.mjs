@@ -193,6 +193,9 @@ test('keep policy: the buyer must tick; refused (RTO) → kept as a booking fee,
   assert.equal(o.prepaid.refund, undefined);
   assert.equal(rz.refunds.length, refunds, 'nothing refunded');
   assert.equal((await invoices(o.id)).length, 0);
+  // reports show the kept fee on its own, not as a sale
+  const rep = (await api('/reports?days=all', 'GET', null, T)).data;
+  assert.deepEqual(rep.keptFees, { amount: 99, orders: 1 });
   // the seller cancelling (not the buyer refusing) gives the advance back
   const c = await payAdvance(fpath(), buyer({ acceptAdvance: true }));
   assert.equal((await api(`/orders/${c.orderId}/cod`, 'POST', { action: 'cancel' }, T)).status, 200);

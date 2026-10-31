@@ -7,7 +7,7 @@
 //   dock:   a floating quick-action bar at the bottom (search, new funnel, bookings, Hive)
 //   sw:     the swatch colours for the picker [background, surface, accent, ink]; thumb: the picker's drawing if not the layout
 export const SKINS = {
-  classic: { name: 'Classic', blurb: 'Warm neutrals with a honey accent — the FunnelHive default.', layout: 'side', sw: ['#f6f5f2', '#ffffff', '#f5a524', '#1c1917'] },
+  classic: { name: 'Classic', blurb: 'Warm neutrals with a honey accent — the default.', layout: 'side', sw: ['#f6f5f2', '#ffffff', '#f5a524', '#1c1917'] },
   softwash: { name: 'Soft Wash', blurb: 'A calm peach-to-sage wash, tabs across the top and a floating action bar.', layout: 'top', dock: true, sw: ['#f3ece4', '#fffdfa', '#e2643c', '#1f1d1a'] },
   midnight: { name: 'Midnight', blurb: 'A deep-navy frame around a bright, cool workspace — bold and focused.', layout: 'side', thumb: 'frame', sw: ['#f4f6fb', '#ffffff', '#3b6cf6', '#0d111c'] },
   warm: { name: 'Warm Studio', blurb: 'Cream paper, terracotta, serif headings and flat outlined cards.', layout: 'side', sw: ['#f7f1e8', '#fffaf3', '#b4532a', '#2b211b'] },

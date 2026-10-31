@@ -66,7 +66,7 @@ const PAGES = {
   '/store': ['tag', 'Store', 'Your online shop — products and stock items in one cart, one checkout'],
   '/school': ['bookmark', 'School', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
-  '/inventory': ['box', 'Inventory', 'Your stock in FunnelHive — items, godowns, stock in and out, low-stock alerts'],
+  '/inventory': ['box', 'Inventory', 'Your stock — items, godowns, stock in and out, low-stock alerts'],
   '/affiliates': ['users', 'Affiliates', 'People who sell for you — referral links, coupons, commission and payouts'],
   '/counter': ['receipt', 'Counter mode', 'Bill at the shop counter on a phone — scan, bill, print; works offline'],
   '/tally': ['wallet', 'Tally', 'Your TallyPrime books — money owed, vouchers, stock — and vouchers saved straight into Tally'],
@@ -80,7 +80,7 @@ const PAGES = {
   '/webinars': ['play', 'Webinars', 'Live or scheduled sessions with sign-ups and reminders'],
   '/templates': ['layout', 'Templates', '100+ ready-made funnels to start from'],
   '/settings': ['settings', 'Settings', 'Business profile, payments, domains and team'],
-  '/billing': ['card', 'Plan & billing', 'Your FunnelHive plan and invoices'],
+  '/billing': ['card', 'Plan & billing', 'Your plan and invoices'],
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
