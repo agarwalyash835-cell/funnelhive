@@ -128,7 +128,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (!u) return;
     const since = Date.now() - 30 * DAY;
     res.json({
-      ...row(u), tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(termsOf(u)?.maxClients ? { agencyClients: termsOf(u).maxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
+      ...row(u), tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, studio: { on: !!u.studio?.on }, billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(termsOf(u)?.maxClients ? { agencyClients: termsOf(u).maxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
       counts: {
         funnels: T.funnels.count({ userId: u.id }), published: q("SELECT COUNT(*) AS n FROM funnels WHERE userId = ? AND json_extract(data, '$.published') = 1").get(u.id).n,
         contacts: T.crm.count({ userId: u.id }), leads: T.leads.count({ userId: u.id }), automations: T.automations.count({ userId: u.id }), domains: T.domains.count({ userId: u.id }),
@@ -174,6 +174,9 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       // the Inventory add-on (inventory.js): stock kept in FunnelHive; off hides it, the stock records are kept
       case 'inventory_on': T.users.update(u.id, (x) => { x.addons = { ...x.addons, inventory: true }; }); break;
       case 'inventory_off': T.users.update(u.id, (x) => { x.addons = { ...x.addons, inventory: false }; }); break;
+      // Studio (studio/): AI images, clips and Reels — every render costs real money, so it's on per account
+      case 'studio_on': T.users.update(u.id, (y) => { y.studio = { ...(y.studio || {}), on: true, since: y.studio?.since || Date.now() }; }); break;
+      case 'studio_off': T.users.update(u.id, (y) => { y.studio = { ...(y.studio || {}), on: false }; }); break;
       case 'make_admin': {
         // level: 'owner' (everything) or 'support' (look and help, no platform changes)
         const level = req.body.level === 'support' ? 'support' : 'owner';
