@@ -12,8 +12,12 @@ ENV NODE_ENV=production \
     PORT=4000 \
     DATA_DIR=/data
 WORKDIR /app
-# ffmpeg turns course videos into protected streams (server/video.js)
-RUN apk add --no-cache ffmpeg
+# ffmpeg turns course videos into protected streams (server/video.js) and edits Studio videos (server/studio/).
+# Alpine's ffmpeg already has libass for captions, but the image has no fonts at all: without these, burned-in captions
+# come out as empty boxes. Noto covers Latin and ₹; the Indic packs cover Hindi/Marathi, Bengali, Gujarati, Tamil, Telugu,
+# Kannada, Malayalam and Punjabi scripts.
+RUN apk add --no-cache ffmpeg fontconfig font-noto font-noto-devanagari font-noto-bengali font-noto-gujarati font-noto-tamil font-noto-telugu font-noto-kannada font-noto-malayalam font-noto-gurmukhi \
+ && fc-cache -f
 COPY server/package.json server/package-lock.json server/
 RUN npm ci --omit=dev --prefix server && npm cache clean --force
 COPY server/ server/
