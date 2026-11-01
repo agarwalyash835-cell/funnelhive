@@ -1,0 +1,126 @@
+// Studio captions: an ASS subtitle file built from what was actually said (the transcript's word timings, not the
+// script — so captions land on the beat even when the voice ad-libs or pauses). Word-by-word or phrase by phrase, in a
+// few looks, kept inside the area Reels/Shorts leave clear of their own buttons and readable over any picture
+// (thick outline or a box behind the text).
+import fs from 'node:fs';
+
+// ASS colours are &HAABBGGRR (alpha 00 = solid)
+export function assColour(hex, alpha = 0) {
+  const h = String(hex || '#ffffff').replace('#', '').padEnd(6, 'f').slice(0, 6);
+  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
+  return `&H${a}${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toUpperCase();
+}
+
+// The safe area as fractions of the frame: Reels/Shorts cover the top ~14% (account bar), the bottom ~22% (caption,
+// music, buttons) and a strip on the right (like/share buttons). Square and landscape frames have no overlay, just a margin.
+export function safeArea(width, height) {
+  if (height / width > 1.4) return { top: Math.round(height * 0.14), bottom: Math.round(height * 0.22), left: Math.round(width * 0.07), right: Math.round(width * 0.14) };
+  return { top: Math.round(height * 0.06), bottom: Math.round(height * 0.08), left: Math.round(width * 0.06), right: Math.round(width * 0.06) };
+}
+
+// The looks. size is a fraction of the frame's shorter side; y is where the text sits (fraction of the frame height,
+// clamped to the safe area). mode: 'word' (one word at a time) or 'phrase'.
+export const PRESETS = {
+  // big bold words that pop in one at a time, numbers and prices in the highlight colour
+  pop: { label: 'Bold pop', mode: 'word', size: 0.105, bold: true, upper: true, colour: '#ffffff', highlight: '#ffd400', outline: 0.09, shadow: 0.02, box: false, y: 0.62 },
+  // a calm phrase in a soft box, low on the screen
+  lower: { label: 'Clean lower-third', mode: 'phrase', size: 0.056, bold: true, upper: false, colour: '#ffffff', highlight: '#ffffff', outline: 0.25, shadow: 0, box: true, boxColour: '#000000', boxAlpha: 0.45, y: 0.78, maxWords: 6 },
+  // the phrase is shown whole and each word lights up as it's spoken
+  karaoke: { label: 'Karaoke highlight', mode: 'phrase', size: 0.075, bold: true, upper: false, colour: '#ffffff', highlight: '#22d3ee', outline: 0.08, shadow: 0.02, box: false, y: 0.66, maxWords: 4, karaoke: true },
+  // small and quiet, for videos where the picture carries the message
+  minimal: { label: 'Minimal', mode: 'phrase', size: 0.045, bold: false, upper: false, colour: '#ffffff', highlight: '#ffffff', outline: 0.06, shadow: 0.03, box: false, y: 0.8, maxWords: 7 },
+};
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// h:mm:ss.cc
+export function assTime(s) {
+  const cs = Math.max(0, Math.round(s * 100));
+  const h = Math.floor(cs / 360000), m = Math.floor(cs / 6000) % 60, sec = Math.floor(cs / 100) % 60, c = cs % 100;
+  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(c).padStart(2, '0')}`;
+}
+// text that's safe inside an ASS event: no override blocks, no hard line breaks
+const clean = (s) => String(s ?? '').replace(/[{}]/g, '').replace(/\\/g, '').replace(/\s+/g, ' ').trim();
+const isNumberish = (w) => /\d|₹/.test(w);
+
+// split timed words into caption phrases: a phrase ends at a pause, at the end of a sentence, or when it's full
+export function phrases(words, { maxWords = 5, maxChars = 28, gap = 0.35 } = {}) {
+  const out = [];
+  let cur = [];
+  const flush = () => { if (cur.length) out.push(cur); cur = []; };
+  words.forEach((w, i) => {
+    const next = words[i + 1];
+    cur.push(w);
+    const chars = cur.map((x) => x.w).join(' ').length;
+    if (!next || cur.length >= maxWords || chars >= maxChars || /[.!?।,;:]$/.test(w.w) || next.start - w.end > gap) flush();
+  });
+  flush();
+  return out;
+}
+
+// words [{ w, start, end }] → the text of an .ass file
+// opts: { style ('pop'|'lower'|'karaoke'|'minimal'), mode?, width, height, font, colour?, highlight?, upper?, offset (s) }
+export function buildAss(words, { style = 'pop', mode, width = 1080, height = 1920, font = 'Noto Sans', colour, highlight, upper, offset = 0 } = {}) {
+  const P = { ...(PRESETS[style] || PRESETS.pop) };
+  if (colour) P.colour = colour;
+  if (highlight) P.highlight = highlight;
+  if (upper != null) P.upper = !!upper;
+  const m = mode || P.mode;
+  const list = (words || []).map((w) => ({ w: clean(w.w), start: Number(w.start) + offset, end: Number(w.end) + offset })).filter((w) => w.w && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start);
+  const short = Math.min(width, height);
+  const size = Math.round(short * P.size);
+  const safe = safeArea(width, height);
+  // the line's bottom edge, bottom-aligned, kept between the safe top and bottom
+  const marginV = clamp(Math.round(height * (1 - P.y)), safe.bottom, height - safe.top - size * 2);
+  const outline = P.box ? Math.max(6, Math.round(size * P.outline)) : Math.max(2, Math.round(size * P.outline));
+  const shadow = Math.round(size * P.shadow);
+  // BorderStyle 3 = an opaque box behind the text (OutlineColour fills it); 1 = outline + shadow
+  const outlineColour = P.box ? assColour(P.boxColour, P.boxAlpha) : assColour('#000000', 0);
+  const style0 = ['Main', font, size, assColour(P.karaoke ? P.highlight : P.colour), assColour(P.karaoke ? P.colour : P.highlight), outlineColour, assColour('#000000', 0.4), P.bold ? -1 : 0, 0, 0, 0, 100, 100, 0, 0, P.box ? 3 : 1, outline, shadow, 2, safe.left, safe.right, marginV, 1];
+  const head = [
+    '[Script Info]', 'ScriptType: v4.00+', `PlayResX: ${width}`, `PlayResY: ${height}`, 'WrapStyle: 0', 'ScaledBorderAndShadow: yes', 'YCbCr Matrix: TV.709', '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    `Style: ${style0.join(',')}`, '',
+    '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+  ];
+  const up = (s) => (P.upper ? s.toLocaleUpperCase() : s);
+  const hi = assColour(P.highlight);
+  const events = [];
+  const ev = (a, b, text) => events.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,${text}`);
+  if (m === 'word') {
+    list.forEach((w, i) => {
+      // hold each word until the next one starts (no flicker between words), but not across a long pause
+      const next = list[i + 1];
+      const end = next && next.start - w.end < 0.6 ? next.start : Math.max(w.end, w.start + 0.25);
+      const colourTag = isNumberish(w.w) ? `\\c${hi}` : '';
+      ev(w.start, end, `{\\fscx82\\fscy82\\t(0,90,\\fscx108\\fscy108)\\t(90,160,\\fscx100\\fscy100)${colourTag}}${up(w.w)}`);
+    });
+  } else {
+    const groups = phrases(list, { maxWords: P.maxWords || 5, maxChars: Math.max(14, Math.round(((width - safe.left - safe.right) / (size * 0.55)) * 1.6)) });
+    groups.forEach((g, i) => {
+      const start = g[0].start, next = groups[i + 1];
+      const end = next && next[0].start - g[g.length - 1].end < 0.6 ? next[0].start : g[g.length - 1].end + 0.3;
+      if (P.karaoke) {
+        // \k counts in centiseconds: each word's highlight runs from its start to the next word's start
+        let t = start;
+        const parts = g.map((w, k) => {
+          const until = k + 1 < g.length ? g[k + 1].start : w.end;
+          const lead = Math.max(0, Math.round((w.start - t) * 100));
+          const dur = Math.max(1, Math.round((until - w.start) * 100));
+          t = until;
+          return `${lead ? `{\\k${lead}}` : ''}{\\k${dur}}${up(w.w)}`;
+        });
+        ev(start, end, `{\\fad(60,60)}${parts.join(' ')}`);
+      } else {
+        ev(start, end, `{\\fad(80,80)}${g.map((w) => (isNumberish(w.w) && P.highlight !== P.colour ? `{\\c${hi}}${up(w.w)}{\\c${assColour(P.colour)}}` : up(w.w))).join(' ')}`);
+      }
+    });
+  }
+  return `${[...head, ...events].join('\n')}\n`;
+}
+
+// write the captions next to the render; → the file path
+export function writeAss(words, file, opts) {
+  fs.writeFileSync(file, buildAss(words, opts), 'utf8');
+  return file;
+}
