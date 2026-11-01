@@ -1,89 +1,197 @@
-// Studio → a Reel (server studio/reels.js): edit and approve the script, watch the shots and voiceover lines being made
-// and checked, then play, download and change the finished video (caption style, sizes, a line, a shot).
-import { useState } from 'react';
+// Studio → the Reel editor (server studio/reels.js), full screen:
+//   top     the steps (Script → Shots → Voiceover → Edit → Done), what's happening, and the next action
+//   left    the storyboard: each scene's picture or clip, the line spoken over it, its check — editable before approval
+//   middle  a phone-sized preview: the finished video in each size, or the selected scene with its caption style
+//   right   voice (with samples), caption style (visual), sizes and the closing card
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { Modal, Icon, toast, promptDialog } from '../ui';
+import { Icon, toast, promptDialog, confirmDialog } from '../ui';
+import { Viewer } from './StudioViewer';
 
-const STAGE = { script_ready: 'Script ready — check it and approve', producing: 'Making the shots and voiceover…', editing: 'Putting it together…', ready: 'Ready', needs_review: 'Ready — needs a look', failed: 'Couldn’t be finished' };
-const STEP = { queued: 'Queued', rendering: 'Rendering', checking: 'Checking', ready: 'Done', needs_review: 'Needs a look', failed: 'Failed' };
-const SIZES = [['9:16', 'Reels / Shorts'], ['1:1', 'Square'], ['4:5', 'Feed'], ['16:9', 'Wide']];
+const STEPS = ['Script', 'Shots', 'Voiceover', 'Edit', 'Done'];
+const SIZES = [['9:16', 'Reels'], ['1:1', 'Square'], ['4:5', 'Feed'], ['16:9', 'Wide']];
+const RATIO = { '9:16': [9, 16], '1:1': [13, 13], '4:5': [11, 13.75], '16:9': [16, 9] };
+const okStatus = (a) => a && ['ready', 'needs_review'].includes(a.status);
 
-export function ReelView({ r, styles, onClose, onChange }) {
-  const [s, setS] = useState(r.script);
-  const [size, setSize] = useState(Object.keys(r.outputs || {})[0] || '9:16');
-  const [busy, setBusy] = useState(false);
-  const act = async (fn, msg) => { setBusy(true); try { await fn(); if (msg) toast(msg); onChange(); } catch (e) { toast(e.message); } setBusy(false); };
+// where the Reel is: each step done / now / stopped
+function stepsOf(r) {
+  const shotsDone = r.shots?.length && r.shots.every((s) => okStatus(s.clip));
+  const voiceDone = r.lines?.length && r.lines.every((l) => l.url);
+  const st = { Script: r.status === 'script_ready' ? 'now' : 'done' };
+  if (r.status === 'script_ready') return st;
+  st.Shots = shotsDone ? 'done' : 'now';
+  st.Voiceover = voiceDone ? 'done' : 'now';
+  if (r.status === 'editing') { st.Edit = 'now'; }
+  if (['ready', 'needs_review'].includes(r.status)) { st.Shots = st.Voiceover = st.Edit = st.Done = 'done'; }
+  if (r.status === 'failed') {
+    const e = r.error || '';
+    if (/shot/i.test(e)) st.Shots = 'stop'; else if (/voice/i.test(e)) st.Voiceover = 'stop'; else st.Edit = 'stop';
+  }
+  return st;
+}
+const STATUS_LINE = { script_ready: 'Check the script and storyboard, then approve — nothing is made until you do.', producing: 'Making the shots and recording the voiceover. Each is checked as it’s made.', editing: 'Putting it together: clips, voiceover, captions, logo and the closing card.', ready: 'Ready to download or put in an ad.', needs_review: 'Ready — but something needs a look (below).', failed: 'Stopped part-way — retry to finish only what’s missing.' };
+
+function CapDemo({ id, text }) {
+  const w = String(text || 'Only ₹499 today').split(/\s+/).slice(0, 4);
+  if (id === 'pop') return <span className="cap-pop">{w.slice(0, -1).join(' ')} <em>{w.at(-1)}</em></span>;
+  if (id === 'karaoke') return <span className="cap-karaoke">{w.slice(0, -1).join(' ')} <em>{w.at(-1)}</em></span>;
+  if (id === 'lower') return <span className="cap-lower">{w.join(' ')}</span>;
+  if (id === 'minimal') return <span className="cap-minimal">{w.join(' ')}</span>;
+  return <span className="cap-none">No captions</span>;
+}
+
+export function ReelEditor({ r, d, onClose, onChange }) {
   const editing = r.status === 'script_ready';
-  const made = ['ready', 'needs_review', 'failed'].includes(r.status);
-  const setLine = (i, text) => setS({ ...s, lines: s.lines.map((l, j) => (j === i ? text : l)) });
-  const setShot = (i, p) => setS({ ...s, shots: s.shots.map((x, j) => (j === i ? { ...x, ...p } : x)) });
-  const change = (body, msg) => act(() => api(`/studio/reels/${r.id}`, 'PUT', body), msg);
-  const reword = async (i) => { const text = await promptDialog({ title: `Line ${i + 1}`, label: 'New words', value: r.lines[i].text }); if (text && text !== r.lines[i].text) change({ lines: [{ i, text }] }, 'That line will be spoken again, then the Reel re-edited'); };
-  const redoShot = async (i) => { const note = await promptDialog({ title: `Redo shot ${i + 1}`, text: 'What should change? (optional)', label: 'Change', value: '' }); if (note !== null && note !== undefined) change({ shots: [{ i, note }] }, 'Redoing that shot, then re-editing'); };
+  const made = ['ready', 'needs_review'].includes(r.status);
+  const working = ['producing', 'editing'].includes(r.status);
+  const [s, setS] = useState(r.script);
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState('voice');
+  const [scene, setScene] = useState(0);
+  const [size, setSize] = useState(Object.keys(r.outputs || {})[0] || r.sizes?.[0] || '9:16');
+  const [view, setView] = useState(null);
+  const [playing, setPlaying] = useState(null);
+  const audio = useRef(null);
+  // a new script from the server (another tab, or after approving) replaces local edits only when there are none
+  useEffect(() => { if (!dirty) setS(r.script); }, [r.script]);
+  useEffect(() => { if (r.outputs && !r.outputs[size]) setSize(Object.keys(r.outputs)[0]); }, [r.outputs]);
+  useEffect(() => {
+    const key = (e) => { if (e.key === 'Escape' && view == null) onClose(); };
+    document.addEventListener('keydown', key);
+    const was = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', key); document.body.style.overflow = was; audio.current?.pause(); };
+  }, [view]);
+
+  const act = async (fn, msg) => { setBusy(true); try { await fn(); if (msg) toast(msg); setDirty(false); await onChange(); } catch (e) { toast(e.message); } setBusy(false); };
+  const edit = (p) => { setS((x) => ({ ...x, ...p })); setDirty(true); };
+  const n = Math.max(s.lines.length, s.shots.length);
+  const sceneOf = (i) => ({ line: s.lines[i], shot: s.shots[i], made: r.shots?.[i], voice: r.lines?.[i] });
+  const setLine = (i, text) => edit({ lines: s.lines.map((l, j) => (j === i ? text : l)) });
+  const setShot = (i, p) => edit({ shots: s.shots.map((x, j) => (j === i ? { ...x, ...p } : x)) });
+  const addScene = () => edit({ lines: [...s.lines, 'A new line'], shots: [...s.shots, { image: s.shots.at(-1)?.image || '', motion: 'Slow push-in', seconds: 5 }] });
+  const dropScene = (i) => edit({ lines: s.lines.filter((_, j) => j !== i), shots: s.shots.filter((_, j) => j !== i) });
+  const settings = (p) => (editing ? act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s, ...p })) : act(() => api(`/studio/reels/${r.id}`, 'PUT', p), p.voice ? 'Recording the voiceover again in the new voice' : 'Re-editing'));
+  const reword = async (i) => { const text = await promptDialog({ title: `Line ${i + 1}`, label: 'New words', value: r.lines[i].text }); if (text && text !== r.lines[i].text) act(() => api(`/studio/reels/${r.id}`, 'PUT', { lines: [{ i, text }] }), 'Recording that line again, then re-editing'); };
+  const redoShot = async (i) => { const note = await promptDialog({ title: `Redo shot ${i + 1}`, text: 'What should change? Leave empty to just try again.', label: 'Change', value: '' }); if (note !== null && note !== undefined) act(() => api(`/studio/reels/${r.id}`, 'PUT', { shots: [{ i, note }] }), 'Redoing that shot, then re-editing'); };
+  const approve = async () => {
+    if (!(await confirmDialog({ title: 'Make this Reel?', text: `${s.shots.length} shot${s.shots.length === 1 ? '' : 's'} and ${s.lines.length} voiceover line${s.lines.length === 1 ? '' : 's'} will be made and checked, then edited together. This takes several minutes.`, confirm: 'Make it' }))) return;
+    act(() => api(`/studio/reels/${r.id}/approve`, 'POST', { script: s }), 'Making your Reel — you can close this, it carries on');
+  };
+  const play = (v) => {
+    if (playing === v.id) { audio.current?.pause(); return setPlaying(null); }
+    audio.current?.pause();
+    audio.current = new Audio(v.sample); audio.current.onended = () => setPlaying(null);
+    audio.current.play().catch(() => toast('Couldn’t play the sample'));
+    setPlaying(v.id);
+  };
+  const st = stepsOf(r);
+  const shotItems = (r.shots || []).map((x, i) => ({ ...(x.clip?.url ? x.clip : x.image || {}), kind: x.clip?.url ? 'clip' : 'image', prompt: s.shots[i]?.motion ? `${s.shots[i].image}\nMovement: ${s.shots[i].motion}` : s.shots[i]?.image || '' })).filter((x) => x.url);
+  const sel = sceneOf(Math.min(scene, n - 1));
+  const selMedia = sel.made?.clip?.url ? { kind: 'clip', ...sel.made.clip } : sel.made?.image?.url ? { kind: 'image', ...sel.made.image } : null;
+  const voice = d.voices?.find((v) => v.id === r.voice);
+  const [rw, rh] = (RATIO[size] || [9, 16]);
 
   return (
-    <Modal title={r.title} onClose={onClose} width={900}>
-      <div className="m-body rl">
-        <p className={`rl-stage st-${r.status}`}><b>{STAGE[r.status] || r.status}</b>{r.error ? ` — ${r.error}` : ''}</p>
-        {r.issues?.length > 0 && <ul className="st-issues">{r.issues.map((x) => <li key={x}>{x}</li>)}</ul>}
+    <div className="sxr" role="dialog" aria-modal="true" aria-label={s.title}>
+      <header className="sxr-top">
+        <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="x" size={18} /></button>
+        <div><h2>{s.title}</h2><small>{r.seconds}s · {d.languages?.find((x) => x.id === r.lang)?.name || r.lang} · {d.tiers.find((t) => t.id === r.tier)?.name}</small></div>
+        <nav className="sxr-stepper" aria-label="Progress">{STEPS.map((k, i) => <span key={k} className={`sxr-step ${st[k] || ''}`}><b>{st[k] === 'done' ? '✓' : st[k] === 'stop' ? '!' : i + 1}</b>{k}</span>)}</nav>
+        <div className="row">
+          {editing && <><button className="btn ghost" disabled={busy || !dirty} onClick={() => act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s }), 'Saved')}>Save</button><button className="btn primary" disabled={busy} onClick={approve}><Icon name="play" size={14} /> Approve and make</button></>}
+          {r.status === 'failed' && <button className="btn primary" disabled={busy} onClick={() => act(() => api(`/studio/reels/${r.id}/retry`, 'POST'), 'Carrying on from where it stopped')}><Icon name="redo" size={14} /> Retry</button>}
+          {made && r.outputs?.[size] && <><a className="btn primary" href={r.outputs[size]} download><Icon name="download" size={14} /> Download {size}</a><button className="btn ghost" onClick={() => { navigator.clipboard?.writeText(r.links?.[size] || ''); toast('Link copied — paste it in your ad, or ask Hive to put it in an ad'); }}><Icon name="link" size={14} /> Link for ads</button></>}
+        </div>
+      </header>
 
-        {made && r.outputs && (
-          <div className="rl-out">
-            <video key={r.outputs[size]} src={r.outputs[size]} poster={r.poster || undefined} controls playsInline style={{ aspectRatio: size.replace(':', ' / ') }} />
-            <div className="rl-side">
-              <span className="seg sm">{Object.keys(r.outputs).map((k) => <button key={k} type="button" className={size === k ? 'on' : ''} onClick={() => setSize(k)}>{k}</button>)}</span>
-              <a className="btn ghost sm" href={r.outputs[size]} download><Icon name="download" size={13} /> Download {size}</a>
-              <button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(r.links?.[size] || ''); toast('Link copied — paste it in your ad, or ask Hive to put it in an ad'); }}><Icon name="link" size={13} /> Copy link for ads</button>
-              <label>Captions<select value={r.captions?.style || 'none'} disabled={busy} onChange={(e) => change({ captions: e.target.value === 'none' ? null : { style: e.target.value } }, 'Re-editing with the new captions')}>{styles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}<option value="none">No captions</option></select></label>
-              <div className="rl-sizes"><span className="muted sm">Sizes</span>{SIZES.map(([k, l]) => { const on = r.sizes.includes(k); return <label key={k} className="row"><input type="checkbox" checked={on} disabled={busy || (on && r.sizes.length === 1)} onChange={() => change({ sizes: on ? r.sizes.filter((x) => x !== k) : [...r.sizes, k] }, 'Re-editing in those sizes')} />{k} · {l}</label>; })}</div>
+      <div className="sxr-body">
+        <section className="sxr-col" aria-label="Storyboard">
+          <h4>Storyboard · {n} scene{n === 1 ? '' : 's'}</h4>
+          <p className="sx-hint" style={{ margin: 0 }}>{STATUS_LINE[r.status]}</p>
+          {r.status === 'failed' && <div className="sxr-note bad"><b>{r.error || 'It stopped part-way.'}</b><span>Retry finishes only what’s missing — nothing that worked is made again.</span></div>}
+          {r.status === 'needs_review' && r.issues?.length > 0 && <div className="sxr-note"><b>Have a look at:</b><ul>{r.issues.map((x) => <li key={x}>{x}</li>)}</ul></div>}
+          {Array.from({ length: n }, (_, i) => {
+            const c = sceneOf(i), media = c.made?.clip?.url ? c.made.clip : c.made?.image?.url ? c.made.image : null, step = c.made?.clip?.status || c.made?.image?.status;
+            const check = c.voice?.url ? (c.voice.check && !c.voice.check.ok ? 'warn' : 'ok') : null;
+            return (
+              <article key={i} className="sxr-scene" onClick={() => setScene(i)} style={scene === i ? { borderColor: 'var(--c-accent)' } : undefined}>
+                <button type="button" className="sxr-thumb" aria-label={`View scene ${i + 1}`} onClick={(e) => { e.stopPropagation(); setScene(i); const k = shotItems.findIndex((x) => x.id === media?.id); if (k >= 0) setView(k); }}>
+                  {media ? (c.made?.clip?.url ? <video src={media.url} poster={media.poster || undefined} muted playsInline preload="metadata" /> : <img src={media.url} alt="" />) : working ? <span className="spin dark" /> : <Icon name="image" size={18} />}
+                  {step && step !== 'ready' && <span className={`sx-badge ${step === 'needs_review' ? 'warn' : step === 'failed' ? 'bad' : ''}`}>{({ queued: 'Queued', rendering: 'Rendering', checking: 'Checking', needs_review: 'Look', failed: 'Failed' })[step] || step}</span>}
+                </button>
+                <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+                  <span className="no">Scene {i + 1}{c.shot ? ` · ${c.shot.seconds}s` : ' · voice only'}</span>
+                  {editing ? <>
+                    <label className="sm">Said<textarea rows={2} maxLength={220} value={c.line || ''} onChange={(e) => setLine(i, e.target.value)} /></label>
+                    {c.shot && <><label className="sm">Shows<textarea rows={2} maxLength={600} value={c.shot.image} onChange={(e) => setShot(i, { image: e.target.value })} /></label>
+                    <label className="sm">Movement<input maxLength={300} value={c.shot.motion} onChange={(e) => setShot(i, { motion: e.target.value })} /></label></>}
+                    {n > 1 && <button type="button" className="btn ghost sm" style={{ justifySelf: 'start' }} onClick={() => dropScene(i)}>Remove scene</button>}
+                  </> : <>
+                    <p className="sxr-say">“{c.line}”</p>
+                    <div className="sxr-meta">
+                      {check && <span className={`sxr-check ${check}`}>{check === 'ok' ? '✓ Voice checked' : `⚠ ${c.voice.check.issues.join('; ')}`}</span>}
+                      {!c.voice?.url && working && <span>{c.voice?.tries ? `Recording again (try ${c.voice.tries + 1})…` : 'Recording…'}</span>}
+                      {c.voice?.error && !c.voice.url && <span className="sxr-check warn">⚠ {c.voice.error}</span>}
+                      {c.made?.clip?.issues?.length > 0 && <span className="sxr-check warn">⚠ {c.made.clip.issues.join('; ')}</span>}
+                    </div>
+                    {c.voice?.url && <audio src={c.voice.url} controls preload="none" />}
+                    {made && <div className="row">{c.shot && <button className="btn ghost sm" disabled={busy} onClick={() => redoShot(i)}><Icon name="redo" size={13} /> Redo shot</button>}<button className="btn ghost sm" disabled={busy} onClick={() => reword(i)}><Icon name="edit" size={13} /> Reword</button></div>}
+                  </>}
+                </div>
+              </article>
+            );
+          })}
+          {editing && n < 8 && <button type="button" className="btn ghost" onClick={addScene}><Icon name="plus" size={14} /> Add a scene</button>}
+        </section>
+
+        <section className="sxr-col sxr-center" aria-label="Preview">
+          <h4 style={{ justifySelf: 'start' }}>{made ? 'Your Reel' : 'Preview'}</h4>
+          <div className={`sxr-phone r-${size.replace(':', 'x')}`} style={{ aspectRatio: `${rw} / ${rh}` }}>
+            <div className="sxr-screen">
+              {made && r.outputs?.[size] ? <video key={r.outputs[size]} src={r.outputs[size]} poster={r.poster || undefined} controls playsInline />
+                : selMedia ? (selMedia.kind === 'clip' ? <video key={selMedia.url} src={selMedia.url} muted autoPlay loop playsInline /> : <img src={selMedia.url} alt="" />)
+                : <span style={{ padding: 20 }}>{editing ? 'The scenes appear here as they’re made' : working ? 'Making scene ' + (scene + 1) + '…' : 'Nothing to show yet'}</span>}
+              {!made && r.captions?.style && sel.line && <span className="sxr-cap" style={{ textTransform: r.captions.style === 'pop' ? 'uppercase' : 'none', fontSize: r.captions.style === 'minimal' ? 13 : r.captions.style === 'lower' ? 14 : 18 }}><CapDemo id={r.captions.style} text={sel.line} /></span>}
             </div>
           </div>
-        )}
+          {r.outputs && <div className="sx-modes">{Object.keys(r.outputs).map((k) => <button key={k} type="button" className={size === k ? 'on' : ''} onClick={() => setSize(k)}>{k}</button>)}</div>}
+          {made && r.duration && <small className="muted">{r.duration}s · {Object.keys(r.outputs || {}).length} size{Object.keys(r.outputs || {}).length === 1 ? '' : 's'}</small>}
+        </section>
 
-        <h4 className="pt-h4">Voiceover</h4>
-        <ol className="rl-lines">{(editing ? s.lines : r.lines.map((l) => l.text)).map((text, i) => {
-          const l = r.lines[i];
-          return (
-            <li key={i}>
-              {editing ? <textarea rows={2} maxLength={220} value={text} onChange={(e) => setLine(i, e.target.value)} /> : <span>{text}</span>}
-              {!editing && l && <small className="muted">{l.url ? (l.check && !l.check.ok ? `⚠ ${l.check.issues.join('; ')}` : '✓ checked') : l.error ? `⚠ ${l.error}` : l.tries ? `redoing (try ${l.tries + 1})…` : 'waiting…'}</small>}
-              {!editing && l?.url && <audio src={l.url} controls preload="none" />}
-              {made && <button className="btn ghost sm" disabled={busy} onClick={() => reword(i)}>Reword</button>}
-            </li>
-          );
-        })}</ol>
-
-        <h4 className="pt-h4">Shots</h4>
-        <div className="rl-shots">{(editing ? s.shots : r.shots).map((x, i) => {
-          const sh = r.shots?.[i], step = sh?.clip?.status || sh?.image?.status;
-          return (
-            <div key={i} className="rl-shot">
-              {!editing && (sh?.clip?.url ? <video src={sh.clip.url} poster={sh.clip.poster || undefined} muted playsInline controls preload="none" /> : sh?.image?.url ? <img src={sh.image.url} alt="" /> : <span className="spin dark" />)}
-              {editing ? (
-                <>
-                  <label>Picture<textarea rows={2} maxLength={600} value={x.image} onChange={(e) => setShot(i, { image: e.target.value })} /></label>
-                  <label>Movement<input maxLength={300} value={x.motion} onChange={(e) => setShot(i, { motion: e.target.value })} /></label>
-                </>
-              ) : <small className="muted">Shot {i + 1} · {STEP[step] || 'Queued'}{sh?.clip?.issues?.length ? ` — ${sh.clip.issues.join('; ')}` : ''}</small>}
-              {made && <button className="btn ghost sm" disabled={busy} onClick={() => redoShot(i)}>Redo shot</button>}
-            </div>
-          );
-        })}</div>
-
-        <h4 className="pt-h4">Closing card</h4>
-        {editing ? (
-          <div className="form2">
-            {[['headline', 'Headline', 40], ['offer', 'Offer / price', 40], ['cta', 'Call to action', 30]].map(([k, l, n]) => <label key={k} className="fld"><span>{l}</span><input maxLength={n} value={s.endCard?.[k] || ''} onChange={(e) => setS({ ...s, endCard: { ...s.endCard, [k]: e.target.value } })} /></label>)}
-          </div>
-        ) : <p className="sm">{[r.script.endCard?.headline, r.script.endCard?.offer, r.script.endCard?.cta].filter(Boolean).join(' · ') || 'None'}</p>}
-
-        {editing && (
-          <div className="m-foot">
-            <button className="btn ghost" disabled={busy} onClick={() => act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s }), 'Script saved')}>Save script</button>
-            <button className="btn primary" disabled={busy} onClick={() => act(() => api(`/studio/reels/${r.id}/approve`, 'POST', { script: s }), 'Making your Reel — this takes several minutes')}><Icon name="play" size={14} /> Approve and make it</button>
-          </div>
-        )}
+        <section className="sxr-col" aria-label="Settings">
+          <div className="sxr-tabs" role="tablist">{[['voice', 'Voice'], ['captions', 'Captions'], ['format', 'Sizes & ending']].map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+          {tab === 'voice' && <>
+            <p className="sx-hint">{voice ? `Speaking as ${voice.name} — ${voice.note}.` : 'Pick a voice. Press ▶ to hear it.'}{made ? ' Changing it records the voiceover again.' : ''}</p>
+            <div className="sxr-voices">{(d.voices || []).map((v) => (
+              <div key={v.id} role="button" tabIndex={0} className={`sxr-voice${r.voice === v.id ? ' on' : ''}`} onClick={() => !working && !busy && r.voice !== v.id && settings({ voice: v.id })} onKeyDown={(e) => { if (e.key === 'Enter' && !working && r.voice !== v.id) settings({ voice: v.id }); }}>
+                <button type="button" className="play" aria-label={`Hear ${v.name}`} onClick={(e) => { e.stopPropagation(); play(v); }}><Icon name={playing === v.id ? 'x' : 'play'} size={13} /></button>
+                <b>{v.name}</b><small>{v.note}</small>
+              </div>
+            ))}</div>
+          </>}
+          {tab === 'captions' && <>
+            <p className="sx-hint">Captions follow the words as they’re spoken.{made ? ' Changing the style only re-edits — nothing is made again.' : ''}</p>
+            <div className="sxr-styles">{[...(d.captionStyles || []), { id: 'none', name: 'No captions' }].map((c) => {
+              const on = (r.captions?.style || 'none') === c.id;
+              return <button key={c.id} type="button" className={`sxr-style${on ? ' on' : ''}`} disabled={working || busy} onClick={() => !on && settings({ captions: c.id === 'none' ? null : { style: c.id } })}><span className="demo"><CapDemo id={c.id} text={sel.line} /></span><span className="t">{c.name}</span></button>;
+            })}</div>
+          </>}
+          {tab === 'format' && <>
+            <p className="sx-hint">Sizes to export — each is a separate video, framed for where it’s shown.</p>
+            <div className="sxr-sizes">{SIZES.map(([k, l]) => {
+              const on = (r.sizes || ['9:16']).includes(k), list = r.sizes || ['9:16'];
+              return <button key={k} type="button" className={`sxr-size${on ? ' on' : ''}`} disabled={working || busy || (on && list.length === 1)} onClick={() => settings({ sizes: on ? list.filter((x) => x !== k) : [...list, k] })}><span className="sx-ratio" style={{ width: RATIO[k][0] * 1.3, height: RATIO[k][1] * 1.3 }} />{k}<small className="muted">{l}</small></button>;
+            })}</div>
+            <h4>Closing card</h4>
+            {[['headline', 'Headline', 40], ['offer', 'Offer or price', 40], ['cta', 'Call to action', 30]].map(([k, l, max]) => (
+              <label key={k} className="sm">{l}<input maxLength={max} value={s.endCard?.[k] || ''} disabled={!editing && !made} onChange={(e) => edit({ endCard: { ...s.endCard, [k]: e.target.value } })} /></label>
+            ))}
+            {made && dirty && <button className="btn primary" disabled={busy} onClick={() => act(() => api(`/studio/reels/${r.id}`, 'PUT', { endCard: s.endCard }), 'Re-editing with the new closing card')}>Apply the closing card</button>}
+          </>}
+        </section>
       </div>
-    </Modal>
+      {view != null && shotItems[view] && <Viewer items={shotItems} index={view} onIndex={setView} onClose={() => setView(null)} />}
+    </div>
   );
 }

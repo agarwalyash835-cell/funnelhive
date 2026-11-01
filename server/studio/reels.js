@@ -191,6 +191,9 @@ export function retryReel(r) {
 export function editReel(r, b) {
   const lines = [...r.lines], shots = [...r.shots];
   let reproduce = false;
+  // another voice: every line is spoken again
+  let voice = null;
+  if (b.voice && voiceId(b.voice) !== r.voice) { voice = voiceId(b.voice); for (let i = 0; i < lines.length; i++) lines[i] = { text: lines[i].text, url: null, tries: 0, check: null }; reproduce = true; }
   for (const { i, text } of Array.isArray(b.lines) ? b.lines : []) { if (lines[i] && clip(text, 220)) { lines[i] = { text: clip(text, 220), url: null, tries: 0, check: null }; reproduce = true; } }
   for (const { i, note } of Array.isArray(b.shots) ? b.shots : []) {
     const c = shots[i] && T.studio.get(shots[i].clipId);
@@ -203,6 +206,7 @@ export function editReel(r, b) {
     if (b.captions === null) x.captions = null;
     if (Array.isArray(b.sizes) && b.sizes.length) x.sizes = b.sizes.filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a)).slice(0, 4);
     if (b.endCard) x.script = { ...x.script, endCard: { headline: clip(b.endCard.headline, 40), offer: clip(b.endCard.offer, 40), cta: clip(b.endCard.cta, 30) } };
+    if (voice) x.voice = voice;
     x.lines = lines; x.script = { ...x.script, lines: lines.map((l) => l.text) };
     x.status = reproduce ? 'producing' : 'editing'; x.editTries = 0; delete x.doneAt; delete x.error;
   });

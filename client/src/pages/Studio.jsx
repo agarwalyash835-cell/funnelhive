@@ -1,149 +1,176 @@
-// Studio: AI images and short clips for ads and pages (server studio/). Make images (optionally keeping your real
-// product from a photo), turn one into a clip, watch them render, get each one quality-checked; redo with a note,
-// download, delete. Tiers only — Quick, Standard, Cinematic.
-import { useEffect, useRef, useState } from 'react';
-import { api, fmtDate } from '../api';
-import { Layout, Panel, Icon, Empty, toast, confirmDialog, promptDialog } from '../ui';
-import { ReelView } from './StudioReel';
+// Studio: AI images, video clips and finished Reels for ads and pages (server studio/). One composer at the top (what
+// to make, your product photo, the settings), a gallery underneath with live progress, a full-screen viewer to zoom
+// and browse, and the Reel editor for videos made from a brief. Tiers only — Quick, Standard, Cinematic.
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api } from '../api';
+import { Layout, Icon, Empty, toast, confirmDialog, promptDialog } from '../ui';
+import { Viewer } from './StudioViewer';
+import { ReelEditor } from './StudioReel';
+import '../studio.css';
 
-const STATUS = { script_ready: ['Script ready', 'warn'], producing: ['Making…', 'info'], editing: ['Editing…', 'info'], queued: ['Queued', 'info'], rendering: ['Rendering…', 'info'], checking: ['Checking quality…', 'info'], ready: ['Ready', 'ok'], needs_review: ['Needs a look', 'warn'], failed: ['Failed', 'bad'] };
 const ACTIVE = ['queued', 'rendering', 'checking', 'producing', 'editing'];
+const WAIT = { queued: ['Waiting to start', 0], rendering: ['Rendering', 1], checking: ['Checking quality', 2], producing: ['Making shots and voiceover', 1], editing: ['Editing the video', 2] };
+const BADGE = { ready: null, needs_review: ['Needs a look', 'warn'], failed: ['Couldn’t be made', 'bad'], script_ready: ['Script ready', ''] };
 const TIER_HINT = { quick: 'Fast drafts', standard: 'Good for most ads', cinematic: 'Best quality, slowest' };
+const RATIO = { '9:16': [9, 16], '1:1': [12, 12], '16:9': [16, 9], '4:5': [10, 12.5], '3:4': [10, 13.3] };
+const ASPECT_NAME = { '9:16': 'Reels / Stories', '1:1': 'Square', '16:9': 'Wide', '4:5': 'Feed', '3:4': 'Portrait' };
+const ago = (t) => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
 const toDataUrl = (f) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+const Ratio = ({ a }) => { const [w, h] = RATIO[a] || [12, 12]; return <span className="sx-ratio" style={{ width: w, height: h }} />; };
+const dayOf = (t) => { const d = new Date(t), now = new Date(); const same = (x) => x.toDateString() === d.toDateString(); if (same(now)) return 'Today'; const y = new Date(now); y.setDate(now.getDate() - 1); return same(y) ? 'Yesterday' : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }); };
 
 export default function Studio() {
   const [d, setD] = useState(null);
   const [mode, setMode] = useState('image');
-  const [v, setV] = useState({ prompt: '', tier: 'standard', aspect: '1:1', count: 1, ref: '', sourceId: '', seconds: 5, lang: 'en', length: 30, voice: 'female', captions: 'pop', sizes: ['9:16'], logo: '' });
-  const [open, setOpen] = useState(null); // a Reel's id
-  const logoFile = useRef();
+  const [v, setV] = useState({ prompt: '', tier: 'standard', aspect: '1:1', count: 1, ref: '', sourceId: '', seconds: 5, lang: 'en', length: 30, voice: '', captions: 'pop', sizes: ['9:16'], logo: '' });
   const [busy, setBusy] = useState(false);
-  const file = useRef();
+  const [filter, setFilter] = useState('all');
+  const [view, setView] = useState(null); // index in the viewable list
+  const [open, setOpen] = useState(null); // a Reel's id
+  const [, tick] = useState(0);
+  const file = useRef(), logoFile = useRef(), box = useRef();
   const load = () => api('/studio').then(setD).catch(() => setD(false));
   useEffect(() => { load(); }, []);
-  // while something renders, look again every few seconds
   const live = !!d?.assets?.some((a) => ACTIVE.includes(a.status));
-  useEffect(() => { if (!live) return undefined; const t = setInterval(load, 5000); return () => clearInterval(t); }, [live]);
-  if (d === false) return <Layout title="Studio"><Empty icon="wand" title="Studio didn’t load" text="Reload the page to try again." /></Layout>;
-  if (!d) return <Layout title="Studio"><div className="skeleton" /></Layout>;
-  if (!d.on) return <Layout title="Studio" subtitle="AI images and clips for your ads and pages"><Empty icon="wand" title="Studio isn’t on for your account yet" text="Studio makes product images, scenes and short video clips for your ads, checked for quality before you see them. Ask us to switch it on." /></Layout>;
+  // while something renders: look again every few seconds, and keep the timers moving
+  useEffect(() => { if (!live) return undefined; const p = setInterval(load, 4000), t = setInterval(() => tick((n) => n + 1), 1000); return () => { clearInterval(p); clearInterval(t); }; }, [live]);
+  const assets = d?.assets || [];
+  const counts = useMemo(() => ({ all: assets.length, image: assets.filter((a) => a.kind === 'image').length, clip: assets.filter((a) => a.kind === 'clip').length, reel: assets.filter((a) => a.kind === 'reel').length, live: assets.filter((a) => ACTIVE.includes(a.status)).length, review: assets.filter((a) => a.status === 'needs_review' || a.status === 'failed').length }), [assets]);
+  // newest first, always (the day headings rely on it)
+  const shown = [...assets].sort((x, y) => y.at - x.at).filter((a) => filter === 'all' || (filter === 'live' ? ACTIVE.includes(a.status) : filter === 'review' ? ['needs_review', 'failed'].includes(a.status) : a.kind === filter));
+  // what the viewer can step through: finished images and clips in the shown order
+  const viewable = shown.filter((a) => a.kind !== 'reel' && a.url);
+  const reel = open && assets.find((a) => a.id === open);
 
-  const images = d.assets.filter((a) => a.kind === 'image' && a.url && a.status === 'ready');
-  const set = (p) => setV({ ...v, ...p });
+  if (d === false) return <Layout title="Studio"><Empty icon="wand" title="Studio didn’t load" text="Reload the page to try again." /></Layout>;
+  if (!d) return <Layout title="Studio" wide><div className="skeleton" /></Layout>;
+  if (!d.on) return <Layout title="Studio" subtitle="AI images, video clips and Reels for your ads and pages"><Empty icon="wand" title="Studio isn’t on for your account yet" text="Studio makes product photos, scenes, short video clips and finished Reels for your ads, each one checked for quality before you see it. Ask us to switch it on." /></Layout>;
+
+  const set = (p) => setV((x) => ({ ...x, ...p }));
+  const images = assets.filter((a) => a.kind === 'image' && a.url && a.status !== 'failed');
+  const src = v.sourceId ? images.find((x) => x.id === v.sourceId)?.url : v.ref;
   const upload = async (f, key = 'ref') => {
     if (!f) return;
-    if (!/^image\/(jpeg|png|webp)$/.test(f.type) || f.size > 5 * 1024 * 1024) return toast('Pick a JPG, PNG or WebP photo under 5 MB');
-    try { const r = await api('/uploads', 'POST', { type: f.type, data: await toDataUrl(f) }); if (key === 'logo') { set({ logo: r.url }); toast('Logo added'); } else { set({ ref: r.url, sourceId: '' }); toast('Photo added — your product will look like this'); } } catch (e) { toast(e.message); }
+    if (!/^image\/(jpeg|png|webp)$/.test(f.type) || f.size > 5 * 1024 * 1024) return toast('Pick a JPG, PNG or WebP picture under 5 MB');
+    try { const r = await api('/uploads', 'POST', { type: f.type, data: await toDataUrl(f) }); if (key === 'logo') set({ logo: r.url }); else set({ ref: r.url, sourceId: '' }); } catch (e) { toast(e.message); }
   };
+  const changeMode = (k) => { setMode(k); set({ aspect: k === 'image' ? v.aspect === '9:16' ? '1:1' : v.aspect : '9:16' }); };
   const make = async () => {
     setBusy(true);
     try {
       if (mode === 'reel') {
-        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, voice: v.voice, captions: v.captions, sizes: v.sizes, ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
-        set({ prompt: '' }); await load(); setOpen(r.id); setBusy(false); return;
+        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, voice: v.voice || 'female', captions: v.captions, sizes: v.sizes, ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
+        set({ prompt: '' }); await load(); setOpen(r.id);
+      } else {
+        if (mode === 'image') await api('/studio/images', 'POST', { prompt: v.prompt, tier: v.tier, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
+        else await api('/studio/clips', 'POST', { prompt: v.prompt, tier: v.tier, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) });
+        set({ prompt: '' }); setFilter('all'); load();
       }
-      if (mode === 'image') await api('/studio/images', 'POST', { prompt: v.prompt, tier: v.tier, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
-      else await api('/studio/clips', 'POST', { prompt: v.prompt, tier: v.tier, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) });
-      toast(mode === 'image' ? 'Started — usually under a minute' : 'Started — clips take a few minutes');
-      set({ prompt: '' }); load();
     } catch (e) { toast(e.message); }
     setBusy(false);
   };
   const redo = async (a) => {
-    const note = await promptDialog({ title: 'Make it again', text: 'What should change? (optional)', label: 'Change', value: '' });
+    const note = await promptDialog({ title: 'Make it again', text: 'What should change? Leave empty to just try again.', label: 'Change', value: '' });
     if (note === null || note === undefined) return;
-    try { await api(`/studio/assets/${a.id}/redo`, 'POST', { note }); load(); } catch (e) { toast(e.message); }
+    try { await api(`/studio/assets/${a.id}/redo`, 'POST', { note }); setView(null); load(); } catch (e) { toast(e.message); }
   };
-  const remove = async (a) => { if (!(await confirmDialog({ title: 'Delete this?', confirm: 'Delete', danger: true }))) return; try { await api(`/studio/assets/${a.id}`, 'DELETE'); load(); } catch (e) { toast(e.message); } };
-  const toClip = (a) => { setMode('clip'); setV({ ...v, sourceId: a.id, ref: '', aspect: '9:16', prompt: '' }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const src = v.sourceId ? images.find((x) => x.id === v.sourceId)?.url : v.ref;
+  const remove = async (a) => { if (!(await confirmDialog({ title: 'Delete this?', text: 'It’s removed from Studio.', confirm: 'Delete', danger: true }))) return; try { await api(`/studio/assets/${a.id}`, 'DELETE'); setView(null); load(); } catch (e) { toast(e.message); } };
+  const animate = (a) => { setMode('clip'); set({ sourceId: a.id, ref: '', aspect: a.aspect === '1:1' ? '9:16' : a.aspect, prompt: '' }); setView(null); window.scrollTo({ top: 0, behavior: 'smooth' }); setTimeout(() => box.current?.focus(), 300); };
+  const openCard = (a) => { if (a.kind === 'reel') return setOpen(a.id); const i = viewable.findIndex((x) => x.id === a.id); if (i >= 0) setView(i); };
+  const canGo = v.prompt.trim().length >= (mode === 'reel' ? 10 : 3) && !busy;
+  const voices = d.voices || [];
 
+  const actionsFor = (a) => (
+    <div className="sxv-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <a className="btn primary" href={a.url} download><Icon name="download" size={15} /> Download</a>
+      {a.kind === 'image' ? <button className="btn ghost" onClick={() => animate(a)}><Icon name="play" size={15} /> Animate</button> : <button className="btn ghost" onClick={() => { navigator.clipboard?.writeText(new URL(a.url, location.origin).href); toast('Link copied'); }}><Icon name="link" size={15} /> Copy link</button>}
+      <button className="btn ghost" onClick={() => redo(a)}><Icon name="redo" size={15} /> Redo</button>
+      <button className="btn ghost" onClick={() => remove(a)}><Icon name="trash" size={15} /> Delete</button>
+    </div>
+  );
+
+  let lastDay = '';
   return (
-    <Layout title="Studio" subtitle="AI images and clips for your ads and pages — each one checked for quality">
-      <Panel>
-        <div className="row between">
-          <span className="seg" role="tablist">{[['image', 'Images'], ['clip', 'Video clip'], ['reel', 'Reel (full ad)']].map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={mode === k} className={mode === k ? 'on' : ''} onClick={() => { setMode(k); set({ aspect: k === 'image' ? '1:1' : '9:16' }); }}>{l}</button>)}</span>
-          <span className="seg sm" role="radiogroup" aria-label="Quality">{d.tiers.map((t) => <button key={t.id} type="button" role="radio" aria-checked={v.tier === t.id} title={TIER_HINT[t.id]} className={v.tier === t.id ? 'on' : ''} onClick={() => set({ tier: t.id })}>{t.name}</button>)}</span>
-        </div>
-        <div className="st-make">
-          <div className="st-src">
-            {src ? <img src={src} alt="" /> : <span className="muted sm">{mode === 'clip' ? 'Start from an image (optional)' : 'Your product photo (optional)'}</span>}
-            <div className="row">
-              <button type="button" className="btn ghost sm" onClick={() => file.current?.click()}><Icon name="image" size={14} /> {src ? 'Change' : 'Add photo'}</button>
-              {src && <button type="button" className="btn ghost sm" onClick={() => set({ ref: '', sourceId: '' })}>Remove</button>}
-            </div>
+    <Layout title="Studio" subtitle="AI images, video clips and Reels for your ads — each one checked for quality" wide>
+      <div className="sx">
+        <section className="sx-compose" aria-label="Make something">
+          <div className="sx-modes" role="tablist">
+            {[['image', 'image', 'Image'], ['clip', 'play', 'Video clip'], ['reel', 'wand', 'Reel · full ad']].map(([k, ic, l]) => <button key={k} type="button" role="tab" aria-selected={mode === k} className={mode === k ? 'on' : ''} onClick={() => changeMode(k)}><Icon name={ic} size={15} />{l}</button>)}
+          </div>
+          <div className="sx-prompt">
+            <button type="button" className="sx-ref" title={mode === 'clip' ? 'Start from a picture' : 'Your product photo — kept exactly as it is'} onClick={() => file.current?.click()}>
+              {src ? <><img src={src} alt="" /><span className="sx-x" role="button" aria-label="Remove picture" onClick={(e) => { e.stopPropagation(); set({ ref: '', sourceId: '' }); }}><Icon name="x" size={12} /></span></> : <><Icon name="image" size={18} /><small>{mode === 'clip' ? 'Start picture' : 'Product photo'}</small></>}
+            </button>
+            <textarea ref={box} rows={3} maxLength={1500} value={v.prompt} onChange={(e) => set({ prompt: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canGo) make(); }}
+              placeholder={mode === 'image' ? 'Describe the picture — e.g. a jar of desi ghee on a wooden kitchen counter, warm morning light, a brass spoon beside it' : mode === 'clip' ? 'Describe the movement — e.g. slow push-in on the jar as steam rises from a bowl of rice beside it' : 'What’s the ad about? The product, who it’s for and the offer — e.g. our farm-made desi ghee, ₹499 a litre, for families who want pure ghee; order on WhatsApp'} />
             <input ref={file} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ''; }} />
+          </div>
+          <div className="sx-bar">
+            <label className="sx-pill" title={TIER_HINT[v.tier]}><span className="lbl">Quality</span>{d.tiers.find((t) => t.id === v.tier)?.name}<select value={v.tier} onChange={(e) => set({ tier: e.target.value })}>{d.tiers.map((t) => <option key={t.id} value={t.id}>{t.name} — {TIER_HINT[t.id]}</option>)}</select></label>
+            {mode !== 'reel' && <label className="sx-pill"><Ratio a={v.aspect} />{v.aspect}<select value={v.aspect} onChange={(e) => set({ aspect: e.target.value })}>{d.aspects.map((x) => <option key={x} value={x}>{x} · {ASPECT_NAME[x] || ''}</option>)}</select></label>}
+            {mode === 'image' && <label className="sx-pill"><span className="lbl">Versions</span>{v.count}<select value={v.count} onChange={(e) => set({ count: Number(e.target.value) })}>{[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
+            {mode === 'clip' && <label className="sx-pill"><span className="lbl">Length</span>{v.seconds}s<select value={v.seconds} onChange={(e) => set({ seconds: Number(e.target.value) })}>{[4, 5, 6, 8, 10, 15].map((n) => <option key={n} value={n}>{n} seconds</option>)}</select></label>}
             {mode === 'reel' && <>
-              {v.logo ? <img src={v.logo} alt="Logo" className="st-logo" /> : null}
-              <button type="button" className="btn ghost sm" onClick={() => logoFile.current?.click()}>{v.logo ? 'Change logo' : 'Add your logo'}</button>
+              <label className="sx-pill"><span className="lbl">Length</span>{v.length}s<select value={v.length} onChange={(e) => set({ length: Number(e.target.value) })}>{d.lengths.map((n) => <option key={n} value={n}>{n} seconds</option>)}</select></label>
+              <label className="sx-pill"><span className="lbl">Language</span>{d.languages.find((x) => x.id === v.lang)?.name}<select value={v.lang} onChange={(e) => set({ lang: e.target.value })}>{d.languages.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+              <label className="sx-pill"><span className="lbl">Voice</span>{voices.find((x) => x.id === v.voice)?.name || 'Auto'}<select value={v.voice} onChange={(e) => set({ voice: e.target.value })}><option value="">Auto (Indian female)</option>{voices.map((x) => <option key={x.id} value={x.id}>{x.name} — {x.note}</option>)}</select></label>
+              <label className="sx-pill"><span className="lbl">Captions</span>{d.captionStyles.find((x) => x.id === v.captions)?.name}<select value={v.captions} onChange={(e) => set({ captions: e.target.value })}>{d.captionStyles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+              <button type="button" className="sx-pill" onClick={() => logoFile.current?.click()}>{v.logo ? <img src={v.logo} alt="" style={{ height: 18, maxWidth: 60, objectFit: 'contain' }} /> : <Icon name="plus" size={14} />}{v.logo ? 'Logo' : 'Add logo'}</button>
               <input ref={logoFile} type="file" accept="image/png,image/webp,image/jpeg" hidden onChange={(e) => { upload(e.target.files?.[0], 'logo'); e.target.value = ''; }} />
             </>}
+            <span className="grow" />
+            <button className="btn primary sx-go" disabled={!canGo} onClick={make}><Icon name="wand" size={16} /> {busy ? (mode === 'reel' ? 'Writing the script…' : 'Starting…') : mode === 'image' ? `Make ${v.count > 1 ? `${v.count} images` : 'image'}` : mode === 'clip' ? 'Make clip' : 'Write the script'}</button>
           </div>
-          <div className="st-form">
-            <label>{mode === 'image' ? 'Describe the image' : mode === 'clip' ? 'What happens in the clip' : 'What is the ad about? Product, who it’s for, the offer'}<textarea rows={3} maxLength={1500} value={v.prompt} onChange={(e) => set({ prompt: e.target.value })} placeholder={mode === 'image' ? 'A jar of desi ghee on a wooden kitchen counter, warm morning light, a brass spoon beside it' : mode === 'clip' ? 'Slow push-in on the jar as steam rises from a bowl of rice beside it' : 'Our farm-made desi ghee, ₹499 a litre, for families who want pure ghee — order on WhatsApp'} /></label>
-            {mode === 'reel' ? (
-              <div className="row wrap">
-                <label>Language<select value={v.lang} onChange={(e) => set({ lang: e.target.value })}>{d.languages.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-                <label>Length<select value={v.length} onChange={(e) => set({ length: Number(e.target.value) })}>{d.lengths.map((n) => <option key={n} value={n}>{n} seconds</option>)}</select></label>
-                <label>Voice<select value={v.voice} onChange={(e) => set({ voice: e.target.value })}><option value="female">Female</option><option value="male">Male</option></select></label>
-                <label>Captions<select value={v.captions} onChange={(e) => set({ captions: e.target.value })}>{d.captionStyles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-                <div className="rl-sizes"><span className="muted sm">Sizes</span>{[['9:16', 'Reels / Shorts'], ['1:1', 'Square'], ['4:5', 'Feed'], ['16:9', 'Wide']].map(([k, l]) => { const on = v.sizes.includes(k); return <label key={k} className="row"><input type="checkbox" checked={on} disabled={on && v.sizes.length === 1} onChange={() => set({ sizes: on ? v.sizes.filter((x) => x !== k) : [...v.sizes, k] })} />{k} · {l}</label>; })}</div>
-              </div>
-            ) : <div className="row wrap">
-              <label>Shape<select value={v.aspect} onChange={(e) => set({ aspect: e.target.value })}>{d.aspects.map((a) => <option key={a} value={a}>{({ '9:16': '9:16 · Reels / Stories', '1:1': '1:1 · Square', '16:9': '16:9 · Wide', '4:5': '4:5 · Feed', '3:4': '3:4 · Portrait' })[a] || a}</option>)}</select></label>
-              {mode === 'image'
-                ? <label>How many<select value={v.count} onChange={(e) => set({ count: Number(e.target.value) })}>{[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
-                : <label>Length<select value={v.seconds} onChange={(e) => set({ seconds: Number(e.target.value) })}>{[4, 5, 6, 8, 10, 15].map((n) => <option key={n} value={n}>{n} seconds</option>)}</select></label>}
-            </div>}
-            <button className="btn primary" disabled={busy || v.prompt.trim().length < 3} onClick={make}><Icon name="wand" size={15} /> {busy ? (mode === 'reel' ? 'Writing the script…' : 'Starting…') : mode === 'image' ? 'Make images' : mode === 'clip' ? 'Make clip' : 'Write the script'}</button>
-            {mode === 'reel' && <p className="hint">You’ll see the script first — lines, shots and the closing card — and nothing is made until you approve it.</p>}
-            {mode === 'clip' && <p className="hint">Clips are silent for now. Low-resolution renders are sharpened to 720p.</p>}
-          </div>
-        </div>
-      </Panel>
+          <p className="sx-hint">{mode === 'reel' ? 'You’ll see the script and storyboard first — nothing is made until you approve it.' : mode === 'clip' ? 'Clips start from your picture when you add one, so the product stays the same. Clips are silent; Reels add voice and captions.' : 'Add your real product photo to keep it exactly as it is.'} <span style={{ opacity: .7 }}>Ctrl + Enter to start.</span></p>
+        </section>
 
-      {!d.assets.length ? <Empty icon="image" title="Nothing made yet" text="Describe a product shot or a scene above. Add your real product photo to keep it exactly as it is." /> : (
-        <div className="st-grid">{d.assets.map((a) => {
-          const [label, tone] = STATUS[a.status] || [a.status, ''];
-          if (a.kind === 'reel') return (
-            <div key={a.id} className={`st-card st-${a.status}`}>
-              <button type="button" className="st-media st-reel" style={{ aspectRatio: '9 / 16' }} onClick={() => setOpen(a.id)} aria-label={`Open ${a.title}`}>
-                {a.poster ? <img src={a.poster} alt="" /> : <span className={ACTIVE.includes(a.status) ? 'spin dark' : 'muted sm'}>{ACTIVE.includes(a.status) ? '' : 'Script'}</span>}
-                <span className="st-play"><Icon name="play" size={18} /></span>
-              </button>
-              <div className="st-meta">
-                <span className="row"><span className={`pill ${tone}`}>{label}</span><small className="muted">Reel · {a.seconds}s · {(a.sizes || ['9:16']).join(', ')}</small></span>
-                <b className="sm">{a.title}</b>
-                {a.issues?.length > 0 && <ul className="st-issues">{a.issues.slice(0, 2).map((x) => <li key={x}>{x}</li>)}</ul>}
-                <div className="row"><button className="btn primary sm" onClick={() => setOpen(a.id)}>{a.status === 'script_ready' ? 'Check the script' : 'Open'}</button><button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => remove(a)}><Icon name="trash" size={14} /></button></div>
-              </div>
-            </div>
-          );
-          return (
-            <div key={a.id} className={`st-card st-${a.status}`}>
-              <div className="st-media" style={{ aspectRatio: a.aspect.replace(':', ' / ') }}>
-                {a.url ? (a.kind === 'clip' ? <video src={a.url} poster={a.poster || undefined} controls preload="none" playsInline /> : <img src={a.url} alt={a.prompt} loading="lazy" />) : <span className={ACTIVE.includes(a.status) ? 'spin dark' : ''} />}
-              </div>
-              <div className="st-meta">
-                <span className="row"><span className={`pill ${tone}`}>{label}</span><small className="muted">{a.kind === 'clip' ? `Clip · ${a.seconds}s` : 'Image'} · {d.tiers.find((t) => t.id === a.tier)?.name}{a.enhanced ? ' · sharpened' : ''}</small></span>
-                <p className="sm st-prompt">{a.prompt}</p>
-                {a.issues?.length > 0 && <ul className="st-issues">{a.issues.map((x) => <li key={x}>{x}</li>)}</ul>}
-                {a.error && <p className="sm bad-t">{a.error}</p>}
-                <small className="muted">{fmtDate(a.doneAt || a.at)}{a.attempts > 1 ? ` · ${a.attempts} tries` : ''}</small>
-                {!ACTIVE.includes(a.status) && (
-                  <div className="row">
-                    {a.url && <a className="btn ghost sm" href={a.url} download><Icon name="download" size={13} /> Download</a>}
-                    {a.kind === 'image' && a.status === 'ready' && <button className="btn ghost sm" onClick={() => toClip(a)}><Icon name="play" size={13} /> Make a clip</button>}
-                    <button className="btn ghost sm" onClick={() => redo(a)}><Icon name="redo" size={13} /> Redo</button>
-                    <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => remove(a)}><Icon name="trash" size={14} /></button>
+        <div className="sx-filters" role="tablist" aria-label="Show">
+          {[['all', 'All'], ['image', 'Images'], ['clip', 'Clips'], ['reel', 'Reels'], ['live', 'In progress'], ['review', 'Needs a look']].map(([k, l]) => (counts[k] || k === 'all') ? <button key={k} type="button" className={`sx-chip${filter === k ? ' on' : ''}`} onClick={() => setFilter(k)}>{l}<span className="n">{counts[k]}</span></button> : null)}
+        </div>
+
+        {!shown.length ? <Empty icon="image" title={assets.length ? 'Nothing here' : 'Nothing made yet'} text={assets.length ? 'Try another filter.' : 'Describe a product shot, a short clip or a whole Reel above. Add your real product photo to keep it exactly as it is.'} /> : (
+          <div className="sx-grid">{shown.map((a) => {
+            const day = dayOf(a.at), head = day !== lastDay ? (lastDay = day) : null;
+            const [w, h] = (a.aspect || '1:1').split(':').map(Number);
+            const wait = WAIT[a.status], badge = BADGE[a.status];
+            return [
+              head && <div key={`h-${a.id}`} className="sx-group" style={{ columnSpan: 'all' }}>{head}</div>,
+              <div key={a.id} className={`sx-card st-${a.status}`} role="button" tabIndex={0} onClick={() => openCard(a)} onKeyDown={(e) => { if (e.key === 'Enter') openCard(a); }} aria-label={a.title || a.prompt}>
+                {a.status === 'failed' && a.kind !== 'reel' ? (
+                  <div className="sx-fail"><b>Couldn’t be made</b><p>{a.error || a.prompt}</p><div className="row"><button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); redo(a); }}><Icon name="redo" size={13} /> Try again</button><button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); remove(a); }}>Delete</button></div></div>
+                ) : wait ? (
+                  <div className="sx-wait" style={{ aspectRatio: `${w} / ${h}` }}>
+                    <span className="spin dark" />
+                    <b>{wait[0]}…</b>
+                    <span className="sx-steps">{[0, 1, 2].map((i) => <i key={i} className={i < wait[1] ? 'on' : i === wait[1] ? 'now' : ''} />)}</span>
+                    <small>{ago(a.at)} · {a.kind === 'reel' ? `Reel · ${a.seconds}s` : a.kind === 'clip' ? `${a.seconds}s clip` : 'image'}{a.attempts > 1 ? ` · try ${a.attempts}` : ''}</small>
+                  </div>
+                ) : a.kind === 'clip' ? <video src={a.url} poster={a.poster || undefined} muted loop playsInline preload="none" style={{ aspectRatio: `${w} / ${h}`, objectFit: 'cover' }} onMouseEnter={(e) => e.currentTarget.play().catch(() => {})} onMouseLeave={(e) => e.currentTarget.pause()} />
+                  : a.kind === 'reel' ? (a.poster ? <img src={a.poster} alt="" style={{ aspectRatio: '9 / 16', objectFit: 'cover' }} /> : <div className="sx-wait" style={{ aspectRatio: '9 / 16', animation: 'none' }}><Icon name="wand" size={22} /><b>{a.title}</b><small>Script ready — open to check it</small></div>)
+                  : <img src={a.url} alt={a.prompt} loading="lazy" />}
+                {badge && !(a.status === 'failed' && a.kind !== 'reel') && <span className={`sx-badge ${badge[1]}`}>{badge[0]}</span>}
+                {!wait && a.status !== 'failed' && <span className="sx-kind">{a.kind === 'reel' ? `Reel · ${a.seconds}s` : a.kind === 'clip' ? `Clip · ${a.seconds}s` : d.tiers.find((t) => t.id === a.tier)?.name}</span>}
+                {!wait && a.status !== 'failed' && (
+                  <div className="sx-over">
+                    <p>{a.title || a.prompt}</p>
+                    <div className="sx-acts" onClick={(e) => e.stopPropagation()}>
+                      {a.kind === 'reel' ? <button onClick={() => setOpen(a.id)}><Icon name="edit" size={13} /> Open editor</button> : <>
+                        <button onClick={() => openCard(a)} aria-label="View"><Icon name="eye" size={14} /></button>
+                        {a.url && <a href={a.url} download aria-label="Download"><Icon name="download" size={14} /></a>}
+                        {a.kind === 'image' && <button onClick={() => animate(a)}><Icon name="play" size={13} /> Animate</button>}
+                        <button onClick={() => redo(a)} aria-label="Redo"><Icon name="redo" size={14} /></button>
+                      </>}
+                      <button onClick={() => remove(a)} aria-label="Delete"><Icon name="trash" size={14} /></button>
+                    </div>
                   </div>
                 )}
-              </div>
-            </div>
-          );
-        })}</div>
-      )}
-      {open && d.assets.find((a) => a.id === open) && <ReelView key={open + d.assets.find((a) => a.id === open).status} r={d.assets.find((a) => a.id === open)} styles={d.captionStyles} onClose={() => setOpen(null)} onChange={load} />}
+              </div>,
+            ];
+          })}</div>
+        )}
+      </div>
+      {view != null && viewable[view] && <Viewer items={viewable.map((a) => ({ ...a, tierName: d.tiers.find((t) => t.id === a.tier)?.name }))} index={view} onIndex={setView} onClose={() => setView(null)} actions={actionsFor} />}
+      {reel && <ReelEditor r={reel} d={d} onClose={() => setOpen(null)} onChange={load} />}
     </Layout>
   );
 }

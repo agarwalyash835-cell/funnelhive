@@ -8,7 +8,7 @@ import { publicUrlFor } from '../storage.js';
 import { adminMiddleware, audit } from '../admin-guard.js';
 import { studioReady } from './kie.js';
 import { enqueue, view, tick, tierOk } from './jobs.js';
-import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample } from './models.js';
+import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample, voiceId } from './models.js';
 import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, reelsTick, LENGTHS, CAPTION_IDS } from './reels.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
@@ -99,9 +99,17 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   };
   app.put('/api/studio/reels/:id/script', auth, (req, res) => {
     const r = myReel(req, res, ['script_ready']); if (!r) return;
-    const c = cleanScript(req.body?.script);
+    const b = req.body || {};
+    const c = b.script ? cleanScript(b.script) : { script: r.script };
     if (c.error) return res.status(400).json(c);
-    res.json(reelView(T.studio.update(r.id, (x) => { x.script = c.script; })));
+    // the settings can change before anything is made: voice, caption style, sizes
+    const sizes = Array.isArray(b.sizes) ? b.sizes.filter((x) => ['9:16', '1:1', '16:9', '4:5'].includes(x)).slice(0, 4) : null;
+    res.json(reelView(T.studio.update(r.id, (x) => {
+      x.script = c.script;
+      if (b.voice) x.voice = voiceId(b.voice);
+      if (b.captions !== undefined) x.captions = b.captions && CAPTION_IDS.includes(b.captions.style) ? { style: b.captions.style } : null;
+      if (sizes?.length) x.sizes = sizes;
+    })));
   });
   // the go-ahead: shots and voiceover start (this is where rendering costs begin)
   app.post('/api/studio/reels/:id/approve', auth, limiter, (req, res) => {
