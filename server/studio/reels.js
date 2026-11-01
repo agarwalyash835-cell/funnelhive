@@ -1,0 +1,204 @@
+// Reels: a finished vertical ad video from one brief. The cheap step comes first and waits for the seller:
+//   script_ready  the AI wrote the hook, voiceover lines, shots and closing card — the seller edits / approves it
+//   producing     each shot is an image (keeping the real product) then a clip from it, through the same queue and
+//                 quality checks as any Studio item (jobs.js); meanwhile each voiceover line is spoken, listened back
+//                 to (voice.js checkLine) and redone up to twice if it was misread
+//   editing       the clips, the voiceover, captions timed from what was actually said, the logo and the closing card
+//                 are put together (assemble.js) in each size asked for
+//   ready / needs_review / failed
+// Changes after that (edit): new caption style or sizes → editing again; a reworded line or a redone shot → producing.
+import fs from 'node:fs';
+import { T, q, JOBS } from '../db.js';
+import { askAI } from '../ai.js';
+import { studioModels, TIERS, ASPECTS } from './models.js';
+import { runTask, studioReady } from './kie.js';
+import { enqueue } from './jobs.js';
+import { localCopy, save, rm, ffmpeg, tmpFile, probe } from './media.js';
+import { makeLine, checkLine, sarvamTranscriber, LANGUAGES, langBase } from './voice.js';
+import { render, dims } from './assemble.js';
+import { PRESETS as CAPTION_STYLES } from './captions.js';
+import { notify } from '../notify.js';
+
+export const LENGTHS = [15, 30, 45];
+export const CAPTION_IDS = Object.keys(CAPTION_STYLES);
+const MAX_LINE_TRIES = 3;
+const clip = (v, n) => String(v ?? '').trim().slice(0, n);
+// the transcriber for the listen-back check and the captions (none without the platform's speech-to-text key)
+const transcriber = () => (process.env.SARVAM_API_KEY ? sarvamTranscriber() : null);
+
+// ---------- the script ----------
+const SCRIPT_SYSTEM = `You write short vertical video ads (Instagram Reels / YouTube Shorts) for Indian small businesses.
+Answer only JSON: {"title": short name, "lines": [voiceover lines], "shots": [{"image": a detailed photo prompt for the shot's opening still (subject, setting, light, camera; no text, logos or captions in the picture), "motion": what moves in the shot (camera move, action), "seconds": 4-8}], "endCard": {"headline": max 40 chars, "offer": price or offer max 40 chars, "cta": call to action max 30 chars}}.
+Rules: the first line is a hook that stops the scroll; 3-6 lines, each one short spoken sentence; about 2.5 words per second in total for the length asked; one shot per line, in order; show the real product in most shots; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
+
+export function cleanScript(s) {
+  const lines = (Array.isArray(s?.lines) ? s.lines : []).map((x) => clip(typeof x === 'string' ? x : x?.text, 220)).filter(Boolean).slice(0, 8);
+  const shots = (Array.isArray(s?.shots) ? s.shots : []).slice(0, 8).map((x) => ({ image: clip(x?.image, 600), motion: clip(x?.motion, 300), seconds: Math.min(10, Math.max(4, Math.round(Number(x?.seconds) || 5))) })).filter((x) => x.image.length >= 3);
+  if (lines.length < 1 || shots.length < 1) return { error: 'The script needs at least one line and one shot' };
+  const e = s?.endCard || {};
+  return { script: { title: clip(s?.title, 80) || 'Reel', lines, shots, endCard: { headline: clip(e.headline, 40), offer: clip(e.offer, 40), cta: clip(e.cta, 30) } } };
+}
+export async function writeScript({ brief, lang, seconds, business }) {
+  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nLength: about ${seconds} seconds`;
+  const text = await askAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 });
+  let s;
+  try { s = JSON.parse(String(text).replace(/^```(json)?|```$/g, '').trim()); } catch { throw new Error('The AI wrote something that wasn’t a script — please try again'); }
+  const c = cleanScript(s);
+  if (c.error) throw new Error('The AI’s script was incomplete — please try again');
+  return c.script;
+}
+
+// ---------- start, approve ----------
+export function newReel(userId, o) {
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', prompt: o.brief, aspect: '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: o.voice === 'male' ? 'male' : 'female', captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
+}
+// the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken
+export function approveReel(r, script) {
+  const shots = script.shots.map((s) => ({ ...s, imageId: enqueue(r.userId, { kind: 'image', tier: r.tier, prompt: s.image, aspect: r.aspect, ref: r.ref, reelId: r.id, by: r.by }).id, clipId: null }));
+  return T.studio.update(r.id, (x) => { x.script = script; x.shots = shots; x.lines = script.lines.map((text) => ({ text, url: null, tries: 0, check: null })); x.status = 'producing'; x.approvedAt = Date.now(); delete x.error; });
+}
+
+// ---------- producing: shots and lines ----------
+const done = (a) => a && ['ready', 'needs_review'].includes(a.status) && a.url;
+async function produce(r) {
+  // a shot's still is ready (or kept for review): its clip goes into the queue
+  let shots = r.shots, changed = false;
+  shots = shots.map((s) => {
+    if (s.clipId) return s;
+    const img = T.studio.get(s.imageId);
+    if (!done(img)) return s;
+    changed = true;
+    return { ...s, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, prompt: s.motion || s.image, aspect: r.aspect, seconds: s.seconds, ref: img.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
+  });
+  if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
+  // one voiceover line per step
+  const i = r.lines.findIndex((l) => !l.url && l.tries < MAX_LINE_TRIES);
+  if (i >= 0) return voiceLine(r, i);
+  const clipsDone = r.shots.every((s) => done(T.studio.get(s.clipId)));
+  if (clipsDone && r.lines.every((l) => l.url)) T.studio.update(r.id, (x) => { x.status = 'editing'; });
+}
+async function voiceLine(r, i) {
+  const m = studioModels().voice, line = r.lines[i];
+  const usage = (u) => T.studio.update(r.id, (x) => { x.usage = [...(x.usage || []), { kind: 'voice', model: u.model, chars: u.chars, at: Date.now() }]; });
+  let file;
+  try {
+    file = await makeLine({ text: line.text, lang: r.lang, voice: m[r.voice] || m.female, model: m.model, dict: r.dict, settings: { before: r.lines[i - 1]?.text || '', after: r.lines[i + 1]?.text || '' } }, { runTask, onUsage: usage });
+    const tr = transcriber();
+    const check = tr ? await checkLine({ text: line.text, file, lang: r.lang, brands: r.brands }, { transcribe: tr }).catch((e) => { console.error('voice check failed', e.message); return null; }) : null;
+    const tries = line.tries + 1;
+    // misread: try again (the next step), unless that was the last try — then keep it and say what's wrong
+    if (check && !check.ok && tries < MAX_LINE_TRIES) return setLine(r, i, { tries, check: brief(check) });
+    const ext = (file.match(/\.(\w+)$/) || [])[1] || 'mp3';
+    const saved = await save(r.userId, file, ext, ext === 'mp3' ? 'audio/mpeg' : `audio/${ext}`);
+    setLine(r, i, { tries, url: saved.url, check: check ? brief(check) : null });
+  } catch (e) {
+    console.error('voice line failed', r.id, i, e.message);
+    setLine(r, i, { tries: line.tries + 1, error: e.message });
+    if (line.tries + 1 >= MAX_LINE_TRIES) T.studio.update(r.id, (x) => { x.status = 'failed'; x.error = `The voiceover for line ${i + 1} couldn’t be made: ${e.message}`; x.doneAt = Date.now(); });
+  } finally { rm(file); }
+}
+const brief = (c) => ({ ok: c.ok, score: c.score, issues: (c.issues || []).map((x) => x.detail).slice(0, 5) });
+const setLine = (r, i, patch) => T.studio.update(r.id, (x) => { x.lines = x.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)); });
+
+// ---------- editing ----------
+// the lines → one voiceover with a short breath between them; → { file, spans: [[start, end] per line] }
+async function joinVoice(files) {
+  const out = tmpFile('wav'), GAP = 0.25, spans = [];
+  let t = 0;
+  for (const f of files) { const d = (await probe(f)).seconds; spans.push([t, t + d]); t += d + GAP; }
+  const inputs = files.flatMap((f) => ['-i', f]);
+  const chain = files.map((_, i) => `[${i}:a]aresample=44100,aformat=channel_layouts=mono,apad=pad_dur=${GAP}[a${i}]`).join(';');
+  await ffmpeg([...inputs, '-filter_complex', `${chain};${files.map((_, i) => `[a${i}]`).join('')}concat=n=${files.length}:v=0:a=1[out]`, '-map', '[out]', out]);
+  return { file: out, spans };
+}
+// no transcriber: spread each line's words over its time (captions still follow the voice, line by line)
+const spreadWords = (lines, spans) => lines.flatMap((l, i) => { const ws = l.text.split(/\s+/).filter(Boolean), [a, z] = spans[i]; const d = (z - a) / (ws.length || 1); return ws.map((w, k) => ({ w, start: a + k * d, end: a + (k + 1) * d })); });
+
+// the closing card: headline, offer and call to action on the brand colour, drawn with the caption renderer (libass)
+const assEsc = (s) => String(s || '').replace(/[{}\\]/g, '').replace(/\n/g, ' ');
+async function makeCard(card, colour, aspect) {
+  if (!card || !(card.headline || card.offer || card.cta)) return null;
+  const { width: W, height: H } = dims(aspect, 1080);
+  const hex = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : '#111827';
+  const ass = tmpFile('ass'), png = tmpFile('png');
+  const L = (y, size, text, bold = 1) => `Dialogue: 0,0:00:00.00,0:00:05.00,Card,,0,0,0,,{\\an5\\pos(${W / 2},${Math.round(H * y)})\\fs${Math.round(H * size)}\\b${bold}}${assEsc(text)}`;
+  fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Card,Noto Sans,60,&H00FFFFFF,&H00FFFFFF,&H64000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,5,60,60,60,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${[card.headline && L(0.40, 0.05, card.headline), card.offer && L(0.50, 0.065, card.offer), card.cta && L(0.62, 0.035, card.cta, 0)].filter(Boolean).join('\n')}\n`);
+  const fileArg = ass.replace(/\\/g, '/').replace(/^([A-Za-z]):/, '$1\\:');
+  await ffmpeg(['-f', 'lavfi', '-i', `color=c=${hex}:s=${W}x${H}:d=1`, '-frames:v', '1', '-vf', `ass='${fileArg}'`, png], { timeoutMs: 60000 });
+  rm(ass);
+  return fs.existsSync(png) ? png : null;
+}
+
+async function edit(r) {
+  const temp = [];
+  const local = async (url, ext) => { const c = await localCopy(url, ext); if (c.temp) temp.push(c.file); return c.file; };
+  try {
+    const clips = [];
+    for (const s of r.shots) clips.push(await local(T.studio.get(s.clipId).url, 'mp4'));
+    const lineFiles = [];
+    for (const l of r.lines) lineFiles.push(await local(l.url, (l.url.match(/\.(\w+)$/) || [])[1] || 'mp3'));
+    const voice = await joinVoice(lineFiles);
+    temp.push(voice.file);
+    const tr = transcriber();
+    let words = null;
+    if (tr) words = (await tr(voice.file, r.lang).catch((e) => { console.error('caption transcript failed', e.message); return null; }))?.words || null;
+    if (!words?.length) words = spreadWords(r.lines, voice.spans);
+    const owner = T.users.get(r.userId);
+    const card = await makeCard(r.script.endCard, owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary, r.aspect);
+    if (card) temp.push(card);
+    const logo = r.logo ? await local(r.logo, 'png').catch(() => null) : null;
+    const sizes = (r.sizes?.length ? r.sizes : ['9:16']).filter((a) => ASPECTS.includes(a) && ['9:16', '1:1', '16:9', '4:5'].includes(a));
+    const out = await render({ clips, voice: voice.file, words, captions: r.captions?.style ? { style: r.captions.style, ...(r.captions.colour ? { colour: r.captions.colour } : {}) } : null, logo: logo ? { file: logo, position: 'top-right', size: 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short: r.tier === 'cinematic' ? 1080 : 720, name: 'reel' });
+    const outputs = {};
+    for (const [aspect, f] of Object.entries(out.files)) { temp.push(f); outputs[aspect] = (await save(r.userId, f, 'mp4', 'video/mp4')).url; }
+    const first = out.files[sizes[0]] || Object.values(out.files)[0];
+    const pf = tmpFile('jpg'); temp.push(pf);
+    await ffmpeg(['-ss', '0.5', '-i', first, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '4', pf], { timeoutMs: 30000 });
+    const poster = fs.existsSync(pf) ? (await save(r.userId, pf, 'jpg', 'image/jpeg')).url : null;
+    // anything kept for review along the way: the Reel is made, but the seller should look
+    const flagged = [...r.shots.flatMap((s, i) => (T.studio.get(s.clipId)?.status === 'needs_review' ? [`Shot ${i + 1}: ${(T.studio.get(s.clipId).qa?.issues || []).join('; ')}`] : [])), ...r.lines.flatMap((l, i) => (l.check && !l.check.ok ? [`Line ${i + 1}: ${l.check.issues.join('; ')}`] : []))];
+    T.studio.update(r.id, (x) => { x.outputs = outputs; x.url = outputs[sizes[0]] || Object.values(outputs)[0]; x.poster = poster; x.duration = Math.round(out.duration * 10) / 10; x.lufs = out.lufs; x.status = flagged.length ? 'needs_review' : 'ready'; x.qa = { issues: flagged.slice(0, 8) }; x.doneAt = Date.now(); delete x.error; });
+    notify(r.userId, { kind: 'support', title: 'Your Reel is ready', body: r.script.title, link: '/studio' });
+  } catch (e) {
+    console.error('reel edit failed', r.id, e.message, e.detail || '');
+    T.studio.update(r.id, (x) => { x.editTries = (x.editTries || 0) + 1; if (x.editTries >= 2) { x.status = 'failed'; x.error = 'The video couldn’t be put together — try again'; x.doneAt = Date.now(); } });
+  } finally { rm(...temp); }
+}
+
+// ---------- changes after it's made (from the Studio page or Hive) ----------
+// { captions?: { style, colour }, sizes?, lines?: [{ i, text }], shots?: [{ i, note }], endCard? }
+export function editReel(r, b) {
+  const lines = [...r.lines], shots = [...r.shots];
+  let reproduce = false;
+  for (const { i, text } of Array.isArray(b.lines) ? b.lines : []) { if (lines[i] && clip(text, 220)) { lines[i] = { text: clip(text, 220), url: null, tries: 0, check: null }; reproduce = true; } }
+  for (const { i, note } of Array.isArray(b.shots) ? b.shots : []) {
+    const c = shots[i] && T.studio.get(shots[i].clipId);
+    if (!c) continue;
+    T.studio.update(c.id, (y) => { y.status = 'queued'; y.attempts = 0; y.notes = note ? [clip(note, 300)] : []; if (note) y.prompt = `${y.prompt}\n${clip(note, 300)}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
+    reproduce = true;
+  }
+  return T.studio.update(r.id, (x) => {
+    if (b.captions) x.captions = { style: CAPTION_IDS.includes(b.captions.style) ? b.captions.style : x.captions?.style || 'pop', ...(/^#[0-9a-f]{6}$/i.test(b.captions.colour || '') ? { colour: b.captions.colour } : {}) };
+    if (b.captions === null) x.captions = null;
+    if (Array.isArray(b.sizes) && b.sizes.length) x.sizes = b.sizes.filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a)).slice(0, 4);
+    if (b.endCard) x.script = { ...x.script, endCard: { headline: clip(b.endCard.headline, 40), offer: clip(b.endCard.offer, 40), cta: clip(b.endCard.cta, 30) } };
+    x.lines = lines; x.script = { ...x.script, lines: lines.map((l) => l.text) };
+    x.status = reproduce ? 'producing' : 'editing'; x.editTries = 0; delete x.doneAt; delete x.error;
+  });
+}
+
+// ---------- the loop ----------
+let editing = false, voicing = false;
+const busy = new Set();
+export async function reelsTick() {
+  if (!studioReady()) return;
+  const rows = q("SELECT data FROM studio WHERE status IN ('producing', 'editing') ORDER BY at").all().map((x) => JSON.parse(x.data)).filter((x) => x.kind === 'reel');
+  const jobs = [];
+  for (const r of rows) {
+    if (busy.has(r.id)) continue;
+    if (r.status === 'producing' && !voicing) { voicing = true; busy.add(r.id); jobs.push(produce(r).catch((e) => console.error('reel step failed', r.id, e.message)).finally(() => { voicing = false; busy.delete(r.id); })); }
+    else if (r.status === 'editing' && !editing) { editing = true; busy.add(r.id); jobs.push(edit(r).finally(() => { editing = false; busy.delete(r.id); })); }
+  }
+  await Promise.all(jobs);
+}
+if (JOBS && process.env.NODE_ENV !== 'test') setInterval(() => { reelsTick().catch((e) => console.error('reels tick failed', e.message)); }, 6000).unref();

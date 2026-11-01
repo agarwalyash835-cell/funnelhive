@@ -1338,7 +1338,7 @@ registerGcal(app, { auth, secret: SECRET, appUrl });
 registerStripeSettings(app, { auth, wrap });
 registerLegal(app, { auth, appUrl });
 registerDataRequests(app, { auth });
-registerStudio(app, { auth, rateLimit, isTest });
+registerStudio(app, { auth, rateLimit, isTest, wrap });
 registerApi(app, { auth });
 registerAdSpend(app, { auth, wrap });
 registerReports(app, { auth });

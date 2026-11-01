@@ -9,6 +9,17 @@ import { adminMiddleware, audit } from '../admin-guard.js';
 import { studioReady } from './kie.js';
 import { enqueue, view, tick, tierOk } from './jobs.js';
 import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels } from './models.js';
+import { writeScript, cleanScript, newReel, approveReel, editReel, reelsTick, LENGTHS, CAPTION_IDS } from './reels.js';
+import { PRESETS as CAPTION_STYLES } from './captions.js';
+import { LANGUAGES } from './voice.js';
+import { publicUrl } from './media.js';
+
+// a Reel as the seller sees it: the script, each shot's still and clip, each voiceover line and its check, the result
+const brief = (a) => (a ? { id: a.id, status: a.status, url: a.url || null, poster: a.poster || null, issues: a.qa?.issues || [], error: a.error || '' } : null);
+export function reelView(r) {
+  return { ...view(r), title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null };
+}
+const anyView = (a) => (a.kind === 'reel' ? reelView(a) : view(a));
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 export const studioOn = (u) => !!u?.studio?.on;
@@ -19,7 +30,7 @@ const ownUpload = (userId, url) => {
   return url === `/uploads/${userId}/${m[2]}` || url === publicUrlFor(`uploads/${userId}/${m[2]}`);
 };
 
-export function registerStudio(app, { auth, rateLimit, isTest }) {
+export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 20, key: (req) => req.user.id, message: 'You’re making things quickly — wait a minute and try again.' });
   const gate = (req, res) => {
     if (!studioReady()) { res.status(503).json({ error: 'Studio isn’t switched on for this server yet' }); return false; }
@@ -29,8 +40,9 @@ export function registerStudio(app, { auth, rateLimit, isTest }) {
   const who = (req) => req.actor?.email || null;
 
   app.get('/api/studio', auth, (req, res) => {
-    const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 200 });
-    res.json({ on: studioOn(req.user) && studioReady(), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id] })), aspects: ASPECTS, assets: rows.map(view) });
+    // a Reel's own shots are shown inside the Reel, not again in the gallery
+    const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId).slice(0, 200);
+    res.json({ on: studioOn(req.user) && studioReady(), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id] })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), assets: rows.map(anyView) });
   });
   // images: 1–4 at a time, from words, optionally keeping the seller's real product (their photo as the reference)
   app.post('/api/studio/images', auth, limiter, (req, res) => {
@@ -61,11 +73,55 @@ export function registerStudio(app, { auth, rateLimit, isTest }) {
     res.status(201).json({ asset: view(a) });
   });
   const mine = (req, res) => { const a = T.studio.get(req.params.id); if (!a || a.userId !== req.user.id) { res.status(404).json({ error: 'Not found' }); return null; } return a; };
-  app.get('/api/studio/assets/:id', auth, (req, res) => { const a = mine(req, res); if (a) res.json(view(a)); });
+  app.get('/api/studio/assets/:id', auth, (req, res) => { const a = mine(req, res); if (a) res.json(anyView(a)); });
+
+  // ---------- Reels ----------
+  const scriptLimiter = rateLimit({ windowMs: 3600000, max: isTest ? 1000 : 30, key: (req) => req.user.id, message: 'You’ve written a lot of scripts this hour — try again later.' });
+  // a brief → the script, straight away (the cheap step); nothing is rendered until it's approved
+  app.post('/api/studio/reels', auth, scriptLimiter, wrap(async (req, res) => {
+    if (!gate(req, res)) return;
+    const b = req.body || {}, brief = clip(b.brief, 1500);
+    if (brief.length < 10) return res.status(400).json({ error: 'Tell us what the Reel is about: the product, who it’s for, the offer' });
+    for (const k of ['ref', 'logo']) if (b[k] && !ownUpload(req.user.id, b[k])) return res.status(400).json({ error: 'Pick one of your own pictures' });
+    const seconds = LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30;
+    const business = req.user.settings?.businessName || req.user.name;
+    let script;
+    try { script = await writeScript({ brief, lang: b.lang, seconds, business }); } catch (e) { return res.status(502).json({ error: e.message }); }
+    const sizes = (Array.isArray(b.sizes) ? b.sizes : ['9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
+    const r = newReel(req.user.id, { brief, lang: b.lang, seconds, tier: b.tier, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], script, by: who(req) });
+    res.status(201).json(reelView(r));
+  }));
+  const myReel = (req, res, statuses) => {
+    const r = mine(req, res); if (!r) return null;
+    if (r.kind !== 'reel') { res.status(404).json({ error: 'Not found' }); return null; }
+    if (statuses && !statuses.includes(r.status)) { res.status(409).json({ error: r.status === 'producing' || r.status === 'editing' ? 'It’s still being made' : 'It can’t be changed right now' }); return null; }
+    return r;
+  };
+  app.put('/api/studio/reels/:id/script', auth, (req, res) => {
+    const r = myReel(req, res, ['script_ready']); if (!r) return;
+    const c = cleanScript(req.body?.script);
+    if (c.error) return res.status(400).json(c);
+    res.json(reelView(T.studio.update(r.id, (x) => { x.script = c.script; })));
+  });
+  // the go-ahead: shots and voiceover start (this is where rendering costs begin)
+  app.post('/api/studio/reels/:id/approve', auth, limiter, (req, res) => {
+    if (!gate(req, res)) return;
+    const r = myReel(req, res, ['script_ready']); if (!r) return;
+    const c = req.body?.script ? cleanScript(req.body.script) : { script: r.script };
+    if (c.error) return res.status(400).json(c);
+    res.json(reelView(approveReel(r, c.script)));
+  });
+  // changes after it's made: { captions, sizes, lines: [{ i, text }], shots: [{ i, note }], endCard }
+  app.put('/api/studio/reels/:id', auth, limiter, (req, res) => {
+    if (!gate(req, res)) return;
+    const r = myReel(req, res, ['ready', 'needs_review', 'failed']); if (!r) return;
+    res.json(reelView(editReel(r, req.body || {})));
+  });
   // make it again, with what to change (the note joins the request); a fresh set of attempts
   app.post('/api/studio/assets/:id/redo', auth, limiter, (req, res) => {
     if (!gate(req, res)) return;
     const a = mine(req, res); if (!a) return;
+    if (a.kind === 'reel') return res.status(400).json({ error: 'Change a Reel from its own edit options' });
     if (['queued', 'rendering', 'checking'].includes(a.status)) return res.status(409).json({ error: 'It’s still being made' });
     const note = clip(req.body?.note, 300);
     const x = T.studio.update(a.id, (y) => { y.status = 'queued'; y.attempts = 0; y.notes = note ? [note] : []; y.error = ''; delete y.qa; delete y.doneAt; delete y.taskId; if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); });
@@ -111,5 +167,5 @@ export function registerStudio(app, { auth, rateLimit, isTest }) {
     audit(req, u.id, on ? 'studio_on' : 'studio_off');
     res.json({ on });
   });
-  if (isTest) app.post('/api/__test/studio-tick', async (req, res) => { const n = Number(req.body?.times) || 1; for (let i = 0; i < n; i++) await tick(); res.json({ ok: true }); });
+  if (isTest) app.post('/api/__test/studio-tick', async (req, res) => { const n = Number(req.body?.times) || 1; for (let i = 0; i < n; i++) { await tick(); await reelsTick(); } res.json({ ok: true }); });
 }

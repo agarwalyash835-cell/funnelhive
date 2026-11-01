@@ -15,6 +15,8 @@ export const DEFAULTS = {
   clip: { quick: { model: 'bytedance/seedance-2-mini', resolution: '480p' }, standard: { model: 'bytedance/seedance-2', resolution: '720p' }, cinematic: { model: 'bytedance/seedance-2-5', resolution: '1080p' } },
   // an AI upscaler, when the ffmpeg cleanup isn't enough (paid, optional)
   upscale: { model: 'topaz/video-upscale' },
+  // voiceover: a text-to-speech model and the voice for each choice the seller makes (admin can change the voices)
+  voice: { model: 'elevenlabs/text-to-speech-multilingual-v2', female: 'Rachel', male: 'Adam' },
   // the reviewer that looks at frames and clips (a Gemini model through kie.ai)
   review: { model: 'gemini-2.5-flash' },
 };
@@ -23,7 +25,7 @@ export const DEFAULTS = {
 export function studioModels() {
   const o = platform().studio?.models || {};
   const tierOf = (kind) => Object.fromEntries(TIERS.map((t) => [t, { ...DEFAULTS[kind][t], ...(o[kind]?.[t] || {}) }]));
-  return { image: tierOf('image'), clip: tierOf('clip'), upscale: { ...DEFAULTS.upscale, ...(o.upscale || {}) }, review: { ...DEFAULTS.review, ...(o.review || {}) } };
+  return { image: tierOf('image'), clip: tierOf('clip'), voice: { ...DEFAULTS.voice, ...(o.voice || {}) }, upscale: { ...DEFAULTS.upscale, ...(o.upscale || {}) }, review: { ...DEFAULTS.review, ...(o.review || {}) } };
 }
 export const pick = (kind, tier) => studioModels()[kind][TIERS.includes(tier) ? tier : 'standard'];
 

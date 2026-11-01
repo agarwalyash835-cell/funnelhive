@@ -109,6 +109,8 @@ export async function generateImage(prompt, { aspect = '16:9', format = 'png', t
   throw new Error('The image is taking too long — please try again');
 }
 
+// one question to whichever model is set up → its text (Studio writes Reel scripts with it)
+export const askAI = (system, user, opts) => complete(system, [{ role: 'user', content: user }], opts);
 async function complete(system, messages, { json = true, timeoutMs } = {}) {
   if (KIE_KEY) return kie(system, messages, json, timeoutMs);
   const res = await client.messages.create({ model: MODEL, max_tokens: 8000, system, messages });

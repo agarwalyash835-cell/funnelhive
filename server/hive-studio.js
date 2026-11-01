@@ -6,7 +6,7 @@ const S = (props, required = []) => ({ type: 'object', properties: props, requir
 const str = (description) => ({ type: 'string', description });
 const num = (description) => ({ type: 'number', description });
 const TIER = str('quick (fast drafts) | standard (default) | cinematic (best quality, slowest)');
-const brief = (a) => ({ id: a.id, kind: a.kind, status: a.status, tier: a.tier, url: a.url, poster: a.poster, issues: a.issues, prompt: a.prompt.slice(0, 120) });
+const brief = (a) => ({ id: a.id, kind: a.kind, status: a.status, tier: a.tier, url: a.url, poster: a.poster, issues: a.issues, prompt: a.prompt.slice(0, 120), ...(a.kind === 'reel' ? { title: a.title, links: a.links, shots: a.shots?.map((s) => s.clip?.status || s.image?.status || 'queued'), lines: a.lines?.map((l) => (l.url ? (l.check && !l.check.ok ? 'needs a look' : 'done') : 'pending')) } : {}) });
 
 export const TOOLS = [
   {
@@ -47,9 +47,36 @@ export const TOOLS = [
     run: async (ctx, a) => ({ ok: true, item: brief(await ctx.call('POST', `/studio/assets/${encodeURIComponent(a.id)}/redo`, { note: a.note || '' })) }),
     summary: () => 'Asked Studio to redo it',
   },
+  // ---------- Reels: brief → script (cheap, shown to the seller) → approve → shots + voiceover + edit ----------
+  {
+    name: 'studio_make_reel',
+    description: 'Start a finished vertical ad video (Reel / Short) from a brief: Studio writes the script first — hook, voiceover lines, one shot per line, a closing offer card — and nothing is rendered yet. Show the seller the script (lines and shots), offer changes, then call studio_approve_reel. Ask for the product, the audience and the offer if the brief lacks them. Pass productPhoto (their own uploaded photo) so the real product appears in the shots.',
+    schema: S({ brief: str('What to advertise: product, who it’s for, the offer, the mood'), lang: str('Voiceover language code: en, hi, mr, gu, bn, ta, te, kn, ml, pa, or, ur (default en)'), seconds: num('15, 30 or 45 (default 30)'), tier: TIER, voice: str('female | male'), captions: str('pop | lower | karaoke | minimal (default pop)'), sizes: { type: 'array', items: { type: 'string' }, description: 'Any of 9:16, 1:1, 16:9, 4:5 (default 9:16)' }, productPhoto: str('Optional: URL of their own product photo (/uploads/…)'), logo: str('Optional: URL of their logo (/uploads/…)') }, ['brief']),
+    run: async (ctx, a) => {
+      const r = await ctx.call('POST', '/studio/reels', { brief: a.brief, lang: a.lang || 'en', seconds: a.seconds || 30, tier: a.tier, voice: a.voice, captions: a.captions, sizes: a.sizes, ...(a.productPhoto ? { ref: a.productPhoto } : {}), ...(a.logo ? { logo: a.logo } : {}) });
+      return { ok: true, id: r.id, status: r.status, script: r.script, note: 'Nothing is rendered yet. Show this script to the seller and approve it (with their changes) via studio_approve_reel.' };
+    },
+    summary: (r) => `Wrote a Reel script (${r.script.lines.length} lines, ${r.script.shots.length} shots)`,
+  },
+  {
+    name: 'studio_approve_reel',
+    description: 'Make the Reel from its script (optionally the seller’s edited script: { title, lines: [..], shots: [{ image, motion, seconds }], endCard: { headline, offer, cta } }). Shots and voiceover are made and quality-checked, then edited together with captions — this takes several minutes; say so and check with studio_status.',
+    schema: S({ id: str('The Reel id'), script: { type: 'object', description: 'Optional: the edited script' } }, ['id']),
+    run: async (ctx, a) => ({ ok: true, reel: brief(await ctx.call('POST', `/studio/reels/${encodeURIComponent(a.id)}/approve`, a.script ? { script: a.script } : {})) }),
+    summary: () => 'Started making the Reel',
+  },
+  {
+    name: 'studio_edit_reel',
+    description: 'Change a finished Reel: caption style or colour ({ captions: { style, colour: "#rrggbb" } }), sizes, reword voiceover lines ({ lines: [{ i, text }] }, 0-based), redo shots with a note ({ shots: [{ i, note }] }), or the closing card ({ endCard: { headline, offer, cta } }). Only what changed is redone. A finished Reel’s links (per size) are in studio_status — use those to upload it to an ad with the ads tools once the seller agrees.',
+    schema: S({ id: str('The Reel id'), captions: { type: 'object', description: '{ style, colour }' }, sizes: { type: 'array', items: { type: 'string' } }, lines: { type: 'array', items: { type: 'object' } }, shots: { type: 'array', items: { type: 'object' } }, endCard: { type: 'object' } }, ['id']),
+    run: async (ctx, a) => { const { id, ...b } = a; return { ok: true, reel: brief(await ctx.call('PUT', `/studio/reels/${encodeURIComponent(id)}`, b)) }; },
+    summary: () => 'Changed the Reel',
+  },
 ];
 
-// clips are the costly renders: the seller confirms
+// clips and Reels are the costly renders: the seller confirms
 export const OK = {
   studio_make_clip: (a) => `Make a ${Math.min(15, Math.max(4, Math.round(a.seconds || 5)))}-second ${({ quick: 'Quick', cinematic: 'Cinematic' })[a.tier] || 'Standard'} video clip in Studio`,
+  studio_approve_reel: () => 'Make this Reel: its shots, voiceover and edit',
+  studio_edit_reel: (a) => (a.shots?.length ? `Redo ${a.shots.length} shot${a.shots.length === 1 ? '' : 's'} of the Reel and edit it again` : null),
 };
