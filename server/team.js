@@ -42,7 +42,7 @@ const ANY = /^\/api\/(me(\/menu)?$|team\/(workspaces|switch|leave|accept)$|hive\
 // secrets and account-wide settings: admins only (GET /api/channels itself only says what's connected)
 const SECRET = /^\/api\/(vault\/secrets|settings|lead-sources|voice\/connect|webhooks|keys|adspend\/meta|v1\/hooks|hive\/tokens|channels\/|domains|demo|conversions\/[^/]+\/retry)/;
 const WRITE = {
-  marketer: /^\/api\/(inbox|waflows|wa-agent|vault\/(files|folders|shares)|funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|campaign-templates|voice\/(campaigns|audience|test-call)|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
+  marketer: /^\/api\/(studio|inbox|waflows|wa-agent|vault\/(files|folders|shares)|funnels|templates|saved|uploads|ai\/|hive\/(chat|threads)|coupons|automations|broadcasts|campaign-templates|voice\/(campaigns|audience|test-call)|contacts|pipelines|crm\/|products|calendars|webinars|bookings|school)/,
   sales: /^\/api\/(inbox|vault\/(files|folders|shares)|contacts|pipelines|quotes|orders\/[^/]+\/(fulfil|cod)$|bookings|access-admin|products\/[^/]+\/grant$|school\/(questions|posts|comments|students))/,
   viewer: null,
 };
@@ -85,7 +85,7 @@ const counterAllows = (method, path) => (isRead(method) ? COUNTER_RE.test(path) 
 export const AREAS = [
   { key: 'dashboard', label: 'Dashboard & reports', desc: 'Overview numbers, reports, the activity log and plan usage (read-only)', levels: ['none', 'view'], re: /^\/api\/(analytics|reports|activity|usage|ads\/report)(\/|$)/ },
   { key: 'funnels', label: 'Funnels, templates & pages', desc: 'Build, edit and publish funnels and their pages, saved sections, templates', levels: ALL3, re: /^\/api\/(funnels|templates|saved)(\/|$)/ },
-  { key: 'ai', label: 'Hive AI', desc: 'Chat with Hive and use the AI writing / image tools (Hive still only does what the role allows)', levels: ['none', 'edit'], re: /^\/api\/(hive\/(chat|threads)|ai)(\/|$)/ },
+  { key: 'ai', label: 'Hive AI & Studio', desc: 'Chat with Hive, use the AI writing / image tools and Studio (images and clips); Hive still only does what the role allows', levels: ['none', 'edit'], re: /^\/api\/(hive\/(chat|threads)|ai|studio)(\/|$)/ },
   { key: 'crm', label: 'CRM contacts & pipelines', desc: 'Contacts, notes, tags, deals and pipeline stages, CRM fields and kits', levels: ALL3, re: /^\/api\/(contacts|pipelines|crm)(\/|$)/ },
   { key: 'orders', label: 'Orders, refunds & shipping', desc: 'Orders, refunds, shipping / COD, payment plans, sales invoices and affiliates', levels: ALL3, re: /^\/api\/(orders|sales-invoices|affiliates)(\/|$)/ },
   { key: 'products', label: 'Products & courses (School)', desc: 'Products, files, buyer access, coupons, and the School: courses, community, students', levels: ALL3, re: /^\/api\/(products|coupons|access-admin|school)(\/|$)/ },

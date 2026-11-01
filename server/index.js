@@ -68,6 +68,7 @@ import { registerCod, codCheckoutError, shipError, codPlaced, codToken, codSetti
 import { registerShipping } from './shipping.js';
 import { registerBroadcasts } from './broadcasts.js';
 import { registerDataRequests } from './data-requests.js';
+import { registerStudio, studioOn } from './studio/routes.js';
 import { registerTeam, enterWorkspace, allows, funnelScope, scopeAllows, customPerms, memberRole, canDo, team2faBlocks } from './team.js';
 import { planFor, startSubscription, validSubscription, onSubscriptionEvent, registerPlans, syncStripePlan, needsAfa, AFA_NOTE } from './plans.js';
 import { s3Enabled, putObject, publicUrlFor, presign } from './storage.js';
@@ -530,6 +531,7 @@ app.get('/api/me', auth, (req, res) => {
       calls: T.bookings.count({ userId: req.user.id, status: 'confirmed', start: { gte: Date.now(), lte: Date.now() + 86400000 } }),
       unread: unreadCount(req.user.id), // notifications (the bell)
       industry: s.crmKit?.id || null, // the menu starts from the business's industry (its CRM kit)
+      studio: studioOn(req.user), // Studio (studio/routes.js): switched on per account by the platform
       tally: !!req.user.addons?.tally, // the Tally add-on (tally.js): its page joins the menu
       inventory: !!req.user.addons?.inventory, // the Inventory add-on (inventory.js): its page joins the menu
       prefs: (req.actor || req.user).settings?.navPrefs?.[req.user.id] || null, // this person's own layout here
@@ -1336,6 +1338,7 @@ registerGcal(app, { auth, secret: SECRET, appUrl });
 registerStripeSettings(app, { auth, wrap });
 registerLegal(app, { auth, appUrl });
 registerDataRequests(app, { auth });
+registerStudio(app, { auth, rateLimit, isTest });
 registerApi(app, { auth });
 registerAdSpend(app, { auth, wrap });
 registerReports(app, { auth });

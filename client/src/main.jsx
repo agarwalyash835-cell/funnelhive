@@ -58,6 +58,7 @@ const Webinars = lazy(() => import('./pages/Webinars'));
 const Broadcasts = lazy(() => import('./pages/Broadcasts'));
 const Inbox = lazy(() => import('./pages/Inbox'));
 const Chatbots = lazy(() => import('./pages/Chatbots'));
+const Studio = lazy(() => import('./pages/Studio'));
 const AcceptInvite = named(() => import('./pages/Team'), 'AcceptInvite');
 const Developers = lazy(() => import('./pages/Developers'));
 const Agency = lazy(() => import('./pages/Agency'));
@@ -192,6 +193,7 @@ const app = isSuper ? superApp : onDomain ? (
         <Route path="/chatbots/:id?" element={P(Chatbots)} />
         <Route path="/developers" element={P(Developers)} />
         <Route path="/agency" element={P(Agency)} />
+        <Route path="/studio" element={P(Studio)} />
         <Route path="/webinar/:id" element={L(WebinarJoin)} />
         <Route path="/settings" element={P(Settings)} />
         <Route path="/hive" element={P(Hive)} />

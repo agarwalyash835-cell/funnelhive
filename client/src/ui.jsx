@@ -59,6 +59,7 @@ const PAGES = {
   '/': ['home', 'Dashboard', 'Your numbers at a glance'],
   '/funnels': ['funnel', 'Funnels', 'Build, publish and test your sales funnels'],
   '/hive': ['sparkles', 'Hive AI', 'Ask AI to build, write and analyse for you'],
+  '/studio': ['wand', 'Studio', 'AI images and clips for your ads and pages — each one checked for quality'],
   '/orders': ['cart', 'Orders', 'Sales, refunds, shipping and abandoned checkouts'],
   '/reports': ['chart', 'Reports', 'Revenue, refunds, cohorts and lifetime value'],
   '/ads': ['target', 'Ads', 'Which ads bring leads, calls and sales — spend, ROAS and lifetime value per ad'],
@@ -84,7 +85,7 @@ const PAGES = {
   '/agency': ['layers', 'Agency', 'Client accounts you manage'],
   '/admin': ['shield', 'Admin', 'Platform settings and every account'],
 };
-const GROUPS = [[null, ['/', '/funnels', '/hive']], ['Chat', ['/inbox', '/chatbots']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/store', '/school', '/quotes', '/affiliates', '/tally', '/inventory', '/counter']], ['Audience', ['/contacts', '/vault', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
+const GROUPS = [[null, ['/', '/funnels', '/hive', '/studio']], ['Chat', ['/inbox', '/chatbots']], ['Sell', ['/orders', '/reports', '/ads', '/products', '/store', '/school', '/quotes', '/affiliates', '/tally', '/inventory', '/counter']], ['Audience', ['/contacts', '/vault', '/automations', '/broadcasts']], ['Meet', ['/bookings', '/webinars']]];
 const CORE = ['/', '/funnels', '/hive', '/orders', '/reports', '/ads', '/school', '/contacts', '/vault'];
 const TOOLS = GROUPS.flatMap(([, l]) => l).filter((to) => to !== '/');
 // the everyday menu for each industry (its CRM kit); an agency can set its own for its clients; the rest wait under
@@ -129,13 +130,14 @@ const labelOf = (to, me) => {
 const ACCOUNT = ['/settings', '/billing', '/agency', '/admin'];
 const USED = { '/inbox': 'inbox', '/chatbots': 'inbox', '/products': 'products', '/quotes': 'quotes', '/bookings': 'bookings', '/webinars': 'webinars', '/automations': 'automations', '/broadcasts': 'broadcasts' };
 // which permission areas (custom team roles) open each page
-const PAGE_AREAS = { '/inbox': ['inbox'], '/chatbots': ['inbox'], '/funnels': ['funnels'], '/templates': ['funnels'], '/hive': ['ai'], '/orders': ['orders'], '/reports': ['dashboard'], '/ads': ['ads'], '/products': ['products'], '/store': ['products'], '/school': ['products'], '/quotes': ['quotes'], '/affiliates': ['orders'], '/tally': ['tally'], '/counter': ['tally', 'counter'], '/inventory': ['tally', 'counter'], '/contacts': ['crm'], '/vault': ['files', 'secrets'], '/automations': ['automations'], '/broadcasts': ['broadcasts'], '/bookings': ['bookings'], '/webinars': ['webinars'], '/settings': ['settings', 'team'] };
+const PAGE_AREAS = { '/studio': ['ai'], '/inbox': ['inbox'], '/chatbots': ['inbox'], '/funnels': ['funnels'], '/templates': ['funnels'], '/hive': ['ai'], '/orders': ['orders'], '/reports': ['dashboard'], '/ads': ['ads'], '/products': ['products'], '/store': ['products'], '/school': ['products'], '/quotes': ['quotes'], '/affiliates': ['orders'], '/tally': ['tally'], '/counter': ['tally', 'counter'], '/inventory': ['tally', 'counter'], '/contacts': ['crm'], '/vault': ['files', 'secrets'], '/automations': ['automations'], '/broadcasts': ['broadcasts'], '/bookings': ['bookings'], '/webinars': ['webinars'], '/settings': ['settings', 'team'] };
 const NAV_KEY = 'ff_nav';
 const navLocal = () => { try { return { pinned: [], hidden: [], closed: [], ...JSON.parse(localStorage.getItem(NAV_KEY) || '{}') }; } catch { return { pinned: [], hidden: [], closed: [] }; } };
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
 const allowed = (to, me) => {
   if (to === '/admin') return !!me?.admin && !agencyHost(); // never on an agency's own domain
   if (to === '/tally' && !me?.nav?.tally) return false; // an add-on we switch on per account
+  if (to === '/studio' && !me?.nav?.studio) return false; // switched on per account by the platform
   if ((to === '/inventory' || to === '/counter') && !me?.nav?.inventory) return false;
   // a sub-account (a client of an agency / partner) has no agency tools of its own; its billing page shows its plan
   if (!me?.workspace) return !(to === '/agency' && me?.billing?.agencyManaged) && !(to === '/billing' && me?.billing?.agencyManaged && !me?.billing?.resold);
@@ -150,7 +152,7 @@ const allowed = (to, me) => {
   return to !== '/settings' || ['admin', 'agency'].includes(me.workspace.role);
 };
 // a tool is in the menu when it's an everyday page, you use it, you pinned it, or you're on it — unless you hid it
-const inMenu = (to, me, p, here) => allowed(to, me) && !p.hidden.includes(to) && (everyday(me).includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || (to === '/tally' && !!me?.nav?.tally) || ((to === '/inventory' || to === '/counter') && !!me?.nav?.inventory) || here === to);
+const inMenu = (to, me, p, here) => allowed(to, me) && !p.hidden.includes(to) && (everyday(me).includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || (to === '/tally' && !!me?.nav?.tally) || (to === '/studio' && !!me?.nav?.studio) || ((to === '/inventory' || to === '/counter') && !!me?.nav?.inventory) || here === to);
 const badgeOf = (to, me) => (to === '/orders' && me?.nav?.ship ? [me.nav.ship, t('{n} to ship', { n: me.nav.ship })] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, t(me.nav.calls > 1 ? '{n} calls in the next 24 hours' : '{n} call in the next 24 hours', { n: me.nav.calls })] : null);
 
 function SideNav({ me, onGo }) {

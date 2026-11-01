@@ -102,6 +102,7 @@ const SCHEMA = {
   // one-off email / WhatsApp sends to a segment of contacts, and each recipient's delivery
   // team members: staff invited into a seller's workspace with a role
   members: { cols: { ownerId: 0, userId: 0, email: (m) => lower(m.email), status: 0, at: 0 }, unique: [['ownerId', 'email']], index: [['userId', 'status']] },
+  studio: { cols: { userId: 0, status: 0, at: 0 }, index: [['userId', 'at'], ['status', 'at']] }, // Studio's images and clips, and their queue (studio/jobs.js)
   datarequests: { cols: { userId: 0, status: 0, tokenHash: 0, at: 0 }, index: [['userId', 'at'], ['tokenHash']] }, // buyers' DPDP requests to a seller (data-requests.js)
   roles: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // custom team roles an owner made (a permission per area, team.js)
   adspend: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // ad spend per campaign per day (Meta sync, CSV)
