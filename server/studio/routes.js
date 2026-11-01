@@ -8,14 +8,14 @@ import { publicUrlFor } from '../storage.js';
 import { adminMiddleware, audit } from '../admin-guard.js';
 import { studioReady } from './kie.js';
 import { enqueue, view, tick, tierOk } from './jobs.js';
-import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels } from './models.js';
-import { writeScript, cleanScript, newReel, approveReel, editReel, reelsTick, LENGTHS, CAPTION_IDS } from './reels.js';
+import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample } from './models.js';
+import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, reelsTick, LENGTHS, CAPTION_IDS } from './reels.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
 
 // a Reel as the seller sees it: the script, each shot's still and clip, each voiceover line and its check, the result
-const brief = (a) => (a ? { id: a.id, status: a.status, url: a.url || null, poster: a.poster || null, issues: a.qa?.issues || [], error: a.error || '' } : null);
+const brief = (a) => (a ? view(a) : null);
 export function reelView(r) {
   return { ...view(r), title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null };
 }
@@ -42,7 +42,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.get('/api/studio', auth, (req, res) => {
     // a Reel's own shots are shown inside the Reel, not again in the gallery
     const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId).slice(0, 200);
-    res.json({ on: studioOn(req.user) && studioReady(), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id] })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), assets: rows.map(anyView) });
+    res.json({ on: studioOn(req.user) && studioReady(), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id] })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), assets: rows.map(anyView) });
   });
   // images: 1–4 at a time, from words, optionally keeping the seller's real product (their photo as the reference)
   app.post('/api/studio/images', auth, limiter, (req, res) => {
@@ -110,6 +110,12 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const c = req.body?.script ? cleanScript(req.body.script) : { script: r.script };
     if (c.error) return res.status(400).json(c);
     res.json(reelView(approveReel(r, c.script)));
+  });
+  // a Reel that stopped part-way: redo only what failed
+  app.post('/api/studio/reels/:id/retry', auth, limiter, (req, res) => {
+    if (!gate(req, res)) return;
+    const r = myReel(req, res, ['failed', 'needs_review']); if (!r) return;
+    res.json(reelView(retryReel(r)));
   });
   // changes after it's made: { captions, sizes, lines: [{ i, text }], shots: [{ i, note }], endCard }
   app.put('/api/studio/reels/:id', auth, limiter, (req, res) => {

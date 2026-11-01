@@ -33,7 +33,7 @@ before(async () => {
       if (url.pathname.startsWith('/files/')) return res.end(fs.readFileSync(path.join(tmp, url.pathname.slice(7))));
       if (url.pathname === '/speech-to-text') return send(heardQueue.shift() || timed(LINES.join(' ')));
       if (url.pathname === '/openai/v1/responses') return send({ output: [{ type: 'message', content: [{ text: JSON.stringify(SCRIPT) }] }] });
-      if (url.pathname.startsWith('/gemini/')) return send([{ candidates: [{ content: { parts: [{ text: JSON.stringify({ product_match: 9, text_ok: 9, anatomy_ok: 10, matches_brief: 9, consistency: 9, safe: true, issues: [], fix: '' }) }] } }] }]);
+      if (url.pathname === '/gemini-3-8-flash-openai/v1/chat/completions') return send({ choices: [{ message: { content: JSON.stringify({ product_match: 9, text_ok: 9, anatomy_ok: 10, matches_brief: 9, consistency: 9, safe: true, issues: [], fix: '' }) } }] });
       if (url.pathname === '/api/v1/jobs/createTask') { const body = JSON.parse(b); created.push(body); return send({ code: 200, data: { taskId: `t${created.length - 1}` } }); }
       if (url.pathname === '/api/v1/jobs/recordInfo') {
         const t = created[Number(url.searchParams.get('taskId').slice(1))];
@@ -91,7 +91,7 @@ test('approved: shots and voiceover are made and checked (a misread price is red
   assert.ok(r.lines.every((l) => l.url && l.check?.ok));
   const tts = created.filter((c) => /elevenlabs/.test(c.model));
   assert.equal(tts.length, 4, 'three lines, one redone');
-  assert.equal(tts[0].input.voice, 'Rachel');
+  assert.equal(tts[0].input.voice, '2zRM7PkgwBPiau2jvVXc', 'a voice id from the provider’s list');
   assert.equal(tts[1].input.previous_text, LINES[0], 'each line knows its neighbours, so the delivery flows');
   // shots: still, then a clip from it, in order
   assert.equal(created.filter((c) => c.model === 'nano-banana-2').length, 2);

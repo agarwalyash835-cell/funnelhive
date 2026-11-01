@@ -42,11 +42,11 @@ before(async () => {
         const file = /seedance|kling|veo/.test(t.body.model) ? 'clip.mp4' : 'image.png';
         return send({ code: 200, data: { state: 'success', resultJson: JSON.stringify({ resultUrls: [`http://127.0.0.1:${fake.address().port}/files/${file}`] }) } });
       }
-      if (url.pathname.startsWith('/gemini/v1/models/')) {
-        const body = JSON.parse(b);
-        reviews.push({ model: url.pathname.split('/')[4].split(':')[0], images: body.contents[0].parts.filter((p) => p.inlineData).length, prompt: body.contents[0].parts[0].text });
+      if (url.pathname === '/gemini-3-8-flash-openai/v1/chat/completions') {
+        const parts = JSON.parse(b).messages[0].content;
+        reviews.push({ model: 'gemini-3-8-flash-openai', images: parts.filter((p) => p.type === 'image_url').length, prompt: parts[0].text });
         const v = reviewPlan.shift() || PASS;
-        return send([{ candidates: [{ content: { parts: [{ text: JSON.stringify(v) }] } }] }]);
+        return send({ choices: [{ message: { content: JSON.stringify(v) } }] });
       }
       res.writeHead(404); res.end('{}');
     });

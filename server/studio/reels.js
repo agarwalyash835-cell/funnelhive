@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import { T, q, JOBS } from '../db.js';
 import { askAI } from '../ai.js';
-import { studioModels, TIERS, ASPECTS } from './models.js';
+import { studioModels, TIERS, ASPECTS, voiceId } from './models.js';
 import { runTask, studioReady } from './kie.js';
 import { enqueue } from './jobs.js';
 import { localCopy, save, rm, ffmpeg, tmpFile, probe } from './media.js';
@@ -50,7 +50,7 @@ export async function writeScript({ brief, lang, seconds, business }) {
 
 // ---------- start, approve ----------
 export function newReel(userId, o) {
-  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', prompt: o.brief, aspect: '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: o.voice === 'male' ? 'male' : 'female', captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', prompt: o.brief, aspect: '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken
 export function approveReel(r, script) {
@@ -71,6 +71,12 @@ async function produce(r) {
     return { ...s, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, prompt: s.motion || s.image, aspect: r.aspect, seconds: s.seconds, ref: img.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
   });
   if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
+  // a shot that couldn't be made even after its retries: stop with the reason (the seller can Retry), don't wait forever
+  const lost = r.shots.findIndex((s) => T.studio.get(s.imageId)?.status === 'failed' || (s.clipId && T.studio.get(s.clipId)?.status === 'failed'));
+  if (lost >= 0) {
+    const a = T.studio.get(r.shots[lost].clipId) || T.studio.get(r.shots[lost].imageId);
+    return T.studio.update(r.id, (x) => { x.status = 'failed'; x.error = `Shot ${lost + 1} couldn’t be made${a?.error ? ` — ${a.error}` : ''}`; x.doneAt = Date.now(); });
+  }
   // one voiceover line per step
   const i = r.lines.findIndex((l) => !l.url && l.tries < MAX_LINE_TRIES);
   if (i >= 0) return voiceLine(r, i);
@@ -82,7 +88,7 @@ async function voiceLine(r, i) {
   const usage = (u) => T.studio.update(r.id, (x) => { x.usage = [...(x.usage || []), { kind: 'voice', model: u.model, chars: u.chars, at: Date.now() }]; });
   let file;
   try {
-    file = await makeLine({ text: line.text, lang: r.lang, voice: m[r.voice] || m.female, model: m.model, dict: r.dict, settings: { before: r.lines[i - 1]?.text || '', after: r.lines[i + 1]?.text || '' } }, { runTask, onUsage: usage });
+    file = await makeLine({ text: line.text, lang: r.lang, voice: voiceId(r.voice), model: m.model, dict: r.dict, settings: { before: r.lines[i - 1]?.text || '', after: r.lines[i + 1]?.text || '' } }, { runTask, onUsage: usage });
     const tr = transcriber();
     const check = tr ? await checkLine({ text: line.text, file, lang: r.lang, brands: r.brands }, { transcribe: tr }).catch((e) => { console.error('voice check failed', e.message); return null; }) : null;
     const tries = line.tries + 1;
@@ -163,6 +169,21 @@ async function edit(r) {
     console.error('reel edit failed', r.id, e.message, e.detail || '');
     T.studio.update(r.id, (x) => { x.editTries = (x.editTries || 0) + 1; if (x.editTries >= 2) { x.status = 'failed'; x.error = 'The video couldn’t be put together — try again'; x.doneAt = Date.now(); } });
   } finally { rm(...temp); }
+}
+
+// ---------- retry: a Reel that stopped (a shot or a line that couldn't be made, or the edit) carries on ----------
+// Only what failed is done again: failed shots go back in the queue, lines with no voice get fresh tries, and a Reel
+// whose parts are all there is edited again.
+export function retryReel(r) {
+  for (const s of r.shots || []) for (const id of [s.imageId, s.clipId]) {
+    const a = id && T.studio.get(id);
+    if (a?.status === 'failed') T.studio.update(a.id, (y) => { y.status = 'queued'; y.attempts = 0; y.error = ''; delete y.taskId; delete y.doneAt; });
+  }
+  return T.studio.update(r.id, (x) => {
+    x.lines = (x.lines || []).map((l) => (l.url ? l : { ...l, tries: 0, error: '' }));
+    const ready = x.lines.every((l) => l.url) && (x.shots || []).every((s) => ['ready', 'needs_review'].includes(T.studio.get(s.clipId)?.status));
+    x.status = ready ? 'editing' : 'producing'; x.editTries = 0; delete x.error; delete x.doneAt;
+  });
 }
 
 // ---------- changes after it's made (from the Studio page or Hive) ----------

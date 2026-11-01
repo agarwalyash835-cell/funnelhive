@@ -34,7 +34,7 @@ export async function measureClip(file, expect = {}) {
   const blacks = [...a.err.matchAll(/black_duration:([\d.]+)/g)].map((m) => Number(m[1]));
   const freezes = [...a.err.matchAll(/freeze_duration:\s*([\d.]+)/g)].map((m) => Number(m[1]));
   // a single generated shot shouldn't cut: big jumps mid-clip are glitches
-  const s = await ffmpeg(['-i', file, '-an', '-vf', "select='gt(scene,0.45)',metadata=print", '-f', 'null', '-'], { timeoutMs: 240000 });
+  const s = await ffmpeg(['-i', file, '-an', '-vf', "select='gt(scene,0.6)',metadata=print", '-f', 'null', '-'], { timeoutMs: 240000 });
   const jumps = (s.err.match(/lavfi\.scene_score=/g) || []).length;
   const m = { width: p.width, height: p.height, seconds: Math.round(p.seconds * 10) / 10, fps: p.fps, black: Math.round(blacks.reduce((x, y) => x + y, 0) * 10) / 10, frozen: Math.round(freezes.reduce((x, y) => x + y, 0) * 10) / 10, jumps, blur: mean(a.err, 'blur'), blockiness: mean(a.err, 'block') };
   if (expect.height && Math.min(p.width, p.height) + 8 < expect.height) issues.push(`Rendered smaller than ordered (${Math.min(p.width, p.height)}p instead of ${expect.height}p)`);
@@ -59,9 +59,9 @@ Score each from 0 (bad) to 10 (perfect) and answer only JSON:
  "fix": "one sentence telling the image/video model what to do differently next time, or empty"}`;
 
 export async function review(kind, { brief, items, reference }) {
-  const model = studioModels().review.model;
+  const { model, fallback } = studioModels().review;
   const images = [...(reference ? [reference] : []), ...items];
-  const v = await reviewWith(model, { prompt: `${CHECKS(kind, !!reference)}\n\nWhat was asked: ${String(brief || '').slice(0, 1500)}`, images });
+  const v = await reviewWith([model, fallback], { prompt: `${CHECKS(kind, !!reference)}\n\nWhat was asked: ${String(brief || '').slice(0, 1500)}`, images });
   if (!v) return null; // the reviewer is unavailable: measured checks only
   const scores = ['product_match', 'text_ok', 'anatomy_ok', 'matches_brief', 'consistency'].map((k) => v[k]).filter((x) => typeof x === 'number');
   const score = scores.length ? Math.min(...scores) : null;

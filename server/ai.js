@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { similarTemplates, allTemplates, matchTemplate, parsePrompt } from './templates.js';
 import { audit, enforce, barText, blueprintOf, qualityBar, trimTemplate } from './quality.js';
 import { uid } from './db.js';
+import { isOutOfCredit, outOfCredit, PAUSED } from './kie-credit.js';
 import { PAGE_STYLES, STYLE_HINTS, variantsText } from './page-styles.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
@@ -36,7 +37,11 @@ async function kie(system, messages, json, timeoutMs = TIMEOUT) {
   const text = pick(d);
   // kie.ai reports some errors with HTTP 200 and { code, msg }
   // the provider's details go to the server log only — sellers see FunnelHive's AI, never the vendor or model
-  if (!r.ok || !text) { console.error('AI request failed:', m, d.msg || d.error?.message || `HTTP ${r.status}`); throw new Error('The AI is busy right now — please try again in a minute'); }
+  if (!r.ok || !text) {
+    console.error('AI request failed:', m, d.msg || d.error?.message || `HTTP ${r.status}`);
+    if (isOutOfCredit(r.status, d)) { outOfCredit('AI writing'); throw new Error(PAUSED); }
+    throw new Error('The AI is busy right now — please try again in a minute');
+  }
   return text;
 }
 // Hive AI: raw Responses-API call with tool definitions (kie.ai models other than Claude / Gemini)
@@ -59,6 +64,8 @@ export async function kieResponses({ instructions, input, tools, signal, retries
       r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${KIE_KEY}`, 'Content-Type': 'application/json' }, body, signal: sig });
       d = await r.json().catch(() => ({}));
       if (r.ok && Array.isArray(d.output)) return d;
+      // an empty platform balance: no retrying, a plain message, and the admins are told
+      if (isOutOfCredit(r.status, d)) { outOfCredit('Hive AI'); throw new Error(PAUSED); }
       err = new Error(`AI service: ${d.msg || d.error?.message || `HTTP ${r.status}`}`);
     } catch (e) { if (signal?.aborted) throw e; err = e; }
     const again = !r || RETRY_STATUS.has(r.status);
@@ -85,7 +92,11 @@ export async function generateImage(prompt, { aspect = '16:9', format = 'png', t
   });
   const cd = await c.json().catch(() => ({}));
   const taskId = cd?.data?.taskId;
-  if (!c.ok || cd.code !== 200 || !taskId) throw new Error(`AI image service: ${cd.msg || `HTTP ${c.status}`}`);
+  if (!c.ok || cd.code !== 200 || !taskId) {
+    console.error('AI image refused:', IMAGE_MODEL, cd.code, cd.msg || `HTTP ${c.status}`);
+    if (isOutOfCredit(c.status, cd)) { outOfCredit('AI images'); throw new Error(PAUSED); }
+    throw new Error('The image couldn’t be started — please try again');
+  }
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
     await sleep(pollMs);

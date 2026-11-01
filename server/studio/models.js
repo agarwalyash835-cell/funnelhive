@@ -15,11 +15,28 @@ export const DEFAULTS = {
   clip: { quick: { model: 'bytedance/seedance-2-mini', resolution: '480p' }, standard: { model: 'bytedance/seedance-2', resolution: '720p' }, cinematic: { model: 'bytedance/seedance-2-5', resolution: '1080p' } },
   // an AI upscaler, when the ffmpeg cleanup isn't enough (paid, optional)
   upscale: { model: 'topaz/video-upscale' },
-  // voiceover: a text-to-speech model and the voice for each choice the seller makes (admin can change the voices)
-  voice: { model: 'elevenlabs/text-to-speech-multilingual-v2', female: 'Rachel', male: 'Adam' },
-  // the reviewer that looks at frames and clips (a Gemini model through kie.ai)
-  review: { model: 'gemini-2.5-flash' },
+  // voiceover: a text-to-speech model; the voice is an id from VOICES (kie.ai accepts only ids from its list)
+  voice: { model: 'elevenlabs/text-to-speech-multilingual-v2', female: '2zRM7PkgwBPiau2jvVXc', male: 'P1bg08DkjqiVEzOn76yG' },
+  // the reviewer that looks at frames and clips: tried in order, the first that answers wins
+  review: { model: 'gemini-3-8-flash-openai', fallback: 'gpt-6-sol' },
 };
+
+// voices a seller can pick (kie.ai's ElevenLabs ids, docs read 2026-11-01), with a short sample each. Labels only —
+// sellers never see the vendor. Indian voices first.
+export const VOICES = [
+  { id: '2zRM7PkgwBPiau2jvVXc', name: 'Monika', note: 'Female · Indian · warm', gender: 'female' },
+  { id: 'Sm1seazb4gs7RSlUVw7c', name: 'Anika', note: 'Female · Indian · bright', gender: 'female' },
+  { id: 'P1bg08DkjqiVEzOn76yG', name: 'Viraj', note: 'Male · Indian · confident', gender: 'male' },
+  { id: '1U02n4nD6AdIZ9CjF053', name: 'Viraj Smooth', note: 'Male · Indian · smooth', gender: 'male' },
+  { id: 'qDuRKMlYmrm8trt5QyBn', name: 'Taksh', note: 'Male · Indian · energetic', gender: 'male' },
+  { id: 'FGY2WhTYpPnrIDTdsKH5', name: 'Laura', note: 'Female · American · upbeat', gender: 'female' },
+  { id: 'TC0Zp7WVFzhA8zpTlRqV', name: 'Aria', note: 'Female · American · expressive', gender: 'female' },
+  { id: 'nPczCjzI2devNBz1zQrb', name: 'Brian', note: 'Male · American · deep', gender: 'male' },
+  { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam', note: 'Male · American · friendly', gender: 'male' },
+];
+export const voiceSample = (id) => `https://static.aiquickdraw.com/elevenlabs/voice/${id}.mp3`;
+// a seller's choice → a voice id: a listed id, else the default for 'female' / 'male'
+export const voiceId = (choice) => (VOICES.some((v) => v.id === choice) ? choice : studioModels().voice[choice === 'male' ? 'male' : 'female']);
 
 // the settings in force: admin overrides on top of the defaults, kind → tier → { model, resolution }
 export function studioModels() {

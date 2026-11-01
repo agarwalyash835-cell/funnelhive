@@ -7,13 +7,18 @@ const KEY = () => process.env.KIE_API_KEY || '';
 export const studioReady = () => !!KEY();
 const auth = () => ({ Authorization: `Bearer ${KEY()}` });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+import { isOutOfCredit, outOfCredit, PAUSED } from '../kie-credit.js';
 
 export async function startTask({ model, input }) {
   if (!KEY()) throw new Error('Studio isn’t switched on for this server yet');
   const r = await fetch(`${BASE()}/api/v1/jobs/createTask`, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: JSON.stringify({ model, input }), signal: AbortSignal.timeout(30000) });
   const d = await r.json().catch(() => ({}));
   // kie.ai reports errors as HTTP 200 with a non-200 code
-  if (!r.ok || d.code !== 200 || !d.data?.taskId) { console.error('studio task refused:', model, d.code, d.msg || `HTTP ${r.status}`); throw new Error(d.code === 402 || /credit|balance/i.test(d.msg || '') ? 'Studio is out of rendering credit — the platform has been told' : 'The AI couldn’t start this — please try again'); }
+  if (!r.ok || d.code !== 200 || !d.data?.taskId) {
+    console.error('studio task refused:', model, d.code, d.msg || `HTTP ${r.status}`);
+    if (isOutOfCredit(r.status, d)) { outOfCredit('Studio'); throw Object.assign(new Error(PAUSED), { paused: true }); }
+    throw new Error('The AI couldn’t start this — please try again');
+  }
   return d.data.taskId;
 }
 // → { state: waiting|queuing|generating|success|fail, urls, failMsg }
@@ -40,13 +45,30 @@ export async function runTask({ model, input, timeoutMs = 600000, pollMs = 4000 
   throw new Error('This is taking too long — please try again');
 }
 
-// ---------- the reviewer: a Gemini model through kie.ai, shown pictures, answering in JSON ----------
-export async function reviewWith(model, { prompt, images = [] }) {
+// ---------- the reviewer: a vision model through kie.ai, shown pictures, answering in JSON ----------
+// Two documented routes: Gemini's OpenAI-style chat (the model is in the path, e.g. gemini-3-8-flash-openai) and the
+// OpenAI Responses route (gpt-… models), which explicitly takes pictures as data URLs. The first that answers wins; when
+// none can, the measured checks decide alone (logged, never shown to sellers).
+const dataUrl = (b) => `data:${b.type || 'image/jpeg'};base64,${b.buf.toString('base64')}`;
+const unfence = (t) => String(t).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+async function askVision(model, prompt, images) {
+  const gpt = /^gpt-/.test(model);
+  const url = gpt ? `${BASE()}/codex/v1/responses` : `${BASE()}/${model}/v1/chat/completions`;
+  const body = gpt
+    ? { model, stream: false, reasoning: { effort: 'low' }, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }, ...images.map((b) => ({ type: 'input_image', image_url: dataUrl(b) }))] }] }
+    : { stream: false, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, ...images.map((b) => ({ type: 'image_url', image_url: { url: dataUrl(b) } }))] }] };
+  let r, d = {};
+  try {
+    r = await fetch(url, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(120000) });
+    d = await r.json().catch(() => ({}));
+  } catch (e) { console.error('studio review failed:', model, e.message); return null; }
+  if (isOutOfCredit(r.status, d)) { outOfCredit('Studio reviewer'); return null; }
+  const text = gpt ? (d.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('') : d.choices?.[0]?.message?.content || '';
+  if (!text) { console.error('studio review failed:', model, d.code ?? r.status, String(d.msg || d.error?.message || '').slice(0, 160)); return null; }
+  try { return JSON.parse(unfence(text)); } catch { console.error('studio review: not JSON', model); return null; }
+}
+export async function reviewWith(models, { prompt, images = [] }) {
   if (!KEY()) return null;
-  const parts = [{ text: prompt }, ...images.map((b) => ({ inlineData: { mimeType: b.type || 'image/jpeg', data: b.buf.toString('base64') } }))];
-  const r = await fetch(`${BASE()}/gemini/v1/models/${model}:streamGenerateContent`, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: JSON.stringify({ stream: false, contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }), signal: AbortSignal.timeout(90000) }).catch(() => null);
-  const d = r ? await r.json().catch(() => ({})) : {};
-  const text = (Array.isArray(d) ? d : [d]).flatMap((c) => c?.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('');
-  if (!text) { console.error('studio review failed:', model, d?.msg || d?.error?.message || (r ? `HTTP ${r.status}` : 'no answer')); return null; }
-  try { return JSON.parse(text.replace(/^```(json)?|```$/g, '').trim()); } catch { return null; }
+  for (const m of [].concat(models).filter(Boolean)) { const v = await askVision(m, prompt, images); if (v) return v; }
+  return null;
 }

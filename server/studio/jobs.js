@@ -27,7 +27,7 @@ function promptFor(a) {
   return [a.prompt, a.kind === 'clip' ? KEEP_CLIP : a.ref ? KEEP_PRODUCT : 'Photorealistic. No added text, words, logos or watermarks.', notes.length ? `Avoid this time: ${notes.join(' ')}` : ''].filter(Boolean).join('\n').slice(0, 4000);
 }
 
-export const view = (a) => ({ id: a.id, kind: a.kind, tier: a.tier, prompt: a.prompt, aspect: a.aspect, seconds: a.seconds || null, status: a.status, url: a.url || null, poster: a.poster || null, ref: a.ref || null, sourceId: a.sourceId || null, issues: a.qa?.issues || [], score: a.qa?.score ?? null, enhanced: !!a.enhanced, attempts: a.attempts || 0, error: a.error || '', at: a.at, doneAt: a.doneAt || null, by: a.by || null });
+export const view = (a) => ({ id: a.id, kind: a.kind, tier: a.tier, prompt: a.prompt, aspect: a.aspect, seconds: a.seconds || null, status: a.status, url: a.url || null, poster: a.poster || null, ref: a.ref || null, sourceId: a.sourceId || null, issues: a.qa?.issues || [], score: a.qa?.score ?? null, enhanced: !!a.enhanced, measured: a.qa?.measured ? { width: a.qa.measured.width, height: a.qa.measured.height, seconds: a.qa.measured.seconds ?? null } : null, reviewed: !!a.qa?.reviewed, attempts: a.attempts || 0, error: a.error || '', at: a.at, doneAt: a.doneAt || null, by: a.by || null });
 
 export function enqueue(userId, a) {
   const row = { id: uid(), userId, status: 'queued', attempts: 0, notes: [], usage: [], at: Date.now(), ...a };
