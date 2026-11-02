@@ -522,7 +522,12 @@ export function registerHiveWhatsApp(app, { auth, wrap, rateLimit, isTest, appUr
       if (apiKey) Object.assign(h, { apiKeyEnc: encrypt(apiKey), keyPrefix: clip(me?.prefix, 24) || apiKey.slice(0, 12), mode: apiKey.startsWith('hk_live_') ? 'live' : 'test', workspaceId: clip(me?.workspace_id, 80), origin: h.origin || appUrl(req) });
       if (apiKey && !prev.apiKeyEnc) w.provider = 'hive'; // connecting Hive switches to it
       Object.assign(h, { from, fromLabel, fromId, notifyPhone });
-      if (from !== prev.from && prev.from) { h.templates = {}; delete h.quality; } // another number has its own templates
+      // another number has its own templates; clearing the number keeps them, so choosing the same one again picks up
+      // where it was (lastFrom: the number they belong to)
+      const was = prev.from || prev.lastFrom;
+      if (from && was && from !== was) { h.templates = {}; delete h.quality; }
+      if (!from && prev.from) h.lastFrom = prev.from;
+      else if (from) delete h.lastFrom;
       if (['hive', 'meta'].includes(b.provider)) w.provider = b.provider;
       if (b.events && typeof b.events === 'object') { h.events = { ...h.events }; for (const k of Object.keys(TEMPLATES)) if (typeof b.events[k] === 'boolean') h.events[k] = b.events[k]; }
       if ('abandonedReminder' in b) { if (b.abandonedReminder && !h.abandonedReminder) h.abandonedSince = Date.now(); h.abandonedReminder = !!b.abandonedReminder; }

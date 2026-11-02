@@ -178,7 +178,12 @@ function HiveWhatsApp({ onChange }) {
       {h.hasKey && <>
         <div className="form2">
           <label>WhatsApp number
-            <select value={h.from} onChange={(e) => save({ from: e.target.value }, 'Number saved')} disabled={!numbers}>
+            <select value={h.from} onChange={async (e) => {
+              const from = e.target.value;
+              // clearing the number stops every WhatsApp message — never on a stray pick
+              if (!from && !(await confirmDialog({ title: 'Remove your WhatsApp number?', text: 'Receipts, booking and shipping messages stop going out until you choose it again.', confirm: 'Remove number', danger: true }))) return;
+              save({ from }, from ? 'Number saved' : 'Number removed — WhatsApp messages are off');
+            }} disabled={!numbers}>
               <option value="">{numbers ? (numbers.length ? 'Choose your number…' : 'No numbers connected in Hive') : 'Loading…'}</option>
               {(numbers || []).map((n) => <option key={n.id} value={n.phone_number_id || n.display || n.id}>{n.display}{n.quality ? ` · quality ${n.quality}` : ''}</option>)}
               {h.from && numbers && !numbers.some((n) => [n.id, n.display, n.phone_number_id].includes(h.from)) && <option value={h.from}>{h.fromLabel || h.from}</option>}
@@ -186,6 +191,7 @@ function HiveWhatsApp({ onChange }) {
           <label>Your own WhatsApp <small className="muted">· for new order &amp; booking alerts</small>
             <div className="row"><input type="tel" value={mine} onChange={(e) => setMine(e.target.value)} placeholder="+91 98765 43210" /><button className="btn ghost" disabled={!!busy} onClick={() => save({ notifyPhone: mine }, mine ? 'Alerts will come to this number' : 'Alerts turned off')}>Save</button></div></label>
         </div>
+        {!h.from && numbers?.length > 0 && <p className="hint warn">WhatsApp is off — no messages go out until you choose your number above.</p>}
         {h.quality && <p className="muted sm">Number quality: <span className={`pill ${q?.[0] || 'info'}`}>{q?.[1] || h.quality.rating}</span>{h.quality.limit && <> · messaging limit {h.quality.limit}</>}{h.quality.at && <> · updated {when(h.quality.at)}</>}</p>}
 
         <div className="rzp-hook">

@@ -194,6 +194,14 @@ test('templates: the standard set is submitted (existing ones skipped) and appro
   assert.ok(refreshed.templates.every((t) => t.status === 'APPROVED'));
 });
 
+test('removing the number and choosing the same one again keeps its approved templates', async () => {
+  const off = (await api('/channels/whatsapp/hive', 'PUT', { from: '' }, T)).data;
+  assert.equal(off.configured, false);
+  const back = (await api('/channels/whatsapp/hive', 'PUT', { from: '1111' }, T)).data;
+  assert.equal(back.configured, true);
+  assert.ok(back.templates.every((t) => t.status === 'APPROVED'), JSON.stringify(back.templates.map((t) => t.status)));
+});
+
 test('checkout: a WhatsApp number is required; the order sends fh_order_receipt with an Idempotency-Key, and the seller an alert', async () => {
   const pub = (await api(`/public/${f.slug}`)).data;
   assert.equal(pub.waRequired, true);
