@@ -2890,3 +2890,9 @@ a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
 .team-2fa { margin-top: 12px; }
 /* the skin dialog's light / dark switch */
 .sk-mode { gap: 10px; margin: 0 0 12px; }
+/* a password box with a show / hide button inside it */
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 42px; }
+.pw-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border: 0; border-radius: 8px; background: none; color: var(--c-muted); display: grid; place-items: center; padding: 0; }
+.pw-eye:hover { color: var(--c-ink); background: var(--c-surface-2); }
+.pw-eye:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }

@@ -2,7 +2,7 @@
 // the logins swap, the old owner stays on the team as an Admin, and everyone is signed out.
 import { useState } from 'react';
 import { api, setToken } from '../api';
-import { Modal, toast } from '../ui';
+import { Modal, toast, PasswordInput } from '../ui';
 
 export function Owner({ m, needCode, onClose }) {
   const [v, setV] = useState({ password: '', code: '', confirm: '' });
@@ -27,7 +27,7 @@ export function Owner({ m, needCode, onClose }) {
           <li>You stay on the team as an <b>Admin</b> and sign in with your usual email and password.</li>
           <li>Everyone is signed out once. You can’t undo this yourself — only the new owner can hand it back.</li>
         </ul>
-        <label>Your password<input type="password" autoComplete="current-password" value={v.password} onChange={(e) => setV({ ...v, password: e.target.value })} /></label>
+        <label>Your password<PasswordInput autoComplete="current-password" value={v.password} onChange={(e) => setV({ ...v, password: e.target.value })} /></label>
         {needCode && <label>2-step code<input inputMode="numeric" autoComplete="one-time-code" placeholder="123456" value={v.code} onChange={(e) => setV({ ...v, code: e.target.value })} /></label>}
         <label>Type <b>TRANSFER</b> to confirm<input value={v.confirm} onChange={(e) => setV({ ...v, confirm: e.target.value })} /></label>
         <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn danger" disabled={busy || !v.password || v.confirm.trim().toUpperCase() !== 'TRANSFER' || (needCode && v.code.length < 6)} onClick={go}>{busy ? 'Handing over…' : 'Make them the owner'}</button></div>

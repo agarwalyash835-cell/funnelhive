@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, setToken } from '../api';
-import { Panel, Icon, toast, ago } from '../ui';
+import { Panel, Icon, toast, ago, PasswordInput } from '../ui';
 
 // the setup as a QR code for Google Authenticator / Authy / Microsoft Authenticator (drawn in the browser — the key never leaves it)
 function TfaQr({ url }) {
@@ -31,8 +31,8 @@ export default function SecurityPanel({ me, onChange }) {
   return (
     <div id="security"><Panel title="Security" actions={<span className={`pill ${me?.twoFactor ? 'ok' : 'warn'}`}>{me?.twoFactor ? '2-step on' : '2-step off'}</span>}>
       <form className="form2" onSubmit={changePw}>
-        <label>Current password<input type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} /></label>
-        <label>New password<input type="password" minLength={8} autoComplete="new-password" placeholder="At least 8 characters" value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} /></label>
+        <label>Current password<PasswordInput autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} /></label>
+        <label>New password<PasswordInput minLength={8} autoComplete="new-password" placeholder="At least 8 characters" value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} /></label>
         <button className="btn ghost" disabled={!pw.current || pw.password.length < 8}>Change password</button>
       </form>
       <div className="tfa">

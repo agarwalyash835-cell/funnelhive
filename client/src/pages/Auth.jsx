@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, setToken } from '../api';
-import { Icon } from '../ui';
+import { Icon, PasswordInput } from '../ui';
 import { agencyHost } from '../agencyHost';
 import { isAgencyTier, appUrl } from '../tier';
 
@@ -41,7 +41,9 @@ const nextPath = () => { const n = new URLSearchParams(location.search).get('nex
 export default function Auth({ admin = false }) {
   const ag = admin ? null : agencyHost();
   // on an agency's domain: log in first; signing up only where the server allows it there (/api/site signupsOpen)
-  const [mode, setMode] = useState(() => (admin || ag || isAgencyTier || new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register'));
+  // ?mode=forgot opens the reset form (the admin address sends its admins here to reset)
+  const asked = new URLSearchParams(location.search).get('mode');
+  const [mode, setMode] = useState(() => (asked === 'forgot' && !admin ? 'forgot' : admin || ag || isAgencyTier || asked === 'login' ? 'login' : 'register'));
   const [canSignUp, setCanSignUp] = useState(!ag && !admin && !isAgencyTier);
   useEffect(() => { if (ag) fetch('/api/site').then((r) => r.json()).then((s) => setCanSignUp(!!s.signupsOpen)).catch(() => {}); }, []);
   const [f, setF] = useState({ name: '', email: new URLSearchParams(location.search).get('email') || '', password: '', code: '' });
@@ -131,8 +133,11 @@ export default function Auth({ admin = false }) {
             {mode === 'register' && <label>Your name<input placeholder="Priya Sharma" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>}
             <label>Email<input type="email" required autoComplete="email" placeholder="you@business.in" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
             {mode !== 'forgot' && (
-              <label><span className="lbl-row">Password{mode === 'login' && !admin && <a onClick={() => go('forgot')}>Forgot password?</a>}</span>
-                <input type="password" required minLength={mode === 'login' ? undefined : 8} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder={mode === 'login' ? 'Your password' : 'At least 8 characters'} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
+              <label><span className="lbl-row">Password{mode === 'login' && (admin
+                // the admin address only signs in: an admin resets on the app address (same account, same password)
+                ? <a href={`${appUrl}/login?mode=forgot${f.email ? `&email=${encodeURIComponent(f.email)}` : ''}`}>Forgot password?</a>
+                : <a onClick={() => go('forgot')}>Forgot password?</a>)}</span>
+                <PasswordInput required minLength={mode === 'login' ? undefined : 8} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder={mode === 'login' ? 'Your password' : 'At least 8 characters'} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
             )}
             {mode === 'register' && <input className="hp" name="fh_hp_extra" id="fh_hp_extra" tabIndex={-1} autoComplete="off" aria-hidden="true" data-lpignore="true" data-1p-ignore="true" value={f.website || ''} onChange={(e) => setF({ ...f, website: e.target.value })} />}
             {mode === 'register' && tsKey && <div ref={tsBox} className="ts-box" />}

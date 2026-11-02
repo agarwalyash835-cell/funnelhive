@@ -8,13 +8,13 @@ import SkinPicker from './skinPicker';
 import { isSuper } from './tier';
 import { agencyHost } from './agencyHost';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
-import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft } from 'lucide-react';
+import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, EyeOff, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft } from 'lucide-react';
 
 // One icon set everywhere: Lucide (ISC licence), the same line icons as the page builder's sections and the CRM's
 // industry styles. The names are FunnelHive's own, so screens ask for "cart" or "bot" and get the Lucide drawing.
 const ICONS = {
   home: House, funnel: Funnel, layout: LayoutTemplate, chart: ChartLine, target: Target, users: Users, cart: ShoppingCart, sparkles: Sparkles, settings: Settings,
-  plus: Plus, search: Search, eye: Eye, copy: Copy, trash: Trash2, edit: Pencil, external: ExternalLink, undo: Undo2, redo: Redo2, desktop: Monitor, tablet: Tablet,
+  plus: Plus, search: Search, eye: Eye, eyeOff: EyeOff, copy: Copy, trash: Trash2, edit: Pencil, external: ExternalLink, undo: Undo2, redo: Redo2, desktop: Monitor, tablet: Tablet,
   mobile: Smartphone, send: Send, grip: GripVertical, download: Download, check: Check, x: X, flow: Workflow, logout: LogOut, bolt: Zap, tag: Tag, link: Link2,
   globe: Globe, menu: Menu, chevron: ChevronRight, split: Split, layers: Layers, palette: Palette, wand: WandSparkles, wallet: Wallet, play: Play, clock: Clock,
   clip: ClipboardList, bookmark: Bookmark, shield: ShieldCheck, card: CreditCard, box: Box, refund: RotateCcw, mail: Mail, phone: Phone, receipt: Receipt,
@@ -24,6 +24,17 @@ export const Icon = ({ name, size = 18, stroke = 1.75, className = '' }) => {
   const C = ICONS[name] || Zap;
   return <C size={size} strokeWidth={stroke === 2 ? 1.75 : stroke} className={`ic-svg ${className}`} aria-hidden="true" />;
 };
+
+// a password box with a show / hide button (sign-in, reset, change password); the rest passes to the <input>
+export function PasswordInput({ className = '', ...props }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className={`pw-wrap ${className}`}>
+      <input {...props} type={show ? 'text' : 'password'} />
+      <button type="button" className="pw-eye" aria-label={show ? 'Hide password' : 'Show password'} title={show ? 'Hide password' : 'Show password'} aria-pressed={show} onClick={() => setShow((v) => !v)}><Icon name={show ? 'eyeOff' : 'eye'} size={17} /></button>
+    </span>
+  );
+}
 
 export const inr = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 export const num = (n) => Math.round(Number(n) || 0).toLocaleString('en-IN');
