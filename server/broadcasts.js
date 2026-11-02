@@ -11,7 +11,7 @@ import { fill, emailTracking } from './automations.js';
 import { sellerTz, zoned, localYmd } from './tz.js';
 import { accessFor } from './billing.js';
 import { limitsFor } from './limits.js';
-import { waOptedOut } from './hive-wa.js';
+import { waOptedOut, waNumber } from './hive-wa.js';
 const sharedCap = (u) => Math.min(SHARED_DAILY, limitsFor(u).broadcastDaily ?? Infinity);
 
 const TICK = Number(process.env.BROADCAST_TICK_MS || 5000);
@@ -41,10 +41,41 @@ export function cleanSegment(s = {}, userId) {
   if (fb && fb.userId === userId && RETARGET[s.from.who]) out.from = { broadcastId: fb.id, who: s.from.who };
   return out;
 }
-// who a follow-up goes to (opens and clicks are tracked for email only)
-export const RETARGET = { all: 'Everyone it reached', not_opened: 'Didn’t open it', opened: 'Opened it', not_clicked: 'Didn’t click a link', clicked: 'Clicked a link', failed: 'Didn’t receive it (failed)' };
+// who a follow-up goes to: opens and clicks for email; read and replied for WhatsApp
+export const RETARGET = { all: 'Everyone it reached', not_opened: 'Didn’t open it', opened: 'Opened it', not_clicked: 'Didn’t click a link', clicked: 'Clicked a link', not_read: 'Didn’t read it', read_no_reply: 'Read it but didn’t reply', failed: 'Didn’t receive it (failed)' };
+const FOR = { email: ['all', 'not_opened', 'opened', 'not_clicked', 'clicked', 'failed'], whatsapp: ['all', 'not_read', 'read_no_reply', 'failed'] };
+
+// a WhatsApp broadcast, contact by contact, from the receipts WhatsApp sends back (hive-wa.js keeps them on the
+// message, keyed bc:<broadcast>:<contact>) and the inbox: delivered, read, replied (wrote in within 7 days of it
+// reaching them — a reply counts as read too, as read receipts can be off), or not delivered after all
+function waResults(b) {
+  const lo = `bc:${b.id}:`;
+  const recs = new Map(q('SELECT data FROM wamsgs WHERE userId = ? AND ikey >= ? AND ikey < ?').all(b.userId, lo, `bc:${b.id};`).map((r) => { const m = JSON.parse(r.data); return [m.ikey.slice(lo.length), m]; }));
+  const reply = q("SELECT 1 FROM wachat WHERE convId = ? AND at > ? AND at < ? AND json_extract(data, '$.dir') = 'in' LIMIT 1");
+  const out = new Map();
+  for (const s of T.bsends.all({ broadcastId: b.id, status: 'sent' })) {
+    const m = recs.get(s.key), st = m?.status, from = m?.sentAt || s.sentAt || b.startedAt || 0;
+    const num = waNumber(s.phone), conv = num && T.waconvs.find({ userId: b.userId, num });
+    const replied = !!conv && !!reply.get(conv.id, from, from + 7 * DAY);
+    const failed = st === 'failed' && !replied;
+    out.set(s.key, { delivered: !failed && (replied || st === 'delivered' || st === 'read'), read: replied || st === 'read', replied, failed, error: failed ? m.error || 'Not delivered' : '' });
+  }
+  return out;
+}
+function waSummary(b) {
+  const r = [...waResults(b).values()], n = (k) => r.filter((x) => x[k]).length;
+  // why messages didn't arrive: the send itself failing, or WhatsApp reporting it later
+  const why = new Map();
+  for (const e of [...T.bsends.all({ broadcastId: b.id, status: 'failed' }).map((x) => x.error || 'Not sent'), ...r.filter((x) => x.failed).map((x) => x.error)]) why.set(e, (why.get(e) || 0) + 1);
+  return { sent: r.length, delivered: n('delivered'), read: n('read'), replied: n('replied'), notDelivered: n('failed'), reasons: [...why].sort((a, z) => z[1] - a[1]).slice(0, 5).map(([reason, count]) => ({ reason, count })) };
+}
 function retargetKeys(from) {
   const rows = T.bsends.all({ broadcastId: from.broadcastId });
+  const fb = T.broadcasts.get(from.broadcastId);
+  if (fb?.channel === 'whatsapp' && ['not_read', 'read_no_reply', 'failed'].includes(from.who)) {
+    const r = waResults(fb), pick = { not_read: (x) => !x.read && !x.failed, read_no_reply: (x) => x.read && !x.replied, failed: (x) => x.failed }[from.who];
+    return new Set([...[...r].filter(([, x]) => pick(x)).map(([k]) => k), ...(from.who === 'failed' ? rows.filter((x) => x.status === 'failed').map((x) => x.key) : [])]);
+  }
   if (from.who === 'failed') return new Set(rows.filter((r) => r.status === 'failed').map((r) => r.key));
   const sent = rows.filter((r) => r.status === 'sent').map((r) => r.key);
   if (from.who === 'all') return new Set(sent);
@@ -259,7 +290,7 @@ export function registerBroadcasts(app, { auth, rateLimit, isTest }) {
     const b = own(req, res); if (!b) return;
     const failed = T.bsends.all({ broadcastId: b.id, status: 'failed' }, { limit: 200 }).map((s) => ({ name: s.name, email: s.email, phone: s.phone, error: s.error }));
     const from = b.segment?.from && T.broadcasts.get(b.segment.from.broadcastId);
-    res.json({ ...view(b), audience: ['draft', 'scheduled'].includes(b.status) ? summary(req.user.id, b) : null, failed, sales: campaignSales(b), followsUp: from ? { id: from.id, name: from.name, who: RETARGET[b.segment.from.who] } : null });
+    res.json({ ...view(b), audience: ['draft', 'scheduled'].includes(b.status) ? summary(req.user.id, b) : null, failed, sales: campaignSales(b), waResults: b.channel === 'whatsapp' && b.startedAt ? waSummary(b) : null, followsUp: from ? { id: from.id, name: from.name, who: RETARGET[b.segment.from.who] } : null });
   });
   app.put('/api/broadcasts/:bid', auth, (req, res) => {
     const b = own(req, res); if (!b) return;
@@ -275,7 +306,7 @@ export function registerBroadcasts(app, { auth, rateLimit, isTest }) {
     const b = own(req, res); if (!b) return;
     if (!['sending', 'sent', 'cancelled'].includes(b.status)) return res.status(400).json({ error: 'Send it first — then follow up' });
     const who = String(req.body?.who || 'all');
-    if (!RETARGET[who] || (b.channel !== 'email' && !['all', 'failed'].includes(who))) return res.status(400).json({ error: b.channel === 'email' ? 'Pick who to follow up with' : 'WhatsApp follow-ups go to everyone it reached, or those it failed to reach' });
+    if (!RETARGET[who] || !(FOR[b.channel] || ['all', 'failed']).includes(who)) return res.status(400).json({ error: b.channel === 'whatsapp' ? 'For WhatsApp, follow up with everyone it reached, those who didn’t read it, those who read it but didn’t reply, or those it didn’t reach' : 'Pick who to follow up with' });
     const x = clean({}, req.user.id, b);
     const n = T.broadcasts.insert({ id: uid(), userId: req.user.id, ...x, name: `${b.name} — follow-up`.slice(0, 100), segment: { type: 'all', tags: [], notTags: [], from: { broadcastId: b.id, who } }, status: 'draft', stats: {}, at: Date.now() });
     res.json({ ...view(n), audience: summary(req.user.id, n) });

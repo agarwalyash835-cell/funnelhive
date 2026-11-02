@@ -10,7 +10,9 @@ const VARS = ['first_name', 'name', 'email', 'phone', 'business'];
 const when = (t) => new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 export const localInput = (t) => new Date(t - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-const FOLLOW = { all: 'Everyone it reached', not_opened: 'Didn’t open it', not_clicked: 'Didn’t click a link', opened: 'Opened it', clicked: 'Clicked a link', failed: 'Didn’t receive it' };
+const FOLLOW = { all: 'Everyone it reached', not_opened: 'Didn’t open it', not_clicked: 'Didn’t click a link', opened: 'Opened it', clicked: 'Clicked a link', not_read: 'Didn’t read it', read_no_reply: 'Read it but didn’t reply', failed: 'Didn’t receive it' };
+// which follow-ups each channel can do (WhatsApp tells us delivered / read; replies come into the inbox)
+const FOLLOW_FOR = { email: ['all', 'not_opened', 'not_clicked', 'opened', 'clicked', 'failed'], whatsapp: ['all', 'not_read', 'read_no_reply', 'failed'] };
 const TABS = [['all', 'All'], ['whatsapp', 'WhatsApp'], ['email', 'Email'], ['calls', 'AI calls']];
 
 // /campaigns (and /broadcasts): WhatsApp and email campaigns, and AI calling campaigns
@@ -124,7 +126,20 @@ function Editor({ b, meta, funnels, onBack, onChange, onOpen }) {
         </div>
       </div>
 
-      {s.total != null && (
+      {s.total != null && b.channel === 'whatsapp' && detail?.waResults && (() => { const w = detail.waResults; return (
+        <>
+          <div className="kpis k4">
+            <div className="kpi"><span className="kpi-l">Sent</span><b className="kpi-v">{num(w.sent)}</b><small>of {num(s.total)} recipients{s.skipped > 0 ? ` · ${num(s.skipped)} skipped` : ''}</small>{s.mm > 0 && <small className="bc-mm-note">{s.mm === s.sent ? 'All' : num(s.mm)} sent via Marketing Messages API</small>}</div>
+            <div className="kpi"><span className="kpi-l">Delivered</span><b className="kpi-v">{pct(w.delivered, w.sent)}</b><small>{num(w.delivered)} people{w.notDelivered + (s.failed || 0) > 0 ? ` · ${num(w.notDelivered + (s.failed || 0))} didn’t get it` : ''}</small></div>
+            <div className="kpi"><span className="kpi-l">Read</span><b className="kpi-v">{pct(w.read, w.sent)}</b><small>{num(w.read)} people</small></div>
+            <div className="kpi"><span className="kpi-l">Replied</span><b className="kpi-v">{pct(w.replied, w.sent)}</b><small>{num(w.replied)} people · within 7 days</small></div>
+            {detail?.sales && <div className="kpi"><span className="kpi-l">Sales it brought</span><b className="kpi-v">{inr(detail.sales.revenue)}</b><small>{num(detail.sales.orders)} order{detail.sales.orders === 1 ? '' : 's'} by {num(detail.sales.buyers)} recipient{detail.sales.buyers === 1 ? '' : 's'} · within 7 days</small></div>}
+          </div>
+          {w.reasons.length > 0 && <p className="muted sm">Why some didn’t get it: {w.reasons.map((r) => `${r.reason} (${num(r.count)})`).join(' · ')}</p>}
+          <p className="muted sm">Delivered and read come from WhatsApp’s receipts and keep updating for a few days; people who turned read receipts off count as read once they reply.</p>
+        </>
+      ); })()}
+      {s.total != null && !(b.channel === 'whatsapp' && detail?.waResults) && (
         <div className="kpis k4">
           <div className="kpi"><span className="kpi-l">Recipients</span><b className="kpi-v">{num(s.total)}</b>{s.skipped > 0 && <small>{num(s.skipped)} skipped</small>}</div>
           <div className="kpi"><span className="kpi-l">Delivered</span><b className="kpi-v">{num(s.sent)}</b>{s.failed > 0 && <small>{num(s.failed)} failed</small>}{s.mm > 0 && <small className="bc-mm-note">{s.mm === s.sent ? 'All' : num(s.mm)} sent via Marketing Messages API</small>}</div>
@@ -134,7 +149,7 @@ function Editor({ b, meta, funnels, onBack, onChange, onOpen }) {
         </div>
       )}
       {locked && b.status !== 'scheduled' && (
-        <div className="note-bar camp-follow"><b>Follow up:</b>{Object.entries(FOLLOW).filter(([k]) => (b.channel === 'email' ? true : ['all', 'failed'].includes(k)) && (k !== 'failed' || s.failed > 0)).map(([k, l]) => (
+        <div className="note-bar camp-follow"><b>Follow up:</b>{Object.entries(FOLLOW).filter(([k]) => (FOLLOW_FOR[b.channel] || ['all', 'failed']).includes(k) && (k !== 'failed' || s.failed > 0 || detail?.waResults?.notDelivered > 0)).map(([k, l]) => (
           <button key={k} className="btn ghost sm" disabled={busy} onClick={() => run(async () => { const n = await api(`/broadcasts/${b.id}/retarget`, 'POST', { who: k }); await onChange(); onOpen?.(n.id); toast(`Follow-up draft ready — ${num(n.audience?.reach || 0)} people`); })}>{l}</button>
         ))}</div>
       )}
