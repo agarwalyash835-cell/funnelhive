@@ -136,7 +136,7 @@ function assertImportOk(xml, expectedAction) {
 }
 
 function ledgersListEnvelope(companyName) {
-  const vars = `${companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : ""}${asOfTodayVars()}`;
+  const vars = `${companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : ""}`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ENVELOPE>
   <HEADER>
@@ -293,7 +293,7 @@ function vouchersListEnvelope(companyName, dateRange = {}, fetch = VOUCHER_COLLE
 }
 
 function stockItemsListEnvelope(companyName) {
-  const vars = `${companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : ""}${asOfTodayVars()}`;
+  const vars = `${companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : ""}`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ENVELOPE>
   <HEADER>
@@ -421,15 +421,6 @@ function productReleaseEnvelope() {
 const TALLY_HTTP_TIMEOUT_MS = 120000;
 
 /** 1 April of the financial year containing `date` (Indian financial year), as YYYYMMDD. */
-// Closing balances and stock come out for the period Tally has loaded, which can end before today (live-verified: a
-// sale made today left the item's closing stock unchanged) — so the master lists ask for this financial year to today.
-function todayYmd(date = new Date()) {
-  return new Date(date.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10).replace(/-/g, "");
-}
-function asOfTodayVars() {
-  return `<SVFROMDATE>${financialYearStartYmd()}</SVFROMDATE><SVTODATE>${todayYmd()}</SVTODATE>`;
-}
-
 function financialYearStartYmd(date = new Date()) {
   const ist = new Date(date.getTime() + 5.5 * 3600 * 1000);
   const year = ist.getUTCMonth() + 1 >= 4 ? ist.getUTCFullYear() : ist.getUTCFullYear() - 1;
