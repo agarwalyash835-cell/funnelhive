@@ -981,7 +981,7 @@ function TestPhone({ f, onNode }) {
 }
 
 // ---------- the AI agent ----------
-const pickA = (x) => ({ on: x.on, auto: x.auto, name: x.name, role: x.role, tone: x.tone, knowledge: x.knowledge, faqs: x.faqs, capture: x.capture, handoff: x.handoff });
+const pickA = (x) => ({ on: x.on, auto: x.auto, name: x.name, role: x.role, tone: x.tone, knowledge: x.knowledge, faqs: x.faqs, capture: x.capture, handoff: x.handoff, buttons: x.buttons });
 const TONES = [['friendly', 'Friendly'], ['professional', 'Professional'], ['fun', 'Fun & lively'], ['calm', 'Calm & caring']];
 function Agent() {
   const [a, setA] = useState(null);
@@ -1041,6 +1041,7 @@ function Agent() {
             <div className="sm strong">Tone<div className="tones" style={{ marginTop: 6 }}>{TONES.map(([k, l]) => <button key={k} className={a.tone === k ? 'on' : ''} onClick={() => setA({ ...a, tone: k })}>{l}</button>)}</div></div>
             <label className="tog"><input type="checkbox" checked={a.auto} onChange={(e) => setA({ ...a, auto: e.target.checked })} /><span />Answer new chats automatically <small className="muted">· off: only when a chatbot or your team hands a chat to it</small></label>
             <label className="tog"><input type="checkbox" checked={a.capture} onChange={(e) => setA({ ...a, capture: e.target.checked })} /><span />Ask for their name and email (saved on the contact)</label>
+            <label className="tog"><input type="checkbox" checked={!!a.buttons} onChange={(e) => setA({ ...a, buttons: e.target.checked })} /><span />Offer tap-to-reply buttons under its answers <small className="muted">· off: it chats in plain messages, like a person</small></label>
           </div>
         </Panel>
         <Panel title="What it knows">

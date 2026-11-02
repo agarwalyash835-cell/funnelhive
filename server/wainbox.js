@@ -154,7 +154,7 @@ const transcriptOf = (convId, n = 24) => T.wachat.all({ convId }, { order: 'at',
 const TONES = ['friendly', 'professional', 'fun', 'calm'];
 export function agentOf(u) {
   const a = u?.waAgent || {};
-  return { on: !!a.on, auto: a.auto !== false, name: a.name || 'Asha', role: a.role || 'assistant', tone: TONES.includes(a.tone) ? a.tone : 'friendly', knowledge: a.knowledge || '', faqs: arr(a.faqs), capture: a.capture !== false, handoff: a.handoff || '', welcome: a.welcome || '' };
+  return { on: !!a.on, auto: a.auto !== false, name: a.name || 'Asha', role: a.role || 'assistant', tone: TONES.includes(a.tone) ? a.tone : 'friendly', knowledge: a.knowledge || '', faqs: arr(a.faqs), capture: a.capture !== false, handoff: a.handoff || '', welcome: a.welcome || '', buttons: !!a.buttons };
 }
 function cleanAgent(b = {}, cur = {}) {
   const out = { ...cur };
@@ -168,6 +168,8 @@ function cleanAgent(b = {}, cur = {}) {
   if ('capture' in b) out.capture = !!b.capture;
   if ('handoff' in b) out.handoff = clip(b.handoff, 1000);
   if ('welcome' in b) out.welcome = clip(b.welcome, 500);
+  // quick-reply buttons under its answers: off by default, so it reads like a person typing
+  if ('buttons' in b) out.buttons = !!b.buttons;
   return out;
 }
 const agentOn = (u) => agentOf(u).on && aiEnabled();
@@ -181,7 +183,7 @@ async function agentAnswer(u, transcript, extra = '', ctx = {}) {
   const docsBlock = knowledgeBlock(found);
   const system = `You are ${a.name}, the WhatsApp assistant (${a.role}) for "${bizName(u)}". Your tone is ${a.tone}.
 Reply in the customer's own language and script (English, Hindi, Hinglish, Tamil, Marathi…) — match how they write.
-WhatsApp style: short (1–4 sentences, under 600 characters), warm and human, one question at a time, *bold* only for a key word or price, no headings, tables or long lists. Prices in ₹.
+WhatsApp style: short (1–4 sentences, under 600 characters), warm and human, one question at a time, *bold* only for a key word or price, no headings, tables or long lists. Prices in ₹.${a.buttons ? '' : '\nWrite like a person typing on WhatsApp: ask in words, never a numbered menu of options ("reply 1 for…").'}
 Use ONLY the business knowledge below for facts (prices, timings, policies, links, addresses). Never invent a price, discount, date or promise. Share a link from the knowledge when it helps the customer act (buy, book, register).
 If you don't know, or the customer needs something only a person can do (a custom quote, a complaint, a refund or payment problem, an upset customer, or they ask for a person), set "handoff": true and tell them a team member will reply here shortly.
 ${a.capture ? 'When it fits naturally, ask for their name (and email if useful) so the team can follow up — once, never pushy.' : ''}
@@ -197,11 +199,11 @@ ${ctx.profile ? 'Use what you know about this customer (below) naturally — gre
 BUSINESS KNOWLEDGE
 ${knowledgeOf(u) || '(nothing written yet — answer only general questions and hand over the rest)'}
 ${docsBlock ? `\n${docsBlock}\n` : ''}${ctx.shop ? `\n${shopBlock(ctx.shop)}\n` : ''}${ctx.profile ? `\nTHIS CUSTOMER\n${ctx.profile}\n` : ''}
-Return ONLY JSON: {"reply":"your WhatsApp message","buttons":["up to 3 short quick-reply options, each under 20 characters — only when they help"],"handoff":false,"reason":"why a person is needed, when handoff is true","intent":"pricing | booking | purchase | support | complaint | other","lead":{"name":"","email":""},"send":["document ids to attach"],${ctx.shop ? '"products":["P1"],' : ''}"facts":["new lasting facts about the customer from their latest messages — budget, preferences, family, location, dates; [] if none"]}`;
+Return ONLY JSON: {"reply":"your WhatsApp message",${a.buttons ? '"buttons":["up to 3 short quick-reply options, each under 20 characters — only when they help"],' : ''}"handoff":false,"reason":"why a person is needed, when handoff is true","intent":"pricing | booking | purchase | support | complaint | other","lead":{"name":"","email":""},"send":["document ids to attach"],${ctx.shop ? '"products":["P1"],' : ''}"facts":["new lasting facts about the customer from their latest messages — budget, preferences, family, location, dates; [] if none"]}`;
   const r = await aiJson(system, `The conversation so far:\n${transcript}\n\nWrite your reply to the customer's last message.`);
   const offered = new Set(found.docs.map((d) => d.id));
   return {
-    reply: clip(String(r?.reply ?? '').replace(/\s*\(P\d{1,2}\)|\bP\d{1,2}:\s*/g, ''), 1500), buttons: arr(r?.buttons).map((x) => clipWords(x, 20)).filter(Boolean).slice(0, 3), handoff: !!r?.handoff, reason: clip(r?.reason, 200),
+    reply: clip(String(r?.reply ?? '').replace(/\s*\(P\d{1,2}\)|\bP\d{1,2}:\s*/g, ''), 1500), buttons: a.buttons ? arr(r?.buttons).map((x) => clipWords(x, 20)).filter(Boolean).slice(0, 3) : [], handoff: !!r?.handoff, reason: clip(r?.reason, 200),
     intent: clip(r?.intent, 20).toLowerCase(), lead: { name: clip(r?.lead?.name, 80), email: clip(r?.lead?.email, 160).toLowerCase() },
     // [{ id, pages? }] — only documents it was offered, at most two
     send: arr(r?.send).map((x) => (typeof x === 'object' && x ? { id: String(x.id || ''), pages: arr(x.pages).map(Number).filter((p) => Number.isInteger(p) && p > 0).slice(0, 10) } : { id: String(x), pages: [] }))

@@ -227,9 +227,20 @@ test('the AI agent answers from the business knowledge, shares links, and hands 
   await say(num, 'What is the price?');
   await waitFor(() => sentTo(num).length === 1);
   const m = sentTo(num)[0];
-  assert.equal(m.type, 'interactive', 'quick replies come as buttons');
-  assert.match(m.interactive.body, /₹1,999/);
+  // buttons are off by default: it reads like a person typing, and the AI isn't asked for any
+  assert.equal(m.type, 'text', 'a plain message by default');
+  assert.match(m.text.body, /₹1,999/);
   const call = ai.calls.findLast((x) => x.sys.includes('WhatsApp assistant'));
+  assert.ok(!call.sys.includes('quick-reply options'), 'no buttons asked for');
+  assert.match(call.sys, /never a numbered menu/);
+  // switched on in its settings: the same answer comes with its quick replies as buttons
+  assert.equal((await api('/wa-agent', 'PUT', { buttons: true }, T)).data.buttons, true);
+  const num2 = '919700000014';
+  await say(num2, 'What is the price?');
+  await waitFor(() => sentTo(num2).length === 1);
+  assert.equal(sentTo(num2)[0].type, 'interactive', 'quick replies come as buttons');
+  assert.match(sentTo(num2)[0].interactive.body, /₹1,999/);
+  assert.ok(ai.calls.findLast((x) => x.sys.includes('WhatsApp assistant')).sys.includes('quick-reply options'));
   assert.match(call.sys, /Yoga for Beginners: ₹1,999/, 'the seller’s knowledge is in the prompt');
   assert.match(call.sys, /Q: Timings\?\nA: 7 am and 7 pm/);
   assert.ok(!/kie|deepseek/i.test(JSON.stringify((await detail((await convOf(num)).id)))), 'no AI vendor is shown');

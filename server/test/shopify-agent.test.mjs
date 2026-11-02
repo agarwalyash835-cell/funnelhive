@@ -104,7 +104,7 @@ test('the agent profile Shopify reads: catalogue and cart, never checkout', asyn
 });
 
 test('the WhatsApp agent recommends live products as cards with a Buy now button — never one that’s out of stock', async () => {
-  assert.equal((await api('/wa-agent', 'PUT', { on: true, name: 'Riya', tone: 'friendly', knowledge: 'Kurtas for women. Delivery across India.' }, T)).status, 200);
+  assert.equal((await api('/wa-agent', 'PUT', { on: true, name: 'Riya', tone: 'friendly', knowledge: 'Kurtas for women. Delivery across India.', buttons: true }, T)).status, 200);
   fake.reply = { reply: 'We have a lovely indigo cotton kurta (P1) for *₹1,299* 😊', buttons: ['Show me more kurtas please'], products: ['P1', 'P2', 'P9'], handoff: false, intent: 'purchase' };
   await say('919700000011', 'blue kurta under 1500?');
   await waitFor(() => sentTo('919700000011').length >= 2);
