@@ -260,6 +260,16 @@ test('the MCP reads units and godowns and makes every kind of change, e.g. renam
   assert.ok(c, 'queued for the PC');
   assert.equal(c.payload.new_name, 'Back Store');
   assert.equal(c.payload.name, 'Warehouse');
+  // emptying a field: connectors before 1.1.3 drop "" and Tally keeps the value while saying "altered" — refused, with what to do
+  const clear = () => api('/tally/commands', 'POST', { type: 'ALTER_GODOWN', payload: { record_id: wh.id, name: 'Warehouse', address: '' } }, T);
+  const old = await clear();
+  assert.equal(old.status, 409);
+  assert.match(old.data.error, /Removing the address needs the FunnelHive Tally Connector 1\.1\.3/);
+  await agent('/heartbeat', 'POST', { agent_id: agentId, tally_status: 'ONLINE', company_loaded: true, company_name: COMPANY.name, company_guid: COMPANY.tally_guid, app_version: '1.1.3' });
+  const ok = await clear();
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal(ok.data.payload.address, '', 'sent as an emptied field');
+  await agent('/heartbeat', 'POST', { agent_id: agentId, tally_status: 'ONLINE', company_loaded: true, company_name: COMPANY.name, company_guid: COMPANY.tally_guid, app_version: '1.1.2' });
 });
 
 test('the PC must be online with the company open; a disconnected PC stops working', async () => {

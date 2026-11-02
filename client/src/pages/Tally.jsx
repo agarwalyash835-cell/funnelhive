@@ -127,6 +127,8 @@ function PcBar({ agent, online, onConnect }) {
 function ConnectPC({ s, onDone, compact }) {
   const [code, setCode] = useState(null);
   const get = async () => { try { setCode(await api('/tally/connect-code', 'POST')); } catch (e) { toast(e.message); } };
+  // "Connect another PC": the code is what they came for, so it's there straight away
+  useEffect(() => { if (compact) get(); }, []);
   // the connector is connected once a PC appears
   useEffect(() => { if (!code) return undefined; const t = setInterval(async () => { const x = await api('/tally').catch(() => null); if (x?.agents?.length > (s.agents?.length || 0)) { toast('Your PC is connected'); onDone(); } }, 4000); return () => clearInterval(t); }, [code]);
   const copy = () => navigator.clipboard?.writeText(code.code).then(() => toast('Code copied'), () => {});
@@ -711,6 +713,9 @@ function StockItemForm({ row, onClose, onDone }) {
 const changes = (start, v, row) => {
   const out = { record_id: row.id, name: row.name };
   for (const [k, x] of Object.entries(v)) if (k !== 'name' && String(x ?? '') !== String(start[k] ?? '')) out[k] = k === 'credit_period_days' || k === 'decimal_places' ? (x === '' ? undefined : Number(x)) : x;
+  // a ledger's address, state and PIN go to Tally as one mailing block: a change to one sends the others as they are
+  const MAIL = ['address', 'state', 'pincode'];
+  if (MAIL.every((k) => k in start) && MAIL.some((k) => k in out)) for (const k of MAIL) if (!(k in out) && v[k]) out[k] = v[k];
   if (v.name.trim() && v.name.trim() !== row.name) out.new_name = v.name.trim();
   return out;
 };

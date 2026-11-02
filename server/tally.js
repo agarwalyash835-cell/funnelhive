@@ -598,6 +598,10 @@ export function queueCommand(userId, type, payload = {}, { by = 'user', byId = n
     if (company) { resolveOffset(company, type, p); applyGst(company, type, p); splitAgainstBills(company, type, p); }
     // connectors before 1.1.2 ignore the tax lines and would save the voucher without GST
     if (p.taxes?.length && semverLt(agent.app_version, '1.1.2')) fail(409, 'Update the FunnelHive Tally Connector on your PC to save GST vouchers — download the latest from the Tally page and install it over the old one');
+    // an emptied field ("" in an edit): connectors before 1.1.3 leave it out, and Tally keeps the old value while
+    // answering "altered" — refuse rather than report a change that didn't happen
+    const emptied = /^ALTER_(LEDGER|STOCK_ITEM|UNIT|GODOWN)$/.test(type) && Object.entries(p).filter(([k, v]) => v === '' && !['name', 'new_name'].includes(k)).map(([k]) => k.replace(/_/g, ' '));
+    if (emptied?.length && semverLt(agent.app_version, '1.1.3')) fail(409, `Removing the ${emptied.join(', ')} needs the FunnelHive Tally Connector 1.1.3 — install the latest from Tally → Connect another PC over the old one, or remove it in TallyPrime itself`);
     if (company && !p.company_guid) Object.assign(p, { company_guid: company.tally_guid, company_name: company.name });
   }
   if (VOUCHER_CREATE.has(type)) { p.remote_id ||= crypto.randomUUID(); p.voucher_source ||= 'CRM'; }

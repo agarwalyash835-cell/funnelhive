@@ -429,22 +429,37 @@ function financialYearStartYmd(date = new Date()) {
  * directly under <LEDGER> are accepted and then silently dropped (verified live: the ledger kept an empty list), which is
  * why an address written through the agent could never be read back.
  */
+// Fields an edit may empty ("" in the payload, never just left out), per command, and the key the read-back finds
+// them under in the parsed export (null = the export doesn't carry it, so it isn't checked).
+const CLEARABLE = {
+  ALTER_GODOWN: { address: "address", parent: "parent" },
+  ALTER_LEDGER: { email: "email", phone: "phone", gstin: null, credit_period_days: "credit_period_days", address: "address", state: "state", pincode: "pincode" },
+  ALTER_STOCK_ITEM: { category: "category", parent: "parent" },
+  ALTER_UNIT: { formal_name: "formal_name" },
+};
+const clearedKeys = (type, payload) => Object.keys(CLEARABLE[type] || {}).filter((k) => payload[k] === "");
+// an emptied parent is Tally's root group; an emptied address is a one-line blank list (Tally replaces the list)
+const PRIMARY = "&#4; Primary";
+const EMPTY_ADDRESS = '<ADDRESS.LIST TYPE="String"><ADDRESS></ADDRESS></ADDRESS.LIST>';
+const isCleared = (v) => v == null || String(v).trim() === "" || /^(\u0004|&#4;)?\s*primary$/i.test(String(v).trim());
+
 function ledgerMailingDetailsXml(payload) {
   const lines = String(payload.address ?? "")
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const has = lines.length || payload.mailing_name || payload.state || payload.country || payload.pincode;
+  const clearing = ["address", "state", "pincode"].some((k) => payload[k] === "");
+  const has = lines.length || payload.mailing_name || payload.state || payload.country || payload.pincode || clearing;
   if (!has) return "";
   const from = String(payload.mailing_applicable_from || financialYearStartYmd()).replace(/-/g, "");
   return [
     "<LEDMAILINGDETAILS.LIST>",
-    lines.length ? `  <ADDRESS.LIST TYPE="String">${lines.map((l) => `<ADDRESS>${escapeXml(l)}</ADDRESS>`).join("")}</ADDRESS.LIST>` : "",
+    lines.length ? `  <ADDRESS.LIST TYPE="String">${lines.map((l) => `<ADDRESS>${escapeXml(l)}</ADDRESS>`).join("")}</ADDRESS.LIST>` : payload.address === "" ? `  ${EMPTY_ADDRESS}` : "",
     `  <APPLICABLEFROM>${escapeXml(from)}</APPLICABLEFROM>`,
     payload.mailing_name ? `  <MAILINGNAME>${escapeXml(payload.mailing_name)}</MAILINGNAME>` : "",
-    payload.state ? `  <STATE>${escapeXml(payload.state)}</STATE>` : "",
+    payload.state ? `  <STATE>${escapeXml(payload.state)}</STATE>` : payload.state === "" ? "  <STATE></STATE>" : "",
     payload.country ? `  <COUNTRY>${escapeXml(payload.country)}</COUNTRY>` : "",
-    payload.pincode ? `  <PINCODE>${escapeXml(payload.pincode)}</PINCODE>` : "",
+    payload.pincode ? `  <PINCODE>${escapeXml(payload.pincode)}</PINCODE>` : payload.pincode === "" ? "  <PINCODE></PINCODE>" : "",
     "</LEDMAILINGDETAILS.LIST>",
   ]
     .filter(Boolean)
@@ -1204,15 +1219,15 @@ class TallyClient {
     return [
       payload.parent || withDefaults ? `<PARENT>${escapeXml(payload.parent || "Sundry Debtors")}</PARENT>` : "",
       ledgerMailingDetailsXml(payload),
-      payload.email ? `<EMAIL>${escapeXml(payload.email)}</EMAIL>` : "",
-      payload.phone ? `<LEDGERPHONE>${escapeXml(payload.phone)}</LEDGERPHONE>` : "",
+      payload.email ? `<EMAIL>${escapeXml(payload.email)}</EMAIL>` : payload.email === "" ? "<EMAIL></EMAIL>" : "",
+      payload.phone ? `<LEDGERPHONE>${escapeXml(payload.phone)}</LEDGERPHONE>` : payload.phone === "" ? "<LEDGERPHONE></LEDGERPHONE>" : "",
       payload.mobile ? `<LEDGERMOBILE>${escapeXml(payload.mobile)}</LEDGERMOBILE>` : "",
       payload.contact_name ? `<LEDGERCONTACT>${escapeXml(payload.contact_name)}</LEDGERCONTACT>` : "",
       payload.pan ? `<INCOMETAXNUMBER>${escapeXml(payload.pan)}</INCOMETAXNUMBER>` : "",
-      payload.gstin ? `<PARTYGSTIN>${escapeXml(payload.gstin)}</PARTYGSTIN>` : "",
+      payload.gstin ? `<PARTYGSTIN>${escapeXml(payload.gstin)}</PARTYGSTIN>` : payload.gstin === "" ? "<PARTYGSTIN></PARTYGSTIN>" : "",
       payload.gst_registration_type ? `<GSTREGISTRATIONTYPE>${escapeXml(payload.gst_registration_type)}</GSTREGISTRATIONTYPE>` : "",
       payload.maintain_bill_by_bill !== undefined ? `<ISBILLWISEON>${payload.maintain_bill_by_bill ? "Yes" : "No"}</ISBILLWISEON>` : "",
-      payload.credit_period_days != null && payload.credit_period_days !== "" ? `<BILLCREDITPERIOD>${escapeXml(payload.credit_period_days)} Days</BILLCREDITPERIOD>` : "",
+      payload.credit_period_days != null && payload.credit_period_days !== "" ? `<BILLCREDITPERIOD>${escapeXml(payload.credit_period_days)} Days</BILLCREDITPERIOD>` : payload.credit_period_days === "" ? "<BILLCREDITPERIOD></BILLCREDITPERIOD>" : "",
       payload.credit_limit != null && payload.credit_limit !== "" ? `<CREDITLIMIT>${escapeXml(payload.credit_limit)}</CREDITLIMIT>` : "",
       payload.opening_balance != null && payload.opening_balance !== "" ? `<OPENINGBALANCE>${escapeXml(payload.opening_balance)}</OPENINGBALANCE>` : "",
       payload.bank_account_number ? `<BANKACCOUNTNUMBER>${escapeXml(payload.bank_account_number)}</BANKACCOUNTNUMBER>` : "",
@@ -1239,7 +1254,7 @@ class TallyClient {
     const isCompound = Boolean((payload.base_units || payload.baseUnit) && (payload.additional_units || payload.additionalUnit) && payload.conversion);
     return [
       `<ISSIMPLEUNIT>${isCompound || payload.simple === false || payload.is_simple === false ? "No" : "Yes"}</ISSIMPLEUNIT>`,
-      payload.formal_name || payload.formalName ? `<ORIGINALNAME>${escapeXml(payload.formal_name || payload.formalName)}</ORIGINALNAME>` : "",
+      payload.formal_name || payload.formalName ? `<ORIGINALNAME>${escapeXml(payload.formal_name || payload.formalName)}</ORIGINALNAME>` : payload.formal_name === "" ? "<ORIGINALNAME></ORIGINALNAME>" : "",
       payload.uqc || payload.gst_rep_uom || payload.GSTRepUOM ? `<GSTREPUOM>${escapeXml(payload.uqc || payload.gst_rep_uom || payload.GSTRepUOM)}</GSTREPUOM>` : "",
       payload.base_units || payload.baseUnit ? `<BASEUNITS>${escapeXml(payload.base_units || payload.baseUnit)}</BASEUNITS>` : "",
       payload.additional_units || payload.additionalUnit ? `<ADDITIONALUNITS>${escapeXml(payload.additional_units || payload.additionalUnit)}</ADDITIONALUNITS>` : "",
@@ -1282,8 +1297,8 @@ class TallyClient {
 
   godownBodyXml(payload) {
     return [
-      payload.parent ? `<PARENT>${escapeXml(payload.parent)}</PARENT>` : "",
-      payload.address ? `<ADDRESS>${escapeXml(payload.address)}</ADDRESS>` : "",
+      payload.parent ? `<PARENT>${escapeXml(payload.parent)}</PARENT>` : payload.parent === "" ? `<PARENT>${PRIMARY}</PARENT>` : "",
+      payload.address ? `<ADDRESS>${escapeXml(payload.address)}</ADDRESS>` : payload.address === "" ? EMPTY_ADDRESS : "",
     ].filter(Boolean).join("\n    ");
   }
 
@@ -1330,8 +1345,8 @@ class TallyClient {
 
     return [
       unit ? `<BASEUNITS>${escapeXml(unit)}</BASEUNITS>` : "",
-      payload.parent ? `<PARENT>${escapeXml(payload.parent)}</PARENT>` : "",
-      payload.category ? `<CATEGORY>${escapeXml(payload.category)}</CATEGORY>` : "",
+      payload.parent ? `<PARENT>${escapeXml(payload.parent)}</PARENT>` : payload.parent === "" ? `<PARENT>${PRIMARY}</PARENT>` : "",
+      payload.category ? `<CATEGORY>${escapeXml(payload.category)}</CATEGORY>` : payload.category === "" ? "<CATEGORY></CATEGORY>" : "",
       payload.description ? `<DESCRIPTION>${escapeXml(payload.description)}</DESCRIPTION>` : "",
       openBal ? `<OPENINGBALANCE>${escapeXml(openBal)}</OPENINGBALANCE>` : "",
       openVal ? `<OPENINGVALUE>${escapeXml(openVal)}</OPENINGVALUE>` : "",
@@ -2176,6 +2191,22 @@ class TallyClient {
 
   // Alter by voucher number + date (same envelope as Delete/Cancel), then
   // read back the edited fields.
+  // An edit that empties a field: Tally answers "altered" even when it ignored the empty value, so the record is read
+  // back and the edit fails, naming the field, if Tally kept it. Edits that only set values keep Tally's own answer.
+  async alterMasterVerified(type, xml, payload) {
+    const result = await this.postImport(xml, undefined, type);
+    const keys = clearedKeys(type, payload).filter((k) => CLEARABLE[type][k]);
+    if (!keys.length) return result;
+    const list = { ALTER_GODOWN: "godowns", ALTER_LEDGER: "ledgers", ALTER_STOCK_ITEM: "stockItems", ALTER_UNIT: "units" }[type];
+    const rows = await this[list](payload.company_guid, payload.company_name).catch(() => null);
+    const want = String(payload.new_name || payload.name || "").trim().toLowerCase();
+    const row = rows && rows.find((r) => String(r.name || "").trim().toLowerCase() === want);
+    if (!row) return { ...result, verified: false, note: "Saved, but the record couldn't be read back from TallyPrime to confirm the emptied fields. Sync to refresh." };
+    const kept = keys.filter((k) => !isCleared(row[CLEARABLE[type][k]]));
+    if (kept.length) throw new Error(`TallyPrime kept the ${kept.map((k) => k.replace(/_/g, " ")).join(", ")} — remove ${kept.length > 1 ? "them" : "it"} in TallyPrime itself, then sync.`);
+    return { ...result, verified: true, cleared: keys };
+  }
+
   async alterVoucherVerified(payload) {
     const hasLines = Array.isArray(payload.lines) && payload.lines.length > 0;
     if (!hasLines && (payload.due_date || payload.dueDate || payload.credit_period || payload.creditPeriod || payload.credit_days)) {
@@ -2293,16 +2324,16 @@ class TallyClient {
       await this.assertWriteCompany(payload, this.describeWrite(command, payload));
     }
     if (command.command_type === "CREATE_LEDGER") return this.postImport(this.createLedgerXml(payload), undefined, "CREATE_LEDGER");
-    if (command.command_type === "ALTER_LEDGER") return this.postImport(this.alterLedgerXml(payload), undefined, "ALTER_LEDGER");
+    if (command.command_type === "ALTER_LEDGER") return this.alterMasterVerified("ALTER_LEDGER", this.alterLedgerXml(payload), payload);
     if (command.command_type === "DELETE_LEDGER") return this.postImport(this.masterXml("LEDGER", payload.name, "Delete", "", undefined, payload.company_name), "Delete", "DELETE_LEDGER");
     if (command.command_type === "CREATE_UNIT") return this.postImport(this.createUnitXml(payload), undefined, "CREATE_UNIT");
-    if (command.command_type === "ALTER_UNIT") return this.postImport(this.alterUnitXml(payload), undefined, "ALTER_UNIT");
+    if (command.command_type === "ALTER_UNIT") return this.alterMasterVerified("ALTER_UNIT", this.alterUnitXml(payload), payload);
     if (command.command_type === "DELETE_UNIT") return this.postImport(this.deleteUnitXml(payload), "Delete", "DELETE_UNIT");
     if (command.command_type === "CREATE_STOCK_ITEM") return this.postImport(this.createStockItemXml(payload), undefined, "CREATE_STOCK_ITEM");
-    if (command.command_type === "ALTER_STOCK_ITEM") return this.postImport(this.alterStockItemXml(payload), undefined, "ALTER_STOCK_ITEM");
+    if (command.command_type === "ALTER_STOCK_ITEM") return this.alterMasterVerified("ALTER_STOCK_ITEM", this.alterStockItemXml(payload), payload);
     if (command.command_type === "DELETE_STOCK_ITEM") return this.postImport(this.masterXml("STOCKITEM", payload.name, "Delete", "", undefined, payload.company_name), "Delete", "DELETE_STOCK_ITEM");
     if (command.command_type === "CREATE_GODOWN") return this.postImport(this.createGodownXml(payload), undefined, "CREATE_GODOWN");
-    if (command.command_type === "ALTER_GODOWN") return this.postImport(this.alterGodownXml(payload), undefined, "ALTER_GODOWN");
+    if (command.command_type === "ALTER_GODOWN") return this.alterMasterVerified("ALTER_GODOWN", this.alterGodownXml(payload), payload);
     if (command.command_type === "DELETE_GODOWN") return this.postImport(this.deleteGodownXml(payload), "Delete", "DELETE_GODOWN");
     if (command.command_type === "ALTER_VOUCHER") return this.alterVoucherVerified(payload);
     if (command.command_type === "DELETE_VOUCHER") return this.deleteVoucherVerified(payload);
