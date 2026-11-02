@@ -509,3 +509,35 @@ test('a reply longer than its length setting is cut back to its last full senten
   assert.ok(one.endsWith('…') && one.length <= 41 && !/\s…$/.test(one), one);
   assert.ok(AGENT_LENGTHS.short.cap < AGENT_LENGTHS.normal.cap && AGENT_LENGTHS.normal.cap < AGENT_LENGTHS.detailed.cap);
 });
+
+test('chatbot steps "AI reply" (answers once, then carries on; unsure → its own path or a person) and "Jump to step"', async () => {
+  await api('/wa-agent', 'PUT', { knowledge: 'Yoga for Beginners: ₹1,999, 6 weeks, online.' }, T);
+  const N = (id, type, data = {}) => ({ id, type, data });
+  const flow = { name: 'FAQ loop', trigger: { type: 'manual' }, nodes: [
+    N('start', 'start'), N('q', 'ask', { text: 'What would you like to know?', var: 'q', validate: 'text' }),
+    N('ai', 'ai_reply', { note: 'Keep it short' }),
+    N('more', 'buttons', { text: 'Anything else?', buttons: [{ id: 'y', title: 'Yes' }, { id: 'n', title: 'No' }] }),
+    N('back', 'jump', { nodeId: 'q' }), N('bye', 'end', { text: 'Bye!' }), N('unsure', 'end', { text: 'Unsure path' }),
+  ], edges: [['start', 'next', 'q'], ['q', 'next', 'ai'], ['ai', 'next', 'more'], ['ai', 'unsure', 'unsure'], ['more', 'y', 'back'], ['more', 'n', 'bye']].map(([from, port, to]) => ({ from, port, to })) };
+  const sim = async (state, input, f = flow) => (await api('/waflows/simulate', 'POST', { flow: f, state, input }, T)).data;
+  let r = await sim(null, { text: 'hi' });
+  r = await sim(r.state, { text: 'What is the price?' });
+  assert.match(r.out[0].text, /₹1,999/, 'the AI answered from the knowledge');
+  assert.equal(r.out[1].text, 'Anything else?', 'then the chatbot carried on');
+  r = await sim(r.state, { text: 'Yes', id: 'y' });
+  assert.deepEqual(r.out.map((o) => o.text), ['What would you like to know?'], 'jumped back to the question');
+  assert.ok(r.fx.some((e) => e.type === 'jump' && e.to === 'q'));
+  r = await sim(r.state, { text: 'I want a refund' });
+  assert.deepEqual(r.out.map((o) => o.text), ['Unsure path'], 'not sure → its own path, nothing from the AI sent');
+  // with nothing on "AI wasn't sure": a person takes it, and the customer is told politely
+  const solo = { ...flow, edges: flow.edges.filter((e) => e.port !== 'unsure') };
+  r = await sim(null, { text: 'hi' }, solo);
+  r = await sim(r.state, { text: 'I want a refund' }, solo);
+  const h = r.fx.find((e) => e.type === 'handoff');
+  assert.ok(h && h.text, JSON.stringify(r.fx));
+  // a jump must point at a real step of this chatbot
+  const made = (await api('/waflows', 'POST', { name: 'Bad jump' }, T)).data;
+  const bad = (await api(`/waflows/${made.id}`, 'PUT', { nodes: flow.nodes.map((n) => (n.id === 'back' ? { ...n, data: { nodeId: 'nowhere' } } : n)), edges: flow.edges }, T)).data;
+  assert.ok(bad.problems.some((p) => /Jump to step/.test(p.msg)), JSON.stringify(bad).slice(0, 600));
+  await api(`/waflows/${bad.id}`, 'DELETE', null, T);
+});

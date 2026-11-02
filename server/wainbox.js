@@ -385,7 +385,7 @@ function addTags(u, conv, tags) {
 }
 
 // ---------- chatbot flows ----------
-export const NODE_TYPES = ['start', 'message', 'buttons', 'list', 'ask', 'condition', 'tag', 'ai_route', 'ai_agent', 'handoff', 'wait', 'webhook', 'end', 'form', 'link', 'template', 'set', 'api', 'hours', 'split', 'goto'];
+export const NODE_TYPES = ['start', 'message', 'buttons', 'list', 'ask', 'condition', 'tag', 'ai_route', 'ai_agent', 'handoff', 'wait', 'webhook', 'end', 'form', 'link', 'template', 'set', 'api', 'hours', 'split', 'goto', 'jump', 'ai_reply'];
 const SAVES = ['', 'name', 'email', 'phone'];
 const CHECKS = ['text', 'email', 'phone', 'number', 'date', 'location', 'file'];
 const OPS = ['eq', 'neq', 'contains', 'exists', 'missing', 'has', 'not_has', 'gt', 'lt', 'starts'];
@@ -404,7 +404,8 @@ export const portsOf = (n) => {
     case 'api': return ['ok', 'fail'];
     case 'hours': return ['open', 'closed'];
     case 'split': return arr(n.data?.branches).map((b) => b.id);
-    case 'ai_agent': case 'handoff': case 'end': case 'goto': return [];
+    case 'ai_reply': return ['next', 'unsure'];
+    case 'ai_agent': case 'handoff': case 'end': case 'goto': case 'jump': return [];
     default: return ['next', ...timed(n)];
   }
 };
@@ -435,6 +436,8 @@ function cleanData(type, d = {}) {
     case 'hours': return {};
     case 'split': return { branches: idsFrom(arr(d.branches).slice(0, 4), 's', (b, id) => ({ id, label: clip(b.label, 24), weight: num(b.weight, 1, 100, 50) })) };
     case 'goto': return { flowId: clip(d.flowId, 40) };
+    case 'jump': return { nodeId: clip(d.nodeId, 40) };
+    case 'ai_reply': return { note: clip(d.note, 500) };
     case 'tag': return { add: arr(d.add).map((t) => clip(t, 40)).filter(Boolean).slice(0, 10) };
     case 'ai_route': return { intents: idsFrom(arr(d.intents).slice(0, 8), 'i', (x, id) => ({ id, label: clip(x.label, 40), desc: clip(x.desc, 200) })) };
     case 'ai_agent': return { note: clip(d.note, 500) };
@@ -499,6 +502,7 @@ export function flowProblems(f) {
     if (n.type === 'api' && !urlOk(d.url.replace(/\{\{[^}]*\}\}/g, 'x'))) bad(n.id, 'API request: enter the web address (https://…)');
     if (n.type === 'split' && d.branches.length < 2) bad(n.id, 'Random split: add at least two paths');
     if (n.type === 'goto' && !d.flowId) bad(n.id, 'Go to chatbot: choose the chatbot');
+    if (n.type === 'jump' && (!d.nodeId || d.nodeId === n.id || !f.nodes.some((x) => x.id === d.nodeId && x.type !== 'start'))) bad(n.id, 'Jump to step: choose the step to go to');
     if (n.type === 'wait' && d.minutes > 1380 && f.edges.find((e) => e.from === n.id) && f.nodes.find((x) => x.id === f.edges.find((e) => e.from === n.id).to)?.type !== 'template') bad(n.id, 'Waits over 23 hours must be followed by a template message (WhatsApp’s 24-hour rule)');
     // details only the business knows, left as [placeholders] in a template
     const words = [d.text, d.button, ...arr(d.buttons).map((b) => b.title), ...arr(d.rows).flatMap((r) => [r.title, r.desc])].filter(Boolean).join(' ');
@@ -691,6 +695,18 @@ export async function runFlow(flow, state, input, env) {
         cur = nextOf(n.id, id || 'other'); break;
       }
       case 'ai_agent': fx.push({ type: 'agent', note: d.note }); return { out, fx, state: null, agent: d.note || true, aiUsed };
+      // another step in this chatbot (e.g. back to the menu); the 40-step limit stops a loop with no question in it
+      case 'jump': fx.push({ type: 'jump', to: d.nodeId }); cur = nodes.has(d.nodeId) ? d.nodeId : null; break;
+      // one answer from the AI agent's knowledge, then the chatbot carries on; not sure → the "unsure" path, or a person
+      case 'ai_reply': {
+        const a = env.answer && env.lastText && !(env.sim && !env.aiOk) ? await env.answer(env.lastText, d.note).catch(() => null) : null;
+        aiUsed ||= !!a;
+        if (a?.reply && !a.handoff) { say(n, { kind: 'text', text: a.reply }); vars.ai_reply = a.reply; fx.push({ type: 'ai_reply' }); cur = nextOf(n.id, 'next'); break; }
+        fx.push({ type: 'ai_reply', unsure: true, reason: a?.reason || '' });
+        if (nextOf(n.id, 'unsure')) { cur = nextOf(n.id, 'unsure'); break; }
+        fx.push({ type: 'handoff', text: a?.reply || 'Let me get the right person from our team to help you with this — they’ll reply here shortly 🙏', note: a?.reason || 'The AI reply step wasn’t sure' });
+        return { out, fx, state: null, aiUsed };
+      }
       case 'handoff':
         fx.push({ type: 'handoff', text: d.text ? fillText(d.text, env) : '', assignee: d.assignee, note: d.note ? fillText(d.note, env) : '' });
         return { out, fx, state: null, aiUsed };
@@ -716,7 +732,8 @@ export async function runFlow(flow, state, input, env) {
 
 function envOf(u, conv, lastText) {
   const m = conv.ckey ? T.crm.find({ userId: u.id, key: conv.ckey }) : null;
-  return { name: conv.name || m?.name || '', email: m?.email || '', num: conv.num, business: bizName(u), tags: [...(m?.tags || [])], custom: { ...(m?.custom || {}) }, lastText: lastText || '', forms: !!metaOf(u), open: isOpen(u), http: apiCall, seen: [] };
+  return { name: conv.name || m?.name || '', email: m?.email || '', num: conv.num, business: bizName(u), tags: [...(m?.tags || [])], custom: { ...(m?.custom || {}) }, lastText: lastText || '', forms: !!metaOf(u), open: isOpen(u), http: apiCall, seen: [],
+    answer: (text, note) => agentAnswer(u, transcriptOf(conv.id), note || '', {}) };
 }
 // a chatbot's API request: public addresses only, 8 seconds, no redirects, the first 100 KB of the answer
 async function apiCall({ method, url, headers, body }) {
@@ -1168,6 +1185,8 @@ const FLOW_SPEC = `A WhatsApp chatbot is a graph. Node types and their data:
 - tag {"add":["tag"]} — tags the contact; port "next"
 - ai_route {"intents":[{"id","label","desc"}]} — AI sorts the latest message into a topic; one port per intent id, plus "other"
 - ai_agent {"note"} — the AI agent takes over the chat (ends the flow)
+- ai_reply {"note"} — the AI answers the customer's last message once from the business knowledge, then the flow continues — ports "next", "unsure" (it didn't know)
+- jump {"nodeId"} — continue at another step of this flow (e.g. back to the menu) — no ports
 - handoff {"text","note"} — passes the chat to a person (ends the flow)
 - wait {"minutes"} — pauses; port "next"
 - form {"text","title" (≤30),"cta" (≤20),"submit" (≤30),"fields":[{"id","type":"text"|"long"|"email"|"phone"|"number"|"date"|"dropdown"|"radio"|"checkbox","label" (≤20),"required":true|false,"var","save" (""|"name"|"email"|"phone"),"options":[{"id","title"}] (choices only)}] (1–8)} — a WhatsApp form (or the same questions one by one); port "next"
@@ -1435,7 +1454,8 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
   // a dry run in the builder's test phone: nothing is sent or saved; AI steps use real AI (and credits)
   const simulate = async (req, res, flow) => {
     const b = req.body || {};
-    const env = { name: clip(b.name, 80) || req.user.name || 'Priya', email: '', num: '919800000000', business: bizName(req.user), tags: arr(b.tags).map((t) => clip(t, 40)), lastText: clip(b.input?.text, 1000), sim: true, http: apiCall, open: isOpen(req.user), custom: {}, seen: [], aiOk: aiEnabled() && !creditsShort(req.user, AI_COST.agent) };
+    const env = { name: clip(b.name, 80) || req.user.name || 'Priya', email: '', num: '919800000000', business: bizName(req.user), tags: arr(b.tags).map((t) => clip(t, 40)), lastText: clip(b.input?.text, 1000), sim: true, http: apiCall, open: isOpen(req.user), custom: {}, seen: [], aiOk: aiEnabled() && !creditsShort(req.user, AI_COST.agent),
+      answer: (text, note) => agentAnswer(req.user, `Customer: ${text}`, note || '', {}) };
     const st = b.state && typeof b.state === 'object' ? { node: clip(b.state.node, 40), wait: ['reply', 'time'].includes(b.state.wait) ? b.state.wait : null, vars: b.state.vars && typeof b.state.vars === 'object' ? Object.fromEntries(Object.entries(b.state.vars).slice(0, 40).map(([k, v]) => [clip(k, 40), clip(v, 500)])) : {}, tries: num(b.state.tries, 0, 5, 0), ...(Number.isInteger(b.state.field) ? { field: num(b.state.field, 0, 20, 0), got: Object.fromEntries(Object.entries(b.state.got && typeof b.state.got === 'object' ? b.state.got : {}).slice(0, 20).map(([k, v]) => [clip(k, 40), Array.isArray(v) ? v.slice(0, 10).map((x) => clip(x, 40)) : clip(v, 500)])) } : {}) } : null;
     try {
       const sample = { lat: 19.076, lng: 72.8777, name: 'Mumbai' }; // the test phone's "share location"

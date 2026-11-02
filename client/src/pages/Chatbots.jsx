@@ -21,6 +21,7 @@ export const NT = {
   form: ['WhatsApp form', 'clip', '#0d9488', 'A short form inside WhatsApp'],
   ai_route: ['AI router', 'sparkles', AI_BG, 'AI sorts the message by topic'],
   ai_agent: ['AI agent', 'sparkles', AI_BG, 'The AI agent takes the chat'],
+  ai_reply: ['AI reply', 'sparkles', AI_BG, 'AI answers once, then the chatbot carries on'],
   condition: ['Condition', 'split', '#64748b', 'Yes / no on answers, tags or contact fields'],
   split: ['Random split', 'layers', '#a855f7', 'A/B test 2–4 paths'],
   hours: ['Business hours', 'bell', '#059669', 'One path when open, one when closed'],
@@ -31,15 +32,18 @@ export const NT = {
   webhook: ['Webhook', 'send', '#115e59', 'Send the answers to another app'],
   handoff: ['Hand to a person', 'users', '#ea580c', 'Notifies your team'],
   goto: ['Go to chatbot', 'flow', '#334155', 'Carry on in another chatbot'],
+  jump: ['Jump to step', 'redo', '#334155', 'Go back to the menu or any step'],
   end: ['End', 'check', '#1c1917', 'Finish (optionally resolve)'],
 };
-const PALETTE = [['Send', ['message', 'buttons', 'list', 'link', 'template']], ['Collect', ['ask', 'form']], ['AI', ['ai_route', 'ai_agent']], ['Logic', ['condition', 'split', 'hours', 'wait']], ['Actions', ['tag', 'set', 'api', 'webhook']], ['Finish', ['handoff', 'goto', 'end']]];
+// a step as people know it: its kind and the start of its text (the "Jump to step" list)
+const stepName = (x) => `${NT[x.type]?.[0] || x.type}${x.data?.text ? ` — ${x.data.text.slice(0, 32)}` : ''}`;
+const PALETTE = [['Send', ['message', 'buttons', 'list', 'link', 'template']], ['Collect', ['ask', 'form']], ['AI', ['ai_reply', 'ai_route', 'ai_agent']], ['Logic', ['condition', 'split', 'hours', 'wait']], ['Actions', ['tag', 'set', 'api', 'webhook']], ['Finish', ['jump', 'handoff', 'goto', 'end']]];
 const DEFAULTS = {
   message: { text: '', media: null }, buttons: { text: '', image: '', footer: '', timeout: 0, buttons: [{ id: 'b1', title: 'Yes' }, { id: 'b2', title: 'No' }] }, list: { text: '', header: '', footer: '', timeout: 0, button: 'Choose', rows: [{ id: 'r1', title: 'Option 1', desc: '' }, { id: 'r2', title: 'Option 2', desc: '' }] },
   link: { text: '', label: 'Open', url: '', image: '', footer: '' }, template: { name: '', language: 'en', params: [], preview: '' },
   ask: { text: '', var: 'answer', save: '', validate: 'text', retry: '', timeout: 0 }, condition: { match: 'all', rules: [{ field: 'tag', op: 'has', value: '' }] }, tag: { add: [] },
   split: { branches: [{ id: 'a', label: 'Path A', weight: 50 }, { id: 'b', label: 'Path B', weight: 50 }] }, hours: {},
-  set: { actions: [{ do: 'var', key: '', value: '' }] }, api: { method: 'GET', url: '', headers: [], body: '', map: [] }, goto: { flowId: '' },
+  set: { actions: [{ do: 'var', key: '', value: '' }] }, api: { method: 'GET', url: '', headers: [], body: '', map: [] }, goto: { flowId: '' }, jump: { nodeId: '' }, ai_reply: { note: '' },
   ai_route: { intents: [{ id: 'i1', label: 'Sales', desc: 'wants to buy or asks the price' }, { id: 'i2', label: 'Support', desc: 'needs help with something' }] }, ai_agent: { note: '' },
   handoff: { text: 'Someone from our team will reply here shortly 🙏', note: '', assignee: '' }, wait: { minutes: 60 }, webhook: { url: '' }, end: { text: '', resolve: false },
   form: { text: 'Please fill in this short form 👇', title: 'Your details', cta: 'Fill the form', submit: 'Submit', timeout: 0, fields: [{ id: 'name', type: 'text', label: 'Your name', required: true, var: 'name', save: 'name' }, { id: 'email', type: 'email', label: 'Email', required: false, var: 'email', save: 'email' }] },
@@ -69,7 +73,8 @@ export const portsOf = (n) => {
     case 'api': return [['ok', 'Worked'], ['fail', 'Didn’t work']];
     case 'hours': return [['open', 'Open now'], ['closed', 'Closed']];
     case 'split': { const total = d.branches.reduce((a, b) => a + (Number(b.weight) || 0), 0) || 1; return d.branches.map((b) => [b.id, `${b.label || 'Path'} · ${Math.round(((Number(b.weight) || 0) / total) * 100)}%`]); }
-    case 'ai_agent': case 'handoff': case 'end': case 'goto': return [];
+    case 'ai_reply': return [['next', 'Answered'], ['unsure', 'AI wasn’t sure']];
+    case 'ai_agent': case 'handoff': case 'end': case 'goto': case 'jump': return [];
     default: return [['next', n.type === 'start' ? 'Begin' : n.type === 'ask' ? 'After the answer' : n.type === 'form' ? 'After the form' : 'Next'], ...timed(n)];
   }
 };
@@ -96,6 +101,7 @@ export function problemsOf(f) {
     if (n.type === 'api' && !urlOk(d.url)) bad(n.id, 'API request: enter the web address (https://…)');
     if (n.type === 'split' && d.branches.length < 2) bad(n.id, 'Random split: add at least two paths');
     if (n.type === 'goto' && !d.flowId) bad(n.id, 'Go to chatbot: choose the chatbot');
+    if (n.type === 'jump' && (!d.nodeId || d.nodeId === n.id || !f.nodes.some((x) => x.id === d.nodeId && x.type !== 'start'))) bad(n.id, 'Jump to step: choose the step to go to');
     if (n.type === 'wait' && d.minutes > 1380) { const to = f.edges.find((e) => e.from === n.id)?.to; if (to && f.nodes.find((x) => x.id === to)?.type !== 'template') bad(n.id, 'Wait: over 23 hours, the next step must be a template message'); }
     if (n.type === 'form' && !d.fields.length) bad(n.id, 'WhatsApp form: add a question');
     if (n.type === 'form' && d.fields.some((x) => !x.label?.trim())) bad(n.id, 'WhatsApp form: give every question a label');
@@ -494,7 +500,7 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
                 {r > 0 && <span className="wfb-reach" title={`${r} chat${r === 1 ? '' : 's'} reached this step${runs ? ` (${Math.round((r / runs) * 100)}% of all)` : ''}`}>{r > 999 ? `${Math.round(r / 100) / 10}k` : r}</span>}
                 {n.type !== 'start' && <span className="wfb-acts"><button className="icon-btn" onClick={() => dupNode(n.id)} aria-label="Duplicate step" title="Duplicate (Ctrl+D)"><Icon name="copy" size={11} /></button><button className="icon-btn" onClick={() => delNode(n.id)} aria-label="Delete step" title="Delete"><Icon name="x" size={12} /></button></span>}
               </div>
-              <NodeBody n={n} flows={flows} />
+              <NodeBody n={n} flows={flows} nodes={f.nodes} />
               {ports.length > 0 && (
                 <div className="wfb-ports">
                   {ports.map(([p, l]) => {
@@ -543,7 +549,7 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
   );
 }
 
-function NodeBody({ n, flows }) {
+function NodeBody({ n, flows, nodes }) {
   const d = n.data;
   const txt = (s, empty = 'Write the message…') => (s ? <div className="txt">{s}</div> : <div className="txt muted">{empty}</div>);
   const late = d.timeout > 0 && <span className="pill" style={{ justifySelf: 'start' }}>⏱ waits {dur(d.timeout)} for a reply</span>;
@@ -563,6 +569,8 @@ function NodeBody({ n, flows }) {
     case 'split': return null;
     case 'goto': return <div className="wfb-nb">{d.flowId ? <b className="wfb-hd">↪ {flows.find((x) => x.id === d.flowId)?.name || 'A deleted chatbot'}</b> : <div className="txt muted">Choose the chatbot…</div>}</div>;
     case 'ai_route': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>✦ AI reads the message and picks a topic</span></div>;
+    case 'jump': { const t = nodes.find((x) => x.id === d.nodeId); return <div className="wfb-nb">{t ? <b className="wfb-hd">↩ {stepName(t)}</b> : <div className="txt muted">Choose the step…</div>}</div>; }
+    case 'ai_reply': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>✦ AI answers their message, then carries on</span>{d.note && <div className="txt">{d.note}</div>}</div>;
     case 'ai_agent': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>✦ The AI agent continues the chat</span>{d.note && <div className="txt">{d.note}</div>}</div>;
     case 'handoff': return <div className="wfb-nb">{txt(d.text, 'No message — just notifies your team')}</div>;
     case 'wait': return <div className="wfb-nb">Wait {dur(d.minutes)}</div>;
@@ -722,6 +730,11 @@ function Inspector({ n, f, set, setNode, onDelete, onDuplicate, data, templates,
         <label>Carry on in<select value={d.flowId} onChange={(e) => up((x) => { x.flowId = e.target.value; })}><option value="">Choose a chatbot…</option>{data.flows.map((x) => <option key={x.id} value={x.id}>{x.name}{x.active ? '' : x.trigger.type === 'manual' ? ' (manual)' : ' (off)'}</option>)}</select></label>
         <p className="hint">That chatbot starts from its beginning with every answer collected so far — handy for a shared “book a call” or “main menu” chatbot. It runs even if it’s switched off.</p>
       </>}
+      {n.type === 'jump' && <>
+        <label>Go to<select value={d.nodeId} onChange={(e) => up((x) => { x.nodeId = e.target.value; })}><option value="">Choose a step…</option>{f.nodes.filter((x) => x.type !== 'start' && x.id !== n.id).map((x) => <option key={x.id} value={x.id}>{stepName(x)}</option>)}</select></label>
+        <p className="hint">The chat carries on from that step, with every answer kept — e.g. back to the main menu after an answer. A loop always stops at the next question that waits for the customer.</p>
+      </>}
+      {n.type === 'ai_reply' && <><label>Extra instruction for the AI (optional)<textarea rows={3} value={d.note} onChange={(e) => up((x) => { x.note = e.target.value; })} placeholder="Answer in one or two sentences, then ask if they want to book a visit." /></label><p className="hint">The AI answers the customer’s last message from what your AI agent knows, then the chatbot continues on <b>Answered</b>. When it doesn’t have the answer it takes <b>AI wasn’t sure</b> — or, with nothing connected there, hands the chat to a person. The answer is saved as <code>{'{{ai_reply}}'}</code>.</p></>}
       {n.type === 'ai_route' && <label>Topics <span className="muted">(the AI picks one; describe each so it can tell them apart)</span><Options items={d.intents} max={8} titleMax={40} fields={[['label', 'Topic'], ['desc', 'What it means']]} onChange={opts('intents')} /></label>}
       {n.type === 'ai_agent' && <><label>Extra instruction for the AI (optional)<textarea rows={3} value={d.note} onChange={(e) => up((x) => { x.note = e.target.value; })} placeholder="They want to buy — share the right link and ask for their city." /></label><p className="hint">The AI agent answers from what you set up in <Link to="/chatbots?tab=agent">AI agent</Link>, and hands over to your team when it should.</p></>}
       {n.type === 'handoff' && <>
@@ -927,7 +940,7 @@ function TestPhone({ f, onNode }) {
     form: (e) => `📋 Form filled: ${e.answers.map((a) => `${a.label}: ${a.value}`).join(' · ') || 'no answers'}`, tag: (e) => `🏷 Tagged: ${e.tags.join(', ')}`, untag: (e) => `🏷 Tag removed: ${e.tags.join(', ')}`, save: (e) => `💾 Saved ${e.field.replace('custom:', 'CRM ')}: ${e.value}`,
     handoff: (e) => `🙋 Handed to your team${e.note ? ` — ${e.note}` : ''}`, webhook: (e) => `🔗 Sent answers to ${e.url}`, route: (e) => `✦ AI picked: ${e.intent}`, agent: () => '✦ The AI agent takes over', end: (e) => (e.resolve ? '✅ Chat resolved' : '— end of chatbot —'),
     api: (e) => (e.ok ? `🌐 API answered (${e.status})` : `🌐 API didn’t work (${e.status || e.error || 'no answer'})`), stage: () => `📊 ${STAGE}`, optout: () => '🔕 Unsubscribed from WhatsApp', optin: () => '🔔 Subscribed again',
-    split: (e) => `🔀 Random split: ${e.label}`, goto: () => '↪ Carries on in another chatbot', timeout: (e) => `⏱ No reply in ${dur(e.minutes || 0)}`,
+    split: (e) => `🔀 Random split: ${e.label}`, goto: () => '↪ Carries on in another chatbot', jump: (e) => `↩ Jumped to: ${(() => { const t = f.nodes.find((x) => x.id === e.to); return t ? stepName(t) : 'a step'; })()}`, ai_reply: (e) => (e.unsure ? `✦ AI wasn’t sure${e.reason ? ` — ${e.reason}` : ''}` : '✦ AI answered'), timeout: (e) => `⏱ No reply in ${dur(e.minutes || 0)}`,
   };
   const send = async (input, shown) => {
     if (busy) return;
