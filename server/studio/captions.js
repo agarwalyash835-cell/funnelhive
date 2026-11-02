@@ -21,8 +21,9 @@ export function safeArea(width, height) {
 // The looks. size is a fraction of the frame's shorter side; y is where the text sits (fraction of the frame height,
 // clamped to the safe area). mode: 'word' (one word at a time) or 'phrase'.
 export const PRESETS = {
-  // big bold words that pop in one at a time, numbers and prices in the highlight colour
-  pop: { label: 'Bold pop', mode: 'word', size: 0.105, bold: true, upper: true, colour: '#ffffff', highlight: '#ffd400', outline: 0.09, shadow: 0.02, box: false, y: 0.62 },
+  // the Reels look: two or three big bold words at a time, the one being spoken in the highlight colour with a small
+  // pop, in the lower third (clear of the product in the middle of the frame)
+  pop: { label: 'Bold pop', mode: 'phrase', pop: true, size: 0.088, bold: true, upper: true, colour: '#ffffff', highlight: '#ffd400', outline: 0.1, shadow: 0.03, box: false, y: 0.72, maxWords: 3 },
   // a calm phrase in a soft box, low on the screen
   lower: { label: 'Clean lower-third', mode: 'phrase', size: 0.056, bold: true, upper: false, colour: '#ffffff', highlight: '#ffffff', outline: 0.25, shadow: 0, box: true, boxColour: '#000000', boxAlpha: 0.45, y: 0.78, maxWords: 6 },
   // the phrase is shown whole and each word lights up as it's spoken
@@ -41,6 +42,9 @@ export function assTime(s) {
 // text that's safe inside an ASS event: no override blocks, no hard line breaks
 const clean = (s) => String(s ?? '').replace(/[{}]/g, '').replace(/\\/g, '').replace(/\s+/g, ' ').trim();
 const isNumberish = (w) => /\d|₹/.test(w);
+
+// a word as shown: without the punctuation that ends it (phrases still break on it)
+const bare = (w) => String(w).replace(/[,.;:!?।]+$/u, '') || w;
 
 // split timed words into caption phrases: a phrase ends at a pause, at the end of a sentence, or when it's full
 export function phrases(words, { maxWords = 5, maxChars = 28, gap = 0.35 } = {}) {
@@ -100,7 +104,14 @@ export function buildAss(words, { style = 'pop', mode, width = 1080, height = 19
     groups.forEach((g, i) => {
       const start = g[0].start, next = groups[i + 1];
       const end = next && next[0].start - g[g.length - 1].end < 0.6 ? next[0].start : g[g.length - 1].end + 0.3;
-      if (P.karaoke) {
+      if (P.pop) {
+        // the phrase stays put; each word lights up (and pops) while it's spoken
+        g.forEach((w, k) => {
+          const until = k + 1 < g.length ? g[k + 1].start : end;
+          const text = g.map((x, j) => (j === k ? `{\\c${hi}\\fscx112\\fscy112\\t(0,120,\\fscx100\\fscy100)}${up(bare(x.w))}{\\c${assColour(P.colour)}\\fscx100\\fscy100}` : up(bare(x.w)))).join(' ');
+          ev(k ? w.start : start, until, text);
+        });
+      } else if (P.karaoke) {
         // \k counts in centiseconds: each word's highlight runs from its start to the next word's start
         let t = start;
         const parts = g.map((w, k) => {

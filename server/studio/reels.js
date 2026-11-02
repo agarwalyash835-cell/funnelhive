@@ -30,7 +30,7 @@ const transcriber = () => (process.env.SARVAM_API_KEY ? sarvamTranscriber() : nu
 // ---------- the script ----------
 const SCRIPT_SYSTEM = `You write short vertical video ads (Instagram Reels / YouTube Shorts) for Indian small businesses.
 Answer only JSON: {"title": short name, "lines": [voiceover lines], "shots": [{"image": a detailed photo prompt for the shot's opening still (subject, setting, light, camera; no text, logos or captions in the picture), "motion": what moves in the shot (camera move, action), "seconds": 4-8}], "endCard": {"headline": max 40 chars, "offer": price or offer max 40 chars, "cta": call to action max 30 chars}}.
-Rules: the first line is a hook that stops the scroll; 3-6 lines, each one short spoken sentence; about 2.5 words per second in total for the length asked; one shot per line, in order; show the real product in most shots; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
+Rules: the first line is a hook that stops the scroll; 3-6 lines, each one short spoken sentence; stay within the word limit given (it's how long the video runs); one shot per line, in order; show the real product in most shots; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
 
 export function cleanScript(s) {
   const lines = (Array.isArray(s?.lines) ? s.lines : []).map((x) => clip(typeof x === 'string' ? x : x?.text, 220)).filter(Boolean).slice(0, 8);
@@ -39,13 +39,21 @@ export function cleanScript(s) {
   const e = s?.endCard || {};
   return { script: { title: clip(s?.title, 80) || 'Reel', lines, shots, endCard: { headline: clip(e.headline, 40), offer: clip(e.offer, 40), cta: clip(e.cta, 30) } } };
 }
+// the words a Reel of this length has room for: ~2.4 spoken words a second, after the 2.5-second closing card and a breath
+export const wordBudget = (seconds) => Math.max(12, Math.round((seconds - 3) * 2.4));
+export const wordCount = (script) => (script.lines || []).join(' ').split(/\s+/).filter(Boolean).length;
+const parseScript = (text) => { try { return cleanScript(JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))); } catch { return { error: 'not JSON' }; } };
 export async function writeScript({ brief, lang, seconds, business }) {
-  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nLength: about ${seconds} seconds`;
-  const text = await askAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 });
-  let s;
-  try { s = JSON.parse(String(text).replace(/^```(json)?|```$/g, '').trim()); } catch { throw new Error('The AI wrote something that wasn’t a script — please try again'); }
-  const c = cleanScript(s);
-  if (c.error) throw new Error('The AI’s script was incomplete — please try again');
+  const budget = wordBudget(seconds);
+  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.`;
+  let c = parseScript(await askAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
+  if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
+  // too long for the length asked (a 15-second Reel that runs 22 seconds): ask once to tighten it
+  const n = wordCount(c.script);
+  if (n > budget * 1.15) {
+    const again = parseScript(await askAI(SCRIPT_SYSTEM, `${user}\n\nYour last script had ${n} words — too long. Rewrite it with at most ${budget} words in total: fewer or shorter lines, the same hook and offer.\nLast script: ${JSON.stringify(c.script)}`, { json: true, timeoutMs: 90000 }).catch(() => ''));
+    if (!again.error && wordCount(again.script) < n) c = again;
+  }
   return c.script;
 }
 
@@ -64,12 +72,19 @@ const done = (a) => a && ['ready', 'needs_review'].includes(a.status) && a.url;
 async function produce(r) {
   // a shot's still is ready (or kept for review): its clip goes into the queue
   let shots = r.shots, changed = false;
-  shots = shots.map((s) => {
+  // and once its voiceover line is recorded, so the clip lasts as long as the words over it (the cut lands where the line
+  // changes; the last shot also covers any lines beyond the last shot, and the breath before the closing card)
+  const said = (i) => (r.lines[i]?.secs ? r.lines[i].secs + 0.25 : null);
+  shots = shots.map((s, i) => {
     if (s.clipId) return s;
     const img = T.studio.get(s.imageId);
     if (!done(img)) return s;
+    const last = i === shots.length - 1, mine = last ? r.lines.slice(i) : r.lines.slice(i, i + 1);
+    if (mine.some((l) => !l.url && l.tries < MAX_LINE_TRIES)) return s; // wait for the words
+    const words = mine.reduce((t, l, k) => t + (said(i + k) || 0), 0) + (last ? 0.5 : 0);
+    const seconds = words ? Math.min(10, Math.max(4, Math.ceil(words))) : s.seconds;
     changed = true;
-    return { ...s, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, prompt: s.motion || s.image, aspect: r.aspect, seconds: s.seconds, ref: img.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
+    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, prompt: s.motion || s.image, aspect: r.aspect, seconds, ref: img.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
   });
   if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
   // a shot that couldn't be made even after its retries: stop with the reason (the seller can Retry), don't wait forever
@@ -117,8 +132,9 @@ async function voiceLine(r, i) {
     // misread: try again (the next step), unless that was the last try — then keep it and say what's wrong
     if (check && !check.ok && tries < MAX_LINE_TRIES) return setLine(r, i, { tries, check: brief(check) });
     const ext = (file.match(/\.(\w+)$/) || [])[1] || 'mp3';
+    const secs = Math.round(((await probe(file)).seconds || 0) * 100) / 100; // how long it's spoken: sets its shot's length
     const saved = await save(r.userId, file, ext, ext === 'mp3' ? 'audio/mpeg' : `audio/${ext}`);
-    setLine(r, i, { tries, url: saved.url, check: check ? brief(check) : null });
+    setLine(r, i, { tries, url: saved.url, secs, check: check ? brief(check) : null });
   } catch (e) {
     console.error('voice line failed', r.id, i, e.message);
     setLine(r, i, { tries: line.tries + 1, error: e.message });
@@ -142,17 +158,33 @@ async function joinVoice(files) {
 // no transcriber: spread each line's words over its time (captions still follow the voice, line by line)
 const spreadWords = (lines, spans) => lines.flatMap((l, i) => { const ws = l.text.split(/\s+/).filter(Boolean), [a, z] = spans[i]; const d = (z - a) / (ws.length || 1); return ws.map((w, k) => ({ w, start: a + k * d, end: a + (k + 1) * d })); });
 
-// the closing card: headline, offer and call to action on the brand colour, drawn with the caption renderer (libass)
+// the closing card, drawn with the caption renderer (libass). With a picture of the product (the first scene's still):
+// that picture blurred and darkened as the background, a sharp copy of it on top, then the headline, the offer and the
+// call to action as a button. Without one: the same text on the brand colour.
 const assEsc = (s) => String(s || '').replace(/[{}\\]/g, '').replace(/\n/g, ' ');
-async function makeCard(card, colour, aspect) {
+const assHex = (hex, a = 0) => `&H${Math.round(a * 255).toString(16).padStart(2, '0').toUpperCase()}${hex.slice(5, 7)}${hex.slice(3, 5)}${hex.slice(1, 3)}`.toUpperCase();
+export async function makeCard(card, colour, aspect, still = null) {
   if (!card || !(card.headline || card.offer || card.cta)) return null;
   const { width: W, height: H } = dims(aspect, 1080);
   const hex = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : '#111827';
+  const button = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : '#FFD400';
   const ass = tmpFile('ass'), png = tmpFile('png');
-  const L = (y, size, text, bold = 1) => `Dialogue: 0,0:00:00.00,0:00:05.00,Card,,0,0,0,,{\\an5\\pos(${W / 2},${Math.round(H * y)})\\fs${Math.round(H * size)}\\b${bold}}${assEsc(text)}`;
-  fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Card,Noto Sans,60,&H00FFFFFF,&H00FFFFFF,&H64000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,5,60,60,60,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${[card.headline && L(0.40, 0.05, card.headline), card.offer && L(0.50, 0.065, card.offer), card.cta && L(0.62, 0.035, card.cta, 0)].filter(Boolean).join('\n')}\n`);
+  const y = still ? { h: 0.6, o: 0.68, c: 0.79 } : { h: 0.4, o: 0.5, c: 0.62 };
+  const L = (style, at, size, text) => `Dialogue: 0,0:00:00.00,0:00:05.00,${style},,0,0,0,,{\\an5\\pos(${W / 2},${Math.round(H * at)})\\fs${Math.round(H * size)}}${assEsc(text)}`;
+  const styles = [
+    'Style: Card,Noto Sans,60,&H00FFFFFF,&H00FFFFFF,&H78000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,5,60,60,60,1',
+    // the call to action as a button: dark text on an opaque box in the brand colour (yellow without one)
+    `Style: Cta,Noto Sans,60,${/^#(ffd|fff|fe|fd|fc)/i.test(button) ? '&H00111111' : '&H00FFFFFF'},&H00FFFFFF,${assHex(button)},&H00000000,-1,0,0,0,100,100,0,0,3,${Math.round(H * 0.018)},0,5,60,60,60,1`,
+  ];
+  const events = [card.headline && L('Card', y.h, 0.046, card.headline), card.offer && L('Card', y.o, 0.062, card.offer), card.cta && L('Cta', y.c, 0.034, card.cta)].filter(Boolean);
+  fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`);
   const fileArg = ass.replace(/\\/g, '/').replace(/^([A-Za-z]):/, '$1\\:');
-  await ffmpeg(['-f', 'lavfi', '-i', `color=c=${hex}:s=${W}x${H}:d=1`, '-frames:v', '1', '-vf', `ass='${fileArg}'`, png], { timeoutMs: 60000 });
+  if (still) {
+    // the sharp copy: as big as fits in the top part, whatever its shape
+    const fw = Math.round(W * 0.72), fh = Math.round(H * 0.44);
+    await ffmpeg(['-i', still, '-frames:v', '1', '-filter_complex', `[0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:2,eq=brightness=-0.3:saturation=1.15[bg];[0]scale=${fw}:${fh}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:${Math.round(H * 0.27)}-h/2,ass='${fileArg}'`, png], { timeoutMs: 60000 });
+  }
+  if (!fs.existsSync(png)) await ffmpeg(['-f', 'lavfi', '-i', `color=c=${hex}:s=${W}x${H}:d=1`, '-frames:v', '1', '-vf', `ass='${fileArg}'`, png], { timeoutMs: 60000 });
   rm(ass);
   return fs.existsSync(png) ? png : null;
 }
@@ -172,7 +204,10 @@ async function edit(r) {
     if (tr) words = (await tr(voice.file, r.lang).catch((e) => { console.error('caption transcript failed', e.message); return null; }))?.words || null;
     if (!words?.length) words = spreadWords(r.lines, voice.spans);
     const owner = T.users.get(r.userId);
-    const card = await makeCard(r.script.endCard, owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary, r.aspect);
+    // the closing card shows the product: the first scene's still
+    const firstStill = T.studio.get(r.shots?.[0]?.imageId)?.url;
+    const still = firstStill ? await local(firstStill, 'png').catch(() => null) : null;
+    const card = await makeCard(r.script.endCard, owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary, r.aspect, still);
     if (card) temp.push(card);
     const logo = r.logo ? await local(r.logo, 'png').catch(() => null) : null;
     const sizes = (r.sizes?.length ? r.sizes : ['9:16']).filter((a) => ASPECTS.includes(a) && ['9:16', '1:1', '16:9', '4:5'].includes(a));

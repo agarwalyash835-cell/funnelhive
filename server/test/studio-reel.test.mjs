@@ -22,7 +22,8 @@ let fake, srv, api, ADMIN, S, sid, reelId;
 const timed = (text, start = 0) => { const ws = text.split(' '); return { transcript: text, language_code: 'en-IN', timestamps: { words: ws, start_time_seconds: ws.map((_, i) => start + i * 0.4), end_time_seconds: ws.map((_, i) => start + i * 0.4 + 0.35) } }; };
 before(async () => {
   ff('-f', 'lavfi', '-i', 'testsrc2=size=768x1344', '-frames:v', '1', path.join(tmp, 'image.png'));
-  ff('-f', 'lavfi', '-i', 'testsrc2=size=720x1280:rate=24', '-t', '5', '-c:v', 'libx264', '-crf', '28', '-pix_fmt', 'yuv420p', path.join(tmp, 'clip.mp4'));
+  // clips as long as ordered (4–10 s), like the real models
+  for (let n = 4; n <= 10; n++) ff('-f', 'lavfi', '-i', 'testsrc2=size=720x1280:rate=24', '-t', String(n), '-c:v', 'libx264', '-crf', '28', '-pix_fmt', 'yuv420p', path.join(tmp, `clip${n}.mp4`));
   ff('-f', 'lavfi', '-i', 'sine=frequency=220:duration=2.8', '-ar', '44100', path.join(tmp, 'line.wav'));
   heardQueue.push(timed(LINES[0]), timed('Only four nine nine for one litre jar'), timed(LINES[1]), timed(LINES[2]), timed(LINES.join(' ')));
   fake = http.createServer((req, res) => {
@@ -40,7 +41,7 @@ before(async () => {
         const t = created[Number(url.searchParams.get('taskId').slice(1))];
         // kie.ai's voice model is down (as it was on 2 Nov 2026): every task fails
         if (/elevenlabs/.test(t.model)) return send({ code: 200, data: { state: 'fail', failCode: '500', failMsg: 'Internal Error' } });
-        const file = /seedance|kling/.test(t.model) ? 'clip.mp4' : 'image.png';
+        const file = /seedance|kling/.test(t.model) ? `clip${Math.min(10, Math.max(4, t.input.duration || 5))}.mp4` : 'image.png';
         return send({ code: 200, data: { state: 'success', resultJson: JSON.stringify({ resultUrls: [`http://127.0.0.1:${fake.address().port}/files/${file}`] }) } });
       }
       res.writeHead(404); res.end('{}');

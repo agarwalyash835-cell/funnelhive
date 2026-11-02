@@ -55,7 +55,14 @@ export async function joinClips(files, out, { width = 1080, height = 1920, fps =
 export async function fitDuration(video, seconds, out, { fps = 30 } = {}) {
   const d = probe(video).duration;
   const args = ['-i', video];
-  if (d < seconds - 0.02) { need('tpad'); args.push('-vf', `tpad=stop_mode=clone:stop_duration=${(seconds - d + 0.1).toFixed(3)}`); }
+  // short: slow it down gently first (up to 30% — still looks natural), and only then hold the last frame, so the
+  // video never sits frozen for seconds at the end
+  if (d < seconds - 0.02) {
+    need('tpad');
+    const slow = Math.min(1.3, seconds / Math.max(d, 0.1));
+    const rest = seconds - d * slow;
+    args.push('-vf', [slow > 1.01 ? `setpts=${slow.toFixed(3)}*PTS` : '', rest > 0.02 ? `tpad=stop_mode=clone:stop_duration=${(rest + 0.1).toFixed(3)}` : ''].filter(Boolean).join(',') || 'null');
+  }
   await run([...args, '-t', seconds.toFixed(3), '-an', ...venc({ fps }), out]);
   return out;
 }

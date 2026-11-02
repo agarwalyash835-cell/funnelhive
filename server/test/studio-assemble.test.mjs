@@ -52,9 +52,10 @@ test('captions: built from word timings, inside the safe area, four looks', () =
   assert.equal(assColour('#ffd400'), '&H0000D4FF');
   const pop = buildAss(words, { style: 'pop' });
   const events = pop.split('\n').filter((l) => l.startsWith('Dialogue:'));
+  // the Reels look: 2-3 words on screen, one event per word, the word being spoken in the highlight colour
   assert.equal(events.length, 4, 'one event per word');
   assert.match(events[0], /0:00:00\.10,0:00:00\.45/, 'a word holds until the next starts');
-  assert.match(events[1], /\\c&H0000D4FF\}₹499/, 'prices in the highlight colour');
+  assert.match(events[1], /\\c&H0000D4FF[^}]*\}₹499/, 'the spoken word (here the price) in the highlight colour');
   assert.match(events[2], /TODAY/);
   // the line's bottom sits above the Reels bottom strip and below the top bar
   const style = pop.split('\n').find((l) => l.startsWith('Style:')).split(',');
