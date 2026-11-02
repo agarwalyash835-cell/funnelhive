@@ -202,7 +202,7 @@ export const KITS = [
       f('mf_value', 'Order value (₹)', 'money'), f('mf_sample', 'Sample sent', 'date'), f('mf_dispatch', 'Expected dispatch', 'date'), f('mf_city', 'City'),
       sel('mf_from', 'Enquiry from', 'IndiaMART, TradeIndia, Website, Trade fair, Referral, Sales visit, WhatsApp'),
     ],
-    pipeline: { name: 'Orders', stages: [S('Enquiry', '#6366f1'), S('Requirement understood', '#0ea5e9'), S('Sample sent', '#8b5cf6'), S('Quotation sent', '#f59e0b'), S('Negotiation', '#ec4899'), S('Order confirmed', '#16a34a', 'won'), S('Dispatched', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    pipeline: { name: 'Dealer orders', stages: [S('Enquiry', '#6366f1'), S('Requirement understood', '#0ea5e9'), S('Sample sent', '#8b5cf6'), S('Quotation sent', '#f59e0b'), S('Negotiation', '#ec4899'), S('Order confirmed', '#16a34a', 'won'), S('Dispatched', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
     columns: ['mf_product', 'mf_type', 'mf_value', 'mf_dispatch'], cardFields: ['mf_product', 'mf_value'], filters: ['mf_type', 'mf_from'], valueField: 'mf_value', showSales: false,
   },
   {
@@ -300,24 +300,73 @@ export function cleanKit(k) {
 }
 
 // ---------- switching ----------
-// fields: added when missing (matched by id, then by name — nothing is duplicated or removed); the kit's pipeline:
-// reused if one with that name exists, else created; the kit becomes what Contacts shows
+// fields: added when missing (matched by id, then by name and type — nothing is duplicated); the kit's pipeline:
+// reused if one with that name exists, else created; the kit becomes what Contacts shows. At the limits (30 fields,
+// 20 pipelines) room is made by dropping what another ready-made style added and nothing uses: no contact has a value
+// in the field or sits in the pipeline, and no automation, call type, chatbot or funnel points at it — so trying a few
+// styles never leaves the new one half shown, and no data goes
+const FIELD_CAP = 30, PIPE_CAP = 20;
+function unusedOtherKitItems(userId, kit) {
+  const kitFields = new Set(KITS.filter((k) => k.id !== kit.id).flatMap((k) => k.fields.map((f) => f.id)));
+  const kitPipes = new Set(KITS.filter((k) => k.id !== kit.id && k.pipeline).map((k) => k.pipeline.name.toLowerCase()));
+  const valued = new Set(), staged = new Set();
+  for (const m of T.crm.iter({ userId })) {
+    for (const [id, v] of Object.entries(m.custom || {})) if (v != null && v !== '' && v !== false) valued.add(id);
+    for (const pid of Object.keys(m.stages || {})) staged.add(pid);
+  }
+  const refs = [T.automations, T.calendars, T.waflows, T.funnels].map((t) => JSON.stringify(t.all({ userId }))).join('\n');
+  return {
+    field: (f) => kitFields.has(f.id) && !kit.fields.some((x) => x.id === f.id) && !valued.has(f.id) && !refs.includes(f.id),
+    pipe: (p) => kitPipes.has(p.name.toLowerCase()) && !staged.has(p.id) && !refs.includes(p.id),
+  };
+}
 export function applyKit(userId, kit) {
   const u = T.users.get(userId);
-  const have = u.crmFields || [];
+  let have = u.crmFields || [];
+  const sameName = (x) => (y) => y.label.toLowerCase() === x.label.toLowerCase() && y.type === x.type;
+  const missing = kit.fields.filter((x) => !have.some((y) => y.id === x.id) && !have.some(sameName(x)));
+  let unused = null;
+  if (have.length + missing.length > FIELD_CAP) {
+    unused = unusedOtherKitItems(userId, kit);
+    let over = have.length + missing.length - FIELD_CAP;
+    have = have.filter((f) => !(over > 0 && unused.field(f) && over--));
+  }
   const fields = [...have], idMap = {};
   for (const x of kit.fields) {
-    const ex = have.find((y) => y.id === x.id) || have.find((y) => y.label.toLowerCase() === x.label.toLowerCase());
-    if (ex) { idMap[x.id] = ex.id; continue; }
-    if (fields.length >= 30) continue;
+    const ex = have.find((y) => y.id === x.id) || have.find(sameName(x));
+    if (ex) {
+      // the same name from another style that nothing uses yet: this style's own field takes its place
+      if (ex.id !== x.id && (unused ||= unusedOtherKitItems(userId, kit)).field(ex)) { fields[fields.indexOf(ex)] = { ...x }; idMap[x.id] = x.id; continue; }
+      idMap[x.id] = ex.id;
+      // a choice field in use that this style shares by name: its options as well (none of the existing ones go)
+      if (x.type === 'select' && ex.type === 'select') {
+        const opts = (s) => String(s || '').split(',').map((o) => o.trim()).filter(Boolean);
+        const merged = [...new Set([...opts(ex.options), ...opts(x.options)])].join(', ');
+        if (merged !== ex.options) fields[fields.indexOf(ex)] = { ...ex, options: merged };
+      }
+      continue;
+    }
+    if (fields.length >= FIELD_CAP) continue;
     fields.push({ ...x }); idMap[x.id] = x.id;
   }
   let pipelineId = null;
   if (kit.pipeline) {
-    const pipes = pipelinesFor(userId);
-    const same = pipes.find((p) => p.name.toLowerCase() === kit.pipeline.name.toLowerCase());
+    let pipes = pipelinesFor(userId);
+    // this style's pipeline: by name with at least half its stages (the seller may have renamed some), or under another
+    // name with three quarters of them — a name alone isn't enough (another style's "Orders" has other stages), and
+    // two different styles share at most half their stage names
+    const names = new Set(kit.pipeline.stages.map((s) => s.name.toLowerCase()));
+    const fit = (p) => p.stages.filter((s) => names.has(s.name.toLowerCase())).length / names.size;
+    const same = pipes.find((p) => p.name.toLowerCase() === kit.pipeline.name.toLowerCase() && fit(p) >= 0.5) || pipes.find((p) => fit(p) >= 0.75);
     if (same) pipelineId = same.id;
-    else if (pipes.length < 20) pipelineId = T.pipelines.insert({ id: uid(), userId, name: kit.pipeline.name, stages: kit.pipeline.stages.map((s) => ({ id: uid(), ...s })), at: Date.now() }).id;
+    else {
+      if (pipes.length >= PIPE_CAP) {
+        unused ||= unusedOtherKitItems(userId, kit);
+        const drop = pipes.find((p) => unused.pipe(p));
+        if (drop) { T.pipelines.delWhere({ id: drop.id, userId }); pipes = pipes.filter((p) => p.id !== drop.id); }
+      }
+      if (pipes.length < PIPE_CAP) pipelineId = T.pipelines.insert({ id: uid(), userId, name: kit.pipeline.name, stages: kit.pipeline.stages.map((s) => ({ id: uid(), ...s })), at: Date.now() }).id;
+    }
   }
   const map = (list) => (list || []).map((id) => idMap[id]).filter(Boolean);
   const current = {
@@ -339,7 +388,7 @@ Rules: 6–12 fields that this business really tracks; 5–8 stages in the real 
 
 // ---------- ready-made automations for each CRM style ----------
 // date: [field, days before (−) / after (+), title, what it's for, message] · stuck: [stage name, days, title]
-const KIT_AUTOMATIONS = {
+export const KIT_AUTOMATIONS = {
   realestate: { date: ['re_visit', -1, 'Site visit reminder', 'the day before a site visit', 'your site visit is tomorrow ({{f_re_visit}}). Here’s the location and what to bring — reply if you need to reschedule.'], stuck: ['Negotiation', 5, 'Deal stuck in negotiation'] },
   clinic: { date: ['cl_next', -1, 'Appointment reminder', 'the day before an appointment', 'a reminder that your appointment is tomorrow ({{f_cl_next}}). Reply to this email if you need to change the time.'], stuck: ['Consulted', 7, 'Consulted but not started treatment'] },
   consultant: { date: ['co_close', -3, 'Expected close date coming up', '3 days before the expected close date', 'just checking in on the proposal — happy to answer any questions before you decide.'], stuck: ['Proposal sent', 5, 'Proposal waiting too long'] },
@@ -395,7 +444,7 @@ export function kitAutomations(u) {
 // ---------- bookings, shaped by the CRM style ----------
 // what a booking is for this kind of business: its name and length, where it happens, the questions on the form
 // (answers saved straight into CRM fields), the date field it fills, and the stages it moves the contact through
-const KIT_BOOKING = {
+export const KIT_BOOKING = {
   realestate: { name: 'Site visit', duration: 45, where: 'At the project site — we’ll WhatsApp you the location', date: 're_visit', booked: 'Site visit scheduled', done: 'Site visit done', ask: ['re_type', 're_bhk', 're_location'] },
   clinic: { name: 'Appointment', duration: 20, where: 'At the clinic', date: 'cl_next', booked: 'Appointment booked', done: 'Consulted', ask: ['cl_concern', 'cl_gender'] },
   consultant: { name: 'Discovery call', duration: 30, where: '', booked: 'Discovery call', ask: ['co_company', 'co_size', 'co_service'] },

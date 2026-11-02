@@ -28,6 +28,8 @@ const avStyle = (c) => { let h = 0; for (const ch of label(c)) h = (h * 31 + ch.
 const keyUrl = (k) => `/contacts/${encodeURIComponent(k)}`;
 const FIELD_TYPE_LABELS = [['text', 'Short text'], ['longtext', 'Long text'], ['number', 'Number'], ['money', 'Money (₹)'], ['phone', 'Phone'], ['date', 'Date'], ['select', 'Dropdown'], ['url', 'Link'], ['checkbox', 'Yes / no']];
 const PAGE = 100; // contacts per page of the list
+// one of a CRM style's plural words: "Enquiries" → "Enquiry", "Trials & leads" → "Trial & lead"; "In process", "Enrolled" stay
+export const singular = (s) => String(s).split(' ').map((w) => (/ies$/i.test(w) ? `${w.slice(0, -3)}y` : /[^s]s$/i.test(w) ? w.slice(0, -1) : w)).join(' ');
 const fieldText = (f, v) => (v == null || v === '' ? '' : f.type === 'checkbox' ? (v ? 'Yes' : 'No') : f.type === 'date' ? new Date(v).toLocaleDateString('en-IN') : f.type === 'money' ? `₹${Number(v).toLocaleString('en-IN')}` : String(v));
 // big rupee amounts the way Indian businesses say them: ₹45 L, ₹1.2 Cr
 const lakh = (n) => (n >= 1e7 ? `₹${(n / 1e7).toFixed(n >= 1e8 ? 0 : 1)} Cr` : n >= 1e5 ? `₹${(n / 1e5).toFixed(n >= 1e6 ? 0 : 1)} L` : `₹${Math.round(n).toLocaleString('en-IN')}`);
@@ -178,7 +180,7 @@ export default function Contacts() {
             ))}{Object.keys(cfOn).length > 0 && <button className="link-btn" onClick={() => setCf({})}>Clear filters</button>}</div>
           )}
 
-          {view === 'board' && pipe ? <Board pipe={pipe} filterQs={filterQs()} tick={boardTick} onOpen={open} onMoved={() => loadList(rows.length)} kit={kit} fields={byId} /> : (
+          {view === 'board' && pipe ? <Board pipe={pipe} filterQs={filterQs()} tick={boardTick} onOpen={open} onMoved={() => loadList(rows.length)} kit={kit} fields={byId} L={L} /> : (
             <Panel pad={false}>
               {!rows.length ? <Empty icon="users" title={Object.keys(cfOn).length || dq ? `No ${L.title.toLowerCase()} match` : `No ${L.title.toLowerCase()} yet`} text={Object.keys(cfOn).length || dq ? 'Try clearing the filters.' : `${L.leads} from your forms and ${L.customers.toLowerCase()} from checkouts appear here automatically — or add one yourself.`} /> : (
                 <div className="tbl-wrap">
@@ -203,7 +205,7 @@ export default function Contacts() {
                           <td><div className="who"><span className="who-av" style={avStyle(c)}>{initial(c)}</span><div><b>{c.name || '—'}</b><small className="sub-t">{c.email}{c.email && c.phone && ' · '}{c.phone}</small></div></div></td>
                           <td>{st && <span className="stage-pill" style={{ '--sc': st.color }}><i />{st.name}</span>}</td>
                           {cols.map((x) => <td key={x.id} className={x.type === 'money' || x.type === 'number' ? 'r strong' : ''}>{fieldText(x, c.custom?.[x.id]) || <span className="muted">—</span>}</td>)}
-                          <td><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type === 'customer' ? L.customers.replace(/s$/, '') : L.leads.replace(/s$/, '').replace(/ie$/, 'y')}</span></td>
+                          <td><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{singular(c.type === 'customer' ? L.customers : L.leads)}</span></td>
                           {sales && <><td className="r">{c.orders}</td><td className="r strong">{inr(c.ltv)}</td>
                           <td><span className="src">{c.source}</span></td>
                           <td>{c.fields ? <span className="answers" title={Object.entries(c.fields).map(([k, v]) => `${k}: ${v}`).join('\n')}>📝 {Object.keys(c.fields).length} {Object.keys(c.fields).length === 1 ? 'answer' : 'answers'}</span> : <span className="muted">—</span>}</td></>}
@@ -219,7 +221,7 @@ export default function Contacts() {
           )}
         </>
       )}
-      {key && list && <ContactPanel key={key} ckey={key} pipes={pipes} fields={fields} onClose={() => nav('/contacts')} onChanged={load} onEditFields={() => setModal('fields')} onMerge={(keys) => setMerging({ keys, primary: key })} />}
+      {key && list && <ContactPanel key={key} ckey={key} pipes={pipes} fields={fields} L={L} onClose={() => nav('/contacts')} onChanged={load} onEditFields={() => setModal('fields')} onMerge={(keys) => setMerging({ keys, primary: key })} />}
       {modal === 'dups' && <DuplicatesModal onClose={() => setModal(null)} onMerge={(g) => setMerging({ keys: g.keys, primary: g.primary })} onOpen={(k) => { setModal(null); open(k); }} tick={merging} />}
       {merging && <MergeModal keys={merging.keys} primary={merging.primary} onClose={() => setMerging(null)} onDone={(k) => { setMerging(null); setPicked(new Set()); load(); if (key) open(k); }} />}
       {modal === 'add' && <AddContact onClose={() => setModal(null)} onDone={(k) => { setModal(null); load().then(() => open(k)); }} />}
@@ -234,7 +236,7 @@ export default function Contacts() {
 // ---------------- kanban board ----------------
 // each column is its own server query (first 200 cards, with the stage's count and value)
 const BOARD_CARDS = 200;
-function Board({ pipe, filterQs, tick, onOpen, onMoved, kit, fields = {} }) {
+function Board({ pipe, filterQs, tick, onOpen, onMoved, kit, fields = {}, L }) {
   const vf = kit?.valueField && fields[kit.valueField];
   const cardFields = (kit?.cardFields || []).map((id) => fields[id]).filter(Boolean);
   const [drag, setDrag] = useState(null);
@@ -303,7 +305,7 @@ function Board({ pipe, filterQs, tick, onOpen, onMoved, kit, fields = {} }) {
                 </article>
               ))}
               {col.total > Math.min(items.length, BOARD_CARDS) && <p className="hint center">+{col.total - Math.min(items.length, BOARD_CARDS)} more — use search</p>}
-              {!items.length && <div className="bempty">Drop contacts here</div>}
+              {!items.length && <div className="bempty">Drop {L?.title.toLowerCase() || 'contacts'} here</div>}
             </div>
           </section>
         );
@@ -319,7 +321,7 @@ const TL = {
   bump: [PackagePlus, '#16a34a'], upsell: [TrendingUp, '#16a34a'], downsell: [TrendingDown, '#16a34a'], crosssell: [PackagePlus, '#16a34a'],
   email: [Mail, '#8b5cf6'], whatsapp: [MessageCircle, '#22c55e'], call: [PhoneCall, '#0f766e'], note: [StickyNote, '#a16207'], meeting: [CalendarDays, '#0369a1'], stage: [ArrowRightLeft, '#64748b'], file: [Paperclip, '#7c3aed'],
 };
-function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields, onMerge }) {
+function ContactPanel({ ckey, pipes, fields, L, onClose, onChanged, onEditFields, onMerge }) {
   const [c, setC] = useState(null);
   const [mergeWith, setMergeWith] = useState(false);
   const [tab, setTab] = useState('timeline');
@@ -340,7 +342,7 @@ function ContactPanel({ ckey, pipes, fields, onClose, onChanged, onEditFields, o
           <>
             <header className="cp-head">
               <span className="who-av lg" style={avStyle(c)}>{initial(c)}</span>
-              <div className="cp-id"><h2>{label(c)}</h2><div><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{c.type}</span>{c.unsubscribed && <span className="pill warn" title="Clicked unsubscribe — automated emails are skipped">unsubscribed</span>}<button className={`pill btnpill ${c.optIn ? 'ok' : ''}`} title={c.optIn ? 'Agreed to marketing — gets broadcasts. Click if they withdrew.' : 'No marketing consent on record — broadcasts skip them. Click only if they agreed.'} onClick={async () => { try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'PATCH', { optIn: !c.optIn }); refresh(); } catch (e) { toast(e.message); } }}>{c.optIn ? 'opted in' : 'not opted in'}</button>{(c.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}</div></div>
+              <div className="cp-id"><h2>{label(c)}</h2><div><span className={`pill ${c.type === 'customer' ? 'ok' : ''}`}>{L ? singular(c.type === 'customer' ? L.customers : L.leads) : c.type}</span>{c.unsubscribed && <span className="pill warn" title="Clicked unsubscribe — automated emails are skipped">unsubscribed</span>}<button className={`pill btnpill ${c.optIn ? 'ok' : ''}`} title={c.optIn ? 'Agreed to marketing — gets broadcasts. Click if they withdrew.' : 'No marketing consent on record — broadcasts skip them. Click only if they agreed.'} onClick={async () => { try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'PATCH', { optIn: !c.optIn }); refresh(); } catch (e) { toast(e.message); } }}>{c.optIn ? 'opted in' : 'not opted in'}</button>{(c.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}</div></div>
               <button className="icon-btn danger" title="Erase this contact’s data (privacy request)" onClick={async () => {
                 if ((await promptDialog({ title: `Erase everything about ${label(c)}?`, text: 'Sign-ups, messages, bookings and product access are deleted; orders and invoices are kept for tax records without their name and contact details. This can’t be undone.', label: 'Type ERASE to confirm', confirmWord: 'ERASE', confirm: 'Erase', danger: true })) !== 'ERASE') return;
                 try { await api(`/contacts/${encodeURIComponent(ckey)}`, 'DELETE'); toast('Contact erased'); onChanged?.(); onClose(); } catch (x) { toast(x.message); }
