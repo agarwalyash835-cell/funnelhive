@@ -305,6 +305,8 @@ class AgentRuntime extends EventEmitter {
       this.applyIntervals(response && response.intervals);
     } catch (error) {
       this.update({ backend: "ERROR", lastError: error.message });
+      // 426: FunnelHive requires a newer connector — fetch and install it now
+      if (error.status === 426 && typeof this.onOutdated === "function") this.onOutdated();
     } finally {
       this.busyHeartbeat = false;
     }

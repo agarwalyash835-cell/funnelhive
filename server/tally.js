@@ -833,6 +833,15 @@ export function registerTally(app, { auth, wrap, rateLimit, isTest, secret, appU
     if (!fs.existsSync(installerFile())) return res.status(404).type('text').send('The Tally connector isn’t published on this server yet.');
     res.download(installerFile(), INSTALLER);
   });
+  // what connectors update to (tally-connector/src/agent/updater.js): the release published beside the installer
+  // ({ version, sha256, size } in funnelhive-tally-connector-setup.json, written when a new installer is uploaded).
+  // Public, and answered even to a connector the server refuses as too old — that's the one that must update.
+  app.get(`${A}/update`, (req, res) => {
+    let rel = null;
+    try { rel = JSON.parse(fs.readFileSync(installerFile().replace(/\.exe$/, '.json'), 'utf8')); } catch { /* none published */ }
+    if (!rel?.version || !/^[a-f0-9]{64}$/.test(rel.sha256 || '') || !fs.existsSync(installerFile()) || fs.statSync(installerFile()).size !== Number(rel.size)) return res.json({ version: null });
+    res.json({ version: rel.version, url: `/downloads/${INSTALLER}`, sha256: rel.sha256, size: Number(rel.size), minimum: tallySettings().force_update_agent_version ? tallySettings().minimum_agent_version : null });
+  });
 
   // ---- the seller (/api/tally is the 'tally' team area in team.js) ----
   const S = '/api/tally';

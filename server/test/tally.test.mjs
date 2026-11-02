@@ -314,3 +314,20 @@ test('a big upload is saved in chunks: every row kept, the reconcile still retir
   await agent('/sync/vouchers', 'POST', { company_guid: BIG.tally_guid, reconcile: true, records: Array.from({ length: 1100 }, (_, i) => v(i + 100)) });
   assert.equal((await api('/tally/vouchers', 'GET', null, T)).data.total, 1100);
 });
+
+test('connector updates: the release published beside the installer, public, and only when it checks out', async () => {
+  const fs = await import('node:fs'), path = await import('node:path'), crypto = await import('node:crypto');
+  const up = async () => (await fetch(`${srv.base}/api/v1/agent/tally/update?version=1.1.3`)).json();
+  assert.equal((await up()).version, null, 'nothing published');
+  const dir = path.join(srv.dataDir, 'downloads');
+  fs.mkdirSync(dir, { recursive: true });
+  const exe = Buffer.from('installer bytes');
+  fs.writeFileSync(path.join(dir, 'funnelhive-tally-connector-setup.exe'), exe);
+  const sha256 = crypto.createHash('sha256').update(exe).digest('hex');
+  fs.writeFileSync(path.join(dir, 'funnelhive-tally-connector-setup.json'), JSON.stringify({ version: '1.1.4', sha256, size: exe.length }));
+  const r = await up();
+  assert.deepEqual([r.version, r.sha256, r.size, r.url], ['1.1.4', sha256, exe.length, '/downloads/funnelhive-tally-connector-setup.exe']);
+  // a version file that doesn't match the installer beside it (a half-finished upload) offers nothing
+  fs.writeFileSync(path.join(dir, 'funnelhive-tally-connector-setup.json'), JSON.stringify({ version: '1.1.5', sha256, size: exe.length + 1 }));
+  assert.equal((await up()).version, null);
+});

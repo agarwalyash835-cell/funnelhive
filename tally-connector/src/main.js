@@ -5,6 +5,7 @@ const { ConfigStore } = require("./agent/config-store");
 const { BackendClient } = require("./agent/backend-client");
 const { TallyClient } = require("./agent/tally-client");
 const { AgentRuntime } = require("./agent/runtime");
+const { Updater } = require("./agent/updater");
 
 let mainWindow = null;
 let tray = null;
@@ -159,6 +160,13 @@ app.whenReady().then(() => {
   const backend = new BackendClient(() => store.load());
   const tally = new TallyClient(() => store.load());
   runtime = new AgentRuntime({ store, backend, tally });
+  // new versions install themselves (agent/updater.js), never while a Tally change is running
+  const updater = new Updater({
+    isBusy: () => runtime.busyCommands,
+    quit: () => { app.isQuiting = true; runtime.stop(); app.quit(); },
+  });
+  runtime.onOutdated = () => void updater.check();
+  updater.start();
   {
     const target = runtime.backendTarget();
     console.log(`[AgentRuntime] Backend: ${target.url} (${target.environment})`);
