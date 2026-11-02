@@ -233,6 +233,10 @@ test('the AI agent answers from the business knowledge, shares links, and hands 
   const call = ai.calls.findLast((x) => x.sys.includes('WhatsApp assistant'));
   assert.ok(!call.sys.includes('quick-reply options'), 'no buttons asked for');
   assert.match(call.sys, /never a numbered menu/);
+  // length: normal by default; short tells it 1–2 sentences
+  assert.equal(on.data.length, 'normal');
+  assert.match(call.sys, /2–4 sentences, under 550 characters/);
+  assert.equal((await api('/wa-agent', 'PUT', { length: 'essay' }, T)).data.length, 'normal', 'an unknown length falls back to normal');
   // language: by default it follows each customer's language; a fixed one is always used
   assert.equal(on.data.language, 'match');
   assert.match(call.sys, /if they switch language, switch with them/);
@@ -263,11 +267,29 @@ test('the AI agent answers from the business knowledge, shares links, and hands 
   await waitFor(() => sentTo(num).length === 2);
   assert.equal((await detail(c.id)).contact.email, 'meera@x.in', 'an email shared in the chat is saved on the contact');
 
+  // its hand-overs go to the person chosen in its settings (only someone on the team), and automations can pick out
+  // hand-overs by the AI agent, with the reason as {{handoff_reason}}
+  const me = (await api('/me', 'GET', null, T)).data.id;
+  assert.equal((await api('/wa-agent', 'PUT', { handoffTo: 'not-on-team' }, T)).status, 400);
+  assert.equal((await api('/wa-agent', 'PUT', { handoffTo: me }, T)).data.handoffTo, me);
+  const byAi = (await api('/automations', 'POST', { name: 'AI hand-overs', trigger: { type: 'wa_handoff', by: 'ai' }, steps: [{ type: 'tag', tag: 'ai-handoff', action: 'add' }] }, T)).data;
+  const byTeam = (await api('/automations', 'POST', { name: 'Team hand-overs', trigger: { type: 'wa_handoff', by: 'team' }, steps: [{ type: 'tag', tag: 'team-handoff', action: 'add' }] }, T)).data;
+  assert.equal(byAi.trigger.by, 'ai');
+  for (const x of [byAi, byTeam]) await api(`/automations/${x.id}`, 'PUT', { active: true }, T);
+
   await say(num, 'I want a refund');
   await waitFor(() => sentTo(num).length === 3);
   const d = await waitFor(async () => { const x = await detail(c.id); return x.conv.human && x; });
   assert.equal(d.conv.ai, false);
   assert.match(d.conv.handoff.reason, /Refund/);
+  assert.equal(d.conv.assignee, me, 'given to the person chosen in the agent’s settings');
+  await waitFor(async () => (await detail(c.id)).contact.tags.includes('ai-handoff'), 4000);
+  assert.ok(!(await detail(c.id)).contact.tags.includes('team-handoff'), 'the teammate-only automation didn’t run');
+  for (const x of [byAi, byTeam]) await api(`/automations/${x.id}`, 'DELETE', null, T);
+  await api('/wa-agent', 'PUT', { handoffTo: '' }, T);
+  const sys = ai.calls.findLast((x) => x.sys.includes('WhatsApp assistant')).sys;
+  assert.match(sys, /never guess — hand over/);
+  assert.match(sys, /always when they insist/);
 
   // the seller hands it back to the AI from the inbox
   const back = await api(`/inbox/${c.id}`, 'PATCH', { ai: true }, T);
@@ -474,4 +496,16 @@ test('industry chatbots and AI agent presets: every industry gets three, written
   assert.ok(p.faqs.length >= 5);
   assert.match(p.handoff, /never give medical advice/);
   assert.equal((await api('/wa-agent/preset/nope', 'GET', null, T)).status, 404);
+});
+
+test('a reply longer than its length setting is cut back to its last full sentence, never mid-word', async () => {
+  const { fitReply, AGENT_LENGTHS } = await import('../wainbox.js');
+  assert.equal(fitReply('Short and sweet.', 50), 'Short and sweet.');
+  const long = 'The 2 BHK starts at ₹1.28 Cr. Possession is December 2027. Visits are free, 7 days a week, from 10 AM to 7 PM, and you get a cost sheet in your name.';
+  assert.equal(fitReply(long, 70), 'The 2 BHK starts at ₹1.28 Cr. Possession is December 2027.');
+  assert.equal(fitReply('२ BHK की कीमत ₹1.28 Cr है। पज़ेशन दिसंबर 2027 में है। साइट विज़िट फ्री है और रोज़ 10 से 7 बजे तक होती है।', 70), '२ BHK की कीमत ₹1.28 Cr है। पज़ेशन दिसंबर 2027 में है।');
+  // one long sentence: whole words, with …
+  const one = fitReply('Our project manager will walk you through the sample flat and the actual tower floor', 40);
+  assert.ok(one.endsWith('…') && one.length <= 41 && !/\s…$/.test(one), one);
+  assert.ok(AGENT_LENGTHS.short.cap < AGENT_LENGTHS.normal.cap && AGENT_LENGTHS.normal.cap < AGENT_LENGTHS.detailed.cap);
 });

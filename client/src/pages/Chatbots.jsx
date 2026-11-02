@@ -981,7 +981,7 @@ function TestPhone({ f, onNode }) {
 }
 
 // ---------- the AI agent ----------
-const pickA = (x) => ({ on: x.on, auto: x.auto, name: x.name, role: x.role, tone: x.tone, knowledge: x.knowledge, faqs: x.faqs, capture: x.capture, handoff: x.handoff, buttons: x.buttons, language: x.language });
+const pickA = (x) => ({ on: x.on, auto: x.auto, name: x.name, role: x.role, tone: x.tone, knowledge: x.knowledge, faqs: x.faqs, capture: x.capture, handoff: x.handoff, buttons: x.buttons, language: x.language, length: x.length, handoffTo: x.handoffTo || '' });
 const TONES = [['friendly', 'Friendly'], ['professional', 'Professional'], ['fun', 'Fun & lively'], ['calm', 'Calm & caring']];
 function Agent() {
   const [a, setA] = useState(null);
@@ -989,6 +989,8 @@ function Agent() {
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState('');
   const [preset, setPreset] = useState('general');
+  const [team, setTeam] = useState([]);
+  useEffect(() => { api('/inbox/meta').then((m) => setTeam(m.team || [])).catch(() => {}); }, []);
   useEffect(() => { api('/wa-agent').then((x) => { setA(x); setPreset(x.industry || 'general'); setSaved(JSON.stringify(pickA(x))); }).catch((e) => toast(e.message)); }, []);
   if (!a) return <span className="spin dark" />;
   const dirty = JSON.stringify(pickA(a)) !== saved;
@@ -1044,6 +1046,11 @@ function Agent() {
                 {(a.languages || [{ id: 'match', name: 'Match the customer' }]).map((l) => <option key={l.id} value={l.id}>{l.name}{l.id === 'match' ? ' (recommended)' : ''}</option>)}
               </select>
               <small className="muted">{a.language && a.language !== 'match' ? 'Always replies in this language, whatever the customer writes in.' : 'English to English, Hindi to Hindi, Hinglish to Hinglish — and it switches when the customer does.'}</small></label>
+            <label className="sm strong">Reply length
+              <select value={a.length || 'normal'} onChange={(e) => setA({ ...a, length: e.target.value })} style={{ marginTop: 6 }}>
+                {(a.lengths || [{ id: 'normal', name: 'Normal — 2 to 4 sentences' }]).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <small className="muted">A reply that runs longer is cut back to its last full sentence.</small></label>
             <label className="tog"><input type="checkbox" checked={a.auto} onChange={(e) => setA({ ...a, auto: e.target.checked })} /><span />Answer new chats automatically <small className="muted">· off: only when a chatbot or your team hands a chat to it</small></label>
             <label className="tog"><input type="checkbox" checked={a.capture} onChange={(e) => setA({ ...a, capture: e.target.checked })} /><span />Ask for their name and email (saved on the contact)</label>
             <label className="tog"><input type="checkbox" checked={!!a.buttons} onChange={(e) => setA({ ...a, buttons: e.target.checked })} /><span />Offer tap-to-reply buttons under its answers <small className="muted">· off: it chats in plain messages, like a person</small></label>
@@ -1074,7 +1081,13 @@ function Agent() {
         <ShopifyStore />
         <Panel title="When to hand over to your team">
           <textarea rows={3} value={a.handoff} maxLength={1000} onChange={(e) => setA({ ...a, handoff: e.target.value })} placeholder="Bulk or corporate orders, anyone asking for a discount above 10%, and any medical question." />
-          <p className="hint">It always hands over for complaints, refunds, payment problems, or when someone asks for a person — your team gets a notification and the chat waits in the inbox.</p>
+          <p className="hint">It always hands over when it doesn’t have the answer, for complaints, refunds and payment problems, and when someone asks for — or insists on — a person. It tells the customer politely that the right person will get in touch, stops replying in that chat, and you get a notification.</p>
+          <label className="sm strong">Give handed-over chats to
+            <select value={a.handoffTo || ''} onChange={(e) => setA({ ...a, handoffTo: e.target.value })} style={{ marginTop: 6 }}>
+              <option value="">The team (your inbox rules decide)</option>
+              {team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select></label>
+          <p className="hint">To do more when it hands over — WhatsApp yourself, add a tag, create a task — make an automation with the WhatsApp trigger “A chatbot, the AI agent or a teammate hands a chat to your team”, handed over by “The AI agent”.</p>
         </Panel>
         <div className="row" style={{ position: 'sticky', bottom: 12 }}><button className="btn primary lg" onClick={() => save()} disabled={!dirty || !!busy}>{busy === 'save' ? <span className="spin" /> : null}{dirty ? 'Save changes' : 'All changes saved'}</button></div>
       </div>

@@ -153,10 +153,12 @@ const transcriptOf = (convId, n = 24) => T.wachat.all({ convId }, { order: 'at',
 // ---------- the AI agent's settings ----------
 const TONES = ['friendly', 'professional', 'fun', 'calm'];
 // the language it replies in: 'match' follows each customer's own language and script; any other is always used
+// how long its replies are: what it's told, and a hard cap a longer reply is cut back to (at a sentence end)
+export const AGENT_LENGTHS = { short: { name: 'Short — 1 to 2 sentences', say: '1–2 sentences, under 250 characters', cap: 320 }, normal: { name: 'Normal — 2 to 4 sentences', say: '2–4 sentences, under 550 characters', cap: 650 }, detailed: { name: 'Detailed — up to 6 sentences', say: 'up to 6 sentences, under 900 characters', cap: 1100 } };
 export const AGENT_LANGS = { match: 'Match the customer', en: 'English', hi: 'Hindi (देवनागरी)', hinglish: 'Hinglish (Hindi in English letters)', mr: 'Marathi', gu: 'Gujarati', bn: 'Bengali', ta: 'Tamil', te: 'Telugu', kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi' };
 export function agentOf(u) {
   const a = u?.waAgent || {};
-  return { on: !!a.on, auto: a.auto !== false, name: a.name || 'Asha', role: a.role || 'assistant', tone: TONES.includes(a.tone) ? a.tone : 'friendly', knowledge: a.knowledge || '', faqs: arr(a.faqs), capture: a.capture !== false, handoff: a.handoff || '', welcome: a.welcome || '', buttons: !!a.buttons, language: AGENT_LANGS[a.language] ? a.language : 'match' };
+  return { on: !!a.on, auto: a.auto !== false, name: a.name || 'Asha', role: a.role || 'assistant', tone: TONES.includes(a.tone) ? a.tone : 'friendly', knowledge: a.knowledge || '', faqs: arr(a.faqs), capture: a.capture !== false, handoff: a.handoff || '', welcome: a.welcome || '', buttons: !!a.buttons, language: AGENT_LANGS[a.language] ? a.language : 'match', length: AGENT_LENGTHS[a.length] ? a.length : 'normal', handoffTo: a.handoffTo || '' };
 }
 function cleanAgent(b = {}, cur = {}) {
   const out = { ...cur };
@@ -173,9 +175,13 @@ function cleanAgent(b = {}, cur = {}) {
   // quick-reply buttons under its answers: off by default, so it reads like a person typing
   if ('buttons' in b) out.buttons = !!b.buttons;
   if ('language' in b) out.language = AGENT_LANGS[b.language] ? b.language : 'match';
+  if ('length' in b) out.length = AGENT_LENGTHS[b.length] ? b.length : 'normal';
+  if ('handoffTo' in b) out.handoffTo = clip(b.handoffTo, 40);
   return out;
 }
 const agentOn = (u) => agentOf(u).on && aiEnabled();
+// the AI agent's hand-overs: to the teammate chosen in its settings (still on the team), else the team's own rules
+const aiHand = (u) => { const to = agentOf(u).handoffTo; return { source: 'ai', assignee: to && (to === u.id || T.members.exists({ ownerId: u.id, userId: to, status: 'active' })) ? to : undefined }; };
 
 // one AI answer as the agent → { reply, buttons, handoff, reason, intent, lead }
 // ctx: { profile, search } — who the customer is (CRM, earlier chats) and what the customer's words found in the
@@ -186,9 +192,9 @@ async function agentAnswer(u, transcript, extra = '', ctx = {}) {
   const docsBlock = knowledgeBlock(found);
   const system = `You are ${a.name}, the WhatsApp assistant (${a.role}) for "${bizName(u)}". Your tone is ${a.tone}.
 ${a.language === 'match' ? "Reply in the customer's own language and script (English, Hindi, Hinglish, Tamil, Marathi…) — match how they write, message by message: if they switch language, switch with them." : `Always reply in ${AGENT_LANGS[a.language]}, whatever language the customer writes in — switch only if they ask you to or clearly can't follow it.`}
-WhatsApp style: short (1–4 sentences, under 600 characters), warm and human, one question at a time, *bold* only for a key word or price, no headings, tables or long lists. Prices in ₹.${a.buttons ? '' : '\nWrite like a person typing on WhatsApp: ask in words, never a numbered menu of options ("reply 1 for…").'}
+WhatsApp style: ${AGENT_LENGTHS[a.length].say}, warm and human, one question at a time, *bold* only for a key word or price, no headings, tables or long lists. Prices in ₹.${a.buttons ? '' : '\nWrite like a person typing on WhatsApp: ask in words, never a numbered menu of options ("reply 1 for…").'}
 Use ONLY the business knowledge below for facts (prices, timings, policies, links, addresses). Never invent a price, discount, date or promise. Share a link from the knowledge when it helps the customer act (buy, book, register).
-If you don't know, or the customer needs something only a person can do (a custom quote, a complaint, a refund or payment problem, an upset customer, or they ask for a person), set "handoff": true and tell them a team member will reply here shortly.
+If the business knowledge doesn't answer what they ask, never guess — hand over. Hand over too when they need something only a person can do (a custom quote, a complaint, a refund or payment problem, an upset customer) or they ask for a person, a call or a real human — even once, and always when they insist. To hand over: set "handoff": true and reply politely, in their language, that the right person from the team will get in touch here shortly — don't keep trying to answer it yourself.
 ${a.capture ? 'When it fits naturally, ask for their name (and email if useful) so the team can follow up — once, never pushy.' : ''}
 ${a.handoff ? `The owner's rules for handing over: ${a.handoff}` : ''}
 ${extra ? `For this conversation: ${extra}` : ''}
@@ -206,7 +212,7 @@ Return ONLY JSON: {"reply":"your WhatsApp message",${a.buttons ? '"buttons":["up
   const r = await aiJson(system, `The conversation so far:\n${transcript}\n\nWrite your reply to the customer's last message.`);
   const offered = new Set(found.docs.map((d) => d.id));
   return {
-    reply: clip(String(r?.reply ?? '').replace(/\s*\(P\d{1,2}\)|\bP\d{1,2}:\s*/g, ''), 1500), buttons: a.buttons ? arr(r?.buttons).map((x) => clipWords(x, 20)).filter(Boolean).slice(0, 3) : [], handoff: !!r?.handoff, reason: clip(r?.reason, 200),
+    reply: fitReply(String(r?.reply ?? '').replace(/\s*\(P\d{1,2}\)|\bP\d{1,2}:\s*/g, ''), AGENT_LENGTHS[a.length].cap), buttons: a.buttons ? arr(r?.buttons).map((x) => clipWords(x, 20)).filter(Boolean).slice(0, 3) : [], handoff: !!r?.handoff, reason: clip(r?.reason, 200),
     intent: clip(r?.intent, 20).toLowerCase(), lead: { name: clip(r?.lead?.name, 80), email: clip(r?.lead?.email, 160).toLowerCase() },
     // [{ id, pages? }] — only documents it was offered, at most two
     send: arr(r?.send).map((x) => (typeof x === 'object' && x ? { id: String(x.id || ''), pages: arr(x.pages).map(Number).filter((p) => Number.isInteger(p) && p > 0).slice(0, 10) } : { id: String(x), pages: [] }))
@@ -224,6 +230,15 @@ export const productCard = (p) => {
 // what the customer just asked (their last two messages, for follow-ups like "and in blue?")
 const askedOf = (convId) => T.wachat.all({ convId }, { order: 'at', desc: true, limit: 12 }).filter((m) => m.dir === 'in').slice(0, 2).map((m) => m.text || '').reverse().join('\n');
 // a quick-reply button holds 20 characters: cut at a word, never mid-word ("Free class book karn")
+// a reply longer than its cap is cut back to the last full sentence that fits (else the last whole word, with …)
+export const fitReply = (v, max) => {
+  const t = String(v || '').trim();
+  if (t.length <= max) return t;
+  const head = t.slice(0, max);
+  const end = Math.max(...['. ', '! ', '? ', '। ', '\n'].map((m) => head.lastIndexOf(m)), ...['.', '!', '?', '।'].map((m) => (head.endsWith(m) ? head.length - 1 : -1)));
+  if (end >= max * 0.4) return head.slice(0, end + 1).trim();
+  return `${head.replace(/\s+\S*$/, '').replace(/[\s,;:–—-]+$/, '')}…`;
+};
 const clipWords = (v, n) => { const t = clip(v, 200); if (t.length <= n) return t; const cut = t.slice(0, n + 1).replace(/\s+\S*$/, '').replace(/[\s,;:–—-]+$/, ''); return cut.length >= 4 ? cut : t.slice(0, n); };
 async function contextFor(u, conv) {
   const asked = askedOf(conv.id), m = conv.ckey ? T.crm.find({ userId: u.id, key: conv.ckey }) : null;
@@ -327,7 +342,8 @@ async function needsPerson(u, conv, text) {
   if (hit(`wainbox:n:${conv.id}`, 10 * 60000).n > 1) return;
   notify(u.id, { kind: 'whatsapp', title: `WhatsApp from ${conv.name || `+${conv.num}`}`, body: text, link: `/inbox/${conv.id}`, ckey: conv.ckey });
 }
-async function handoff(u, conv, reason, { say, assignee, flowId, by } = {}) {
+// source: who handed it over — 'ai' (the AI agent), 'bot' (a chatbot), 'customer' (asked for a person), 'team'
+async function handoff(u, conv, reason, { say, assignee, flowId, by, source = 'team' } = {}) {
   conv = T.waconvs.update(conv.id, (c) => { c.human = true; c.ai = false; c.bot = null; c.wakeAt = null; c.status = 'open'; c.handoff = { reason: clip(reason, 200), at: Date.now(), ...(by ? { by } : {}) }; if (assignee) c.assignee = assignee; });
   conv = autoAssign(u, conv);
   if (say) await sendAll(u, conv, [{ kind: 'text', text: say }], 'bot');
@@ -335,7 +351,7 @@ async function handoff(u, conv, reason, { say, assignee, flowId, by } = {}) {
   addMsg(conv, { dir: 'note', by: 'system', text: `Handed to ${conv.assignee ? T.users.get(conv.assignee)?.name || 'a teammate' : 'your team'} — ${clip(reason, 200)}` });
   if (flowId) T.waflows.update(flowId, (f) => { f.stats = { ...f.stats, handoffs: (f.stats?.handoffs || 0) + 1 }; });
   notify(u.id, { kind: 'whatsapp', title: `${conv.name || `+${conv.num}`} needs ${conv.assignee ? T.users.get(conv.assignee)?.name || 'a person' : 'a person'}`, body: reason, link: `/inbox/${conv.id}`, ckey: conv.ckey });
-  if (conv.ckey) fire(u.id, 'wa_handoff', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}` });
+  if (conv.ckey) fire(u.id, 'wa_handoff', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}`, by: source, reason: clip(reason, 200) });
   return conv;
 }
 // a chat closed by a person (or the quiet-chat rule): Automations hear about it; a person's close can run the feedback chatbot
@@ -763,7 +779,7 @@ async function runBot(u, conv, flow, state, input, depth = 0) {
     else if (e.type === 'optout' || e.type === 'optin') { if (conv.ckey) waSetOptOut(u.id, conv.ckey, conv.num, e.type === 'optout'); }
     else if (e.type === 'api' && !e.ok) addMsg(conv, { dir: 'note', by: 'system', text: `Chatbot API request didn’t work (${e.status || clip(e.error, 120) || 'no answer'}) — it took the “Didn’t work” path` });
     else if (e.type === 'webhook') await postHook(u, conv, e.url, e.vars);
-    else if (e.type === 'handoff') { await handoff(u, conv, e.note || `Chatbot “${flow.name}” handed over`, { say: e.text, assignee: e.assignee, flowId: flow.id }); return; }
+    else if (e.type === 'handoff') { await handoff(u, conv, e.note || `Chatbot “${flow.name}” handed over`, { say: e.text, assignee: e.assignee, flowId: flow.id, source: 'bot' }); return; }
     else if (e.type === 'end') T.waconvs.update(conv.id, (c) => { if (e.resolve) { c.status = 'resolved'; c.human = false; } });
   }
   // "Go to chatbot": the other chatbot carries on from its start, with the answers so far
@@ -809,10 +825,10 @@ async function formIn(u, conv, x) {
 
 // the AI agent answers the latest message (or hands over)
 async function runAgent(u, conv) {
-  if (!aiEnabled()) return handoff(u, conv, 'The AI agent isn’t available right now');
-  if (creditsShort(u, AI_COST.agent)) return handoff(u, conv, 'AI credits for this month are used up');
+  if (!aiEnabled()) return handoff(u, conv, 'The AI agent isn’t available right now', aiHand(u));
+  if (creditsShort(u, AI_COST.agent)) return handoff(u, conv, 'AI credits for this month are used up', aiHand(u));
   // a runaway conversation (or a loop with another bot) goes to a person
-  if (hit(`wainbox:ai:${conv.id}`, 3600000).n > 30) return handoff(u, conv, 'A long conversation — over to your team');
+  if (hit(`wainbox:ai:${conv.id}`, 3600000).n > 30) return handoff(u, conv, 'A long conversation — over to your team', aiHand(u));
   let a;
   try { a = await agentAnswer(u, transcriptOf(conv.id), conv.aiNote, await contextFor(u, conv)); } catch (e) {
     addMsg(conv, { dir: 'note', by: 'system', text: 'The AI agent couldn’t reply this time — please answer this one.' });
@@ -829,7 +845,7 @@ async function runAgent(u, conv) {
   if (a.send.length) await sendDocs(u, convOf(conv.id), a.send);
   if (a.products.length) await sendAll(u, convOf(conv.id), a.products.map(productCard), 'ai');
   rememberFacts(u.id, conv.ckey, a.facts);
-  if (a.handoff) await handoff(u, convOf(conv.id), a.reason || 'The AI agent asked for a person');
+  if (a.handoff) await handoff(u, convOf(conv.id), a.reason || 'The AI agent asked for a person', aiHand(u));
   // a long chat: what scrolls out of the agent's window is summed up for next time (in the background)
   refreshMemory(u, convOf(conv.id)).catch((e) => console.error('chat memory failed', e.message));
 }
@@ -883,7 +899,7 @@ async function automate(userId, convId, msg, isNew) {
   if (msg.type === 'form') return msg.formIn ? formIn(u, conv, msg.formIn) : needsPerson(u, conv, msg.text);
   const input = { text: msg.text || '', id: msg.iid || '', ...(msg.location ? { location: msg.location } : {}), ...(msg.media ? { media: msg.media } : {}) };
   if (conv.human) return needsPerson(u, conv, msg.text);
-  if (HUMAN.test(input.text) && (conv.bot || conv.ai || flowsOf(userId).length || agentOn(u))) return handoff(u, conv, 'The customer asked for a person', { say: 'Sure — connecting you with our team. Someone will reply here shortly 🙏', flowId: conv.bot?.flowId });
+  if (HUMAN.test(input.text) && (conv.bot || conv.ai || flowsOf(userId).length || agentOn(u))) return handoff(u, conv, 'The customer asked for a person', { say: 'Sure — connecting you with our team. Someone will reply here shortly 🙏', flowId: conv.bot?.flowId, source: 'customer', ...(agentOn(u) ? { assignee: aiHand(u).assignee } : {}) });
   // a fresh tap on an ad starts that ad's chatbot (over keywords and a flow waiting from before)
   const af = msg.ad && adFlow(userId, msg.ad.id);
   if (af) return runBot(u, conv, af, null, input);
@@ -1325,7 +1341,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
     if (to && to !== req.user.id && !T.members.exists({ ownerId: req.user.id, userId: to, status: 'active' })) return res.status(400).json({ error: 'That person isn’t on your team' });
     if (b.tell && !winOpen(c)) return res.status(400).json({ error: 'More than 24 hours since this customer wrote — WhatsApp won’t deliver a message to them now; hand over without telling them' });
     const say = b.tell ? clip(b.message, 500) || 'Thanks for your patience 🙏 I’m passing you to a colleague who will reply here shortly.' : '';
-    await serial(c.id, () => handoff(req.user, c, clip(b.note, 200) || `Handed over by ${me.name || 'a teammate'}`, { say, assignee: to || null, by: me.name || '' }));
+    await serial(c.id, () => handoff(req.user, c, clip(b.note, 200) || `Handed over by ${me.name || 'a teammate'}`, { say, assignee: to || null, by: me.name || '', source: 'team' }));
     res.json({ conv: convView(convOf(c.id)) });
   }));
   // a photo, video, voice note or document: the bytes in the body (Content-Type is the file's type), ?name=&caption=
@@ -1477,12 +1493,14 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
   app.post('/api/waflows/:id/simulate', auth, aiLimiter, wrap(async (req, res) => { const f = ownFlow(req, res); if (f) await simulate(req, res, req.body?.flow ? cleanFlow(req.body.flow, f) : f); }));
 
   // ----- the AI agent -----
-  const agentView = (u) => ({ ...agentOf(u), auto: agentOf(u).auto, languages: Object.entries(AGENT_LANGS).map(([id, name]) => ({ id, name })), ai: aiEnabled(), connected: !!waLive(u), learned: autoKnowledge(u), industry: u.settings?.crmKit?.id || 'general', presets: Object.keys(INDUSTRY).map((id) => { const k = kitName(id); return { id, name: k.name, icon: k.icon }; }) });
+  const agentView = (u) => ({ ...agentOf(u), auto: agentOf(u).auto, languages: Object.entries(AGENT_LANGS).map(([id, name]) => ({ id, name })), lengths: Object.entries(AGENT_LENGTHS).map(([id, l]) => ({ id, name: l.name })), ai: aiEnabled(), connected: !!waLive(u), learned: autoKnowledge(u), industry: u.settings?.crmKit?.id || 'general', presets: Object.keys(INDUSTRY).map((id) => { const k = kitName(id); return { id, name: k.name, icon: k.icon }; }) });
   // an industry's starting point (not saved: the seller reviews it, fills the [brackets] and saves)
   app.get('/api/wa-agent/preset/:industry', auth, (req, res) => { if (!INDUSTRY[req.params.industry]) return res.status(404).json({ error: 'No preset for that industry' }); res.json(agentPreset(req.params.industry)); });
   app.get('/api/wa-agent', auth, (req, res) => res.json(agentView(req.user)));
   app.put('/api/wa-agent', auth, (req, res) => {
     if (req.body?.on && !aiEnabled()) return res.status(400).json({ error: 'AI isn’t switched on for this account yet' });
+    const to = req.body?.handoffTo;
+    if (to && to !== req.user.id && !T.members.exists({ ownerId: req.user.id, userId: String(to), status: 'active' })) return res.status(400).json({ error: 'That person isn’t on your team' });
     res.json(agentView(T.users.update(req.user.id, (u) => { u.waAgent = cleanAgent(req.body || {}, u.waAgent || {}); })));
   });
   // a test chat with the agent as it is set up now (the settings in the request, saved or not)

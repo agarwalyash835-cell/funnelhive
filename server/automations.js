@@ -77,7 +77,7 @@ export const emailTracking = (origin, userId, key, msgId) => {
 const linkSig = (id, url) => crypto.createHmac('sha256', SECRET).update(`click:${id}:${url}`).digest('hex').slice(0, 16);
 
 // ---------- template variables ----------
-export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'access_link', 'invoice_link', 'booking_time', 'booking_link', 'meeting_link', 'webinar_time', 'join_link', 'tracking_link', 'courier', 'tracking_id', 'quiz_result', 'quiz_score', 'business'];
+export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'access_link', 'invoice_link', 'booking_time', 'booking_link', 'meeting_link', 'webinar_time', 'join_link', 'tracking_link', 'courier', 'tracking_id', 'quiz_result', 'quiz_score', 'handoff_reason', 'business'];
 export function fill(text, ctx) {
   return String(text || '').replace(/\{\{\s*([a-z][a-z0-9_-]*)\s*\}\}/gi, (m, k) => {
     const v = ctx[k.toLowerCase()];
@@ -94,6 +94,7 @@ function cleanTrigger(t = {}, userId) {
   if (type === 'stage') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); }
   if (type === 'tag') out.tag = str(t.tag, 30).trim();
   if (type === 'wa_message') out.keyword = str(t.keyword, 60).trim(); // blank = any message
+  if (type === 'wa_handoff') out.by = ['ai', 'bot', 'customer', 'team'].includes(t.by) ? t.by : ''; // blank = any hand-over
   if (type === 'quiz') out.outcome = str(t.outcome, 120).trim(); // blank = any result
   if (COURSE_EVENTS.includes(type) && t.productId && T.products.get(t.productId)?.userId === userId) out.productId = t.productId; // blank = any course
   if (type === 'field') { out.fieldId = str(t.fieldId, 20); out.value = str(t.value, 200).trim(); } // value: blank = any change
@@ -231,6 +232,7 @@ function contextFor(userId, data) {
     // a store cart brings its own links (the store has no funnel pages)
     funnel_link: data.funnelLink || (f ? funnelUrl(f, origin) : ''), checkout_link: data.checkoutLink || (f ? funnelUrl(f, origin, checkout?.slug) : ''), business: userOf(userId)?.settings?.businessName || '', origin,
     access_link: data.accessLink || '', invoice_link: data.invoiceLink || '',
+    handoff_reason: data.reason || '', // a WhatsApp hand-over: why it came to the team
     booking_time: data.bookingTime || '', booking_link: data.bookingLink || '', meeting_link: data.meetingLink || '',
     webinar_time: data.webinarTime || '', join_link: data.joinLink || '',
     quiz_result: data.outcome || '', quiz_score: data.score != null ? String(data.score) : '',
@@ -252,6 +254,7 @@ export function fire(userId, event, data = {}) {
       if (event === 'quiz' && t.outcome && t.outcome.toLowerCase() !== String(data.outcome || '').toLowerCase()) continue;
       if (event === 'tag' && String(t.tag).toLowerCase() !== String(data.tag || '').toLowerCase()) continue;
       if (event === 'wa_message' && t.keyword && !String(data.text || '').toLowerCase().includes(t.keyword.toLowerCase())) continue;
+      if (event === 'wa_handoff' && t.by && data.by !== t.by) continue;
       if (COURSE_EVENTS.includes(event) && t.productId && t.productId !== data.productId) continue;
       if (event === 'field' && (t.fieldId !== data.fieldId || (t.value && String(t.value).trim().toLowerCase() !== String(data.value ?? '').trim().toLowerCase()))) continue;
       start(a, data);
