@@ -254,8 +254,12 @@ function groupsListEnvelope(companyName) {
 // subset of the same GUIDs. Do not invent extra FETCH names.
 const VOUCHER_COLLECTION_FETCH =
   "Date, VoucherNumber, VoucherTypeName, PartyLedgerName, Amount, Narration, GUID, MasterId, AlterId, Reference, EffectiveDate, IsCancelled, IsOptional, AllLedgerEntries, LedgerEntries, AllInventoryEntries, InventoryEntries, BillAllocations";
+// Bills' credit periods (their due dates) only come out when asked for by name: with the plain fetch a bill saved as
+// "15 Days" synced back with none, so it showed due on the bill date (live test). Tried first; a Tally build that
+// refuses the longer fetch — an error, or no vouchers at all — gets the plain one (voucherListXml).
+const VOUCHER_COLLECTION_FETCH_BILLS = `${VOUCHER_COLLECTION_FETCH}, AllLedgerEntries.BillAllocations.BillCreditPeriod, LedgerEntries.BillAllocations.BillCreditPeriod, BillAllocations.BillCreditPeriod`;
 
-function vouchersListEnvelope(companyName, dateRange = {}) {
+function vouchersListEnvelope(companyName, dateRange = {}, fetch = VOUCHER_COLLECTION_FETCH) {
   const vars = companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : "";
   const from = dateRange.from ? parseTallyDate(dateRange.from) : "20200101";
   const to = dateRange.to ? parseTallyDate(dateRange.to) : "20301231";
@@ -279,7 +283,7 @@ function vouchersListEnvelope(companyName, dateRange = {}) {
         <TDLMESSAGE>
           <COLLECTION NAME="VouchersColl" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
-            <FETCH>${VOUCHER_COLLECTION_FETCH}</FETCH>
+            <FETCH>${fetch}</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -625,7 +629,7 @@ class TallyClient {
   }
 
   async vouchers(companyGuid, companyName, dateRange = {}) {
-    const xml = await this.postXml(vouchersListEnvelope(companyName, dateRange));
+    const xml = await this.voucherListXml(companyName, dateRange);
     return this.parseVouchers(xml).map((record) => ({ ...record, company_guid: companyGuid }));
   }
 
@@ -654,7 +658,7 @@ class TallyClient {
     try {
       // The voucher Collection, not the Day Book: the Day Book only covers the period TallyPrime has open, so bills
       // dated outside it lost their real dates.
-      const dayBook = await this.postXml(vouchersListEnvelope(companyName));
+      const dayBook = await this.voucherListXml(companyName);
       dayBookVouchers = this.parseVouchers(dayBook);
     } catch {
       // Day Book unavailable — we'll keep the report dates as-is.
@@ -1863,7 +1867,21 @@ class TallyClient {
   // period TallyPrime has open and ignores the requested dates), this sees vouchers on any date.
   async voucherCollectionFor(payload) {
     const day = payload.date ? String(payload.date).slice(0, 10) : "";
-    return this.postXml(vouchersListEnvelope(payload.company_name, /^d{4}-d{2}-d{2}$/.test(day) ? { from: day, to: day } : {}));
+    return this.voucherListXml(payload.company_name, /^\d{4}-\d{2}-\d{2}$/.test(day) ? { from: day, to: day } : {});
+  }
+
+  // the voucher Collection with bills' credit periods; the plain export when this Tally refuses that (see VOUCHER_COLLECTION_FETCH_BILLS)
+  async voucherListXml(companyName, dateRange = {}) {
+    if (this.billFetchOk !== false) {
+      try {
+        const xml = await this.postXml(vouchersListEnvelope(companyName, dateRange, VOUCHER_COLLECTION_FETCH_BILLS));
+        if (/<VOUCHER[\s>]/i.test(xml)) { this.billFetchOk = true; return xml; }
+      } catch (error) {
+        console.warn("[TallyClient] voucher export with bill credit periods refused, using the plain one:", error.message);
+        this.billFetchOk = false;
+      }
+    }
+    return this.postXml(vouchersListEnvelope(companyName, dateRange));
   }
 
   // The export every voucher lookup / read-back / "is it really gone" check runs against. It used to be the Day Book,
