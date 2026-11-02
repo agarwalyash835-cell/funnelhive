@@ -29,6 +29,7 @@ before(async () => {
     if (route === 'GET /numbers') return send(200, { numbers: [{ id: 'ch_1', display: '919800000001', phone_number_id: '1111' }] });
     if (route === 'GET /templates') return send(200, { templates: [{ name: 'hello_offer', language: 'en', status: 'APPROVED', category: 'MARKETING', components: [{ type: 'BODY', text: 'Hi {{1}}, our new batch starts soon — reply to know more.' }] }] });
     if (route === 'PUT /webhooks') { fake.hook = j; return send(200, { ok: true }); }
+    if (route === 'POST /messages' && j?.type === 'interactive' && !['buttons', 'list'].includes(j.interactive?.kind)) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'interactive: Invalid input' } })); } // like the real API: Hive's own shape only
     if (route === 'POST /messages') { fake.sent.push(j); return send(202, { id: `msg_${++fake.n}`, wamid: `wamid.${fake.n}`, status: 'queued' }); }
     if (route === 'POST /cloud/1111/messages') { fake.sent.push({ ...j, cloud: true }); return send(202, { id: `msg_${++fake.n}`, status: 'queued' }); }
     if (route === 'POST /media') { fake.uploads.push({ type: req.headers['content-type'], size: j.length, text: j.toString('latin1') }); return send(200, { id: `media_${fake.uploads.length}` }); }
@@ -162,7 +163,7 @@ test('chatbots: a keyword starts the flow; answers are checked and saved; button
   await waitFor(() => sentTo(num).length === 4);
   const btn = sentTo(num)[3];
   assert.equal(btn.type, 'interactive');
-  assert.deepEqual(btn.interactive.action.buttons.map((b) => b.reply.title), ['Right away', 'This month', 'Just exploring']);
+  assert.deepEqual(btn.interactive.buttons.map((b) => b.title), ['Right away', 'This month', 'Just exploring']);
   await hook('message.inbound', { from: num, type: 'interactive', text: '', interactive_id: 'now', interactive_title: 'Right away' });
   await waitFor(() => sentTo(num).length === 5);
   assert.match(sentTo(num)[4].text.body, /An expert from our team/);
@@ -227,7 +228,7 @@ test('the AI agent answers from the business knowledge, shares links, and hands 
   await waitFor(() => sentTo(num).length === 1);
   const m = sentTo(num)[0];
   assert.equal(m.type, 'interactive', 'quick replies come as buttons');
-  assert.match(m.interactive.body.text, /₹1,999/);
+  assert.match(m.interactive.body, /₹1,999/);
   const call = ai.calls.findLast((x) => x.sys.includes('WhatsApp assistant'));
   assert.match(call.sys, /Yoga for Beginners: ₹1,999/, 'the seller’s knowledge is in the prompt');
   assert.match(call.sys, /Q: Timings\?\nA: 7 am and 7 pm/);
@@ -259,7 +260,7 @@ test('an AI concierge flow sorts messages by topic and hands buyers to the agent
   const num = '919700000005';
   await say(num, 'How much does it cost?');
   await waitFor(() => sentTo(num).length === 1);
-  assert.match(sentTo(num)[0].interactive?.body.text || sentTo(num)[0].text?.body, /₹1,999/);
+  assert.match(sentTo(num)[0].interactive?.body || sentTo(num)[0].text?.body, /₹1,999/);
   assert.equal((await convOf(num)).ai, true);
   await api(`/waflows/${f.id}`, 'PUT', { active: false }, T);
   await api('/wa-agent', 'PUT', { on: false }, T);
@@ -427,10 +428,10 @@ test('industry chatbots and AI agent presets: every industry gets three, written
   const num = '919700000024';
   await say(num, 'Interested in a 2 bhk flat');
   await waitFor(() => sentTo(num).length === 1);
-  assert.deepEqual(sentTo(num)[0].interactive.action.buttons.map((b) => b.reply.title), ['Buy to live', 'Invest', 'Rent']);
+  assert.deepEqual(sentTo(num)[0].interactive.buttons.map((b) => b.title), ['Buy to live', 'Invest', 'Rent']);
   await hook('message.inbound', { from: num, type: 'interactive', text: 'Invest', interactive_id: 'b2' });
   await waitFor(() => sentTo(num).length === 2);
-  assert.equal(sentTo(num)[1].interactive.type, 'list');
+  assert.equal(sentTo(num)[1].interactive.kind, 'list');
   await hook('message.inbound', { from: num, type: 'interactive', text: '₹50 lakh – 1 crore', interactive_id: 'r2' });
   await waitFor(() => sentTo(num).length === 3);
   await say(num, '2 BHK in Wakad');

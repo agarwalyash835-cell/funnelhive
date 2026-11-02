@@ -26,6 +26,7 @@ before(async () => {
     if (route === 'GET /numbers') return send(200, { numbers: [{ id: 'ch_1', display: '919800000001', phone_number_id: '1111' }] });
     if (route === 'GET /templates') return send(200, { templates: [{ name: 'hello_offer', language: 'en', status: 'APPROVED', category: 'MARKETING', components: [{ type: 'BODY', text: 'Hi {{1}}, our new batch starts soon.' }] }] });
     if (route === 'PUT /webhooks') { fake.hook = j; return send(200, { ok: true }); }
+    if (route === 'POST /messages' && j?.type === 'interactive' && !['buttons', 'list'].includes(j.interactive?.kind)) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'interactive: Invalid input' } })); } // like the real API: Hive's own shape only
     if (route === 'POST /messages') { fake.sent.push(j); return send(202, { id: `msg_${++fake.n}`, wamid: `wamid.${fake.n}`, status: 'queued' }); }
     send(404, { error: 'not found' });
   });

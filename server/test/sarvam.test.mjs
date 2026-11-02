@@ -32,6 +32,7 @@ before(async () => {
     if (route === 'GET /me') return json(res, 200, { workspace_id: 'ws_1' });
     if (route === 'GET /numbers') return json(res, 200, { numbers: [{ id: 'ch_1', display: '919800000001', phone_number_id: '1111' }] });
     if (route === 'PUT /webhooks') { fake.hook = j; return json(res, 200, { ok: true }); }
+    if (route === 'POST /messages' && j?.type === 'interactive' && !['buttons', 'list'].includes(j.interactive?.kind)) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'interactive: Invalid input' } })); } // like the real API: Hive's own shape only
     if (route === 'POST /messages') { fake.sent.push(j); return json(res, 202, { id: `msg_${++fake.n}` }); }
     const m = /^\/media\/(\w+)$/.exec(p);
     if (m && notes[m[1]]) { res.writeHead(200, { 'content-type': 'audio/ogg; codecs=opus' }); return res.end(notes[m[1]]); }

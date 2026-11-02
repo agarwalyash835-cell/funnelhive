@@ -60,6 +60,7 @@ before(async () => {
       if (route === 'PUT /webhooks') { fake.hook = j; return send(200, { ok: true, url: j.url, events: j.events }); }
       if (route === 'POST /webhooks/test') return send(200, { ok: true });
       if (route === 'GET /window') return send(200, { open: url.searchParams.get('to') === '919811111111' });
+      if (route === 'POST /messages' && j?.type === 'interactive' && !['buttons', 'list'].includes(j.interactive?.kind)) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'interactive: Invalid input' } })); } // like the real API: Hive's own shape only
       if (route === 'POST /messages') {
         const ik = req.headers['idempotency-key'];
         if (!ik) return send(400, { error: 'Idempotency-Key header is required' });
@@ -506,4 +507,14 @@ test('per-event switches; Meta direct can be chosen again; disconnecting keeps M
   ch = (await api('/channels', 'GET', null, T)).data;
   assert.equal(ch.whatsapp.phoneNumberId, '1234567890123');
   assert.equal((await api('/channels/whatsapp/hive', 'GET', null, T)).data.hasKey, false);
+});
+
+test('buttons and lists go in Hive’s own shape (it refuses Meta’s); header or footer marks a message for the pass-through', async () => {
+  const { hiveInteractive } = await import('../hive-wa.js');
+  const btn = { type: 'interactive', interactive: { type: 'button', body: { text: 'Pick one' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Visit' } }, { type: 'reply', reply: { id: 'b', title: 'Price' } }] } } };
+  assert.deepEqual(hiveInteractive(btn), { type: 'interactive', interactive: { kind: 'buttons', body: 'Pick one', buttons: [{ id: 'a', title: 'Visit' }, { id: 'b', title: 'Price' }] } });
+  const list = { type: 'interactive', interactive: { type: 'list', body: { text: 'Budget?' }, action: { button: 'Choose', sections: [{ title: 'Options', rows: [{ id: 'r1', title: 'Under 1 Cr', description: 'ready homes' }] }] } } };
+  assert.deepEqual(hiveInteractive(list).interactive, { kind: 'list', body: 'Budget?', button_text: 'Choose', sections: [{ title: 'Options', rows: [{ id: 'r1', title: 'Under 1 Cr', description: 'ready homes' }] }] });
+  assert.equal(hiveInteractive({ type: 'text', text: { body: 'hi' } }), null);
+  assert.equal(hiveInteractive({ type: 'interactive', interactive: { type: 'cta_url' } }), null, 'link buttons stay on the pass-through');
 });

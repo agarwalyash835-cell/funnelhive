@@ -44,6 +44,7 @@ before(async () => {
       if (route === 'GET /templates') return send(200, { templates: fake.templates });
       if (route === 'PUT /webhooks') { fake.hook = j; return send(200, { ok: true }); }
       if (route === 'GET /window') return send(200, { open: url.searchParams.get('to') === '919811111111' });
+      if (route === 'POST /messages' && j?.type === 'interactive' && !['buttons', 'list'].includes(j.interactive?.kind)) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'interactive: Invalid input' } })); } // like the real API: Hive's own shape only
       if (route === 'POST /messages') {
         const ik = req.headers['idempotency-key'];
         if (fake.msgs.has(ik)) return send(202, fake.msgs.get(ik));
@@ -149,7 +150,7 @@ test('confirm by link, and by the WhatsApp button (inside the 24-hour window whe
   const id2 = await placeCod({ phone: '9811111111' });
   const m = await waitFor(() => sentTo('919811111111', (x) => x.type === 'interactive')[0]);
   assert.ok(m, 'buttons sent');
-  assert.deepEqual(m.interactive.action.buttons.map((b) => b.reply.id), [`cod:confirm:${id2}`, `cod:cancel:${id2}`]);
+  assert.deepEqual(m.interactive.buttons.map((b) => b.id), [`cod:confirm:${id2}`, `cod:cancel:${id2}`]);
   assert.equal((await waitFor(async () => (await order(id2)).codConfirm?.sends?.[0])).via, 'whatsapp_buttons');
   await hook('message.inbound', { from: '919811111111', type: 'interactive', interactive_id: `cod:confirm:${id2}`, interactive_title: 'Confirm' });
   assert.ok(await waitFor(async () => (await order(id2)).codStatus === 'confirmed'));

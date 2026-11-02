@@ -140,6 +140,18 @@ function optOut(userId, key, num, why) {
 // cloud: payload is Meta Cloud API JSON (for what Hive's own shape lacks, e.g. a location), sent through Hive's pass-through
 // mm: a broadcast's marketing template — sent to HIVE_WA_MARKETING_PATH (Meta's Marketing Messages API on the Hive
 // backend) when the owner has set it; off by default. If that call fails it goes once more through /messages.
+// Reply buttons and lists in Hive's own /messages shape ({ kind, body, buttons | button_text + sections }) — it refuses
+// Meta's ("interactive: Invalid input"). Hive's shape has no header or footer, so a message with either goes through
+// the Cloud API pass-through as it is; null when the payload isn't buttons or a list.
+export function hiveInteractive(p) {
+  const i = p?.type === 'interactive' ? p.interactive : null;
+  if (!i || !['button', 'list'].includes(i.type)) return null;
+  const body = i.body?.text || '…';
+  if (i.type === 'button') return { type: 'interactive', interactive: { kind: 'buttons', body, buttons: (i.action?.buttons || []).map((b) => ({ id: b.reply?.id, title: b.reply?.title })) } };
+  return { type: 'interactive', interactive: { kind: 'list', body, button_text: i.action?.button || 'Choose', sections: (i.action?.sections || []).map((s) => ({ ...(s.title ? { title: s.title } : {}), rows: s.rows.map(({ id, title, description }) => ({ id, title, ...(description ? { description } : {}) })) })) } };
+}
+const hasExtras = (p) => !!(p.interactive?.header || p.interactive?.footer);
+
 async function send(u, to, payload, { ikey, event = '', ckey = '', cloud = false, mm = false } = {}) {
   const h = live(u) || meta?.live(u); // a number connected through Meta Embedded Signup (meta-signup.js) goes to Meta
   if (!h) return { status: 'not-configured' };
@@ -161,10 +173,15 @@ async function send(u, to, payload, { ikey, event = '', ckey = '', cloud = false
       try { r = await call(keyOf(h), 'POST', mmPath, { ...payload, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': `${ikey}:mm` }); via = 'mm'; } catch (e) { if (isAuth(e)) throw e; }
     }
     if (!r) {
-      r = h.meta ? await meta.post(u, payload, num)
-        : cloud
-        ? await call(keyOf(h), 'POST', `/cloud/${encodeURIComponent(h.from)}/messages`, { messaging_product: 'whatsapp', recipient_type: 'individual', ...payload, to: num }, { 'Idempotency-Key': ikey })
-        : await call(keyOf(h), 'POST', '/messages', { ...payload, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': ikey });
+      const viaCloud = (p) => call(keyOf(h), 'POST', `/cloud/${encodeURIComponent(h.from)}/messages`, { messaging_product: 'whatsapp', recipient_type: 'individual', ...p, to: num }, { 'Idempotency-Key': ikey });
+      const viaHive = (p) => call(keyOf(h), 'POST', '/messages', { ...p, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': ikey });
+      const own = !h.meta && !cloud && hiveInteractive(payload);
+      if (h.meta) r = await meta.post(u, payload, num);
+      else if (cloud) r = await viaCloud(payload);
+      else if (own && hasExtras(payload)) {
+        // a picture or footer with the buttons: the pass-through keeps them; if the number can't use it, plain buttons
+        try { r = await viaCloud(payload); } catch (e) { if (isAuth(e)) throw e; r = await call(keyOf(h), 'POST', '/messages', { ...own, from: h.from, to: num, callback_data: rec.id }, { 'Idempotency-Key': `${ikey}:plain` }); }
+      } else r = await viaHive(own || payload);
     }
     T.wamsgs.update(rec.id, (x) => { x.status = 'sent'; x.hiveId = r.id || null; x.wamid = r.wamid || null; x.sentAt = Date.now(); x.via = via; });
     return { status: 'sent', id: r.id || rec.id, via };

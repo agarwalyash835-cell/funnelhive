@@ -34,6 +34,7 @@ before(async () => {
     if (route === 'GET /numbers') return send(200, { numbers: [{ id: 'ch_1', display: '919800000001', phone_number_id: '1111' }] });
     if (route === 'GET /templates') return send(200, { templates: [] });
     if (route === 'PUT /webhooks') { fake.hook = j; return send(200, { ok: true }); }
+    if (route === 'POST /messages' && j?.type === 'interactive' && !['buttons', 'list'].includes(j.interactive?.kind)) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'interactive: Invalid input' } })); } // like the real API: Hive's own shape only
     if (route === 'POST /messages' || route === 'POST /cloud/1111/messages') { fake.sent.push(j); return send(202, { id: `msg_${++fake.n}`, status: 'queued' }); }
     send(404, { error: 'not found' });
   });
@@ -57,7 +58,7 @@ const ref = (id, headline) => ({ source_type: 'ad', source_id: id, source_url: `
 const say = (from, text, extra = {}) => hook('message.inbound', { from, type: 'text', text, timestamp: new Date().toISOString(), ...extra });
 const convs = async (filter = 'all') => (await api(`/inbox?filter=${filter}`, 'GET', null, T)).data;
 const convOf = async (num) => (await convs()).convs.find((c) => c.num === num);
-const textsTo = (num) => fake.sent.filter((m) => m.to === num).map((m) => m.text?.body || m.interactive?.body?.text || m.body || '');
+const textsTo = (num) => fake.sent.filter((m) => m.to === num).map((m) => m.text?.body || m.interactive?.body?.text || (typeof m.interactive?.body === 'string' ? m.interactive.body : '') || m.body || '');
 async function bot(name, trigger, text) {
   const f = (await api('/waflows', 'POST', { flow: { name, trigger, nodes: [{ id: 'start', type: 'start' }, { id: 'a', type: 'end', data: { text } }], edges: [{ from: 'start', port: 'next', to: 'a' }] } }, T)).data;
   const r = await api(`/waflows/${f.id}`, 'PUT', { active: true }, T);

@@ -68,6 +68,7 @@ before(async () => {
       fake.files = [...(fake.files || []), { name: file.name, type: file.type, buf: Buffer.from(await file.arrayBuffer()) }];
       return json(res, 200, { id: `media_${fake.uploads.length}` });
     }
+    if (route === 'POST /messages' && j?.type === 'interactive' && !['buttons', 'list'].includes(j.interactive?.kind)) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'interactive: Invalid input' } })); } // like the real API: Hive's own shape only
     if (route === 'POST /messages') { fake.sent.push(j); return json(res, 202, { id: `msg_${++fake.n}`, status: 'queued' }); }
     json(res, 404, { error: 'not found' });
   });

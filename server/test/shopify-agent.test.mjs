@@ -31,6 +31,7 @@ before(async () => {
     if (route === 'GET /numbers') return send(200, { numbers: [{ id: 'ch_1', display: '919800000001', phone_number_id: '1111' }] });
     if (route === 'GET /templates') return send(200, { templates: [] });
     if (route === 'PUT /webhooks') { fake.hook = j; return send(200, { ok: true }); }
+    if (route === 'POST /messages' && j?.type === 'interactive' && !['buttons', 'list'].includes(j.interactive?.kind)) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'interactive: Invalid input' } })); } // like the real API: Hive's own shape only
     if (route === 'POST /messages') { fake.sent.push(j); return send(202, { id: `msg_${++fake.n}`, status: 'queued' }); }
     if (route === 'POST /cloud/1111/messages') { fake.sent.push({ ...j, cloud: true }); return send(202, { id: `msg_${++fake.n}`, status: 'queued' }); }
     send(404, { error: 'not found' });
@@ -112,8 +113,8 @@ test('the WhatsApp agent recommends live products as cards with a Buy now button
   assert.equal(out.length, 2, 'the reply and one card (P2 is out of stock, P9 doesn’t exist)');
   const card = out.find((m) => m.interactive?.type === 'cta_url');
   const said = out.find((m) => m !== card);
-  assert.equal(said.interactive.body.text, 'We have a lovely indigo cotton kurta for *₹1,299* 😊', 'the internal product code never reaches the customer');
-  assert.equal(said.interactive.action.buttons[0].reply.title, 'Show me more kurtas', 'a long button is cut at a word, not mid-word');
+  assert.equal(said.interactive.body, 'We have a lovely indigo cotton kurta for *₹1,299* 😊', 'the internal product code never reaches the customer');
+  assert.equal(said.interactive.buttons[0].title, 'Show me more kurtas', 'a long button is cut at a word, not mid-word');
   assert.equal(card.cloud, true);
   assert.deepEqual(card.interactive.action.parameters, { display_text: 'Buy now', url: 'https://mystore.myshopify.com/cart/12:1' });
   assert.equal(card.interactive.header.image.link, 'https://cdn.shopify.com/11.jpg');
