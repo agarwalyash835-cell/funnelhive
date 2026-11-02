@@ -981,7 +981,7 @@ function TestPhone({ f, onNode }) {
 }
 
 // ---------- the AI agent ----------
-const pickA = (x) => ({ on: x.on, auto: x.auto, name: x.name, role: x.role, tone: x.tone, knowledge: x.knowledge, faqs: x.faqs, capture: x.capture, handoff: x.handoff, buttons: x.buttons });
+const pickA = (x) => ({ on: x.on, auto: x.auto, name: x.name, role: x.role, tone: x.tone, knowledge: x.knowledge, faqs: x.faqs, capture: x.capture, handoff: x.handoff, buttons: x.buttons, language: x.language });
 const TONES = [['friendly', 'Friendly'], ['professional', 'Professional'], ['fun', 'Fun & lively'], ['calm', 'Calm & caring']];
 function Agent() {
   const [a, setA] = useState(null);
@@ -1039,6 +1039,11 @@ function Agent() {
               <label className="sm strong">Role<input value={a.role || ''} maxLength={60} onChange={(e) => setA({ ...a, role: e.target.value })} placeholder="e.g. admissions counsellor, property advisor" /></label>
             </div>
             <div className="sm strong">Tone<div className="tones" style={{ marginTop: 6 }}>{TONES.map(([k, l]) => <button key={k} className={a.tone === k ? 'on' : ''} onClick={() => setA({ ...a, tone: k })}>{l}</button>)}</div></div>
+            <label className="sm strong">Reply language
+              <select value={a.language || 'match'} onChange={(e) => setA({ ...a, language: e.target.value })} style={{ marginTop: 6 }}>
+                {(a.languages || [{ id: 'match', name: 'Match the customer' }]).map((l) => <option key={l.id} value={l.id}>{l.name}{l.id === 'match' ? ' (recommended)' : ''}</option>)}
+              </select>
+              <small className="muted">{a.language && a.language !== 'match' ? 'Always replies in this language, whatever the customer writes in.' : 'English to English, Hindi to Hindi, Hinglish to Hinglish — and it switches when the customer does.'}</small></label>
             <label className="tog"><input type="checkbox" checked={a.auto} onChange={(e) => setA({ ...a, auto: e.target.checked })} /><span />Answer new chats automatically <small className="muted">· off: only when a chatbot or your team hands a chat to it</small></label>
             <label className="tog"><input type="checkbox" checked={a.capture} onChange={(e) => setA({ ...a, capture: e.target.checked })} /><span />Ask for their name and email (saved on the contact)</label>
             <label className="tog"><input type="checkbox" checked={!!a.buttons} onChange={(e) => setA({ ...a, buttons: e.target.checked })} /><span />Offer tap-to-reply buttons under its answers <small className="muted">· off: it chats in plain messages, like a person</small></label>

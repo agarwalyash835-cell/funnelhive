@@ -233,6 +233,18 @@ test('the AI agent answers from the business knowledge, shares links, and hands 
   const call = ai.calls.findLast((x) => x.sys.includes('WhatsApp assistant'));
   assert.ok(!call.sys.includes('quick-reply options'), 'no buttons asked for');
   assert.match(call.sys, /never a numbered menu/);
+  // language: by default it follows each customer's language; a fixed one is always used
+  assert.equal(on.data.language, 'match');
+  assert.match(call.sys, /if they switch language, switch with them/);
+  const fixed = await api('/wa-agent', 'PUT', { language: 'hinglish' }, T);
+  assert.equal(fixed.data.language, 'hinglish');
+  assert.equal((await api('/wa-agent', 'PUT', { language: 'klingon' }, T)).data.language, 'match', 'an unknown language falls back to matching');
+  await api('/wa-agent', 'PUT', { language: 'hinglish' }, T);
+  const num3 = '919700000034';
+  await say(num3, 'Price?');
+  await waitFor(() => sentTo(num3).length === 1);
+  assert.match(ai.calls.findLast((x) => x.sys.includes('WhatsApp assistant')).sys, /Always reply in Hinglish \(Hindi in English letters\)/);
+  await api('/wa-agent', 'PUT', { language: 'match' }, T);
   // switched on in its settings: the same answer comes with its quick replies as buttons
   assert.equal((await api('/wa-agent', 'PUT', { buttons: true }, T)).data.buttons, true);
   const num2 = '919700000014';

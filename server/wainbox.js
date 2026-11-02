@@ -152,9 +152,11 @@ const transcriptOf = (convId, n = 24) => T.wachat.all({ convId }, { order: 'at',
 
 // ---------- the AI agent's settings ----------
 const TONES = ['friendly', 'professional', 'fun', 'calm'];
+// the language it replies in: 'match' follows each customer's own language and script; any other is always used
+export const AGENT_LANGS = { match: 'Match the customer', en: 'English', hi: 'Hindi (देवनागरी)', hinglish: 'Hinglish (Hindi in English letters)', mr: 'Marathi', gu: 'Gujarati', bn: 'Bengali', ta: 'Tamil', te: 'Telugu', kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi' };
 export function agentOf(u) {
   const a = u?.waAgent || {};
-  return { on: !!a.on, auto: a.auto !== false, name: a.name || 'Asha', role: a.role || 'assistant', tone: TONES.includes(a.tone) ? a.tone : 'friendly', knowledge: a.knowledge || '', faqs: arr(a.faqs), capture: a.capture !== false, handoff: a.handoff || '', welcome: a.welcome || '', buttons: !!a.buttons };
+  return { on: !!a.on, auto: a.auto !== false, name: a.name || 'Asha', role: a.role || 'assistant', tone: TONES.includes(a.tone) ? a.tone : 'friendly', knowledge: a.knowledge || '', faqs: arr(a.faqs), capture: a.capture !== false, handoff: a.handoff || '', welcome: a.welcome || '', buttons: !!a.buttons, language: AGENT_LANGS[a.language] ? a.language : 'match' };
 }
 function cleanAgent(b = {}, cur = {}) {
   const out = { ...cur };
@@ -170,6 +172,7 @@ function cleanAgent(b = {}, cur = {}) {
   if ('welcome' in b) out.welcome = clip(b.welcome, 500);
   // quick-reply buttons under its answers: off by default, so it reads like a person typing
   if ('buttons' in b) out.buttons = !!b.buttons;
+  if ('language' in b) out.language = AGENT_LANGS[b.language] ? b.language : 'match';
   return out;
 }
 const agentOn = (u) => agentOf(u).on && aiEnabled();
@@ -182,7 +185,7 @@ async function agentAnswer(u, transcript, extra = '', ctx = {}) {
   const found = ctx.search || { passages: [], products: [], docs: [] };
   const docsBlock = knowledgeBlock(found);
   const system = `You are ${a.name}, the WhatsApp assistant (${a.role}) for "${bizName(u)}". Your tone is ${a.tone}.
-Reply in the customer's own language and script (English, Hindi, Hinglish, Tamil, Marathi…) — match how they write.
+${a.language === 'match' ? "Reply in the customer's own language and script (English, Hindi, Hinglish, Tamil, Marathi…) — match how they write, message by message: if they switch language, switch with them." : `Always reply in ${AGENT_LANGS[a.language]}, whatever language the customer writes in — switch only if they ask you to or clearly can't follow it.`}
 WhatsApp style: short (1–4 sentences, under 600 characters), warm and human, one question at a time, *bold* only for a key word or price, no headings, tables or long lists. Prices in ₹.${a.buttons ? '' : '\nWrite like a person typing on WhatsApp: ask in words, never a numbered menu of options ("reply 1 for…").'}
 Use ONLY the business knowledge below for facts (prices, timings, policies, links, addresses). Never invent a price, discount, date or promise. Share a link from the knowledge when it helps the customer act (buy, book, register).
 If you don't know, or the customer needs something only a person can do (a custom quote, a complaint, a refund or payment problem, an upset customer, or they ask for a person), set "handoff": true and tell them a team member will reply here shortly.
@@ -1474,7 +1477,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
   app.post('/api/waflows/:id/simulate', auth, aiLimiter, wrap(async (req, res) => { const f = ownFlow(req, res); if (f) await simulate(req, res, req.body?.flow ? cleanFlow(req.body.flow, f) : f); }));
 
   // ----- the AI agent -----
-  const agentView = (u) => ({ ...agentOf(u), auto: agentOf(u).auto, ai: aiEnabled(), connected: !!waLive(u), learned: autoKnowledge(u), industry: u.settings?.crmKit?.id || 'general', presets: Object.keys(INDUSTRY).map((id) => { const k = kitName(id); return { id, name: k.name, icon: k.icon }; }) });
+  const agentView = (u) => ({ ...agentOf(u), auto: agentOf(u).auto, languages: Object.entries(AGENT_LANGS).map(([id, name]) => ({ id, name })), ai: aiEnabled(), connected: !!waLive(u), learned: autoKnowledge(u), industry: u.settings?.crmKit?.id || 'general', presets: Object.keys(INDUSTRY).map((id) => { const k = kitName(id); return { id, name: k.name, icon: k.icon }; }) });
   // an industry's starting point (not saved: the seller reviews it, fills the [brackets] and saves)
   app.get('/api/wa-agent/preset/:industry', auth, (req, res) => { if (!INDUSTRY[req.params.industry]) return res.status(404).json({ error: 'No preset for that industry' }); res.json(agentPreset(req.params.industry)); });
   app.get('/api/wa-agent', auth, (req, res) => res.json(agentView(req.user)));
