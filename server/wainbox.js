@@ -30,7 +30,7 @@ import { shopOf, shopContext, shopBlock } from './shopify.js';
 
 const DAY = 86400000, WINDOW = DAY;
 const TICK = Number(process.env.WA_INBOX_TICK_MS || 30000);
-const MIN = Number(process.env.WA_RULE_MINUTE_MS || 60000); // one minute in the inbox rules (tests shrink it)
+const MIN = Number(process.env.WA_RULE_MINUTE_MS || 60000); // one minute in the inbox rules and chatbot timers (tests shrink it)
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const arr = (v) => (Array.isArray(v) ? v : []);
 const ID = /^[\w-]{1,40}$/;
@@ -515,16 +515,27 @@ export function flowProblems(f) {
 const fillText = (s, env, json = false) => String(s || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, k) => {
   const v = k === 'first_name' ? first(env.name) : k === 'name' ? env.name : k === 'phone' ? `+${env.num}` : k === 'email' ? env.email : k === 'business' ? env.business : env.vars?.[k.replace(/^var\./, '')];
   const out = v == null || v === '' ? (!json && (k === 'first_name' || k === 'name') ? 'there' : '') : String(v);
-  return json ? JSON.stringify(out).slice(1, -1) : out;
+  return json === 'url' ? encodeURIComponent(out) : json ? JSON.stringify(out).slice(1, -1) : out;
 });
+// a web address: answers after the "?" are encoded ("+91…", "a&b" stay one value); before it they go as they are,
+// so a whole address saved from an API answer ({{pay_url}}) still works
+const fillUrl = (s, env) => { const t = String(s || ''), q = t.indexOf('?'); return q < 0 ? fillText(t, env) : fillText(t.slice(0, q), env) + fillText(t.slice(q), env, 'url'); };
 // a value in an API's JSON answer by its path: "data.status", "items.0.name"
 const atPath = (obj, path) => String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+// a number as customers type it: "₹75,000", "about 75000", "Rs. 50,000/-", "75k", "1.5 lakh", "2 cr" → "75000" …
+const SCALE = { k: 1e3, thousand: 1e3, l: 1e5, lac: 1e5, lacs: 1e5, lakh: 1e5, lakhs: 1e5, cr: 1e7, crore: 1e7, crores: 1e7, m: 1e6, mn: 1e6, million: 1e6 };
+export function numberOf(text) {
+  const m = String(text).replace(/(\d),(?=\d)/g, '$1').match(/(-?\d+(?:\.\d+)?)\s*([a-z]+)?/i);
+  if (!m) return null;
+  const n = Number(m[1]) * (SCALE[(m[2] || '').toLowerCase()] || 1);
+  return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : null;
+}
 function valueOk(kind, raw) {
   const v = String(raw || '').trim();
   if (!v) return null;
   if (kind === 'email') return EMAIL.test(v) ? v.toLowerCase() : null;
   if (kind === 'phone') return waNumber(v) ? `+${waNumber(v)}` : null;
-  if (kind === 'number') { const n = Number(v.replace(/[,₹\s]/g, '')); return Number.isFinite(n) ? String(n) : null; }
+  if (kind === 'number') return numberOf(v);
   if (kind === 'date') return /\d/.test(v) ? v : null;
   return v.slice(0, 500);
 }
@@ -570,7 +581,7 @@ export async function runFlow(flow, state, input, env) {
   const seen = env.seen || []; // the steps this run went through (each step's "reached" count)
   const say = (n, o) => out.push({ ...o, text: fillText(o.text, env), node: n.id });
   // waiting for the customer; with a time limit when the step has one (its "No reply" path)
-  const waitReply = (n, extra = {}) => ({ node: n.id, wait: 'reply', vars, tries: 0, ...(n.data.timeout > 0 ? { until: Date.now() + n.data.timeout * 60000 } : {}), ...extra });
+  const waitReply = (n, extra = {}) => ({ node: n.id, wait: 'reply', vars, tries: 0, ...(n.data.timeout > 0 ? { until: Date.now() + n.data.timeout * MIN } : {}), ...extra });
   if (state?.wait === 'reply') {
     const n = nodes.get(state.node);
     if (!n) return { out, fx, state: null };
@@ -643,7 +654,7 @@ export async function runFlow(flow, state, input, env) {
         say(n, d.media ? { kind: 'media_link', media: { type: d.media.type, link: d.media.url, filename: d.media.filename }, text: d.text } : d.image ? { kind: 'image', image: d.image, text: d.text } : { kind: 'text', text: d.text });
         cur = nextOf(n.id, 'next'); break;
       case 'link':
-        say(n, { kind: 'cta', text: d.text, image: d.image, footer: d.footer, cta: { label: d.label, url: fillText(d.url, env) } });
+        say(n, { kind: 'cta', text: d.text, image: d.image, footer: d.footer, cta: { label: d.label, url: fillUrl(d.url, env) } });
         cur = nextOf(n.id, 'next'); break;
       case 'template':
         say(n, { kind: 'template', text: d.preview ? fillText(d.preview, env) : `Template: ${d.name}`, template: { name: d.name, language: d.language, params: d.params.map((p) => fillText(p, env)) } });
@@ -661,10 +672,10 @@ export async function runFlow(flow, state, input, env) {
       case 'api': {
         // the seller's own system (order status, stock, a booking…): its answer saved into variables
         let r = null;
-        try { r = env.http ? await env.http({ method: d.method, url: fillText(d.url, env), headers: d.headers.map((h) => ({ key: h.key, value: fillText(h.value, env) })), body: d.method === 'GET' ? '' : fillText(d.body, env, true) }) : null; } catch (e) { r = { ok: false, status: 0, error: e.message }; }
+        try { r = env.http ? await env.http({ method: d.method, url: fillUrl(d.url, env), headers: d.headers.map((h) => ({ key: h.key, value: fillText(h.value, env) })), body: d.method === 'GET' ? '' : fillText(d.body, env, true) }) : null; } catch (e) { r = { ok: false, status: 0, error: e.message }; }
         vars.api_status = String(r?.status ?? 0);
         for (const m of d.map) { const v = r?.json != null ? atPath(r.json, m.path) : undefined; vars[m.var] = v == null ? '' : typeof v === 'object' ? JSON.stringify(v).slice(0, 500) : String(v).slice(0, 500); }
-        fx.push({ type: 'api', url: fillText(d.url, env), status: r?.status ?? 0, ok: !!r?.ok, error: r?.error || '' });
+        fx.push({ type: 'api', url: fillUrl(d.url, env), status: r?.status ?? 0, ok: !!r?.ok, error: r?.error || '' });
         cur = nextOf(n.id, r?.ok ? 'ok' : 'fail'); break;
       }
       case 'hours': cur = nextOf(n.id, env.open === false ? 'closed' : 'open'); break;
@@ -718,7 +729,7 @@ export async function runFlow(flow, state, input, env) {
         say(n, askField(d.fields[0], 0, d.fields.length));
         return { out, fx, state: waitReply(n, { field: 0, got: {} }), aiUsed };
       }
-      case 'wait': return { out, fx, state: { node: n.id, wait: 'time', until: Date.now() + d.minutes * 60000, vars }, aiUsed };
+      case 'wait': return { out, fx, state: { node: n.id, wait: 'time', until: Date.now() + d.minutes * MIN, vars }, aiUsed };
       case 'webhook': fx.push({ type: 'webhook', url: d.url, vars: { ...vars } }); cur = nextOf(n.id, 'next'); break;
       case 'end':
         if (d.text) say(n, { kind: 'text', text: d.text });

@@ -71,7 +71,7 @@ test('API request: the answer is saved into variables and the "Worked" path runs
   assert.equal(r.out[0].text, 'Your Blue kurta is shipped 🚚');
   const call = fake.calls.at(-1);
   assert.equal(call.method, 'POST');
-  assert.match(call.url, /phone=%2B919800000000|phone=\+919800000000/);
+  assert.match(call.url, /phone=%2B919800000000/, 'a bare + in a query reads as a space');
   assert.equal(call.auth, 'Bearer s3cret');
   assert.deepEqual(call.body, { name: 'Asha', note: 'He said "hi"' }, 'answers go into the JSON safely');
   flow.nodes[1].data.url = ownUrl('/down');
