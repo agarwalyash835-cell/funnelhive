@@ -285,9 +285,13 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Created the “${r.name}” pipeline`,
   },
   {
-    name: 'setup_crm', description: 'Switch the CRM to fit a kind of business (its words, fields, pipeline, board). Ready-made styles: general (coach/creator), realestate, clinic, consultant, education, fitness, finance, interior, events, travel, auto, professional (CA/lawyer), recruitment, homeservices (solar/installers), hospitality, store (D2C / online store), manufacturer (factory / maker selling to dealers), retailer (shop / showroom), distributor (trader / wholesaler), abroad (study abroad / immigration), wellness (astrology / healing), saas, ngo. For any other business pass a description and a custom CRM is designed. Never deletes contacts or fields.',
-    schema: S({ style: str('A ready-made style id, or "custom"'), description: str('For custom: the business and how it sells') }, ['style']),
+    name: 'setup_crm', description: 'Switch the CRM to fit a kind of business (its words, fields, pipeline, board). Ready-made styles: general (coach/creator), realestate, clinic, consultant, education, fitness, finance, interior, events, travel, auto, professional (CA/lawyer), recruitment, homeservices (solar/installers), hospitality, store (D2C / online store), manufacturer (factory / maker selling to dealers), retailer (shop / showroom), distributor (trader / wholesaler), abroad (study abroad / immigration), wellness (astrology / healing), saas, ngo. For any other business pass a description and a custom CRM is designed. Never deletes contacts or fields. It renames the CRM menu and its words across the whole account, so use it only when the seller asks to set up or change their CRM — never because of one funnel’s topic. When the account already has a different style, ask the seller first and pass confirmed: true only after they say yes.',
+    schema: S({ style: str('A ready-made style id, or "custom"'), description: str('For custom: the business and how it sells'), confirmed: { type: 'boolean', description: 'The seller agreed to replace their current CRM style' } }, ['style']),
     run: async (ctx, a) => {
+      // an account already set up for one business isn't switched to another as a side effect (a fitness funnel
+      // once turned a real-estate seller's "Leads" into "Members")
+      const now = (await ctx.call('GET', '/crm/kits')).current;
+      if (now?.id && now.id !== 'general' && now.id !== a.style && a.confirmed !== true) return { ok: false, error: `This account’s CRM is set up as “${now.name}”. Switching renames the CRM menu and its words everywhere — ask the seller whether to switch, then call again with confirmed: true.` };
       let body = { id: a.style };
       if (a.style === 'custom' || !a.style) body = { kit: (await ctx.call('POST', '/ai/crm-kit', { description: a.description || '' })).kit };
       const r = await ctx.call('POST', '/crm/kit', body);

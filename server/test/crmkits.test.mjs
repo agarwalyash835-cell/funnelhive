@@ -80,10 +80,15 @@ test('AI designs a custom CRM, cleaned; Hive switches styles', async () => {
 
   const tok = (await api('/hive/tokens', 'POST', { name: 't' }, T)).data.token;
   const call = async (name, args) => { const r = await (await fetch(`${srv.base}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })).json(); return r.result.isError ? { error: r.result.content[0].text } : JSON.parse(r.result.content[0].text); };
-  const h = await call('setup_crm', { style: 'consultant' });
+  const h = await call('setup_crm', { style: 'consultant', confirmed: true });
   assert.equal(h.ok, true, JSON.stringify(h));
   assert.equal((await api('/crm/kits', 'GET', null, T)).data.current.id, 'consultant');
-  const c = await call('setup_crm', { style: 'custom', description: 'Interior design studio' });
+  // an account already set up for one business isn't switched without the seller saying yes
+  const no = await call('setup_crm', { style: 'fitness' });
+  assert.equal(no.ok, false); assert.match(no.error, /ask the seller/);
+  assert.equal((await api('/crm/kits', 'GET', null, T)).data.current.id, 'consultant');
+  assert.equal((await call('setup_crm', { style: 'consultant' })).ok, true, 'the same style again needs no confirmation');
+  const c = await call('setup_crm', { style: 'custom', description: 'Interior design studio', confirmed: true });
   assert.equal(c.name, 'Interior studio', JSON.stringify(c));
 });
 
