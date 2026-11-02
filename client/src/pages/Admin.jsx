@@ -569,7 +569,7 @@ function StudioAdminPanel() {
   return (
     <Panel title="Studio (AI images, clips and Reels)">
       <p className="muted sm">Studio is switched on per account (Sellers → a seller → Studio). Sellers only see the tier names, never the models.</p>
-      <div className={`ai-card ${d.ready ? 'on' : ''}`}><Icon name="bolt" size={20} /><div><b>{d.ready ? 'Ready · the render key is set on the server' : 'Off — the render key isn’t set on the server'}</b><p className="muted sm">{d.usage.length} account{d.usage.length === 1 ? '' : 's'} have used it · {num(d.usage.reduce((n, a) => n + a.renders, 0))} renders</p></div></div>
+      <div className={`ai-card ${d.ready ? 'on' : ''}`}><Icon name="bolt" size={20} /><div><b>{d.ready ? 'Ready · the render key is set on the server' : 'Off — the render key isn’t set on the server'}</b><p className="muted sm">{d.usage.length} account{d.usage.length === 1 ? ' has' : 's have'} used it · {num(d.usage.reduce((n, a) => n + a.renders, 0))} renders</p></div></div>
       <div className="tbl-wrap"><table className="tbl compact"><thead><tr><th>Tier</th><th>Image model</th><th>Image size</th><th>Clip model</th><th>Clip resolution</th></tr></thead>
         <tbody>{STUDIO_TIERS.map(([t, name]) => <tr key={t}><td className="strong">{name}</td><td>{field('image', t, 'model')}</td><td style={{ width: 90 }}>{field('image', t, 'resolution')}</td><td>{field('clip', t, 'model')}</td><td style={{ width: 90 }}>{field('clip', t, 'resolution')}</td></tr>)}</tbody></table></div>
       <div className="form2">
