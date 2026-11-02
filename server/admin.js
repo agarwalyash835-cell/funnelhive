@@ -128,7 +128,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (!u) return;
     const since = Date.now() - 30 * DAY;
     res.json({
-      ...row(u), tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, studio: { on: !!u.studio?.on }, billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(termsOf(u)?.maxClients ? { agencyClients: termsOf(u).maxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
+      ...row(u), self: u.id === req.user.id, tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, studio: { on: !!u.studio?.on }, billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(termsOf(u)?.maxClients ? { agencyClients: termsOf(u).maxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
       counts: {
         funnels: T.funnels.count({ userId: u.id }), published: q("SELECT COUNT(*) AS n FROM funnels WHERE userId = ? AND json_extract(data, '$.published') = 1").get(u.id).n,
         contacts: T.crm.count({ userId: u.id }), leads: T.leads.count({ userId: u.id }), automations: T.automations.count({ userId: u.id }), domains: T.domains.count({ userId: u.id }),
@@ -194,7 +194,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       }
       case 'remove_admin': if (u.id === req.user.id) return res.status(400).json({ error: 'You can’t remove your own admin access' }); T.users.update(u.id, (x) => { delete x.role; }); break;
       case 'verify_email': T.users.update(u.id, (x) => { x.emailVerified = true; }); break;
-      case 'reset_2fa': T.users.update(u.id, (x) => { x.totpEnabled = false; delete x.totpSecret; }); break;
+      // the admin panel needs 2-step on (admin-guard.js): turning off your own would lock you out of it
+      case 'reset_2fa': if (u.id === req.user.id) return res.status(400).json({ error: 'Turn off your own 2-step in Settings → Security' }); T.users.update(u.id, (x) => { x.totpEnabled = false; delete x.totpSecret; }); break;
       case 'sign_out': T.users.update(u.id, (x) => { x.pv = (x.pv || 0) + 1; }); revokeOthers(u.id); break;
       case 'impersonate': {
         // another admin's account is never opened this way (it would carry their admin rights)
@@ -439,7 +440,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
   // ---------- invoices, audit, backups ----------
   app.get('/api/admin/invoices', ...A, (req, res) => res.json(T.invoices.all({}, { order: 'at', desc: true, limit: 2000 })));
   app.get('/api/admin/invoices/:iid', ...A, (req, res) => { const i = T.invoices.get(req.params.iid); i ? res.json(i) : res.status(404).json({ error: 'Not found' }); });
-  app.get('/api/admin/audit', ...A, (req, res) => res.json(T.audit.all({}, { order: 'at', desc: true, limit: 300 })));
+  // the seller's email beside each id (a deleted account keeps its bare id)
+  app.get('/api/admin/audit', ...A, (req, res) => res.json(T.audit.all({}, { order: 'at', desc: true, limit: 300 }).map((a) => (a.userId ? { ...a, seller: T.users.get(a.userId)?.email || null } : a))));
   app.post('/api/admin/backup', ...A, wrap(async (req, res) => { const f = await backupNow(); audit(req, null, 'backup'); res.json({ ok: !!f, backups: backupFiles() }); }));
 
   // ---------- restore ----------

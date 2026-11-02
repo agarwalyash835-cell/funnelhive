@@ -196,6 +196,17 @@ test('audit rows: admin actions, partner admin and agency client changes', async
   const del = log.find((a) => a.action === 'agency_client_delete');
   assert.equal(del.userId, c2.id); assert.equal(del.actor, 'seller@shop.test');
   assert.equal(log.find((a) => a.action === 'make_admin_approved').actor, 'boss2@root.test');
+  // the seller's email beside the id
+  assert.equal(log.find((a) => a.action === 'partner_wallet').seller, 'seller@shop.test');
+});
+
+test('an admin can’t turn off their own 2-step from the admin panel, and their account says it is theirs', async () => {
+  const me = (await api('/me', 'GET', null, T.bossSuper, SUPER)).data.id;
+  assert.equal((await api(`/admin/users/${me}`, 'GET', null, T.bossSuper, SUPER)).data.self, true);
+  assert.equal((await api(`/admin/users/${ids['seller@shop.test']}`, 'GET', null, T.bossSuper, SUPER)).data.self, false);
+  const r = await api(`/admin/users/${me}/action`, 'POST', { action: 'reset_2fa' }, T.bossSuper, SUPER);
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /Settings → Security/);
 });
 
 test('an agency working on its address opens a client there: the client session belongs to the agency address', async () => {

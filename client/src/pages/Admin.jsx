@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, fmtDate, impersonate } from '../api';
 import { isSuper, appUrl } from '../tier';
+// the app's address for webhooks, health checks and sign-in origins: the super address answers only the admin API
+const site = appUrl || location.origin;
 import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { AreaChart } from '../charts';
 import { AdminPartners } from '../partnerKit';
@@ -207,7 +209,7 @@ function Sellers() {
   const load = () => api(`/admin/users?q=${encodeURIComponent(qs)}&status=${status}&page=${page}`).then(setD);
   useEffect(() => { const h = setTimeout(load, 200); return () => clearTimeout(h); }, [qs, status, page]);
   return (
-    <Panel title={d ? `${num(d.total)} sellers` : 'Sellers'} pad={false} actions={<>
+    <Panel title={d ? `${num(d.total)} seller${d.total === 1 ? '' : 's'}` : 'Sellers'} pad={false} actions={<>
       <div className="search"><Icon name="search" size={15} /><input placeholder="Search name, email, business…" value={qs} onChange={(e) => { setQs(e.target.value); setPage(0); }} /></div>
       <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }} style={{ width: 160 }}><option value="">All statuses</option>{Object.entries(STATUS).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select>
     </>}>
@@ -257,16 +259,17 @@ function SellerModal({ id, onClose, onChange }) {
     <Modal title={u.name} onClose={onClose} width={860}>
       <div className="seller-m">
         <div className="seller-top">
-          <div><div className="row"><Pill s={u.access.status} />{u.admin && <span className="pill">admin</span>}{!u.emailVerified && <span className="pill warn">email not verified</span>}{u.twoFactor && <span className="pill ok">2-step on</span>}</div>
+          <div><div className="row"><Pill s={u.access.status} />{u.admin && u.access.status !== 'admin' && <span className="pill">admin</span>}{!u.emailVerified && <span className="pill warn">email not verified</span>}{u.twoFactor && <span className="pill ok">2-step on</span>}</div>
             <p className="muted sm">{u.email} · joined {fmtDate(u.createdAt)} · last seen {u.lastSeenAt ? ago(u.lastSeenAt) : 'never'}{u.settings.businessName ? ` · ${u.settings.businessName}` : ''}</p>
-            <p className="sm">{u.billing?.status === 'trialing' ? `Trial ends ${fmtDate(u.billing.trialEndsAt)}` : u.billing?.interval ? `${u.billing.interval} plan · period ends ${fmtDate(u.billing.currentPeriodEnd)}${u.billing.cancelAtPeriodEnd ? ' · cancelled' : ''}` : ''}{u.billing?.subscriptionId && <span className="mono"> · {u.billing.subscriptionId}</span>}</p></div>
-          <button className="btn primary sm" onClick={async () => { const reason = await promptDialog({ title: 'Log in as seller', text: 'Why are you opening this account? (The seller is told, and it’s kept in the audit log.)', label: 'Reason', confirm: 'Log in' }); if (reason?.trim()) act('impersonate', { reason }); }}><Icon name="eye" size={14} /> Log in as seller</button>
+            <p className="sm">{u.admin ? '' : u.billing?.status === 'trialing' ? `Trial ends ${fmtDate(u.billing.trialEndsAt)}` : u.billing?.interval ? `${u.billing.interval} plan · period ends ${fmtDate(u.billing.currentPeriodEnd)}${u.billing.cancelAtPeriodEnd ? ' · cancelled' : ''}` : ''}{u.billing?.subscriptionId && <span className="mono"> · {u.billing.subscriptionId}</span>}</p></div>
+          {/* admin accounts can't be opened, suspended, comped or deleted (admin.js) — those buttons only show for sellers */}
+          {!u.admin && <button className="btn primary sm" onClick={async () => { const reason = await promptDialog({ title: 'Log in as seller', text: 'Why are you opening this account? (The seller is told, and it’s kept in the audit log.)', label: 'Reason', confirm: 'Log in' }); if (reason?.trim()) act('impersonate', { reason }); }}><Icon name="eye" size={14} /> Log in as seller</button>}
         </div>
         <div className="mini-stats">
           {[['Funnels', `${c.funnels} (${c.published} live)`], ['Contacts', num(c.contacts)], ['Leads', num(c.leads)], ['Automations', c.automations], ['Domains', c.domains], ['Views 30d', num(c.views30)], ['Orders 30d', `${c.orders30.n} · ${inr(c.orders30.gmv)}`], ['AI credits', `${num(u.credits.used)} / ${u.credits.limit == null ? '∞' : num(u.credits.limit)}`], ['Funnel limit', `${u.usage.funnels} / ${num(u.limits.funnels)}`], ['Storage', `${u.usage.storageMB} / ${num(u.limits.storageMB)} MB (pages ${u.usage.pagesMB})`]].map(([l, v]) => <div key={l}><small>{l}</small><b>{v}</b></div>)}
         </div>
         <div className="seller-actions">
-          <div className="row"><input type="number" min="1" max="365" value={days} onChange={(e) => setDays(e.target.value)} style={{ width: 80 }} /><button className="btn ghost sm" onClick={() => act('extend_trial', { days }, `Trial extended by ${days} days`)}>Extend trial</button></div>
+          {!u.admin && <div className="row"><input type="number" min="1" max="365" value={days} onChange={(e) => setDays(e.target.value)} style={{ width: 80 }} /><button className="btn ghost sm" onClick={() => act('extend_trial', { days }, `Trial extended by ${days} days`)}>Extend trial</button></div>}
           <div className="row"><input type="number" min="0" placeholder="Plan default" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 120 }} /><button className="btn ghost sm" onClick={() => act('set_credits', { limit }, 'AI credit limit saved')}>Set AI credits</button></div>
           <div className="row"><input type="number" min="0" placeholder={`Funnels (${u.limits.funnels})`} value={lim.funnels} onChange={(e) => setLim({ ...lim, funnels: e.target.value })} style={{ width: 130 }} /><input type="number" min="0" placeholder={`Storage MB (${u.limits.storageMB})`} value={lim.storageMB} onChange={(e) => setLim({ ...lim, storageMB: e.target.value })} style={{ width: 150 }} /><input type="number" min="1" placeholder={`Client accounts (${u.limits.agencyClients})`} value={lim.agencyClients} onChange={(e) => setLim({ ...lim, agencyClients: e.target.value })} style={{ width: 170 }} /><button className="btn ghost sm" onClick={() => act('set_limits', lim, 'Limits saved')}>Set limits</button></div>
           <div className="row tl-admin">
@@ -288,14 +291,14 @@ function SellerModal({ id, onClose, onChange }) {
             {u.studio?.on ? <button className="btn ghost sm danger" onClick={async () => (await confirmDialog({ title: 'Turn Studio off for this seller?', text: 'They can’t make new images, clips or Reels. What they made stays.', confirm: 'Turn off', danger: true })) && act('studio_off', {}, 'Studio turned off')}>Turn off</button> : <button className="btn ghost sm" onClick={() => act('studio_on', {}, 'Studio turned on — the seller sees it in their menu')}>Turn on</button>}
           </div>
           <div className="row">
-            {u.access.status === 'comped' ? <button className="btn ghost sm" onClick={() => act('uncomp')}>End free access</button> : <button className="btn ghost sm" onClick={async () => { const note = await promptDialog({ title: 'Give free access', text: 'Reason for free access (e.g. partner, beta tester)?', label: 'Reason', confirm: 'Give free access' }); if (note !== null) act('comp', { note }, 'Free access granted'); }}>Give free access</button>}
-            {u.access.status === 'suspended' ? <button className="btn ghost sm" onClick={() => act('unsuspend')}>Unsuspend</button> : <button className="btn ghost sm danger" onClick={async () => { const note = await promptDialog({ title: 'Suspend seller', text: 'Reason for suspending (pages go offline and the seller is signed out)?', label: 'Reason', confirm: 'Suspend', danger: true }); if (note !== null) act('suspend', { note }, 'Seller suspended'); }}>Suspend</button>}
+            {u.admin ? null : u.access.status === 'comped' ? <button className="btn ghost sm" onClick={() => act('uncomp')}>End free access</button> : <button className="btn ghost sm" onClick={async () => { const note = await promptDialog({ title: 'Give free access', text: 'Reason for free access (e.g. partner, beta tester)?', label: 'Reason', confirm: 'Give free access' }); if (note !== null) act('comp', { note }, 'Free access granted'); }}>Give free access</button>}
+            {u.admin ? null : u.access.status === 'suspended' ? <button className="btn ghost sm" onClick={() => act('unsuspend')}>Unsuspend</button> : <button className="btn ghost sm danger" onClick={async () => { const note = await promptDialog({ title: 'Suspend seller', text: 'Reason for suspending (pages go offline and the seller is signed out)?', label: 'Reason', confirm: 'Suspend', danger: true }); if (note !== null) act('suspend', { note }, 'Seller suspended'); }}>Suspend</button>}
             {!u.emailVerified && <button className="btn ghost sm" onClick={() => act('verify_email')}>Mark email verified</button>}
-            {u.twoFactor && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Turn off 2-step verification for this seller?', confirm: 'Turn off', danger: true })) && act('reset_2fa')}>Reset 2-step</button>}
+            {u.twoFactor && !u.self && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Turn off 2-step verification for this seller?', confirm: 'Turn off', danger: true })) && act('reset_2fa')}>Reset 2-step</button>}
             <button className="btn ghost sm" onClick={() => act('sign_out', {}, 'Signed out everywhere')}>Sign out everywhere</button>
             <button className="btn ghost sm" onClick={resetLink}>Create password-reset link</button>
-            {u.admin ? <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Remove admin access?', confirm: 'Remove', danger: true })) && act('remove_admin')}>Remove admin</button> : <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: `Make ${u.email} a platform admin?`, text: 'They will see all sellers and revenue.', confirm: 'Make admin' })) && act('make_admin', { level: 'owner' })}>Make admin</button>}{!u.admin && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: `Make ${u.email} a support admin?`, text: 'They can see every account and log in as a seller, but can’t change platform settings, make admins or delete accounts.', confirm: 'Make support admin' })) && act('make_admin', { level: 'support' })}>Make support admin</button>}
-            <button className="btn ghost sm danger" onClick={async () => { const e = await promptDialog({ title: 'Delete seller', text: 'This permanently deletes the seller and all their data (invoices are kept). Type their email to confirm:', label: u.email, confirmWord: u.email, confirm: 'Delete', danger: true }); if (e) act('delete', { confirm: e }); }}><Icon name="trash" size={14} /> Delete</button>
+            {u.admin ? !u.self && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: 'Remove admin access?', confirm: 'Remove', danger: true })) && act('remove_admin')}>Remove admin</button> : <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: `Make ${u.email} a platform admin?`, text: 'They will see all sellers and revenue.', confirm: 'Make admin' })) && act('make_admin', { level: 'owner' })}>Make admin</button>}{!u.admin && <button className="btn ghost sm" onClick={async () => (await confirmDialog({ title: `Make ${u.email} a support admin?`, text: 'They can see every account and log in as a seller, but can’t change platform settings, make admins or delete accounts.', confirm: 'Make support admin' })) && act('make_admin', { level: 'support' })}>Make support admin</button>}
+            {!u.admin && <button className="btn ghost sm danger" onClick={async () => { const e = await promptDialog({ title: 'Delete seller', text: 'This permanently deletes the seller and all their data (invoices are kept). Type their email to confirm:', label: u.email, confirmWord: u.email, confirm: 'Delete', danger: true }); if (e) act('delete', { confirm: e }); }}><Icon name="trash" size={14} /> Delete</button>}
           </div>
         </div>
         <div className="grid-1-1">
@@ -418,7 +421,7 @@ function CaptchaPanel({ c, save }) {
             <label>Site key<input value={v.siteKey} onChange={(e) => setV({ ...v, siteKey: e.target.value.trim() })} placeholder="0x4AAAAAAA…" /></label>
             <label>Secret key {c.hasSecret && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={v.secret} onChange={(e) => setV({ ...v, secret: e.target.value.trim() })} autoComplete="new-password" /></label>
           </div>
-          <p className="hint">In Cloudflare: Turnstile → Add widget → hostname <b>{location.hostname}</b>, mode “Managed” → copy both keys. Saving checks the secret with Cloudflare.</p>
+          <p className="hint">In Cloudflare: Turnstile → Add widget → hostname <b>{new URL(site).hostname}</b>, mode “Managed” → copy both keys. Saving checks the secret with Cloudflare.</p>
           <div className="row"><button className="btn primary" disabled={busy || !v.siteKey || (!v.secret && !c.hasSecret)} onClick={go}>{busy ? 'Checking…' : 'Save bot protection'}</button>{c.ready && !c.fromEnv && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Turn off the “I’m human” check?', confirm: 'Turn off', danger: true })) && save({ captcha: { clear: true } })}>Turn off</button>}</div>
         </>
       )}
@@ -469,7 +472,7 @@ function MonitorPanel({ m, save }) {
   const [v, setV] = useState({ app: '', backup: '' });
   const [busy, setBusy] = useState('');
   const [key, setKey] = useState(null);
-  const health = `${location.origin}/api/health`;
+  const health = `${site}/api/health`;
   const go = async (kind, url) => { setBusy(kind); if (await save({ monitor: { [kind]: url } })) { setV({ ...v, [kind]: '' }); toast(url ? 'Heartbeat sent — Better Stack shows it as Up' : 'Removed'); } setBusy(''); };
   const when = (t) => new Date(t).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
   const show = async () => { try { setKey((await api('/admin/recovery-key', 'POST', { confirm: 'SHOW' })).key); } catch (e) { toast(e.message); } };
@@ -540,6 +543,49 @@ function TallyAdminPanel({ tally, save }) {
   );
 }
 
+// Studio (server studio/routes.js): which model and resolution each tier renders with, who has it on, and what was
+// rendered — render seconds by model are what pricing will be based on. Sellers only ever see the tier names.
+const STUDIO_TIERS = [['quick', 'Quick'], ['standard', 'Standard'], ['cinematic', 'Cinematic']];
+function StudioAdminPanel() {
+  const [d, setD] = useState(null);
+  const [m, setM] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api('/admin/studio').then((x) => { setD(x); setM(x.models); }).catch(() => setD({ failed: true }));
+  useEffect(() => { load(); }, []);
+  if (!d) return <Panel title="Studio"><div className="skeleton" /></Panel>;
+  if (d.failed) return <Panel title="Studio"><p className="muted sm">Couldn’t load Studio’s settings.</p></Panel>;
+  const field = (kind, t, k) => <input value={m[kind][t][k] || ''} onChange={(e) => setM({ ...m, [kind]: { ...m[kind], [t]: { ...m[kind][t], [k]: e.target.value.trim() } } })} />;
+  const saveModels = async () => {
+    setBusy(true);
+    // only what differs from the built-in defaults is stored, so a better default later still reaches every tier left alone
+    const df = d.defaults, out = {};
+    for (const kind of ['image', 'clip']) for (const [t] of STUDIO_TIERS) for (const k of ['model', 'resolution']) if (m[kind][t][k] && m[kind][t][k] !== df[kind][t][k]) ((out[kind] ||= {})[t] ||= {})[k] = m[kind][t][k];
+    for (const k of ['review', 'upscale']) if (m[k].model && m[k].model !== df[k]?.model) out[k] = { model: m[k].model };
+    try { const r = await api('/admin/studio', 'PUT', { models: out }); setM(r.models); toast('Studio models saved'); } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const toggle = async (a) => { try { await api(`/admin/studio/accounts/${a.userId}`, 'PUT', { on: !a.on }); toast(a.on ? 'Studio turned off' : 'Studio turned on'); load(); } catch (e) { toast(e.message); } };
+  const byModel = Object.entries(d.byModel || {}).sort((a, b) => b[1].seconds - a[1].seconds);
+  return (
+    <Panel title="Studio (AI images, clips and Reels)">
+      <p className="muted sm">Studio is switched on per account (Sellers → a seller → Studio). Sellers only see the tier names, never the models.</p>
+      <div className={`ai-card ${d.ready ? 'on' : ''}`}><Icon name="bolt" size={20} /><div><b>{d.ready ? 'Ready · the render key is set on the server' : 'Off — the render key isn’t set on the server'}</b><p className="muted sm">{d.usage.length} account{d.usage.length === 1 ? '' : 's'} have used it · {num(d.usage.reduce((n, a) => n + a.renders, 0))} renders</p></div></div>
+      <div className="tbl-wrap"><table className="tbl compact"><thead><tr><th>Tier</th><th>Image model</th><th>Image size</th><th>Clip model</th><th>Clip resolution</th></tr></thead>
+        <tbody>{STUDIO_TIERS.map(([t, name]) => <tr key={t}><td className="strong">{name}</td><td>{field('image', t, 'model')}</td><td style={{ width: 90 }}>{field('image', t, 'resolution')}</td><td>{field('clip', t, 'model')}</td><td style={{ width: 90 }}>{field('clip', t, 'resolution')}</td></tr>)}</tbody></table></div>
+      <div className="form2">
+        <label>Quality reviewer model<input value={m.review.model || ''} onChange={(e) => setM({ ...m, review: { ...m.review, model: e.target.value.trim() } })} /></label>
+        <label>Upscaler model<input value={m.upscale.model || ''} onChange={(e) => setM({ ...m, upscale: { ...m.upscale, model: e.target.value.trim() } })} /></label>
+      </div>
+      <p className="hint">Image sizes: 1K, 2K or 4K. Clip resolutions: 480p, 720p or 1080p. A change applies to new renders only.</p>
+      <button className="btn primary" disabled={busy} onClick={saveModels}>{busy ? 'Saving…' : 'Save models'}</button>
+      {d.usage.length > 0 && <><h4 style={{ marginTop: 18 }}>Accounts</h4><div className="tbl-wrap"><table className="tbl compact"><thead><tr><th>Account</th><th>Items</th><th>Renders</th><th>Studio</th></tr></thead>
+        <tbody>{d.usage.map((a) => <tr key={a.userId}><td>{a.email}</td><td>{num(a.items)}</td><td>{num(a.renders)}</td><td>{a.email === '(deleted)' ? '—' : <button className={`btn ghost sm ${a.on ? 'danger' : ''}`} onClick={() => toggle(a)}>{a.on ? 'Turn off' : 'Turn on'}</button>}</td></tr>)}</tbody></table></div></>}
+      {byModel.length > 0 && <><h4 style={{ marginTop: 18 }}>Rendered by model</h4><div className="tbl-wrap"><table className="tbl compact"><thead><tr><th>Model · resolution</th><th>Renders</th><th>Seconds of video</th></tr></thead>
+        <tbody>{byModel.map(([k, v]) => <tr key={k}><td className="mono">{k}</td><td>{num(v.renders)}</td><td>{v.seconds ? num(Math.round(v.seconds)) : '—'}</td></tr>)}</tbody></table></div></>}
+    </Panel>
+  );
+}
+
 // the WhatsApp AI agent's document search: an OpenRouter key for embeddings (sellers never see the service or model)
 function EmbedPanel({ m, save }) {
   const [v, setV] = useState({ key: '', model: m.model || 'nvidia/nemotron-3.5-embed-8b:free', vision: m.vision || 'nvidia/nemotron-3.5-super-vl:free' });
@@ -589,7 +635,7 @@ function MetaSignupPanel({ m, save }) {
   const [v, setV] = useState({ appId: m.appId || '', configId: m.configId || '', secret: '', graphVersion: m.graphVersion || 'v26.0', esVersion: m.esVersion || 'v5' });
   const [busy, setBusy] = useState(false);
   const go = async () => { setBusy(true); if (await save({ metaSignup: v })) setV((x) => ({ ...x, secret: '' })); setBusy(false); };
-  const hook = `${location.origin}${m.webhookPath}`;
+  const hook = `${site}${m.webhookPath}`;
   const copy = (t) => { navigator.clipboard?.writeText(t); toast('Copied'); };
   return (
     <Panel title="WhatsApp sign-up for sellers (Meta)">
@@ -617,7 +663,7 @@ function PlatformSettings() {
   if (!s) return <div className="skeleton" />;
   const set = (patch) => setS({ ...s, ...patch });
   const save = async (body) => { try { const x = await api('/admin/settings', 'PUT', body); setS(x); toast('Saved'); return x; } catch (e) { toast(e.message); return null; } };
-  const hookUrl = `${location.origin}${s.razorpay.webhookPath}`;
+  const hookUrl = `${site}${s.razorpay.webhookPath}`;
   return (
     <div className="settings">
       {s.companyMissing?.length > 0 && (
@@ -659,6 +705,7 @@ function PlatformSettings() {
       <StoragePanel s={s.videoStorage} save={save} field="videoStorage" />
       {s.monitor && <MonitorPanel m={s.monitor} save={save} />}
       <TallyAdminPanel tally={s.tally} save={save} />
+      <StudioAdminPanel />
 
       <Panel title="Razorpay (collects subscriptions)">
         <p className="muted sm">Your own Razorpay account. Sellers connect theirs separately for their customers’ payments.</p>
@@ -676,7 +723,7 @@ function PlatformSettings() {
         <label>Publishable key<input value={sk.publishableKey} onChange={(e) => setSk({ ...sk, publishableKey: e.target.value.trim() })} placeholder="pk_live_…" /></label>
         <label>Secret key {s.stripe?.hasSecret && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={sk.secretKey} onChange={(e) => setSk({ ...sk, secretKey: e.target.value.trim() })} placeholder="sk_live_…" /></label>
         <label>Webhook signing secret {s.stripe?.hasWebhookSecret && <small className="muted">· saved</small>}<input type="password" value={sk.webhookSecret} onChange={(e) => setSk({ ...sk, webhookSecret: e.target.value.trim() })} placeholder="whsec_…" /></label>
-        <p className="hint">In Stripe → Developers → Webhooks add <code>{location.origin}{s.stripe?.webhookPath || '/api/billing/stripe-webhook'}</code> with the events <code>customer.subscription.updated</code>, <code>customer.subscription.deleted</code>, <code>invoice.paid</code>, <code>invoice.payment_failed</code>, and paste its signing secret here.</p>
+        <p className="hint">In Stripe → Developers → Webhooks add <code>{site}{s.stripe?.webhookPath || '/api/billing/stripe-webhook'}</code> with the events <code>customer.subscription.updated</code>, <code>customer.subscription.deleted</code>, <code>invoice.paid</code>, <code>invoice.payment_failed</code>, and paste its signing secret here.</p>
         <button className="btn primary" onClick={async () => { const body = { publishableKey: sk.publishableKey, ...(sk.secretKey ? { secretKey: sk.secretKey } : {}), ...(sk.webhookSecret ? { webhookSecret: sk.webhookSecret } : {}) }; if (await save({ stripe: body })) setSk({ ...sk, secretKey: '', webhookSecret: '' }); }}>Save Stripe keys</button>
         <h4>Prices outside India</h4>
         <div className="tbl-wrap"><table className="tbl">
@@ -712,7 +759,7 @@ function PlatformSettings() {
         <label className="tog"><input type="checkbox" checked={s.signupsOpen} onChange={(e) => set({ signupsOpen: e.target.checked })} /><span />New sign-ups open</label>
         <label><span>Announcement banner <small className="muted">· shown to every seller, e.g. planned maintenance</small></span><input value={s.announcement} onChange={(e) => set({ announcement: e.target.value })} placeholder="Leave empty for none" /></label>
         <label><span>Google sign-in client ID <small className="muted">· shows “Continue with Google” on sign-up and login</small></span><input value={s.googleClientId || ''} onChange={(e) => set({ googleClientId: e.target.value.trim() })} placeholder="1234567890-abc….apps.googleusercontent.com" /></label>
-        <p className="hint">Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (Web application). Add <code>{location.origin}</code> under Authorised JavaScript origins.</p>
+        <p className="hint">Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (Web application). Add <code>{site}</code> under Authorised JavaScript origins.</p>
         <button className="btn primary" onClick={() => save({ brand: s.brand, signupsOpen: s.signupsOpen, announcement: s.announcement, googleClientId: s.googleClientId || '' })}>Save</button>
       </Panel>
     </div>
@@ -743,7 +790,7 @@ function Audit() {
     <AdminRequests />
     <Panel title="Every change made by an admin" pad={false}>
       {list.length ? <table className="tbl compact"><thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Seller</th><th>Detail</th></tr></thead>
-        <tbody>{list.map((a) => <tr key={a.id}><td className="muted sm">{fmtDate(a.at)} · {new Date(a.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td><td>{a.actor}</td><td className="strong">{a.action.replace(/_/g, ' ')}</td><td className="mono">{a.userId || '—'}</td><td className="muted sm">{a.detail}</td></tr>)}</tbody></table>
+        <tbody>{list.map((a) => <tr key={a.id}><td className="muted sm">{fmtDate(a.at)} · {new Date(a.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td><td>{a.actor}</td><td className="strong">{a.action.replace(/_/g, ' ')}</td>{a.seller ? <td>{a.seller}</td> : <td className="mono">{a.userId || '—'}</td>}<td className="muted sm">{a.detail}</td></tr>)}</tbody></table>
         : <p className="muted sm" style={{ padding: 18 }}>Nothing yet.</p>}
     </Panel>
     </>
