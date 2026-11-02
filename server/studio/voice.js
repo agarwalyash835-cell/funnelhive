@@ -89,9 +89,26 @@ export async function makeLine({ text, lang, voice, model, dict, settings = {}, 
 }
 
 // ---------- listening back: the words ----------
-const ONES = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+// Hindi numbers up to 99 are each a word of their own (साठ = 60, निन्यानवे = 99), not built from tens and ones, so
+// they're all listed — with the spellings speech-to-text uses. डेढ़ / ढाई (1½, 2½) go before सौ / हज़ार ("डेढ़ सौ" = 150).
+// Keys are NFC, as tokens() normalises (ड़, ढ़ and nukta letters decompose under NFC).
+const HINDI = Object.fromEntries(Object.entries({
+  शून्य: 0, एक: 1, दो: 2, तीन: 3, चार: 4, पाँच: 5, पांच: 5, छह: 6, छः: 6, छे: 6, सात: 7, आठ: 8, नौ: 9, दस: 10,
+  ग्यारह: 11, बारह: 12, तेरह: 13, चौदह: 14, पंद्रह: 15, पन्द्रह: 15, सोलह: 16, सत्रह: 17, अठारह: 18, उन्नीस: 19, बीस: 20,
+  इक्कीस: 21, बाईस: 22, तेईस: 23, चौबीस: 24, पच्चीस: 25, छब्बीस: 26, सत्ताईस: 27, अट्ठाईस: 28, अठ्ठाईस: 28, उनतीस: 29, तीस: 30,
+  इकतीस: 31, इकत्तीस: 31, बत्तीस: 32, तैंतीस: 33, चौंतीस: 34, पैंतीस: 35, छत्तीस: 36, सैंतीस: 37, अड़तीस: 38, उनतालीस: 39, चालीस: 40,
+  इकतालीस: 41, बयालीस: 42, तैंतालीस: 43, चवालीस: 44, चौवालीस: 44, पैंतालीस: 45, छियालीस: 46, सैंतालीस: 47, अड़तालीस: 48, उनचास: 49, पचास: 50,
+  इक्यावन: 51, बावन: 52, तिरेपन: 53, तिरपन: 53, चौवन: 54, पचपन: 55, छप्पन: 56, सत्तावन: 57, अट्ठावन: 58, उनसठ: 59, साठ: 60,
+  इकसठ: 61, बासठ: 62, तिरसठ: 63, चौंसठ: 64, पैंसठ: 65, छियासठ: 66, सड़सठ: 67, सरसठ: 67, अड़सठ: 68, उनहत्तर: 69, सत्तर: 70,
+  इकहत्तर: 71, बहत्तर: 72, तिहत्तर: 73, चौहत्तर: 74, पचहत्तर: 75, छिहत्तर: 76, सतहत्तर: 77, अठहत्तर: 78, उन्यासी: 79, उनासी: 79, अस्सी: 80,
+  इक्यासी: 81, बयासी: 82, तिरासी: 83, चौरासी: 84, पचासी: 85, छियासी: 86, सत्तासी: 87, अट्ठासी: 88, नवासी: 89, नब्बे: 90,
+  इक्यानवे: 91, बानवे: 92, तिरानवे: 93, चौरानवे: 94, पंचानवे: 95, पचानवे: 95, छियानवे: 96, सत्तानवे: 97, अट्ठानवे: 98, निन्यानवे: 99,
+  डेढ़: 1.5, ढाई: 2.5,
+}).map(([k, v]) => [k.normalize('NFC'), v]));
+const ONES = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, ...HINDI };
 const TENS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
-const SCALES = { hundred: 100, thousand: 1e3, lakh: 1e5, lakhs: 1e5, lac: 1e5, crore: 1e7, crores: 1e7, million: 1e6 };
+const HUNDRED = new Set(['hundred', 'सौ']);
+const SCALES = { hundred: 100, thousand: 1e3, lakh: 1e5, lakhs: 1e5, lac: 1e5, crore: 1e7, crores: 1e7, million: 1e6, ...Object.fromEntries(Object.entries({ सौ: 100, हज़ार: 1e3, हजार: 1e3, लाख: 1e5, करोड़: 1e7, करोड: 1e7 }).map(([k, v]) => [k.normalize('NFC'), v])) };
 const CURRENCY = new Set(['₹', 'rs', 'inr', 'rupee', 'rupees', 'rupaye', 'rupay', 'रुपये', 'रुपए', 'रुपया', 'रु']);
 const FILLERS = new Set(['um', 'uh', 'umm', 'uhh', 'hmm', 'ah', 'er', 'erm']);
 const DEVA_DIGITS = /[०-९]/g;
@@ -102,7 +119,8 @@ export function tokens(text) {
   const parts = String(text ?? '').normalize('NFC').replace(DEVA_DIGITS, (d) => String(d.charCodeAt(0) - 0x966))
     .replace(/₹/g, ' ₹ ').replace(/\b(rs|inr)\.?(?=\s*\d)/gi, ' ₹ ').replace(/(\d)\/-/g, '$1 ')
     .replace(/(\d),(?=\d)/g, '$1').replace(/(\p{L})-(\p{L})/gu, '$1 $2')
-    .split(/\s+/).map((raw) => ({ raw, t: raw.toLowerCase().replace(/^[^\p{L}\p{N}₹]+|[^\p{L}\p{N}₹]+$/gu, '').replace(/[।॥]/g, '') }))
+    // \p{M}: Devanagari vowel signs are marks, not letters — without it "के" lost its "े" and "रुपये" became "रुपय"
+    .split(/\s+/).map((raw) => ({ raw, t: raw.toLowerCase().replace(/^[^\p{L}\p{M}\p{N}₹]+|[^\p{L}\p{M}\p{N}₹]+$/gu, '').replace(/[।॥]/g, '') }))
     .filter((x) => x.t);
   // number words → one number token ("four hundred ninety nine" → 499; "four nine nine" → 499, read digit by digit)
   const out = [];
@@ -123,7 +141,7 @@ export function tokens(text) {
       let total = 0, cur = 0;
       for (const w of words) {
         if (w in ONES) cur += ONES[w]; else if (w in TENS) cur += TENS[w];
-        else if (w === 'hundred') cur = (cur || 1) * 100; else if (w in SCALES) { total += (cur || 1) * SCALES[w]; cur = 0; }
+        else if (HUNDRED.has(w)) cur = (cur || 1) * 100; else if (w in SCALES) { total += (cur || 1) * SCALES[w]; cur = 0; }
       }
       v = String(total + cur);
       out.push({ kind: 'number', t: v, v, raw: run.map((x) => x.raw).join(' '), parts: [v] });
@@ -190,7 +208,7 @@ export function align(script, heard) {
 }
 
 const q = (s) => `“${s}”`;
-const shown = (tk) => (tk.kind === 'price' ? `₹${tk.v}` : tk.kind === 'phone' ? tk.v : tk.raw.replace(/^[^\p{L}\p{N}₹]+|[^\p{L}\p{N}₹]+$/gu, ''));
+const shown = (tk) => (tk.kind === 'price' ? `₹${tk.v}` : tk.kind === 'phone' ? tk.v : tk.raw.replace(/^[^\p{L}\p{M}\p{N}₹]+|[^\p{L}\p{M}\p{N}₹]+$/gu, ''));
 // these mean the line has to be made again; the rest are worth a look
 const SERIOUS = new Set(['number', 'price', 'phone', 'brand', 'missing', 'swapped', 'language', 'silent']);
 

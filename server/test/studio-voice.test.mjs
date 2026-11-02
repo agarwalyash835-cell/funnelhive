@@ -95,6 +95,20 @@ test('compare: brand names must come through; the seller’s own pronunciation c
   assert.deepEqual(compareWords('Try Ghar Soaps', 'try gar soaps', { dict: { Ghar: 'gar' } }).issues, []);
 });
 
+test('Hindi: words keep their vowel signs, Hindi number words are numbers, a price said in Hindi is right', () => {
+  const t = (s) => tokens(s).map((x) => (x.kind === 'word' ? x.t : `${x.kind}:${x.v}`));
+  assert.deepEqual(t('केरल के इलायची केले, ₹60 प्रति दर्जन।'), ['केरल', 'के', 'इलायची', 'केले', 'price:60', 'प्रति', 'दर्जन'], 'मात्राएँ stay on the words');
+  assert.deepEqual(t('साठ रुपये'), ['price:60']);
+  assert.deepEqual(t('निन्यानवे रुपये'), ['price:99'], 'every number up to 99 is its own word');
+  assert.deepEqual(t('डेढ़ सौ रुपये'), ['price:150']);
+  assert.deepEqual(t('दो लाख पचास हज़ार'), ['number:250000']);
+  assert.deepEqual(t('नौ आठ सात छह'), ['number:9876'], 'read digit by digit');
+  // the line from the first real Hindi Reel: "₹60" spoken as "साठ रुपये" is exactly right
+  assert.deepEqual(compareWords('केरल के इलायची केले, प्राकृतिक रूप से पके, ₹60 प्रति दर्जन।', 'केरल के इलायची केले प्राकृतिक रूप से पके साठ रुपये प्रति दर्जन').issues, []);
+  // …and a wrong price is still caught
+  assert.equal(compareWords('केरल के केले ₹60 प्रति दर्जन', 'केरल के केले सत्तर रुपये प्रति दर्जन').issues[0].kind, 'price');
+});
+
 test('checkLine: a clean line passes; a misread price and a missing word fail with plain words', async () => {
   const script = 'Our cotton kurta is now just ₹499 with free delivery';
   let r = await checkLine({ text: script, file: tone, lang: 'en' }, { transcribe: heard('our cotton kurta is now just ₹499 with free delivery') });
