@@ -36,8 +36,7 @@ html.glass .app::before, html.glass .auth-form::before {
 @keyframes glassDrift { to { transform: translate3d(2%, -2%, 0) scale(1.04); } }
 
 /* one recipe for every glass surface */
-html.glass .app :is(.panel, .kpi, .fcard, .empty, .tcard, .ai-card, .plan-card, .credits, .bill-form, .how, .search, .seg, .app-banner, .verify-banner, .trial-chip),
-html.glass .app .m-box, html.glass .app .cpanel, html.glass .app .au-menu, html.glass .ed-top, html.glass .ed-left, html.glass .ed-right {
+html.glass .app :is(.panel, .kpi, .fcard, .empty, .tcard, .ai-card, .plan-card, .credits, .bill-form, .how, .search, .seg, .app-banner, .verify-banner, .trial-chip), html.glass .app .m-box, html.glass .app .cpanel, html.glass .ed-top, html.glass .ed-left, html.glass .ed-right {
   background: var(--g-fill); backdrop-filter: var(--g-blur); -webkit-backdrop-filter: var(--g-blur);
   border: 1px solid var(--g-edge); box-shadow: var(--g-spec), var(--g-shadow);
 }
@@ -151,7 +150,6 @@ html.glass .side-foot { flex: none; padding-top: 8px; }
 
 /* side drawers and menus float over content: a denser glass so text behind never shows through */
 html.glass .app .cpanel { background: color-mix(in srgb, rgba(252, 252, 255, .86) var(--dk-mix, 100%), var(--c-surface)); border-radius: 26px 0 0 26px; }
-html.glass .app .au-menu { background: color-mix(in srgb, rgba(252, 252, 255, .9) var(--dk-mix, 100%), var(--c-surface)); }
 
 /* workspace switcher (agencies / team members) on the light glass sidebar */
 html.glass .side .ws-cur { border-color: rgba(255, 255, 255, .75); background: color-mix(in srgb, rgba(255, 255, 255, .45) var(--dk-mix, 100%), var(--c-surface)); color: var(--c-ink-2); }

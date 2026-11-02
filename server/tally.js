@@ -422,11 +422,8 @@ function submitResult(agent, id, b) {
     try { applyLocal(row); } catch (e) { console.error('Tally mirror update failed', e.message); }
     try { followUpSync(row); } catch {}
   }
-  commandHook?.(row);
   return { id: row.id, status: row.status };
 }
-let commandHook = null; // notifications / automations when a command finishes
-export const onCommandDone = (fn) => { commandHook = fn; };
 function expireOld() {
   for (const r of T.tcommands.all({ status: ['PENDING', 'SENT'], expiresAt: { lte: Date.now() } })) T.tcommands.update(r.id, (x) => { x.status = 'EXPIRED'; x.error_message = 'The Tally PC didn’t pick this up in time — check TallyPrime before trying again, it may have been applied'; });
 }

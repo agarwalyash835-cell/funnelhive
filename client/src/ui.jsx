@@ -658,7 +658,6 @@ export function DesignPicker({ value, onChange }) {
     </div>
   );
 }
-export const DRAFT_EXAMPLES = EXAMPLES;
 
 export function CreateFunnel({ onClose, aiEnabled }) {
   const nav = useNavigate();

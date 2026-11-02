@@ -384,7 +384,6 @@ export const getTemplate = (id) => {
   if (!t) return null;
   return { id: t.id, name: t.name, theme: t.theme, steps: t.steps.map((s) => ({ id: uid(), ...s, blocks: s.blocks.map((b) => ({ id: uid(), type: b.type, props: structuredClone(b.props) })) })) };
 };
-export const TEMPLATE_COUNT = TEMPLATES.length;
 
 // The template library as AI reference material. Matching reads each template's whole landing page,
 // weighs rare words above common ones ("home", "online") and knows a few related words.

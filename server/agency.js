@@ -67,7 +67,6 @@ export function brandForHost(host) {
   const u = agencyForHost(host);
   return u ? brandFor(u) : null;
 }
-export const isAgencyDomain = (host) => !!brandForHost(host);
 
 // ---------- snapshots ----------
 const PRODUCT_KEYS = ['productId', 'bumpProductId'];

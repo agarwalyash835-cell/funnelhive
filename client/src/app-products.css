@@ -671,17 +671,3 @@ fieldset.plain:disabled { opacity: .75; }
 .st-reel { border: 0; padding: 0; cursor: pointer; position: relative; width: 100%; }
 .st-reel img { width: 100%; height: 100%; object-fit: cover; }
 .st-play { position: absolute; right: 10px; bottom: 10px; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, .55); color: #fff; }
-.rl-sizes { display: grid; gap: 4px; }
-.rl-sizes .row { gap: 6px; font-size: 13px; }
-.rl-sizes input { width: auto; }
-.rl-stage { margin: 0 0 8px; }
-.rl-out { display: grid; grid-template-columns: minmax(0, 300px) 1fr; gap: 18px; align-items: start; margin-bottom: 8px; }
-.rl-out video { width: 100%; max-height: 520px; background: #000; border-radius: var(--r); }
-.rl-side { display: grid; gap: 10px; align-content: start; justify-items: start; }
-.rl-lines { display: grid; gap: 10px; padding-left: 20px; margin: 6px 0 14px; }
-.rl-lines li { display: grid; gap: 4px; }
-.rl-lines audio { height: 32px; max-width: 320px; }
-.rl-shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin: 6px 0 14px; }
-.rl-shot { display: grid; gap: 6px; align-content: start; }
-.rl-shot img, .rl-shot video { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: var(--r-sm); background: var(--c-surface-2); }
-@media (max-width: 720px) { .rl-out { grid-template-columns: 1fr; } }

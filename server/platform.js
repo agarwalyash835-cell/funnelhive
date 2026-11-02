@@ -103,7 +103,6 @@ export function adminLevel(u) {
   return null;
 }
 export const isAdmin = (u) => !!adminLevel(u);
-export const isOwnerAdmin = (u) => adminLevel(u) === 'owner';
 
 // GST place of supply: state names and their GST codes
 export const STATES = {

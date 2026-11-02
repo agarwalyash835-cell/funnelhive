@@ -545,6 +545,4 @@ export function studentLibrary(userId, ckey) {
   return view;
 }
 export const accessActive = (a, now = Date.now()) => active(a, now);
-export const productKind = (p) => kindOf(p);
 
-export const removeProductFiles = (userId) => fs.rmSync(path.join(FILE_DIR, userId), { recursive: true, force: true });

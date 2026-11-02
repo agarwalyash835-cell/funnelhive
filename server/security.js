@@ -189,8 +189,6 @@ export function totp(secret, at = Date.now(), step = 30) {
   const code = ((h.readUInt32BE(o) & 0x7fffffff) % 1e6).toString().padStart(6, '0');
   return code;
 }
-// Accept the current code and one step either side to allow for clock drift
-export const verifyTotp = (secret, code) => totpStep(secret, code) != null;
 // the time step a code belongs to (null: not valid). A code is good once: steps at or before `used` (the last one
 // accepted for this account) are refused, so an overheard or phished code can't be replayed.
 export function totpStep(secret, code, used = 0) {

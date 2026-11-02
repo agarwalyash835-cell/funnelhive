@@ -16,7 +16,6 @@ import { sendBranded } from './whitelabel.js';
 import { agencyEntry } from './agency-access.js';
 import { termsOf, clientsOf, seatCapError } from './agency-terms.js';
 
-export const ROLE_NAMES = { agency: 'Agency' };
 export const ROLES = {
   admin: 'Admin — everything except billing',
   marketer: 'Marketer — funnels, AI, automations, broadcasts, contacts, products',

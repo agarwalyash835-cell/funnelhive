@@ -27,7 +27,6 @@ export function cleanAddress(a) {
   if (out.state && !STATES[out.state]) return { error: 'Please choose your state' };
   return out;
 }
-export const addressText = (a) => (a ? [a.line1, a.line2, `${a.city}${a.state ? `, ${a.state}` : ''} – ${a.pincode}`].filter(Boolean).join(', ') : '');
 
 const TRACK = { delhivery: 'https://www.delhivery.com/track/package/', bluedart: 'https://www.bluedart.com/tracking?trackFor=0&trackNo=', dtdc: 'https://www.dtdc.in/tracking.asp?cnno=', 'india post': 'https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx?', ekart: 'https://ekartlogistics.com/shipmenttrack/', xpressbees: 'https://www.xpressbees.com/shipment/tracking?awbNo=', shiprocket: 'https://shiprocket.co/tracking/', 'ecom express': 'https://ecomexpress.in/tracking/?awb_field=' };
 const trackingUrl = (courier, awb) => { const k = Object.keys(TRACK).find((c) => String(courier).toLowerCase().includes(c)); return k && awb ? `${TRACK[k]}${encodeURIComponent(awb)}` : ''; };

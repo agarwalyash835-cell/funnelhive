@@ -438,7 +438,6 @@ export function queueDoc(u, f, kind) {
   return T.kdocs.insert({ id: uid(), userId: u.id, fileId: f.id, name: f.name, size: f.size, kind: KINDS.includes(kind) ? kind : 'document', send: true, status: 'queued', at: Date.now() });
 }
 if (JOBS) setInterval(() => knowTick(), TICK).unref();
-export const runKnowledgeQueue = knowTick;
 
 // ---------- search ----------
 // How Indian customers write (Hinglish, Hindi) → the English words business documents use, so keyword search finds

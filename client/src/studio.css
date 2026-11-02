@@ -126,7 +126,6 @@
 .sxr-cap { position: absolute; left: 8%; right: 8%; bottom: 22%; text-align: center; font-weight: 800; font-size: 20px; color: #fff; text-transform: uppercase; text-shadow: 0 2px 0 #000, 0 0 6px rgba(0, 0, 0, .8); }
 .sxr-cap em { color: #ffd400; font-style: normal; }
 .sxr-center { display: grid; gap: 12px; justify-items: center; align-content: start; }
-.sxr-dl { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .sxr-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--c-line); }
 .sxr-tabs button { border: 0; background: none; padding: 9px 12px; font-weight: 600; font-size: 13px; color: var(--c-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .sxr-tabs button.on { color: var(--c-ink); border-bottom-color: var(--c-accent); }

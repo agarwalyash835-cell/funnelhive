@@ -269,8 +269,6 @@ input::placeholder, textarea::placeholder { color: var(--dk-muted, #a8a29e); }
 /* ---------- settings & cards ---------- */
 .settings .panel { overflow: hidden; }
 .settings .panel-h { background: linear-gradient(180deg, var(--c-surface-2), var(--c-surface)); }
-.prov button { transition: border-color .15s, background .15s, color .15s; }
-.prov button:hover:not(.on) { border-color: var(--c-line-strong); }
 .agent { transition: border-color .18s, transform .2s var(--ease-out), box-shadow .2s; }
 .agent:hover { box-shadow: var(--sh-2); }
 .bcard { transition: box-shadow .18s, border-color .18s, opacity .15s, transform .18s var(--ease-out); }

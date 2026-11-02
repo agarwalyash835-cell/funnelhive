@@ -115,7 +115,6 @@ export const BLOCK_GROUPS = [
   ['Sell', ['pricing', 'optin', 'form', 'quiz', 'booking', 'checkout', 'offer', 'crosssell', 'thankyou']],
   ['FOMO & urgency', ['hellobar', 'countdown', 'livecount', 'stock', 'proof', 'exitpopup', 'stickybar', 'whatsapp']],
 ];
-export const BLOCK_ICONS = { navbar: '🧭', footer: '🔚', section: '🧱', image: '🖼️', gallery: '🎞️', spacer: '↕️', divider: '➖', html: '🧩', form: '🗒️', quiz: '🧩', hero: '🦸', text: '📝', video: '🎬', stats: '📊', cta: '📣', problem: '😣', features: '✨', steps: '🪜', compare: '⚖️', testimonials: '💬', mentor: '🧑‍🏫', bonuses: '🎁', guarantee: '🛡️', faq: '❓', pricing: '💰', optin: '📧', checkout: '💳', offer: '⬆️', crosssell: '🛍️', thankyou: '🎉', booking: '📅', hellobar: '📢', countdown: '⏳', livecount: '👀', stock: '📦', proof: '🔔', exitpopup: '🚪', stickybar: '📌', whatsapp: '💚' };
 
 // Text that used to be fixed in the design. Kept as defaults so existing pages look the same,
 // but every piece can now be edited or removed (empty string = removed).
@@ -1591,7 +1590,6 @@ function QuizBlock({ p, ctx, block }) {
 }
 
 // ---------- custom sections: columns of individual elements ----------
-export const LAYOUTS = [['1', 'One column'], ['1-1', 'Two equal columns'], ['2-1', 'Wide + narrow'], ['1-2', 'Narrow + wide'], ['1-1-1', 'Three columns'], ['1-1-1-1', 'Four columns']];
 const LAYOUT_COLS = { 1: ['1fr'], '1-1': ['1fr', '1fr'], '2-1': ['2fr', '1fr'], '1-2': ['1fr', '2fr'], '1-1-1': ['1fr', '1fr', '1fr'], '1-1-1-1': ['1fr', '1fr', '1fr', '1fr'] };
 export const colCount = (layout) => (LAYOUT_COLS[layout] || ['1fr']).length;
 const ALIGN = [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']];

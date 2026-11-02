@@ -47,7 +47,6 @@ const canReview = (o) => !FINAL_BAD.includes(o.status) && (o.fulfilment ? o.fulf
 // normal refund (sales.js), so stock, invoices and credit notes stay in step.
 export const returnsOf = (s) => ({ days: s?.returns?.days ?? 7, exchange: s?.returns?.exchange !== false });
 export const RETURN_REASONS = { size: 'Wrong size or fit', damaged: 'Arrived damaged', wrong: 'Wrong item sent', different: 'Not as described', mind: 'Changed my mind', other: 'Something else' };
-export const RETURN_STATUS = ['requested', 'approved', 'rejected', 'received', 'closed'];
 const DAY = 86400000;
 const OPEN = ['requested', 'approved', 'received'];
 // the lines a buyer can still ask about: delivered store products not already in an open request

@@ -32,7 +32,6 @@ export function zoned(tz, ymd, minutes = 0) {
   return t;
 }
 export const localYmd = (tz, t) => new Date(t + offsetAt(tz, t) * 60000).toISOString().slice(0, 10);
-export const localDow = (tz, t) => new Date(t + offsetAt(tz, t) * 60000).getUTCDay();
 export const addDays = (ymd, n) => new Date(Date.parse(`${ymd}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 export const dowOfYmd = (ymd) => new Date(`${ymd}T12:00:00Z`).getUTCDay();
 

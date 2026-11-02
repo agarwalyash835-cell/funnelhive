@@ -13,7 +13,6 @@ import { TZ_OFFSET } from './time.js';
 import { rzpCreds, call as rzpCall } from './razorpay.js';
 import { enqueue as fireWebhook } from './webhooks.js';
 import { fire as fireAutomation } from './automations.js';
-import { linkBase } from './products.js';
 import { stripeCreds, stripeRefund } from './stripe.js';
 import { trackServer } from './tracking.js';
 import { notify, money } from './notify.js';
@@ -290,9 +289,3 @@ export function registerSales(app, { auth, wrap, secret, appUrl }) {
     res.json(r);
   }));
 }
-
-// Invoice link for an order's latest invoice (for emails and the thank-you page)
-export const latestInvoiceUrl = (order, fallbackBase) => {
-  const inv = T.sinvoices.all({ orderId: order.id }).filter((i) => i.type === 'invoice').sort((a, b) => b.at - a.at)[0];
-  return inv ? invoiceUrl(linkBase(order.funnelId, fallbackBase), inv) : null;
-};

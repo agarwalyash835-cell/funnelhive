@@ -33,7 +33,6 @@ const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const err = (msg, status = 400, extra = {}) => new CourierError(msg, status, extra);
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const DEF_PKG = { weight: 0.5, length: 15, breadth: 12, height: 8 };
-export const STAGES = { booked: 'Booked — pickup requested', picked_up: 'Picked up', in_transit: 'In transit', out_for_delivery: 'Out for delivery', delivered: 'Delivered', ndr: 'Delivery attempt failed (NDR)', rto_initiated: 'Returning to you (RTO)', rto_delivered: 'Returned to you (RTO delivered)', cancelled: 'Shipment cancelled', lost: 'Lost / damaged' };
 
 const cfgOf = (u, p = 'shiprocket') => u?.channels?.[p] || null;
 const connected = (u, p = 'shiprocket') => !!(cfgOf(u, p)?.email && cfgOf(u, p)?.passEnc);

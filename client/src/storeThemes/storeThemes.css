@@ -849,7 +849,6 @@ p.sv-byline { font-size: 15px; margin: -2px 0 10px; }
 .th-sports .hero-editorial h1 { text-transform: uppercase; font-size: clamp(40px, 8vw, 84px); line-height: .92; }
 .th-sports .sv-btn { border-radius: 2px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
 .th-hardware .sv-ann { background: #1f2328; color: var(--st-accent2); font-weight: 700; }
-.th-hardware .sv-head { border-bottom: 4px solid var(--st-accent2); }
 .th-hardware .sv-h2 { font-family: var(--st-font-h); text-transform: uppercase; letter-spacing: .02em; }
 .th-hardware .hero-banner { background: repeating-linear-gradient(-45deg, transparent 0 22px, rgba(0,0,0,.06) 22px 44px), var(--st-brand); }
 .th-hardware .sv-btn { border-radius: var(--st-radius-sm); font-weight: 700; }

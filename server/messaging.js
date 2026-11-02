@@ -211,17 +211,6 @@ async function mmRoute(u, msg) {
     return mm?.status === 'on' && (await templateCategory(w, msg.template, msg.language || 'en')) === 'MARKETING';
   } catch { return false; }
 }
-// Meta's account_update webhook (event MM_LITE_TERMS_SIGNED): the seller with that WhatsApp Business Account is on
-export function mmTermsSigned(wabaId) {
-  const id = String(wabaId || '');
-  if (!id) return 0;
-  let n = 0;
-  for (const r of q("SELECT id FROM users WHERE json_extract(data, '$.channels.whatsapp.businessId') = ?").all(id)) {
-    T.users.update(r.id, (x) => { x.channels = { ...x.channels, whatsapp: { ...x.channels.whatsapp, mm: { status: 'on', checkedAt: Date.now() } } }; });
-    n++;
-  }
-  return n;
-}
 
 // ---------- settings API (secrets never leave the server) ----------
 const str = (v, n) => String(v ?? '').trim().slice(0, n);

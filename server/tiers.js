@@ -57,7 +57,6 @@ function allowlist() {
   }
   return list;
 }
-export const allowlistOn = () => !!allowlist();
 export function ipAllowed(ip) {
   const bl = allowlist();
   if (!bl) return true;

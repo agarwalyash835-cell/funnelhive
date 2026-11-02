@@ -430,7 +430,6 @@ try { sql.exec('PRAGMA analysis_limit = 1000; PRAGMA optimize = 0x10002;'); } ca
 // registers that with onShutdown), keep background jobs from starting new work, then flush the write-ahead log.
 // (the cluster's primary process only runs upgrades; its app processes each handle their own shutdown)
 let stopping = false;
-export const shuttingDown = () => stopping;
 const drains = [];
 export const onShutdown = (fn) => { drains.push(fn); };
 // every repeating job (automations, broadcasts, webhooks, backups…) skips its turn once shutdown has begun
