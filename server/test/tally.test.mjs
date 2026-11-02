@@ -245,6 +245,23 @@ test('a receipt for more than its bill settles the next bills oldest first, the 
   assert.equal(row.advance, true);
 });
 
+test('the MCP reads units and godowns and makes every kind of change, e.g. renaming a godown', async () => {
+  const tok = (await api('/hive/tokens', 'POST', { name: 'claude' }, T)).data.token;
+  const mcp = async (method, params) => (await (await fetch(`${srv.base}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json()).result;
+  const tool = (await mcp('tools/list')).tools.find((t) => t.name === 'tally_change');
+  assert.equal(tool.inputSchema.properties.type.enum.length, 19, 'all 19 kinds of change');
+  for (const t of ['ALTER_VOUCHER', 'DELETE_VOUCHER', 'ALTER_STOCK_ITEM', 'DELETE_LEDGER', 'CREATE_UNIT', 'ALTER_UNIT', 'DELETE_UNIT', 'CREATE_GODOWN', 'ALTER_GODOWN', 'DELETE_GODOWN']) assert.ok(tool.inputSchema.properties.type.enum.includes(t), t);
+  const found = JSON.parse((await mcp('tools/call', { name: 'find_tally', arguments: { kind: 'godowns' } })).content[0].text);
+  const wh = found.items.find((g) => g.name === 'Warehouse');
+  assert.ok(wh?.id, JSON.stringify(found));
+  const r = await mcp('tools/call', { name: 'tally_change', arguments: { type: 'ALTER_GODOWN', payload: { record_id: wh.id, name: 'Warehouse', new_name: 'Back Store' } } });
+  assert.ok(!r.isError, r.content?.[0]?.text);
+  const c = (await api('/tally/commands', 'GET', null, T)).data.find((x) => x.command_type === 'ALTER_GODOWN');
+  assert.ok(c, 'queued for the PC');
+  assert.equal(c.payload.new_name, 'Back Store');
+  assert.equal(c.payload.name, 'Warehouse');
+});
+
 test('the PC must be online with the company open; a disconnected PC stops working', async () => {
   await agent('/heartbeat', 'POST', { agent_id: agentId, tally_status: 'COMPANY_NOT_LOADED', company_guid: null });
   assert.match((await api('/tally/commands', 'POST', { type: 'CREATE_LEDGER', payload: { name: 'X' } }, T)).data.error, /offline — open TallyPrime/);

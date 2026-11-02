@@ -6,11 +6,11 @@ import { api, fmtDate } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, confirmDialog, inr, ago } from '../ui';
 import '../tally-insights.css';
 
-const TABS = [['overview', 'Overview'], ['ledgers', 'Ledgers'], ['vouchers', 'Vouchers'], ['outstandings', 'Bills'], ['stock', 'Stock'], ['activity', 'Activity']];
+const TABS = [['overview', 'Overview'], ['ledgers', 'Ledgers'], ['vouchers', 'Vouchers'], ['outstandings', 'Bills'], ['stock', 'Stock'], ['masters', 'Units & godowns'], ['activity', 'Activity']];
 const VSTATUS = { POSTED: ['Posted', 'ok'], DUE: ['Overdue', 'bad'], CANCELLED: ['Cancelled', ''], OPTIONAL: ['Optional', 'info'] };
 const BSTATUS = { PENDING: ['Pending', 'info'], PARTIAL: ['Part paid', 'warn'], OVERDUE: ['Overdue', 'bad'], PAID: ['Paid', 'ok'], CANCELLED: ['Cancelled', ''] };
 const CSTATUS = { PENDING: ['Waiting for your PC', 'info'], SENT: ['Running in Tally', 'info'], SUCCESS: ['Done', 'ok'], FAILED: ['Tally refused', 'bad'], EXPIRED: ['Not picked up', 'warn'] };
-const CNAME = { CREATE_LEDGER: 'New ledger', ALTER_LEDGER: 'Edit ledger', DELETE_LEDGER: 'Delete ledger', CREATE_VOUCHER: 'New voucher', CREATE_RECEIPT: 'New receipt', CREATE_PAYMENT: 'New payment', ALTER_VOUCHER: 'Edit voucher', CANCEL_VOUCHER: 'Cancel voucher', DELETE_VOUCHER: 'Delete voucher', CREATE_STOCK_ITEM: 'New stock item', ALTER_STOCK_ITEM: 'Edit stock item', DELETE_STOCK_ITEM: 'Delete stock item', CREATE_STOCK_JOURNAL: 'Stock transfer', CREATE_UNIT: 'New unit', CREATE_GODOWN: 'New godown', SYNC_FULL: 'Full sync', SYNC_VOUCHERS: 'Sync vouchers', SYNC_LEDGERS: 'Sync ledgers' };
+const CNAME = { CREATE_LEDGER: 'New ledger', ALTER_LEDGER: 'Edit ledger', DELETE_LEDGER: 'Delete ledger', CREATE_VOUCHER: 'New voucher', CREATE_RECEIPT: 'New receipt', CREATE_PAYMENT: 'New payment', ALTER_VOUCHER: 'Edit voucher', CANCEL_VOUCHER: 'Cancel voucher', DELETE_VOUCHER: 'Delete voucher', CREATE_STOCK_ITEM: 'New stock item', ALTER_STOCK_ITEM: 'Edit stock item', DELETE_STOCK_ITEM: 'Delete stock item', CREATE_STOCK_JOURNAL: 'Stock transfer', CREATE_UNIT: 'New unit', ALTER_UNIT: 'Edit unit', DELETE_UNIT: 'Delete unit', CREATE_GODOWN: 'New godown', ALTER_GODOWN: 'Edit godown', DELETE_GODOWN: 'Delete godown', SYNC_FULL: 'Full sync', SYNC_VOUCHERS: 'Sync vouchers', SYNC_LEDGERS: 'Sync ledgers' };
 const money = (v) => (v == null ? '—' : inr(Math.abs(Number(v))));
 // Tally keeps balances signed: Dr is negative in its export
 const drcr = (v) => (v == null || Number(v) === 0 ? '—' : `${inr(Math.abs(Number(v)))} ${Number(v) < 0 ? 'Dr' : 'Cr'}`);
@@ -75,6 +75,7 @@ export default function Tally() {
           {tab === 'vouchers' && <List kind="vouchers" rev={rev} onOpen={(row) => setForm({ kind: 'vouchers', row })} voucherTypes={s.voucherTypes} />}
           {tab === 'outstandings' && <List kind="outstandings" rev={rev} onOpen={(row) => row.voucherId && setForm({ kind: 'vouchers', row: { id: row.voucherId } })} />}
           {tab === 'stock' && <><StockInsights rev={rev} onOpen={(row) => setForm({ kind: 'stock', row })} /><List kind="stock" rev={rev} onOpen={(row) => setForm({ kind: 'stock', row })} /></>}
+          {tab === 'masters' && <><List kind="units" rev={rev} onOpen={(row) => setForm({ kind: 'units', row })} /><List kind="godowns" rev={rev} onOpen={(row) => setForm({ kind: 'godowns', row })} /></>}
           {tab === 'activity' && <Activity rev={rev} />}
         </>
       )}
@@ -83,8 +84,15 @@ export default function Tally() {
       {form === 'ledger' && <LedgerForm s={s} onClose={() => setForm(null)} onDone={changed} />}
       {form === 'stock' && <StockItemForm onClose={() => setForm(null)} onDone={changed} />}
       {form === 'transfer' && <TransferForm onClose={() => setForm(null)} onDone={changed} />}
+      {form === 'unit' && <UnitForm onClose={() => setForm(null)} onDone={changed} />}
+      {form === 'godown' && <GodownForm onClose={() => setForm(null)} onDone={changed} />}
+      {form?.edit === 'ledgers' && <LedgerForm s={s} row={form.row} onClose={() => setForm(null)} onDone={changed} />}
+      {form?.edit === 'stock' && <StockItemForm row={form.row} onClose={() => setForm(null)} onDone={changed} />}
+      {form?.edit === 'vouchers' && <VoucherEditForm row={form.row} onClose={() => setForm(null)} onDone={changed} />}
+      {form?.edit === 'units' && <UnitForm row={form.row} onClose={() => setForm(null)} onDone={changed} />}
+      {form?.edit === 'godowns' && <GodownForm row={form.row} onClose={() => setForm(null)} onDone={changed} />}
       {form === 'settings' && <TallySettings onClose={() => setForm(null)} />}
-      {form?.kind && <Detail kind={form.kind} id={form.row.id} online={online} onClose={() => setForm(null)} onDone={changed} onOpen={(kind, row) => setForm({ kind, row })} />}
+      {form?.kind && <Detail kind={form.kind} id={form.row.id} online={online} onClose={() => setForm(null)} onDone={changed} onOpen={(kind, row) => setForm({ kind, row })} onEdit={(kind, row) => setForm({ edit: kind, row })} />}
     </Layout>
   );
 }
@@ -97,7 +105,7 @@ function NewMenu({ onPick, disabled }) {
   return (
     <div className="tl-new" ref={ref}>
       <button className="btn primary" disabled={disabled} title={disabled ? 'Your PC is offline — open TallyPrime and the connector' : undefined} aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="plus" size={14} /> New</button>
-      {open && <div className="tl-menu" role="menu">{item('voucher', 'Voucher', 'receipt')}{item('ledger', 'Ledger', 'users')}{item('stock', 'Stock item', 'box')}{item('transfer', 'Stock transfer', 'split')}</div>}
+      {open && <div className="tl-menu" role="menu">{item('voucher', 'Voucher', 'receipt')}{item('ledger', 'Ledger', 'users')}{item('stock', 'Stock item', 'box')}{item('transfer', 'Stock transfer', 'split')}{item('unit', 'Unit', 'box')}{item('godown', 'Godown', 'layers')}</div>}
     </div>
   );
 }
@@ -230,10 +238,12 @@ const STRIPS = {
   outstandings: (s) => [['Overdue', money(s.overdue.amount), `${s.overdue.count} ${s.overdue.count === 1 ? 'bill' : 'bills'}`, 'clock', s.overdue.count ? 'bad' : ''], ['Due in 7 days', money(s.dueSoon.amount), `${s.dueSoon.count} ${s.dueSoon.count === 1 ? 'bill' : 'bills'}`, 'bell', 'out'], ['Open bills', s.open.toLocaleString('en-IN'), 'both ways', 'receipt'], s.advances.count ? ['Advances', money(s.advances.amount), 'come off what’s owed', 'wallet', 'in'] : null],
   stock: (s) => [['Stock value', money(s.value), 'at closing rates', 'box', 'in'], ['Items', s.items.toLocaleString('en-IN'), 'stock items', 'layers'], ['Out of stock', s.out.toLocaleString('en-IN'), s.out ? 'need restocking' : 'all in stock', 'bell', s.out ? 'bad' : 'in']],
 };
-const EMPTY = { ledgers: ['users', 'No ledgers found', 'Try another name, phone or email — or sync from Tally.'], vouchers: ['receipt', 'No vouchers found', 'Try another search or type. New vouchers from Tally appear here after a sync.'], outstandings: ['check', 'No bills here', 'Nothing matches — or everyone’s paid up.'], stock: ['box', 'No stock items found', 'Try another name, or add an item with New.'] };
+const EMPTY = { units: ['box', 'No units found', 'Add one with New → Unit — e.g. Nos, Kgs, Box.'], godowns: ['layers', 'No godowns found', 'Add one with New → Godown.'], ledgers: ['users', 'No ledgers found', 'Try another name, phone or email — or sync from Tally.'], vouchers: ['receipt', 'No vouchers found', 'Try another search or type. New vouchers from Tally appear here after a sync.'], outstandings: ['check', 'No bills here', 'Nothing matches — or everyone’s paid up.'], stock: ['box', 'No stock items found', 'Try another name, or add an item with New.'] };
 
 // a searchable, paged list of one kind of record
 const COLS = {
+  units: { search: 'Search units', head: ['Unit', 'Full name', 'Decimals'], row: (r) => [<b>{r.name}</b>, r.formal_name || '—', r.decimal_places ?? '—'] },
+  godowns: { search: 'Search godowns', head: ['Godown', 'Under', 'Address'], row: (r) => [<b>{r.name}</b>, r.parent || '—', <small className="muted">{r.address || '—'}</small>] },
   ledgers: { search: 'Search ledgers, email or phone', head: ['Ledger', 'Group', 'Contact', 'Balance'], row: (r) => [<div className="tl-who"><span className="tl-av sm" aria-hidden="true">{initials(r.name)}</span><div><b>{r.name}</b>{r.address && <small className="sub-t">{r.address}</small>}</div></div>, <span className="tl-chip">{r.ledger_group || r.parent || '—'}</span>, <>{r.phone || ''}{r.email && <small className="sub-t">{r.email}</small>}</>, <span className={`tl-amt ${Number(r.closing_balance) < 0 ? 'dr' : Number(r.closing_balance) > 0 ? 'cr' : ''}`}>{drcr(r.closing_balance)}</span>] },
   outstandings: { search: 'Search party or bill number', head: ['Party', 'Bill', 'Due', 'Pending', 'Status'], row: (r) => r.advance
     ? [<><b>{r.party_name}</b><small className="sub-t">{r.bill_type === 'PAYABLE' ? 'Advance from them — comes off what they owe' : 'Advance you paid — comes off what you owe'}</small></>, <span className="mono">{r.bill_number || '—'}</span>, '—', money(r.pending_amount), <span className="pill info">Advance</span>]
@@ -437,7 +447,7 @@ function Activity({ rev }) {
 }
 
 // one record: a ledger (its vouchers and open bills), a voucher (lines, items, bills), a stock item (its movements)
-function Detail({ kind, id, online, onClose, onDone, onOpen }) {
+function Detail({ kind, id, online, onClose, onDone, onOpen, onEdit }) {
   const [d, setD] = useState(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { api(`/tally/${kind}/${id}`).then(setD).catch((e) => { toast(e.message); onClose(); }); }, [kind, id]);
@@ -450,6 +460,20 @@ function Detail({ kind, id, online, onClose, onDone, onOpen }) {
   };
   if (!d) return <Modal title="Loading…" onClose={onClose} width={640}><div className="m-body"><div className="skeleton" /></div></Modal>;
   const offline = !online ? 'Your PC is offline — open TallyPrime and the connector to change this' : undefined;
+  const edit = <button className="btn ghost" disabled={busy || !online} title={offline} onClick={() => onEdit(kind, d)}><Icon name="edit" size={14} /> Edit</button>;
+  if (kind === 'units' || kind === 'godowns') {
+    const unit = kind === 'units', del = unit ? 'DELETE_UNIT' : 'DELETE_GODOWN';
+    return (
+      <Modal title={d.name} onClose={onClose} width={560}>
+        <div className="m-body tl-detail">
+          <div className="status-list cols">{unit
+            ? <><div><span>Full name</span><b>{d.formal_name || '—'}</b></div><div><span>Decimal places</span><b>{d.decimal_places ?? '—'}</b></div></>
+            : <><div><span>Under</span><b>{d.parent || '—'}</b></div><div><span>Address</span><b>{d.address || '—'}</b></div></>}</div>
+          <div className="m-foot">{edit}<button className="btn ghost danger" disabled={busy || !online} title={offline} onClick={() => run(del, { record_id: d.id, name: d.name }, CNAME[del], { title: `Delete ${unit ? 'the unit' : 'the godown'} ${d.name} from Tally?`, text: unit ? 'Tally refuses if a stock item uses it.' : 'Tally refuses if any stock is kept there.', confirm: 'Delete', danger: true })}>Delete</button></div>
+        </div>
+      </Modal>
+    );
+  }
   if (kind === 'vouchers') {
     const ref = { record_id: d.id };
     return (
@@ -465,6 +489,7 @@ function Detail({ kind, id, online, onClose, onDone, onOpen }) {
           {d.lines?.length > 0 && <><h4>Accounting</h4><div className="tbl-wrap tl-tbl"><table className="tbl"><thead><tr><th>Ledger</th><th className="r">Debit</th><th className="r">Credit</th></tr></thead><tbody>{d.lines.map((l) => <tr key={l.line_index}><td>{l.ledger_name}{l.bills?.length > 0 && <small className="sub-t">{l.bills.map((b) => `${b.bill_type || 'Bill'} ${b.bill_name}`).join(', ')}</small>}</td><td className="r">{l.debit_amount ? inr(l.debit_amount) : ''}</td><td className="r">{l.credit_amount ? inr(l.credit_amount) : ''}</td></tr>)}</tbody></table></div></>}
           {d.outstandings?.length > 0 && <><h4>Bills</h4><ul className="tl-rank">{d.outstandings.map((o) => <li key={o.id}><span>{o.bill_number} · due {o.due_date ? fmtDate(o.due_date) : '—'}</span><b>{money(o.pending_amount)} <span className={`pill ${BSTATUS[o.status]?.[1] || ''}`}>{BSTATUS[o.status]?.[0]}</span></b></li>)}</ul></>}
           {d.status !== 'CANCELLED' && <div className="m-foot">
+            {edit}
             <button className="btn ghost" disabled={busy || !online} title={offline} onClick={() => run('CANCEL_VOUCHER', ref, 'Cancel voucher', { title: `Cancel ${d.voucher_type} ${d.voucher_number || ''}?`, text: 'Tally keeps it, marked cancelled, with no amounts.', confirm: 'Cancel voucher', danger: true })}>Cancel in Tally</button>
             <button className="btn ghost danger" disabled={busy || !online} title={offline} onClick={() => run('DELETE_VOUCHER', ref, 'Delete voucher', { title: `Delete ${d.voucher_type} ${d.voucher_number || ''} from Tally?`, text: 'It’s removed from your books for good.', confirm: 'Delete', danger: true })}>Delete</button>
           </div>}
@@ -484,7 +509,7 @@ function Detail({ kind, id, online, onClose, onDone, onOpen }) {
           {d.outstandings?.length > 0 && <><h4>Open bills</h4><ul className="tl-rank">{d.outstandings.map((o) => <li key={o.id}><span>{o.bill_number || 'On account'} · due {o.due_date ? fmtDate(o.due_date) : '—'}</span><b>{money(o.pending_amount)} <span className={`pill ${BSTATUS[o.status]?.[1] || ''}`}>{BSTATUS[o.status]?.[0]}</span></b></li>)}</ul></>}
           <h4>Vouchers</h4>
           <VoucherTable rows={d.vouchers} onOpen={(row) => onOpen('vouchers', row)} compact />
-          <div className="m-foot"><button className="btn ghost danger" disabled={busy || !online} title={offline} onClick={() => run('DELETE_LEDGER', { record_id: d.id, name: d.name }, 'Delete ledger', { title: `Delete the ledger ${d.name} from Tally?`, text: 'Tally refuses if any voucher uses it.', confirm: 'Delete', danger: true })}>Delete ledger</button></div>
+          <div className="m-foot">{edit}<button className="btn ghost danger" disabled={busy || !online} title={offline} onClick={() => run('DELETE_LEDGER', { record_id: d.id, name: d.name }, 'Delete ledger', { title: `Delete the ledger ${d.name} from Tally?`, text: 'Tally refuses if any voucher uses it.', confirm: 'Delete', danger: true })}>Delete ledger</button></div>
         </div>
       </Modal>
     );
@@ -498,7 +523,7 @@ function Detail({ kind, id, online, onClose, onDone, onOpen }) {
         </div>
         <h4>Movements</h4>
         {!d.movements?.length ? <p className="muted sm">No vouchers with this item yet.</p> : <div className="tbl-wrap tl-tbl"><table className="tbl"><thead><tr><th>Date</th><th>Voucher</th><th>Party</th><th className="r">Qty</th><th>Godown</th></tr></thead><tbody>{d.movements.flatMap((v) => v.lines.map((l) => <tr key={`${v.id}${l.line_index}`} className="click" onClick={() => onOpen('vouchers', v)}><td className="nowrap">{fmtDate(v.voucher_date)}</td><td>{v.voucher_type} {v.voucher_number}</td><td>{v.party_name || '—'}</td><td className="r">{l.actual_qty ?? l.billed_qty}</td><td>{l.godown_name || '—'}</td></tr>))}</tbody></table></div>}
-        <div className="m-foot"><button className="btn ghost danger" disabled={busy || !online} title={offline} onClick={() => run('DELETE_STOCK_ITEM', { record_id: d.id, name: d.name }, 'Delete stock item', { title: `Delete ${d.name} from Tally?`, text: 'Tally refuses if any voucher uses it.', confirm: 'Delete', danger: true })}>Delete item</button></div>
+        <div className="m-foot">{edit}<button className="btn ghost danger" disabled={busy || !online} title={offline} onClick={() => run('DELETE_STOCK_ITEM', { record_id: d.id, name: d.name }, 'Delete stock item', { title: `Delete ${d.name} from Tally?`, text: 'Tally refuses if any voucher uses it.', confirm: 'Delete', danger: true })}>Delete item</button></div>
       </div>
     </Modal>
   );
@@ -627,13 +652,15 @@ function VoucherForm({ s, onClose, onDone }) {
   );
 }
 
-function LedgerForm({ s, onClose, onDone }) {
-  const [v, setV] = useState({ name: '', parent: 'Sundry Debtors', email: '', phone: '', address: '', state: '', pincode: '', gstin: '', credit_period_days: '' });
+function LedgerForm({ s, row, onClose, onDone }) {
+  // editing: the ledger's current details, and only what changed goes to Tally (a new name is a rename)
+  const start = row ? { name: row.name || '', parent: row.ledger_group || row.parent || 'Sundry Debtors', email: row.email || '', phone: row.phone || '', address: row.address || '', state: row.state || '', pincode: row.pincode || '', gstin: row.gstin || '', credit_period_days: row.credit_period_days ?? '' } : null;
+  const [v, setV] = useState(start || { name: '', parent: 'Sundry Debtors', email: '', phone: '', address: '', state: '', pincode: '', gstin: '', credit_period_days: '' });
   const [busy, go] = useRun(onDone, onClose);
   const set = (p) => setV({ ...v, ...p });
-  const submit = () => go('CREATE_LEDGER', { ...Object.fromEntries(Object.entries(v).filter(([, x]) => x !== '')), credit_period_days: v.credit_period_days === '' ? undefined : Number(v.credit_period_days), maintain_bill_by_bill: ['Sundry Debtors', 'Sundry Creditors'].includes(v.parent) }, 'Ledger');
+  const submit = () => (row ? go('ALTER_LEDGER', changes(start, v, row), 'Ledger') : go('CREATE_LEDGER', { ...Object.fromEntries(Object.entries(v).filter(([, x]) => x !== '')), credit_period_days: v.credit_period_days === '' ? undefined : Number(v.credit_period_days), maintain_bill_by_bill: ['Sundry Debtors', 'Sundry Creditors'].includes(v.parent) }, 'Ledger'));
   return (
-    <FormModal title="New ledger" onClose={onClose} busy={busy} onSubmit={submit}>
+    <FormModal title={row ? `Edit ${row.name}` : 'New ledger'} onClose={onClose} busy={busy} onSubmit={submit}>
       <div className="form2">
         <label>Name<input value={v.name} onChange={(e) => set({ name: e.target.value })} required autoFocus /></label>
         <label>Group<select value={v.parent} onChange={(e) => set({ parent: e.target.value })}>{s.groups.map((g) => <option key={g}>{g}</option>)}</select></label>
@@ -649,28 +676,105 @@ function LedgerForm({ s, onClose, onDone }) {
   );
 }
 
-function StockItemForm({ onClose, onDone }) {
+function StockItemForm({ row, onClose, onDone }) {
   const names = useNames(['units', 'godowns']);
-  const [v, setV] = useState({ name: '', base_units: 'Nos', parent: '', standard_price: '', standard_cost: '', opening_balance: '', opening_rate: '', godown_name: '' });
+  const start = row ? { name: row.name || '', base_units: row.base_units || '', parent: row.parent || '', category: row.category || '' } : null;
+  const [v, setV] = useState(start || { name: '', base_units: 'Nos', parent: '', standard_price: '', standard_cost: '', opening_balance: '', opening_rate: '', godown_name: '' });
   const [busy, go] = useRun(onDone, onClose);
   const set = (p) => setV({ ...v, ...p });
   const submit = () => {
+    if (row) return go('ALTER_STOCK_ITEM', changes(start, v, row), 'Stock item');
     const p = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== ''));
     if (p.opening_balance && p.opening_rate) p.opening_value = Number(p.opening_balance) * Number(p.opening_rate);
     go('CREATE_STOCK_ITEM', p, 'Stock item');
   };
   return (
-    <FormModal title="New stock item" onClose={onClose} busy={busy} onSubmit={submit}>
+    <FormModal title={row ? `Edit ${row.name}` : 'New stock item'} onClose={onClose} busy={busy} onSubmit={submit}>
       <Datalist id="tl-units" items={names.units} /><Datalist id="tl-godowns2" items={names.godowns} />
       <div className="form2">
         <label>Name<input value={v.name} onChange={(e) => set({ name: e.target.value })} required autoFocus /></label>
         <label>Unit<input list="tl-units" value={v.base_units} onChange={(e) => set({ base_units: e.target.value })} required /></label>
         <label>Group <small className="muted">· optional</small><input value={v.parent} onChange={(e) => set({ parent: e.target.value })} /></label>
+        {row && <label>Category <small className="muted">· optional</small><input value={v.category} onChange={(e) => set({ category: e.target.value })} /></label>}
+        {!row && <>
         <label>Selling price (₹) <small className="muted">· optional</small><input type="number" min="0" step="any" value={v.standard_price} onChange={(e) => set({ standard_price: e.target.value })} /></label>
         <label>Opening quantity <small className="muted">· optional</small><input type="number" min="0" step="any" value={v.opening_balance} onChange={(e) => set({ opening_balance: e.target.value })} /></label>
         <label>Opening rate (₹)<input type="number" min="0" step="any" value={v.opening_rate} onChange={(e) => set({ opening_rate: e.target.value })} disabled={!v.opening_balance} /></label>
         {v.opening_balance && <label>Godown<input list="tl-godowns2" value={v.godown_name} onChange={(e) => set({ godown_name: e.target.value })} placeholder="Main Location" /></label>}
+        </>}
       </div>
+    </FormModal>
+  );
+}
+
+// an edit sends Tally only what changed (by record and current name); a changed name becomes new_name, a rename
+const changes = (start, v, row) => {
+  const out = { record_id: row.id, name: row.name };
+  for (const [k, x] of Object.entries(v)) if (k !== 'name' && String(x ?? '') !== String(start[k] ?? '')) out[k] = k === 'credit_period_days' || k === 'decimal_places' ? (x === '' ? undefined : Number(x)) : x;
+  if (v.name.trim() && v.name.trim() !== row.name) out.new_name = v.name.trim();
+  return out;
+};
+
+// a unit of measure (Tally's simple units: a symbol like Nos or Kgs)
+function UnitForm({ row, onClose, onDone }) {
+  const start = { name: row?.name || '', formal_name: row?.formal_name || '', decimal_places: row?.decimal_places ?? 0 };
+  const [v, setV] = useState(start);
+  const [busy, go] = useRun(onDone, onClose);
+  const set = (p) => setV({ ...v, ...p });
+  const submit = () => (row ? go('ALTER_UNIT', changes(start, v, row), 'Unit') : go('CREATE_UNIT', { name: v.name.trim(), formal_name: v.formal_name || undefined, decimal_places: Number(v.decimal_places) || 0 }, 'Unit'));
+  return (
+    <FormModal title={row ? `Edit unit ${row.name}` : 'New unit'} onClose={onClose} busy={busy} onSubmit={submit}>
+      <div className="form2">
+        <label>Symbol<input value={v.name} onChange={(e) => set({ name: e.target.value.replace(/[^A-Za-z_]/g, '') })} placeholder="Nos, Kgs, Box" required autoFocus /></label>
+        <label>Full name <small className="muted">· optional</small><input value={v.formal_name} onChange={(e) => set({ formal_name: e.target.value })} placeholder="Numbers" /></label>
+        <label>Decimal places<input type="number" min="0" max="4" value={v.decimal_places} onChange={(e) => set({ decimal_places: e.target.value })} /></label>
+      </div>
+    </FormModal>
+  );
+}
+
+// a godown (a place stock is kept)
+function GodownForm({ row, onClose, onDone }) {
+  const names = useNames(['godowns']);
+  const start = { name: row?.name || '', parent: row?.parent || '', address: row?.address || '' };
+  const [v, setV] = useState(start);
+  const [busy, go] = useRun(onDone, onClose);
+  const set = (p) => setV({ ...v, ...p });
+  const submit = () => (row ? go('ALTER_GODOWN', changes(start, v, row), 'Godown') : go('CREATE_GODOWN', Object.fromEntries(Object.entries(v).filter(([, x]) => x !== '')), 'Godown'));
+  return (
+    <FormModal title={row ? `Edit godown ${row.name}` : 'New godown'} onClose={onClose} busy={busy} onSubmit={submit}>
+      <Datalist id="tl-godowns4" items={(names.godowns || []).filter((g) => g.id !== row?.id)} />
+      <div className="form2">
+        <label>Name<input value={v.name} onChange={(e) => set({ name: e.target.value })} required autoFocus /></label>
+        <label>Under <small className="muted">· optional</small><input list="tl-godowns4" value={v.parent} onChange={(e) => set({ parent: e.target.value })} placeholder="Primary" /></label>
+        <label className="full">Address <small className="muted">· optional</small><input value={v.address} onChange={(e) => set({ address: e.target.value })} /></label>
+      </div>
+    </FormModal>
+  );
+}
+
+// what Tally lets us change on a saved voucher without rewriting its entries: the date, narration and reference
+function VoucherEditForm({ row, onClose, onDone }) {
+  const day = (row.voucher_date || '').slice(0, 10);
+  const [v, setV] = useState({ new_date: day, narration: row.narration || '', reference_number: row.reference_number || '' });
+  const [busy, go] = useRun(onDone, onClose);
+  const set = (p) => setV({ ...v, ...p });
+  const submit = () => {
+    const p = { record_id: row.id };
+    if (v.new_date && v.new_date !== day) p.new_date = v.new_date;
+    if (v.narration !== (row.narration || '')) p.narration = v.narration;
+    if (v.reference_number !== (row.reference_number || '')) p.reference_number = v.reference_number;
+    if (Object.keys(p).length === 1) { toast('Nothing changed'); return; }
+    go('ALTER_VOUCHER', p, 'Voucher');
+  };
+  return (
+    <FormModal title={`Edit ${row.voucher_type} ${row.voucher_number ? `#${row.voucher_number}` : ''}`} onClose={onClose} busy={busy} onSubmit={submit}>
+      <div className="form2">
+        <label>Date<input type="date" value={v.new_date} onChange={(e) => set({ new_date: e.target.value })} /></label>
+        <label>Reference number<input value={v.reference_number} onChange={(e) => set({ reference_number: e.target.value })} /></label>
+        <label className="full">Narration<input value={v.narration} onChange={(e) => set({ narration: e.target.value })} /></label>
+      </div>
+      <p className="hint">To change the amount, party or items, cancel this voucher and enter it again.</p>
     </FormModal>
   );
 }
