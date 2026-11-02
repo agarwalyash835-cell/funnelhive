@@ -11,6 +11,7 @@ Module._load = function (request, ...rest) {
   return realLoad.call(this, request, ...rest);
 };
 const { Updater, newer } = require("../src/agent/updater");
+const tmpDir = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "fh-updater-check-"));
 
 (async () => {
   assert.equal(newer("1.1.10", "1.1.9"), true);
@@ -26,7 +27,7 @@ const { Updater, newer } = require("../src/agent/updater");
 
   let quit = 0, busy = false;
   const log = { log() {}, warn() {} };
-  const mk = (current) => new Updater({ current, platform: "win32", apiBase: "https://app.test", isBusy: () => busy, quit: () => quit++, log });
+  const mk = (current) => new Updater({ current, platform: "win32", apiBase: "https://app.test", isBusy: () => busy, quit: () => quit++, log, tmpDir });
 
   // already current: nothing happens
   const same = mk("1.1.4");
@@ -58,5 +59,6 @@ const { Updater, newer } = require("../src/agent/updater");
   await mac.check();
   assert.equal(mac.status.state, "idle");
 
+  require("node:fs").rmSync(tmpDir, { recursive: true, force: true });
   console.log("updater check passed");
 })().catch((e) => { console.error(e); process.exit(1); });

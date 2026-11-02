@@ -20,8 +20,8 @@ const newer = (a, b) => {
 
 class Updater {
   // isBusy: true while a Tally change is running; quit: closes the app for the installer
-  constructor({ isBusy = () => false, quit = () => {}, log = console, apiBase = FIXED_API_BASE_URL, current = APP_VERSION, platform = process.platform } = {}) {
-    Object.assign(this, { isBusy, quit, log, apiBase, current, platform });
+  constructor({ isBusy = () => false, quit = () => {}, log = console, apiBase = FIXED_API_BASE_URL, current = APP_VERSION, platform = process.platform, tmpDir = os.tmpdir() } = {}) {
+    Object.assign(this, { isBusy, quit, log, apiBase, current, platform, tmpDir });
     this.timer = null;
     this.running = false;
     this.status = { state: "idle", latest: null, error: null };
@@ -55,7 +55,7 @@ class Updater {
     if (release.size && buf.length !== Number(release.size)) throw new Error("download incomplete");
     const sha = crypto.createHash("sha256").update(buf).digest("hex");
     if (sha !== release.sha256) throw new Error("download didn't match its checksum");
-    const file = path.join(os.tmpdir(), `funnelhive-tally-connector-${release.version}-setup.exe`);
+    const file = path.join(this.tmpDir, `funnelhive-tally-connector-${release.version}-setup.exe`);
     fs.writeFileSync(file, buf);
     return file;
   }
