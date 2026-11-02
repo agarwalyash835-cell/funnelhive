@@ -19,18 +19,42 @@ const toDataUrl = (f) => new Promise((res, rej) => { const r = new FileReader();
 const Ratio = ({ a }) => { const [w, h] = RATIO[a] || [12, 12]; return <span className="sx-ratio" style={{ width: w, height: h }} />; };
 const dayOf = (t) => { const d = new Date(t), now = new Date(); const same = (x) => x.toDateString() === d.toDateString(); if (same(now)) return 'Today'; const y = new Date(now); y.setDate(now.getDate() - 1); return same(y) ? 'Yesterday' : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }); };
 
+// how long things usually take (from real runs), so a seller knows whether to wait or come back
+const USUALLY = { image: 'usually about a minute', clip: 'usually 2–4 minutes', reel: 'usually 6–12 minutes — we’ll tell you when it’s ready' };
+// one-tap starting points: what sellers on the platform actually make
+const IDEAS = {
+  image: ['My product on a clean white background, soft studio light', 'My product on a festive Diwali table with diyas and marigolds', 'Lifestyle shot: a happy family using my product at home', 'Flat lay of my product with its ingredients around it'],
+  clip: ['Slow push-in on the product as light moves across it', 'The product rotates slowly on a turntable', 'Hands pick up the product and show it to the camera', 'Steam rises and the camera pulls back to reveal the table'],
+  reel: ['Launch offer: introduce my product, the price, and how to order on WhatsApp', 'Festive sale: 20% off this week only, free delivery', 'Problem → solution: why customers switch to my product', 'Customer story: a happy buyer shows how they use it'],
+};
+const PREFS = 'ff_studio_prefs';
+const savedPrefs = () => { try { const p = JSON.parse(localStorage.getItem(PREFS) || '{}'); return p && typeof p === 'object' ? p : {}; } catch { return {}; } };
+const savePrefs = (mode, v) => { try { localStorage.setItem(PREFS, JSON.stringify({ tier: v.tier, aspect: v.aspect, count: v.count, seconds: v.seconds, lang: v.lang, length: v.length, voice: v.voice, captions: v.captions, sizes: v.sizes })); } catch { /* private mode */ } };
+
 export default function Studio() {
   const [d, setD] = useState(null);
   const [mode, setMode] = useState('image');
-  const [v, setV] = useState({ prompt: '', tier: 'standard', aspect: '1:1', count: 1, ref: '', sourceId: '', seconds: 5, lang: 'en', length: 30, voice: '', captions: 'pop', sizes: ['9:16'], logo: '' });
+  // the composer opens with this browser's last settings (never the words or pictures)
+  const [v, setV] = useState(() => ({ prompt: '', tier: 'standard', aspect: '1:1', count: 1, ref: '', sourceId: '', seconds: 5, lang: 'en', length: 30, voice: '', captions: 'pop', sizes: ['9:16'], logo: '', ...savedPrefs() }));
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('all');
   const [view, setView] = useState(null); // index in the viewable list
   const [open, setOpen] = useState(null); // a Reel's id
   const [, tick] = useState(0);
   const file = useRef(), logoFile = useRef(), box = useRef();
-  const load = () => api('/studio').then(setD).catch(() => setD(false));
-  useEffect(() => { load(); }, []);
+  const seen = useRef(null); // ids that were still being made at the last look
+  const load = () => api('/studio').then((x) => {
+    // something finished while the seller waited: say so (and on the tab, if they're elsewhere)
+    const was = seen.current, now = new Set((x.assets || []).filter((a) => ACTIVE.includes(a.status)).map((a) => a.id));
+    if (was) for (const a of x.assets || []) if (was.has(a.id) && !now.has(a.id) && !a.reelId) {
+      const what = a.kind === 'reel' ? `Your Reel “${a.title}”` : a.kind === 'clip' ? 'Your clip' : 'Your image';
+      toast(a.status === 'failed' ? `${what} couldn’t be made — open it to retry` : a.status === 'needs_review' ? `${what} is ready — have a look` : `${what} is ready`);
+      if (document.hidden) document.title = `● ${document.title.replace(/^● /, '')}`;
+    }
+    seen.current = now; setD(x);
+  }).catch(() => setD(false));
+  useEffect(() => { load(); const back = () => { document.title = document.title.replace(/^● /, ''); }; document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back); }, []);
+  useEffect(() => { savePrefs(mode, v); }, [mode, v.tier, v.aspect, v.count, v.seconds, v.lang, v.length, v.voice, v.captions, v.sizes.join()]);
   const live = !!d?.assets?.some((a) => ACTIVE.includes(a.status));
   // while something renders: look again every few seconds, and keep the timers moving
   useEffect(() => { if (!live) return undefined; const p = setInterval(load, 4000), t = setInterval(() => tick((n) => n + 1), 1000); return () => { clearInterval(p); clearInterval(t); }; }, [live]);
@@ -121,7 +145,8 @@ export default function Studio() {
             <span className="grow" />
             <button className="btn primary sx-go" disabled={!canGo} onClick={make}><Icon name="wand" size={16} /> {busy ? (mode === 'reel' ? 'Writing the script…' : 'Starting…') : mode === 'image' ? `Make ${v.count > 1 ? `${v.count} images` : 'image'}` : mode === 'clip' ? 'Make clip' : 'Write the script'}</button>
           </div>
-          <p className="sx-hint">{mode === 'reel' ? 'You’ll see the script and storyboard first — nothing is made until you approve it.' : mode === 'clip' ? 'Clips start from your picture when you add one, so the product stays the same. Clips are silent; Reels add voice and captions.' : 'Add your real product photo to keep it exactly as it is.'} <span style={{ opacity: .7 }}>Ctrl + Enter to start.</span></p>
+          {!v.prompt.trim() && <div className="sx-ideas" aria-label="Ideas"><span className="lbl">Try</span>{IDEAS[mode].map((x) => <button key={x} type="button" onClick={() => { set({ prompt: x }); box.current?.focus(); }}>{x}</button>)}</div>}
+          <p className="sx-hint">{mode === 'reel' ? 'You’ll see the script and storyboard first — nothing is made until you approve it.' : mode === 'clip' ? 'Clips start from your picture when you add one, so the product stays the same. Clips are silent; Reels add voice and captions.' : 'Add your real product photo to keep it exactly as it is.'} {USUALLY[mode][0].toUpperCase() + USUALLY[mode].slice(1)}. <span style={{ opacity: .7 }}>Ctrl + Enter to start.</span></p>
         </section>
 
         <div className="sx-filters" role="tablist" aria-label="Show">
@@ -143,6 +168,7 @@ export default function Studio() {
                     <span className="spin dark" />
                     <b>{wait[0]}…</b>
                     <span className="sx-steps">{[0, 1, 2].map((i) => <i key={i} className={i < wait[1] ? 'on' : i === wait[1] ? 'now' : ''} />)}</span>
+                    <small className="sx-eta">{USUALLY[a.kind]?.split(' — ')[0]}</small>
                     <small>{ago(a.at)} · {a.kind === 'reel' ? `Reel · ${a.seconds}s` : a.kind === 'clip' ? `${a.seconds}s clip` : 'image'}{a.attempts > 1 ? ` · try ${a.attempts}` : ''}</small>
                   </div>
                 ) : a.kind === 'clip' ? <video src={a.url} poster={a.poster || undefined} muted loop playsInline preload="none" style={{ aspectRatio: `${w} / ${h}`, objectFit: 'cover' }} onMouseEnter={(e) => e.currentTarget.play().catch(() => {})} onMouseLeave={(e) => e.currentTarget.pause()} />

@@ -15,7 +15,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-test-'));
 const ff = (...a) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
 const LINES = ['Pure desi ghee for your whole family', 'Only ₹499 for one litre jar', 'Order today on WhatsApp now'];
 const SCRIPT = { title: 'Ghee Reel', lines: LINES, shots: [{ image: 'A jar of ghee on a kitchen counter', motion: 'Slow push-in', seconds: 4 }, { image: 'Ghee poured over hot rice', motion: 'Pour in slow motion', seconds: 4 }], endCard: { headline: 'Shuddh Ghee Co', offer: '₹499 / litre', cta: 'Order on WhatsApp' } };
-const created = [], heardQueue = [];
+const created = [], heardQueue = [], spoken = []; // spoken: Sarvam text-to-speech requests
 let fake, srv, api, ADMIN, S, sid, reelId;
 
 // what the speech-to-text "hears": each line right, except the price the first time; then the whole voiceover
@@ -32,12 +32,15 @@ before(async () => {
       const url = new URL(req.url, 'http://x'), send = (o) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)); };
       if (url.pathname.startsWith('/files/')) return res.end(fs.readFileSync(path.join(tmp, url.pathname.slice(7))));
       if (url.pathname === '/speech-to-text') return send(heardQueue.shift() || timed(LINES.join(' ')));
+      if (url.pathname === '/text-to-speech') { spoken.push(JSON.parse(b)); return send({ audios: [fs.readFileSync(path.join(tmp, 'line.wav')).toString('base64')] }); }
       if (url.pathname === '/openai/v1/responses') return send({ output: [{ type: 'message', content: [{ text: JSON.stringify(SCRIPT) }] }] });
       if (url.pathname === '/gemini-3-8-flash-openai/v1/chat/completions') return send({ choices: [{ message: { content: JSON.stringify({ product_match: 9, text_ok: 9, anatomy_ok: 10, matches_brief: 9, consistency: 9, safe: true, issues: [], fix: '' }) } }] });
       if (url.pathname === '/api/v1/jobs/createTask') { const body = JSON.parse(b); created.push(body); return send({ code: 200, data: { taskId: `t${created.length - 1}` } }); }
       if (url.pathname === '/api/v1/jobs/recordInfo') {
         const t = created[Number(url.searchParams.get('taskId').slice(1))];
-        const file = /seedance|kling/.test(t.model) ? 'clip.mp4' : /elevenlabs/.test(t.model) ? 'line.wav' : 'image.png';
+        // kie.ai's voice model is down (as it was on 2 Nov 2026): every task fails
+        if (/elevenlabs/.test(t.model)) return send({ code: 200, data: { state: 'fail', failCode: '500', failMsg: 'Internal Error' } });
+        const file = /seedance|kling/.test(t.model) ? 'clip.mp4' : 'image.png';
         return send({ code: 200, data: { state: 'success', resultJson: JSON.stringify({ resultUrls: [`http://127.0.0.1:${fake.address().port}/files/${file}`] }) } });
       }
       res.writeHead(404); res.end('{}');
@@ -89,10 +92,10 @@ test('approved: shots and voiceover are made and checked (a misread price is red
   // the price line was spoken twice: the first one was heard as "four nine nine"
   assert.equal(r.lines[1].tries, 2);
   assert.ok(r.lines.every((l) => l.url && l.check?.ok));
-  const tts = created.filter((c) => /elevenlabs/.test(c.model));
-  assert.equal(tts.length, 4, 'three lines, one redone');
-  assert.equal(tts[0].input.voice, '2zRM7PkgwBPiau2jvVXc', 'a voice id from the provider’s list');
-  assert.equal(tts[1].input.previous_text, LINES[0], 'each line knows its neighbours, so the delivery flows');
+  // the default voice is one of Sarvam's Indian voices (fast, made for Indian languages)
+  assert.equal(spoken.length, 4, 'three lines, one redone');
+  assert.deepEqual([spoken[0].speaker, spoken[0].model, spoken[0].target_language_code], ['priya', 'bulbul:v3', 'en-IN']);
+  assert.equal(created.filter((c) => /elevenlabs/.test(c.model)).length, 0);
   // shots: still, then a clip from it, in order
   assert.equal(created.filter((c) => c.model === 'nano-banana-2').length, 2);
   assert.ok(created.filter((c) => /seedance/.test(c.model)).every((c) => /^https:\/\/app\.reel\.test\/uploads\//.test(c.input.first_frame_url)));
@@ -119,7 +122,26 @@ test('changes: a new caption style re-edits only; a reworded line re-voices that
   const l = await api(`/studio/reels/${reelId}`, 'PUT', { lines: [{ i: 0, text: 'Fresh desi ghee for your whole family' }] }, S);
   assert.equal(l.data.status, 'producing');
   const r2 = await until(['ready', 'needs_review']);
-  assert.equal(created.filter((c) => /elevenlabs/.test(c.model)).length, 5, 'one line re-voiced');
+  assert.equal(spoken.length, 5, 'one line re-voiced');
   assert.equal(r2.script.lines[0], 'Fresh desi ghee for your whole family');
   assert.equal((await api(`/studio/reels/${reelId}`, 'PUT', { captions: { style: 'pop' } }, (await register(api)).token)).status, 403, 'not someone else’s');
+});
+
+test('another voice: an ElevenLabs voice through kie.ai, and Sarvam takes over when kie.ai can’t speak', async () => {
+  // kie.ai's voice model fails every task here: the Reel still gets its voiceover, from Sarvam in the same gender
+  const done = spoken.length;
+  const e = await api(`/studio/reels/${reelId}`, 'PUT', { voice: 'P1bg08DkjqiVEzOn76yG' }, S);
+  assert.equal(e.data.status, 'producing');
+  heardQueue.push(...['Fresh desi ghee for your whole family', LINES[1], LINES[2]].map((t) => timed(t)), timed(['Fresh desi ghee for your whole family', LINES[1], LINES[2]].join(' ')));
+  const r = await until(['ready', 'needs_review', 'failed']);
+  assert.notEqual(r.status, 'failed', JSON.stringify(r.lines));
+  assert.ok(created.some((c) => /elevenlabs/.test(c.model) && c.input.voice === 'P1bg08DkjqiVEzOn76yG'), 'kie.ai was asked first');
+  assert.ok(spoken.slice(done).every((x) => x.speaker === 'aditya'), 'then a male Sarvam voice');
+  // the voice samples: Sarvam's made once and kept
+  const g = (await api('/studio', 'GET', null, S)).data;
+  const priya = g.voices.find((v) => v.id === 'sarvam:priya');
+  assert.equal(priya.sample, '/api/studio/voices/priya/sample');
+  const a = await fetch(`${srv.base}${priya.sample}`), b = await fetch(`${srv.base}${priya.sample}`);
+  assert.equal(a.headers.get('content-type'), 'audio/wav'); assert.ok((await b.arrayBuffer()).byteLength > 1000);
+  assert.equal((await fetch(`${srv.base}/api/studio/voices/nobody/sample`)).status, 404);
 });

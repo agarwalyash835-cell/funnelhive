@@ -10,11 +10,12 @@
 import fs from 'node:fs';
 import { T, q, JOBS } from '../db.js';
 import { askAI } from '../ai.js';
-import { studioModels, TIERS, ASPECTS, voiceId } from './models.js';
+import { studioModels, TIERS, ASPECTS, voiceId, sarvamFor } from './models.js';
+import { speak, TTS_MODEL } from '../sarvam.js';
 import { runTask, studioReady } from './kie.js';
 import { enqueue } from './jobs.js';
 import { localCopy, save, rm, ffmpeg, tmpFile, probe } from './media.js';
-import { makeLine, checkLine, sarvamTranscriber, LANGUAGES, langBase } from './voice.js';
+import { makeLine, checkLine, sarvamTranscriber, applyPronunciations, LANGUAGES, langBase } from './voice.js';
 import { render, dims } from './assemble.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
@@ -83,12 +84,33 @@ async function produce(r) {
   const clipsDone = r.shots.every((s) => done(T.studio.get(s.clipId)));
   if (clipsDone && r.lines.every((l) => l.url)) T.studio.update(r.id, (x) => { x.status = 'editing'; });
 }
+// one line spoken: Sarvam for its own voices (and whenever kie.ai can't — then it's skipped for 10 minutes rather than
+// failing line after line), kie.ai's ElevenLabs for the others. → a local audio file
+let kieVoiceDownUntil = 0;
+async function speakLine(r, i, usage) {
+  const m = studioModels().voice, line = r.lines[i], id = voiceId(r.voice);
+  const viaSarvam = async (v) => {
+    const buf = await speak(applyPronunciations(line.text, r.dict), `${langBase(r.lang) || 'en'}-IN`, v.slice(7));
+    const f = tmpFile('wav');
+    fs.writeFileSync(f, buf);
+    usage({ model: TTS_MODEL(), chars: line.text.length });
+    return f;
+  };
+  if (id.startsWith('sarvam:') || Date.now() < kieVoiceDownUntil) return viaSarvam(sarvamFor(id));
+  try {
+    return await makeLine({ text: line.text, lang: r.lang, voice: id, model: m.model, dict: r.dict, settings: { before: r.lines[i - 1]?.text || '', after: r.lines[i + 1]?.text || '' } }, { runTask, onUsage: usage });
+  } catch (e) {
+    console.error('voice: kie.ai couldn’t speak the line, using Sarvam', e.message);
+    kieVoiceDownUntil = Date.now() + 10 * 60000;
+    return viaSarvam(sarvamFor(id));
+  }
+}
 async function voiceLine(r, i) {
-  const m = studioModels().voice, line = r.lines[i];
+  const line = r.lines[i];
   const usage = (u) => T.studio.update(r.id, (x) => { x.usage = [...(x.usage || []), { kind: 'voice', model: u.model, chars: u.chars, at: Date.now() }]; });
   let file;
   try {
-    file = await makeLine({ text: line.text, lang: r.lang, voice: voiceId(r.voice), model: m.model, dict: r.dict, settings: { before: r.lines[i - 1]?.text || '', after: r.lines[i + 1]?.text || '' } }, { runTask, onUsage: usage });
+    file = await speakLine(r, i, usage);
     const tr = transcriber();
     const check = tr ? await checkLine({ text: line.text, file, lang: r.lang, brands: r.brands }, { transcribe: tr }).catch((e) => { console.error('voice check failed', e.message); return null; }) : null;
     const tries = line.tries + 1;

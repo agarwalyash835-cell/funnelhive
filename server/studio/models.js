@@ -15,15 +15,24 @@ export const DEFAULTS = {
   clip: { quick: { model: 'bytedance/seedance-2-mini', resolution: '480p' }, standard: { model: 'bytedance/seedance-2', resolution: '720p' }, cinematic: { model: 'bytedance/seedance-2-5', resolution: '1080p' } },
   // an AI upscaler, when the ffmpeg cleanup isn't enough (paid, optional)
   upscale: { model: 'topaz/video-upscale' },
-  // voiceover: a text-to-speech model; the voice is an id from VOICES (kie.ai accepts only ids from its list)
-  voice: { model: 'elevenlabs/text-to-speech-multilingual-v2', female: '2zRM7PkgwBPiau2jvVXc', male: 'P1bg08DkjqiVEzOn76yG' },
+  // voiceover: the voice is an id from VOICES. 'sarvam:…' voices are Sarvam's Bulbul (made for Indian languages, about a
+  // second a line); the others are kie.ai's ElevenLabs (the model below), which fall back to Sarvam when kie.ai fails
+  voice: { model: 'elevenlabs/text-to-speech-multilingual-v2', female: 'sarvam:priya', male: 'sarvam:aditya' },
   // the reviewer that looks at frames and clips: tried in order, the first that answers wins
   review: { model: 'gemini-3-8-flash-openai', fallback: 'gpt-6-sol' },
 };
 
-// voices a seller can pick (kie.ai's ElevenLabs ids, docs read 2026-11-01), with a short sample each. Labels only —
-// sellers never see the vendor. Indian voices first.
+// voices a seller can pick, with a short sample each. Labels only — sellers never see the vendor. Sarvam's Indian
+// voices first (they speak English and 10 Indian languages); then kie.ai's ElevenLabs ids (docs read 2026-11-01).
 export const VOICES = [
+  { id: 'sarvam:priya', name: 'Priya', note: 'Female · Indian · warm', gender: 'female' },
+  { id: 'sarvam:shreya', name: 'Shreya', note: 'Female · Indian · bright', gender: 'female' },
+  { id: 'sarvam:ritu', name: 'Ritu', note: 'Female · Indian · calm', gender: 'female' },
+  { id: 'sarvam:kavya', name: 'Kavya', note: 'Female · Indian · youthful', gender: 'female' },
+  { id: 'sarvam:aditya', name: 'Aditya', note: 'Male · Indian · confident', gender: 'male' },
+  { id: 'sarvam:rahul', name: 'Rahul', note: 'Male · Indian · friendly', gender: 'male' },
+  { id: 'sarvam:rohan', name: 'Rohan', note: 'Male · Indian · energetic', gender: 'male' },
+  { id: 'sarvam:kabir', name: 'Kabir', note: 'Male · Indian · deep', gender: 'male' },
   { id: '2zRM7PkgwBPiau2jvVXc', name: 'Monika', note: 'Female · Indian · warm', gender: 'female' },
   { id: 'Sm1seazb4gs7RSlUVw7c', name: 'Anika', note: 'Female · Indian · bright', gender: 'female' },
   { id: 'P1bg08DkjqiVEzOn76yG', name: 'Viraj', note: 'Male · Indian · confident', gender: 'male' },
@@ -34,9 +43,12 @@ export const VOICES = [
   { id: 'nPczCjzI2devNBz1zQrb', name: 'Brian', note: 'Male · American · deep', gender: 'male' },
   { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam', note: 'Male · American · friendly', gender: 'male' },
 ];
-export const voiceSample = (id) => `https://static.aiquickdraw.com/elevenlabs/voice/${id}.mp3`;
+// a sample to hear before choosing: kie.ai hosts ElevenLabs' own; Sarvam's are made once on our server (routes.js)
+export const voiceSample = (id) => (id.startsWith('sarvam:') ? `/api/studio/voices/${id.slice(7)}/sample` : `https://static.aiquickdraw.com/elevenlabs/voice/${id}.mp3`);
 // a seller's choice → a voice id: a listed id, else the default for 'female' / 'male'
 export const voiceId = (choice) => (VOICES.some((v) => v.id === choice) ? choice : studioModels().voice[choice === 'male' ? 'male' : 'female']);
+// the Sarvam voice to fall back on for any voice (same gender)
+export const sarvamFor = (id) => (id?.startsWith('sarvam:') ? id : (VOICES.find((v) => v.id === id)?.gender === 'male' ? DEFAULTS.voice.male : DEFAULTS.voice.female));
 
 // the settings in force: admin overrides on top of the defaults, kind → tier → { model, resolution }
 export function studioModels() {

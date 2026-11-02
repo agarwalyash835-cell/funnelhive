@@ -3,7 +3,11 @@
 // in place, since every render costs real money), move a tier to another model, and see what each account used.
 // Sellers never see vendor or model names: only tiers.
 import { T, q } from '../db.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { savePlatform } from '../platform.js';
+import { speak } from '../sarvam.js';
+import { dir as DATA_DIR } from '../db.js';
 import { publicUrlFor } from '../storage.js';
 import { adminMiddleware, audit } from '../admin-guard.js';
 import { studioReady } from './kie.js';
@@ -73,6 +77,16 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     res.status(201).json({ asset: view(a) });
   });
   const mine = (req, res) => { const a = T.studio.get(req.params.id); if (!a || a.userId !== req.user.id) { res.status(404).json({ error: 'Not found' }); return null; } return a; };
+  // a voice's sample, to hear it before choosing: made once per Sarvam voice and kept (no seller data in it, so it's
+  // public like any static file — an audio element can't send a sign-in)
+  const SAMPLE = 'Namaste! This is how I would sound in your ad — clear, warm and easy to follow.';
+  app.get('/api/studio/voices/:speaker/sample', wrap(async (req, res) => {
+    const sp = String(req.params.speaker);
+    if (!VOICES.some((v) => v.id === `sarvam:${sp}`)) return res.status(404).end();
+    const d = path.join(DATA_DIR, 'studio-samples'), f = path.join(d, `${sp}.wav`);
+    if (!fs.existsSync(f)) { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(f, await speak(SAMPLE, 'en-IN', sp)); }
+    res.set('Cache-Control', 'public, max-age=604800').type('audio/wav').sendFile(f);
+  }));
   app.get('/api/studio/assets/:id', auth, (req, res) => { const a = mine(req, res); if (a) res.json(anyView(a)); });
 
   // ---------- Reels ----------

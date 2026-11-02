@@ -24,9 +24,11 @@ async function call(path, { method = 'POST', json, form, timeoutMs = 60000, key 
   const msg = d?.error?.message || d?.message || d?.detail || `HTTP ${r.status}`;
   throw Object.assign(new Error(r.status === 403 || r.status === 401 ? 'Sarvam didn’t accept the API key' : `Sarvam: ${String(typeof msg === 'string' ? msg : JSON.stringify(msg)).slice(0, 200)}`), { status: r.status });
 }
-// spoken replies (the dashboard's voice assistant): text → a WAV in that Indian language (Bulbul)
-export async function speak(text, language = 'en-IN') {
-  const d = await call('/text-to-speech', { json: { text: String(text).slice(0, 1500), target_language_code: LANGUAGES[language] ? language : 'en-IN', model: process.env.SARVAM_TTS_MODEL || 'bulbul:v2', speaker: process.env.SARVAM_TTS_SPEAKER || 'anushka', enable_preprocessing: true }, timeoutMs: 30000 });
+// spoken text → a WAV in that Indian language (Bulbul): the dashboard's voice assistant, and Studio's voiceovers
+// (studio/reels.js) in the speaker the seller picked. bulbul:v2 was retired upstream; v3 has its own speakers.
+export const TTS_MODEL = () => process.env.SARVAM_TTS_MODEL || 'bulbul:v3';
+export async function speak(text, language = 'en-IN', speaker = process.env.SARVAM_TTS_SPEAKER || 'priya') {
+  const d = await call('/text-to-speech', { json: { text: String(text).slice(0, 1500), target_language_code: LANGUAGES[language] ? language : 'en-IN', model: TTS_MODEL(), speaker, enable_preprocessing: true }, timeoutMs: 30000 });
   const b64 = d.audios?.[0];
   if (!b64) throw new Error('Sarvam returned no audio');
   return Buffer.from(b64, 'base64');

@@ -59,7 +59,7 @@ async function askVision(model, prompt, images) {
     : { stream: false, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, ...images.map((b) => ({ type: 'image_url', image_url: { url: dataUrl(b) } }))] }] };
   let r, d = {};
   try {
-    r = await fetch(url, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(120000) });
+    r = await fetch(url, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(45000) }); // a stalled reviewer: on to the next one
     d = await r.json().catch(() => ({}));
   } catch (e) { console.error('studio review failed:', model, e.message); return null; }
   if (isOutOfCredit(r.status, d)) { outOfCredit('Studio reviewer'); return null; }

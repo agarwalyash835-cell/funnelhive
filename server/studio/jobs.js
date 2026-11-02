@@ -15,7 +15,8 @@ import { to720 } from './enhance.js';
 import { notify } from '../notify.js';
 
 export const MAX_ATTEMPTS = 3; // the first try and two retries
-const MAX_RENDERING = Number(process.env.STUDIO_MAX_RENDERING || 4), PER_USER = 2;
+// renders run on kie.ai (several at once is fine); checks run here — ffmpeg is heavy, so one per CPU core
+const MAX_RENDERING = Number(process.env.STUDIO_MAX_RENDERING || 8), PER_USER = 4, MAX_CHECKING = Number(process.env.STUDIO_MAX_CHECKING || 2);
 const RENDER_TIMEOUT = 25 * 60000;
 const ACTIVE = ['queued', 'rendering', 'checking'];
 
@@ -87,7 +88,7 @@ async function check(a) {
 }
 
 // ---------- the loop ----------
-let checking = false;
+let checking = 0;
 const working = new Set();
 export async function tick() {
   if (!studioReady()) return;
@@ -103,7 +104,7 @@ export async function tick() {
       rendering++; perUser[a.userId] = (perUser[a.userId] || 0) + 1;
       jobs.push(guard(a, () => startRender(a).catch((e) => { console.error('studio start failed', a.id, e.message); set(a.id, (x) => { x.status = 'failed'; x.error = e.message; x.doneAt = Date.now(); }); })));
     } else if (a.status === 'rendering') jobs.push(guard(a, () => poll(a)));
-    else if (a.status === 'checking' && !checking) { checking = true; jobs.push(guard(a, () => check(a)).finally(() => { checking = false; })); }
+    else if (a.status === 'checking' && checking < MAX_CHECKING) { checking++; jobs.push(guard(a, () => check(a)).finally(() => { checking--; })); }
   }
   await Promise.all(jobs);
 }
