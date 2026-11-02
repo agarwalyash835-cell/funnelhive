@@ -1764,13 +1764,19 @@ class TallyClient {
 
   // Stock Journal: move quantity of one item from a source godown to a
   // destination godown (consumption OUT + production IN).
+  // Each line must say its direction: without ISDEEMEDPOSITIVE Tally files both lines as IN
+  // (live-verified: a 1-Nos transfer added 2 Nos to the item's closing stock).
   stockJournalXml(payload) {
     const qty = `${payload.quantity} ${payload.unit}`;
     const rate = payload.rate != null && payload.rate !== "" ? Number(payload.rate) : null;
-    const amount = rate != null ? (rate * Number(payload.quantity)).toFixed(2) : null;
-    const entry = (listTag, godown) => `
+    const value = rate != null ? rate * Number(payload.quantity) : null;
+    const entry = (listTag, godown, inward) => {
+      // Tally signs amounts by direction: the IN (deemed positive, debit) line is negative.
+      const amount = value != null ? (inward ? -value : value).toFixed(2) : null;
+      return `
     <${listTag}>
       <STOCKITEMNAME>${escapeXml(payload.stock_item_name)}</STOCKITEMNAME>
+      <ISDEEMEDPOSITIVE>${inward ? "Yes" : "No"}</ISDEEMEDPOSITIVE>
       <ACTUALQTY>${escapeXml(qty)}</ACTUALQTY>
       <BILLEDQTY>${escapeXml(qty)}</BILLEDQTY>
       ${rate != null ? `<RATE>${escapeXml(rate)}/${escapeXml(payload.unit)}</RATE>` : ""}
@@ -1783,12 +1789,13 @@ class TallyClient {
         ${amount != null ? `<AMOUNT>${escapeXml(amount)}</AMOUNT>` : ""}
       </BATCHALLOCATIONS.LIST>
     </${listTag}>`;
+    };
     return tallyImportEnvelope(`
 <TALLYMESSAGE xmlns:UDF="TallyUDF">
   <VOUCHER VCHTYPE="Stock Journal" ACTION="Create">
     <DATE>${escapeXml(tallyDate(payload.date))}</DATE>
     <VOUCHERTYPENAME>Stock Journal</VOUCHERTYPENAME>
-    <NARRATION>${escapeXml(payload.narration || `Transfer ${payload.source_godown} → ${payload.dest_godown}`)}</NARRATION>${entry("INVENTORYENTRIESOUT.LIST", payload.source_godown)}${entry("INVENTORYENTRIESIN.LIST", payload.dest_godown)}
+    <NARRATION>${escapeXml(payload.narration || `Transfer ${payload.source_godown} → ${payload.dest_godown}`)}</NARRATION>${entry("INVENTORYENTRIESOUT.LIST", payload.source_godown, false)}${entry("INVENTORYENTRIESIN.LIST", payload.dest_godown, true)}
   </VOUCHER>
 </TALLYMESSAGE>`, "Vouchers");
   }

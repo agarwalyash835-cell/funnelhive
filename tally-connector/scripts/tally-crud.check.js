@@ -433,7 +433,11 @@ async function expectRejects(promise, match) {
   assert.match(sj, /<INVENTORYENTRIESOUT.LIST>[\s\S]*<GODOWNNAME>Main<\/GODOWNNAME>[\s\S]*<\/INVENTORYENTRIESOUT.LIST>/, "OUT entry uses source godown");
   assert.match(sj, /<INVENTORYENTRIESIN.LIST>[\s\S]*<GODOWNNAME>Branch<\/GODOWNNAME>[\s\S]*<\/INVENTORYENTRIESIN.LIST>/, "IN entry uses destination godown");
   assert.match(sj, /<ACTUALQTY>5 Nos<\/ACTUALQTY>/);
-  assert.match(sj, /<AMOUNT>50.00<\/AMOUNT>/);
+  // Without a direction Tally files both lines as IN and the transfer adds stock.
+  assert.match(sj, /<INVENTORYENTRIESOUT.LIST>\s*<STOCKITEMNAME>Widget<\/STOCKITEMNAME>\s*<ISDEEMEDPOSITIVE>No<\/ISDEEMEDPOSITIVE>/, "OUT line is not deemed positive");
+  assert.match(sj, /<INVENTORYENTRIESIN.LIST>\s*<STOCKITEMNAME>Widget<\/STOCKITEMNAME>\s*<ISDEEMEDPOSITIVE>Yes<\/ISDEEMEDPOSITIVE>/, "IN line is deemed positive");
+  assert.match(sj, /<INVENTORYENTRIESOUT.LIST>[\s\S]*?<AMOUNT>50.00<\/AMOUNT>[\s\S]*?<\/INVENTORYENTRIESOUT.LIST>/, "OUT amount is positive");
+  assert.match(sj, /<INVENTORYENTRIESIN.LIST>[\s\S]*?<AMOUNT>-50.00<\/AMOUNT>[\s\S]*?<\/INVENTORYENTRIESIN.LIST>/, "IN amount is negative");
 
   // 8. Payables merge into outstandings with bill_type tagging.
   const parsed = client.parseOutstandings("<X><BILLALLOCATIONS.LIST><BILLPARTY>Supp</BILLPARTY><NAME>PB-1</NAME><AMOUNT>10</AMOUNT></BILLALLOCATIONS.LIST></X>", "PAYABLE");
