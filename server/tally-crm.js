@@ -3,7 +3,7 @@
 // retailers are in the CRM, the inbox and campaigns without typing them in twice. A contact that already exists keeps
 // its own name and details; the link only adds the tag, the Tally fields and a timeline note the first time.
 // On by default; the seller can turn it off on the Tally page (u.tally.contacts = false).
-import { T, contactKey } from './db.js';
+import { T, q, contactKey } from './db.js';
 import { ensureMeta, logActivity } from './crm.js';
 import { onLedgersSynced } from './tally.js';
 
@@ -12,6 +12,11 @@ export const partyType = (l) => (/creditor/i.test(`${l.ledger_group || ''} ${l.p
 const isParty = (l) => PARTY.test(`${l.ledger_group || ''} ${l.parent || ''}`);
 const cleanPhone = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
 
+// the contact already linked to this ledger (its phone or email may have changed in Tally since)
+const linkedTo = (userId, ledgerId) => {
+  const r = ledgerId && q("SELECT data FROM crm WHERE userId = ? AND json_extract(data, '$.tally.ledgerId') = ? LIMIT 1").get(userId, ledgerId);
+  return r ? JSON.parse(r.data) : null;
+};
 export function linkLedgers(userId, company, ledgers) {
   if (T.users.get(userId)?.tally?.contacts === false) return 0;
   let linked = 0;
@@ -19,11 +24,15 @@ export function linkLedgers(userId, company, ledgers) {
     if (!isParty(l)) continue;
     const email = String(l.email || '').trim().toLowerCase(), phone = cleanPhone(l.phone);
     if (!email && !phone) continue;
-    const key = contactKey(email, phone);
-    const m = ensureMeta(userId, key);
+    // a ledger whose phone or email changed stays the same contact (with the new details) instead of becoming a second
+    // one; a contact the seller made themselves keeps their own details
+    const had = linkedTo(userId, l.id);
+    const key = had ? had.key : contactKey(email, phone);
+    const m = had || ensureMeta(userId, key);
+    if (had && m.manual && (m.tallyMade || !m.source)) Object.assign(m, { ...(email ? { email } : {}), ...(phone ? { phone } : {}) });
     const first = !m.tally;
     const type = partyType(l);
-    if (!m.name && !m.email && !m.phone) Object.assign(m, { manual: true, name: l.mailing_name || l.name, email, phone, at: m.at || Date.now() });
+    if (!m.name && !m.email && !m.phone) Object.assign(m, { manual: true, tallyMade: true, name: l.mailing_name || l.name, email, phone, at: m.at || Date.now() });
     m.tags = [...new Set([...(m.tags || []), `tally-${type}`])].slice(0, 20);
     m.tally = { ledgerId: l.id, ledger: l.name, company: company.name, group: l.ledger_group || l.parent || null, balance: l.closing_balance ?? null, type, syncedAt: Date.now() };
     T.crm.put(m);

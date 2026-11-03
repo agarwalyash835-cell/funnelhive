@@ -119,6 +119,13 @@ test('customer and supplier ledgers with a phone or email become CRM contacts (n
   const all = (await api('/contacts', 'GET', null, T)).data;
   const list = Array.isArray(all) ? all : all.contacts || all.items || [];
   assert.ok(!list.some((x) => /Sales Account|Cash/.test(x.name || '')), 'only parties');
+  // a ledger whose phone changes in Tally stays one contact, with the new number (live: a second contact appeared)
+  const party = { tally_guid: 'l-9', name: 'Mehta Traders', parent: 'Sundry Debtors', ledger_group: 'Sundry Debtors', closing_balance: -500, phone: '9800000001' };
+  await agent('/sync/ledgers', 'POST', { company_guid: COMPANY.tally_guid, records: [party] });
+  await agent('/sync/ledgers', 'POST', { company_guid: COMPANY.tally_guid, records: [{ ...party, phone: '9800000002' }] });
+  const mehta = (await api('/contacts?limit=50&q=Mehta', 'GET', null, T)).data.contacts;
+  assert.equal(mehta.length, 1, JSON.stringify(mehta.map((x) => [x.key, x.phone])));
+  assert.equal(String(mehta[0].phone).replace(/\D/g, '').slice(-10), '9800000002');
 });
 
 test('payment reminders: settings, a reminder for a bill owed to you (never for one you owe or one that’s paid)', async () => {
