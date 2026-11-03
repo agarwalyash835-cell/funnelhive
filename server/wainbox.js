@@ -16,7 +16,8 @@ import { hasKnowledge, searchKnowledge, knowledgeBlock, customerProfile, remembe
 import { vaultBytes } from './vault.js';
 import { sarvamReady, transcribe, oggSeconds } from './sarvam.js';
 import { KITS } from './crmkits.js';
-import { ensureMeta, logActivity, pipelinesFor, stageFor } from './crm.js';
+import { webchatOf } from './webchat-key.js';
+import { ensureMeta, ensureContact, logActivity, pipelinesFor, stageFor } from './crm.js';
 import { notify } from './notify.js';
 import { aiEnabled, aiJson, aiText } from './ai.js';
 import { creditsShort, spendCredits, AI_COST } from './billing.js';
@@ -40,7 +41,12 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const HUMAN = /^\s*(human|agent|person|executive|representative|talk to (a |an )?(human|person|agent|someone|executive)|speak to (a |an )?(human|person|agent|someone)|call me|insaan|kisi se baat|बात करनी है|एजेंट)\s*[.!?]*\s*$/i;
 
 // ---------- conversations and messages ----------
-const winOpen = (c) => !!c.lastInAt && Date.now() - c.lastInAt < WINDOW;
+// a website chat (webchat.js) is a conversation like a WhatsApp one, num "w<visitor id>", web: true — the AI agent,
+// chatbots, hand-over, rules and the team's replies all work the same; what's sent waits for the visitor's chat window
+// to fetch it, and WhatsApp's 24-hour window doesn't apply
+const winOpen = (c) => !!c.web || (!!c.lastInAt && Date.now() - c.lastInAt < WINDOW);
+const phoneOf = (c) => (c.web ? c.phone || '' : `+${c.num}`);
+const whoOf = (c) => c.name || (c.web ? c.phone || 'Website visitor' : `+${c.num}`);
 function convFor(userId, num, key, name) {
   let c = T.waconvs.find({ userId, num });
   if (c) return c;
@@ -107,8 +113,15 @@ function payloadOf(o) {
 }
 async function sendOut(u, conv, o, by, extra = {}) {
   const type = { image: 'image', text: 'text', media: o.media?.type, media_link: o.media?.type, location: 'location', template: 'template' }[o.kind] || 'interactive';
-  const text = o.kind === 'cta' ? `${clip(o.text, 3800)}\n\n🔗 ${o.cta.label}: ${o.cta.url}` : o.kind === 'template' ? clip(o.text, 4096) || `Template: ${o.template.name}` : clip(o.text, 4096);
-  const msg = addMsg(conv, { dir: 'out', by, type, text, ...(o.buttons?.length ? { buttons: o.buttons.map((b) => b.title) } : {}), ...(o.rows?.length ? { list: { button: o.button, rows: o.rows.map((r) => r.title) } } : {}), ...(o.image ? { media: { type: 'image', link: o.image } } : {}), ...(o.media ? { media: o.media } : {}), ...(o.location ? { location: o.location } : {}), ...(o.flow ? { form: { title: o.flow.title, cta: o.flow.cta } } : {}), status: 'sending', ...extra });
+  const text = o.kind === 'cta' && !conv.web ? `${clip(o.text, 3800)}\n\n🔗 ${o.cta.label}: ${o.cta.url}` : o.kind === 'template' ? clip(o.text, 4096) || `Template: ${o.template.name}` : clip(o.text, 4096);
+  // a website chat: the buttons / list options to tap and the link button go with the message, for the chat window
+  const web = conv.web ? { ...(o.buttons?.length || o.rows?.length ? { choices: (o.buttons || o.rows).map((x) => ({ id: x.id, title: x.title })) } : {}), ...(o.cta ? { cta: { label: o.cta.label, url: o.cta.url } } : {}) } : {};
+  const msg = addMsg(conv, { dir: 'out', by, type, text, ...(o.buttons?.length ? { buttons: o.buttons.map((b) => b.title) } : {}), ...(o.rows?.length ? { list: { button: o.button, rows: o.rows.map((r) => r.title) } } : {}), ...(o.image ? { media: { type: 'image', link: o.image } } : {}), ...(o.media ? { media: o.media } : {}), ...(o.location ? { location: o.location } : {}), ...(o.flow ? { form: { title: o.flow.title, cta: o.flow.cta } } : {}), ...web, status: 'sending', ...extra });
+  if (conv.web) {
+    // a file uploaded to WhatsApp (an id, no address) can't be shown on a website
+    if (o.kind === 'media' && !o.media?.link) { T.wachat.update(msg.id, (m) => { m.status = 'failed'; m.error = 'Files can’t be sent to a website chat yet — share a link instead'; }); throw new Error('Files can’t be sent to a website chat yet — share a link instead'); }
+    return T.wachat.update(msg.id, (m) => { m.status = 'sent'; });
+  }
   try {
     const r = await waSession(u, conv.num, payloadOf(o), { ckey: conv.ckey, event: `inbox:${by}`, cloud: ['location', 'flow', 'cta'].includes(o.kind) });
     return T.wachat.update(msg.id, (m) => { m.status = 'sent'; m.waRec = r.rec; });
@@ -154,11 +167,13 @@ const transcriptOf = (convId, n = 24) => T.wachat.all({ convId }, { order: 'at',
 const TONES = ['friendly', 'professional', 'fun', 'calm'];
 // the language it replies in: 'match' follows each customer's own language and script; any other is always used
 // how long its replies are: what it's told, and a hard cap a longer reply is cut back to (at a sentence end)
-export const AGENT_LENGTHS = { short: { name: 'Short — 1 to 2 sentences', say: '1–2 sentences, under 250 characters', cap: 320 }, normal: { name: 'Normal — 2 to 4 sentences', say: '2–4 sentences, under 550 characters', cap: 650 }, detailed: { name: 'Detailed — up to 6 sentences', say: 'up to 6 sentences, under 900 characters', cap: 1100 } };
+// auto: the AI sizes each reply to the message it answers (a greeting gets a line, "how does the loan work?" a few),
+// the way a person typing would; a short customer message also keeps the reply to normal length (replyCap)
+export const AGENT_LENGTHS = { auto: { name: 'Auto — the AI decides each time', say: 'size each reply to the customer’s last message, like a person typing — match their length and energy: a greeting, thanks or yes / no gets one short line; a simple question 1–2 sentences; something that needs explaining (a process, a comparison, several questions at once) up to 5–6 sentences, under 900 characters. Never pad or repeat what they already know, and keep the same voice all through the chat', cap: 1100 }, short: { name: 'Short — 1 to 2 sentences', say: '1–2 sentences, under 250 characters', cap: 320 }, normal: { name: 'Normal — 2 to 4 sentences', say: '2–4 sentences, under 550 characters', cap: 650 }, detailed: { name: 'Detailed — up to 6 sentences', say: 'up to 6 sentences, under 900 characters', cap: 1100 } };
 export const AGENT_LANGS = { match: 'Match the customer', en: 'English', hi: 'Hindi (देवनागरी)', hinglish: 'Hinglish (Hindi in English letters)', mr: 'Marathi', gu: 'Gujarati', bn: 'Bengali', ta: 'Tamil', te: 'Telugu', kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi' };
 export function agentOf(u) {
   const a = u?.waAgent || {};
-  return { on: !!a.on, auto: a.auto !== false, name: a.name || 'Asha', role: a.role || 'assistant', tone: TONES.includes(a.tone) ? a.tone : 'friendly', knowledge: a.knowledge || '', faqs: arr(a.faqs), capture: a.capture !== false, handoff: a.handoff || '', welcome: a.welcome || '', buttons: !!a.buttons, language: AGENT_LANGS[a.language] ? a.language : 'match', length: AGENT_LENGTHS[a.length] ? a.length : 'normal', handoffTo: a.handoffTo || '' };
+  return { on: !!a.on, auto: a.auto !== false, name: a.name || 'Asha', role: a.role || 'assistant', tone: TONES.includes(a.tone) ? a.tone : 'friendly', knowledge: a.knowledge || '', faqs: arr(a.faqs), capture: a.capture !== false, handoff: a.handoff || '', welcome: a.welcome || '', buttons: !!a.buttons, language: AGENT_LANGS[a.language] ? a.language : 'match', length: AGENT_LENGTHS[a.length] ? a.length : 'auto', handoffTo: a.handoffTo || '' };
 }
 function cleanAgent(b = {}, cur = {}) {
   const out = { ...cur };
@@ -175,7 +190,7 @@ function cleanAgent(b = {}, cur = {}) {
   // quick-reply buttons under its answers: off by default, so it reads like a person typing
   if ('buttons' in b) out.buttons = !!b.buttons;
   if ('language' in b) out.language = AGENT_LANGS[b.language] ? b.language : 'match';
-  if ('length' in b) out.length = AGENT_LENGTHS[b.length] ? b.length : 'normal';
+  if ('length' in b) out.length = AGENT_LENGTHS[b.length] ? b.length : 'auto';
   if ('handoffTo' in b) out.handoffTo = clip(b.handoffTo, 40);
   return out;
 }
@@ -190,7 +205,7 @@ async function agentAnswer(u, transcript, extra = '', ctx = {}) {
   const a = agentOf(u);
   const found = ctx.search || { passages: [], products: [], docs: [] };
   const docsBlock = knowledgeBlock(found);
-  const system = `You are ${a.name}, the WhatsApp assistant (${a.role}) for "${bizName(u)}". Your tone is ${a.tone}.
+  const system = `You are ${a.name}, the WhatsApp assistant (${a.role}) for "${bizName(u)}". Your tone is ${a.tone}.${ctx.web ? '\nThis chat is in the chat window on the business’s website, not WhatsApp: write the same way, and never ask them to message on WhatsApp unless they ask how to.' : ''}
 ${a.language === 'match' ? "Reply in the customer's own language and script (English, Hindi, Hinglish, Tamil, Marathi…) — match how they write, message by message: if they switch language, switch with them." : `Always reply in ${AGENT_LANGS[a.language]}, whatever language the customer writes in — switch only if they ask you to or clearly can't follow it.`}
 WhatsApp style: ${AGENT_LENGTHS[a.length].say}, warm and human, one question at a time, *bold* only for a key word or price, no headings, tables or long lists. Prices in ₹.${a.buttons ? '' : '\nWrite like a person typing on WhatsApp: ask in words, never a numbered menu of options ("reply 1 for…").'}
 Use ONLY the business knowledge below for facts (prices, timings, policies, links, addresses). Never invent a price, discount, date or promise. Share a link from the knowledge when it helps the customer act (buy, book, register).
@@ -209,10 +224,10 @@ BUSINESS KNOWLEDGE
 ${knowledgeOf(u) || '(nothing written yet — answer only general questions and hand over the rest)'}
 ${docsBlock ? `\n${docsBlock}\n` : ''}${ctx.shop ? `\n${shopBlock(ctx.shop)}\n` : ''}${ctx.profile ? `\nTHIS CUSTOMER\n${ctx.profile}\n` : ''}
 Return ONLY JSON: {"reply":"your WhatsApp message",${a.buttons ? '"buttons":["up to 3 short quick-reply options, each under 20 characters — only when they help"],' : ''}"handoff":false,"reason":"why a person is needed, when handoff is true","intent":"pricing | booking | purchase | support | complaint | other","lead":{"name":"","email":""},"send":["document ids to attach"],${ctx.shop ? '"products":["P1"],' : ''}"facts":["new lasting facts about the customer from their latest messages — budget, preferences, family, location, dates; [] if none"]}`;
-  const r = await aiJson(system, `The conversation so far:\n${transcript}\n\nWrite your reply to the customer's last message.`);
+  const r = await aiJson(system, `The conversation so far:\n${transcript}\n\nWrite your reply to the customer’s last message.`);
   const offered = new Set(found.docs.map((d) => d.id));
   return {
-    reply: fitReply(String(r?.reply ?? '').replace(/\s*\(P\d{1,2}\)|\bP\d{1,2}:\s*/g, ''), AGENT_LENGTHS[a.length].cap), buttons: a.buttons ? arr(r?.buttons).map((x) => clipWords(x, 20)).filter(Boolean).slice(0, 3) : [], handoff: !!r?.handoff, reason: clip(r?.reason, 200),
+    reply: fitReply(String(r?.reply ?? '').replace(/\s*\(P\d{1,2}\)|\bP\d{1,2}:\s*/g, ''), replyCap(a.length, transcript)), buttons: a.buttons ? arr(r?.buttons).map((x) => clipWords(x, 20)).filter(Boolean).slice(0, 3) : [], handoff: !!r?.handoff, reason: clip(r?.reason, 200),
     intent: clip(r?.intent, 20).toLowerCase(), lead: { name: clip(r?.lead?.name, 80), email: clip(r?.lead?.email, 160).toLowerCase() },
     // [{ id, pages? }] — only documents it was offered, at most two
     send: arr(r?.send).map((x) => (typeof x === 'object' && x ? { id: String(x.id || ''), pages: arr(x.pages).map(Number).filter((p) => Number.isInteger(p) && p > 0).slice(0, 10) } : { id: String(x), pages: [] }))
@@ -231,6 +246,12 @@ export const productCard = (p) => {
 const askedOf = (convId) => T.wachat.all({ convId }, { order: 'at', desc: true, limit: 12 }).filter((m) => m.dir === 'in').slice(0, 2).map((m) => m.text || '').reverse().join('\n');
 // a quick-reply button holds 20 characters: cut at a word, never mid-word ("Free class book karn")
 // a reply longer than its cap is cut back to the last full sentence that fits (else the last whole word, with …)
+// the most a reply may run to: its length setting's cap; on Auto, a short customer message ("hi", "ok", "price?") keeps it to
+// normal length
+export const replyCap = (length, transcript = '') => {
+  const last = String(transcript).split('\n').filter((l) => l.startsWith('Customer:')).at(-1)?.slice(9).trim() || '';
+  return length === 'auto' && last && last.length <= 40 ? AGENT_LENGTHS.normal.cap : (AGENT_LENGTHS[length] || AGENT_LENGTHS.auto).cap;
+};
 export const fitReply = (v, max) => {
   const t = String(v || '').trim();
   if (t.length <= max) return t;
@@ -244,7 +265,7 @@ async function contextFor(u, conv) {
   const asked = askedOf(conv.id), m = conv.ckey ? T.crm.find({ userId: u.id, key: conv.ckey }) : null;
   const [search, shop] = await Promise.all([
     hasKnowledge(u.id) ? searchKnowledge(u, asked).catch((e) => { console.error('knowledge search failed', e.message); return null; }) : null,
-    shopOf(u) ? shopContext(u, { asked, phone: `+${conv.num}`, email: m?.email || '' }).catch((e) => { console.error('Shopify lookup failed', e.message); return null; }) : null,
+    shopOf(u) ? shopContext(u, { asked, phone: phoneOf(conv), email: m?.email || '' }).catch((e) => { console.error('Shopify lookup failed', e.message); return null; }) : null,
   ]);
   return { profile: customerProfile(u, conv), search, shop };
 }
@@ -340,7 +361,7 @@ async function needsPerson(u, conv, text) {
   await awayReply(u, conv);
   // one bell per conversation every 10 minutes, however many messages arrive
   if (hit(`wainbox:n:${conv.id}`, 10 * 60000).n > 1) return;
-  notify(u.id, { kind: 'whatsapp', title: `WhatsApp from ${conv.name || `+${conv.num}`}`, body: text, link: `/inbox/${conv.id}`, ckey: conv.ckey });
+  notify(u.id, { kind: 'whatsapp', title: `${conv.web ? 'Website chat from' : 'WhatsApp from'} ${whoOf(conv)}`, body: text, link: `/inbox/${conv.id}`, ckey: conv.ckey });
 }
 // source: who handed it over — 'ai' (the AI agent), 'bot' (a chatbot), 'customer' (asked for a person), 'team'
 async function handoff(u, conv, reason, { say, assignee, flowId, by, source = 'team' } = {}) {
@@ -350,13 +371,13 @@ async function handoff(u, conv, reason, { say, assignee, flowId, by, source = 't
   await awayReply(u, conv);
   addMsg(conv, { dir: 'note', by: 'system', text: `Handed to ${conv.assignee ? T.users.get(conv.assignee)?.name || 'a teammate' : 'your team'} — ${clip(reason, 200)}` });
   if (flowId) T.waflows.update(flowId, (f) => { f.stats = { ...f.stats, handoffs: (f.stats?.handoffs || 0) + 1 }; });
-  notify(u.id, { kind: 'whatsapp', title: `${conv.name || `+${conv.num}`} needs ${conv.assignee ? T.users.get(conv.assignee)?.name || 'a person' : 'a person'}`, body: reason, link: `/inbox/${conv.id}`, ckey: conv.ckey });
-  if (conv.ckey) fire(u.id, 'wa_handoff', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}`, by: source, reason: clip(reason, 200) });
+  notify(u.id, { kind: 'whatsapp', title: `${whoOf(conv)} needs ${conv.assignee ? T.users.get(conv.assignee)?.name || 'a person' : 'a person'}`, body: reason, link: `/inbox/${conv.id}`, ckey: conv.ckey });
+  if (conv.ckey) fire(u.id, 'wa_handoff', { key: conv.ckey, name: conv.name || '', phone: phoneOf(conv), by: source, reason: clip(reason, 200) });
   return conv;
 }
 // a chat closed by a person (or the quiet-chat rule): Automations hear about it; a person's close can run the feedback chatbot
 async function resolved(u, conv, { byPerson } = {}) {
-  if (conv.ckey) fire(u.id, 'wa_resolved', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}` });
+  if (conv.ckey) fire(u.id, 'wa_resolved', { key: conv.ckey, name: conv.name || '', phone: phoneOf(conv) });
   // what the customer told a person is remembered for the AI agent next time (in the background)
   if (byPerson && agentOf(u).on) learnFromChat(u, conv).catch((e) => console.error('learning from a chat failed', e.message));
   const cs = rulesOf(u).csat, f = byPerson && cs.on && T.waflows.get(cs.flowId);
@@ -365,6 +386,11 @@ async function resolved(u, conv, { byPerson } = {}) {
 
 // ---------- contact updates from a flow or the agent ----------
 function saveField(u, conv, field, value) {
+  // a website visitor who shares an email or phone (to the AI agent, a chatbot question): now a contact, this chat theirs
+  if (!conv.ckey && conv.web && value && ((field === 'email' && EMAIL.test(value)) || field === 'phone')) {
+    const key = ensureContact(u.id, { [field]: value, name: conv.name }, 'website chat');
+    if (key) conv = T.waconvs.update(conv.id, (c) => { c.ckey = key; if (field === 'phone') c.phone = clip(value, 40); });
+  }
   if (!conv.ckey || !value) return;
   const m = ensureMeta(u.id, conv.ckey);
   if (field === 'name') { m.name = clip(value, 120); T.waconvs.update(conv.id, (c) => { c.name = clip(value, 80); }); }
@@ -381,7 +407,7 @@ function addTags(u, conv, tags) {
   if (!fresh.length) return;
   m.tags = [...(m.tags || []), ...fresh];
   T.crm.put(m);
-  for (const tag of fresh) fire(u.id, 'tag', { key: conv.ckey, tag, name: conv.name || '', phone: `+${conv.num}` });
+  for (const tag of fresh) fire(u.id, 'tag', { key: conv.ckey, tag, name: conv.name || '', phone: phoneOf(conv) });
 }
 
 // ---------- chatbot flows ----------
@@ -513,7 +539,7 @@ export function flowProblems(f) {
 
 // {{first_name}}, {{business}}, {{<answer>}}… — json: for an API request's body (the value goes inside a JSON string)
 const fillText = (s, env, json = false) => String(s || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, k) => {
-  const v = k === 'first_name' ? first(env.name) : k === 'name' ? env.name : k === 'phone' ? `+${env.num}` : k === 'email' ? env.email : k === 'business' ? env.business : env.vars?.[k.replace(/^var\./, '')];
+  const v = k === 'first_name' ? first(env.name) : k === 'name' ? env.name : k === 'phone' ? (env.num ? `+${env.num}` : '') : k === 'email' ? env.email : k === 'business' ? env.business : env.vars?.[k.replace(/^var\./, '')];
   const out = v == null || v === '' ? (!json && (k === 'first_name' || k === 'name') ? 'there' : '') : String(v);
   return json === 'url' ? encodeURIComponent(out) : json ? JSON.stringify(out).slice(1, -1) : out;
 });
@@ -543,7 +569,7 @@ const RETRY = { email: 'That doesn’t look like an email address — could you 
 function evalRule(r, env) {
   const tags = env.tags.map((t) => t.toLowerCase());
   if (r.field === 'tag') return r.op === 'not_has' ? !tags.includes(r.value.toLowerCase()) : tags.includes(r.value.toLowerCase());
-  const v = String((r.field.startsWith('var:') ? env.vars?.[r.field.slice(4)] : r.field.startsWith('custom:') ? env.custom?.[r.field.slice(7)] : r.field === 'name' ? env.name : r.field === 'email' ? env.email : r.field === 'phone' ? `+${env.num}` : r.field === 'last_message' ? env.lastText : '') ?? '').trim().toLowerCase();
+  const v = String((r.field.startsWith('var:') ? env.vars?.[r.field.slice(4)] : r.field.startsWith('custom:') ? env.custom?.[r.field.slice(7)] : r.field === 'name' ? env.name : r.field === 'email' ? env.email : r.field === 'phone' ? (env.num ? `+${env.num}` : '') : r.field === 'last_message' ? env.lastText : '') ?? '').trim().toLowerCase();
   const x = r.value.trim().toLowerCase();
   const n1 = Number(v.replace(/[,₹\s]/g, '')), n2 = Number(x.replace(/[,₹\s]/g, ''));
   switch (r.op) {
@@ -743,8 +769,8 @@ export async function runFlow(flow, state, input, env) {
 
 function envOf(u, conv, lastText) {
   const m = conv.ckey ? T.crm.find({ userId: u.id, key: conv.ckey }) : null;
-  return { name: conv.name || m?.name || '', email: m?.email || '', num: conv.num, business: bizName(u), tags: [...(m?.tags || [])], custom: { ...(m?.custom || {}) }, lastText: lastText || '', forms: !!metaOf(u), open: isOpen(u), http: apiCall, seen: [],
-    answer: (text, note) => agentAnswer(u, transcriptOf(conv.id), note || '', {}) };
+  return { name: conv.name || m?.name || '', email: m?.email || '', num: conv.web ? String(conv.phone || '').replace(/\D/g, '') : conv.num, business: bizName(u), tags: [...(m?.tags || [])], custom: { ...(m?.custom || {}) }, lastText: lastText || '', forms: !!metaOf(u) && !conv.web, open: isOpen(u), http: apiCall, seen: [],
+    answer: (text, note) => agentAnswer(u, transcriptOf(conv.id), note || '', { web: !!conv.web }) };
 }
 // a chatbot's API request: public addresses only, 8 seconds, no redirects, the first 100 KB of the answer
 async function apiCall({ method, url, headers, body }) {
@@ -767,7 +793,7 @@ function moveStage(u, conv, pipelineId, stageId) {
   const m = ensureMeta(u.id, conv.ckey);
   if (stageFor(p, m, false) === s.id && m.stages?.[p.id]) return;
   T.crm.update(m.id, (x) => { x.stages = { ...x.stages, [p.id]: s.id }; x.stagesAt = { ...x.stagesAt, [p.id]: Date.now() }; x.activities = [...(x.activities || []), { id: uid(), at: Date.now(), type: 'stage', title: `Moved to ${s.name}`, text: `${p.name} · WhatsApp chatbot` }].slice(-500); });
-  fire(u.id, 'stage', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}`, pipelineId: p.id, stageId: s.id });
+  fire(u.id, 'stage', { key: conv.ckey, name: conv.name || '', phone: phoneOf(conv), pipelineId: p.id, stageId: s.id });
 }
 function removeTags(u, conv, tags) {
   if (!conv.ckey) return;
@@ -778,7 +804,7 @@ function removeTags(u, conv, tags) {
 async function postHook(u, conv, url, vars) {
   try {
     await checkPublicHost(new URL(url).hostname);
-    await postPinned(url, { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'whatsapp.chatbot', contact: { name: conv.name || '', phone: `+${conv.num}` }, answers: vars, at: new Date().toISOString() }), timeout: 8000 });
+    await postPinned(url, { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'whatsapp.chatbot', contact: { name: conv.name || '', phone: phoneOf(conv) }, answers: vars, at: new Date().toISOString() }), timeout: 8000 });
   } catch (e) { addMsg(conv, { dir: 'note', by: 'system', text: `Chatbot webhook didn’t go through: ${clip(e.message, 150)}` }); }
 }
 // a flow step for this conversation, for real: sends, saves, tags, hands over, then remembers where it waits
@@ -804,7 +830,7 @@ async function runBot(u, conv, flow, state, input, depth = 0) {
     else if (e.type === 'form') formSaved(u, conv, e);
     else if (e.type === 'untag') removeTags(u, conv, e.tags);
     else if (e.type === 'stage') moveStage(u, conv, e.pipelineId, e.stageId);
-    else if (e.type === 'optout' || e.type === 'optin') { if (conv.ckey) waSetOptOut(u.id, conv.ckey, conv.num, e.type === 'optout'); }
+    else if (e.type === 'optout' || e.type === 'optin') { if (conv.ckey && !conv.web) waSetOptOut(u.id, conv.ckey, conv.num, e.type === 'optout'); }
     else if (e.type === 'api' && !e.ok) addMsg(conv, { dir: 'note', by: 'system', text: `Chatbot API request didn’t work (${e.status || clip(e.error, 120) || 'no answer'}) — it took the “Didn’t work” path` });
     else if (e.type === 'webhook') await postHook(u, conv, e.url, e.vars);
     else if (e.type === 'handoff') { await handoff(u, conv, e.note || `Chatbot “${flow.name}” handed over`, { say: e.text, assignee: e.assignee, flowId: flow.id, source: 'bot' }); return; }
@@ -858,7 +884,7 @@ async function runAgent(u, conv) {
   // a runaway conversation (or a loop with another bot) goes to a person
   if (hit(`wainbox:ai:${conv.id}`, 3600000).n > 30) return handoff(u, conv, 'A long conversation — over to your team', aiHand(u));
   let a;
-  try { a = await agentAnswer(u, transcriptOf(conv.id), conv.aiNote, await contextFor(u, conv)); } catch (e) {
+  try { a = await agentAnswer(u, transcriptOf(conv.id), conv.aiNote, { ...(await contextFor(u, conv)), web: !!conv.web }); } catch (e) {
     addMsg(conv, { dir: 'note', by: 'system', text: 'The AI agent couldn’t reply this time — please answer this one.' });
     return needsPerson(u, conv, 'The AI agent couldn’t reply — please answer');
   }
@@ -920,10 +946,10 @@ async function transcribeNote(u, conv, msg) {
 async function automate(userId, convId, msg, isNew) {
   const u = T.users.get(userId);
   let conv = convOf(convId);
-  if (!u || !conv || !waLive(u)) return;
+  if (!u || !conv || (!waLive(u) && !conv.web)) return;
   // a voice note: its words first (Sarvam), so chatbots, the AI agent, keyword rules and the team all read it
   if (['audio', 'voice'].includes(msg.media?.type) && msg.media.id && !msg.text) msg = await transcribeNote(u, conv, msg);
-  if (conv.ckey) fire(u.id, 'wa_message', { key: conv.ckey, name: conv.name || '', phone: `+${conv.num}`, text: msg.text || '' });
+  if (conv.ckey) fire(u.id, 'wa_message', { key: conv.ckey, name: conv.name || '', phone: phoneOf(conv), text: msg.text || '' });
   if (msg.type === 'form') return msg.formIn ? formIn(u, conv, msg.formIn) : needsPerson(u, conv, msg.text);
   const input = { text: msg.text || '', id: msg.iid || '', ...(msg.location ? { location: msg.location } : {}), ...(msg.media ? { media: msg.media } : {}) };
   if (conv.human) return needsPerson(u, conv, msg.text);
@@ -946,6 +972,35 @@ async function automate(userId, convId, msg, isNew) {
   const def = latest(userId, 'default');
   if (def) return runBot(u, conv, def, null, input);
   return needsPerson(u, conv, msg.text);
+}
+
+// ---------- website chats (webchat.js) ----------
+// a visitor's message from the chat window on the seller's site: the same inbox, rules, chatbots and AI agent as WhatsApp.
+// visitor: the window's own long random id (kept in the visitor's browser) — it is the only key to this chat
+export function webInbound(u, visitor, { text = '', iid = '', name = '', email = '', phone = '', page = '' } = {}) {
+  let conv = convFor(u.id, `w${visitor}`, '', name);
+  const isNew = !conv.lastInAt;
+  conv = T.waconvs.update(conv.id, (c) => { c.web = true; if (page) c.page = clip(page, 300); if (name && !c.name) c.name = clip(name, 80); });
+  // details the visitor typed in the window's form: a CRM contact for this chat
+  if (!conv.ckey && (EMAIL.test(email) || phone)) {
+    const key = ensureContact(u.id, { email: EMAIL.test(email) ? email : '', phone, name }, 'website chat');
+    if (key) conv = T.waconvs.update(conv.id, (c) => { c.ckey = key; if (phone) c.phone = clip(phone, 40); });
+  }
+  const msg = addMsg(conv, { dir: 'in', by: 'contact', type: iid ? 'interactive' : 'text', text: clip(text, 4000), ...(iid ? { iid: clip(iid, 100) } : {}) });
+  const low = String(text || '').toLowerCase();
+  const labels = rulesOf(u).labels.filter((r) => low.includes(r.word)).map((r) => r.label);
+  conv = T.waconvs.update(conv.id, (c) => { c.lastInAt = Date.now(); if (c.status === 'resolved') { c.status = 'open'; c.human = false; } if (labels.length) c.labels = [...new Set([...(c.labels || []), ...labels])].slice(0, 10); });
+  return serial(conv.id, () => automate(u.id, conv.id, msg, isNew));
+}
+// the chat as the visitor sees it, after `since` (ms): their messages and every reply (AI, chatbot, team) — never notes
+export function webMessages(u, visitor, since = 0) {
+  const conv = T.waconvs.find({ userId: u.id, num: `w${visitor}` });
+  if (!conv?.web) return { messages: [], busy: false };
+  const list = T.wachat.all({ convId: conv.id }, { order: 'at', desc: true, limit: 60 }).reverse().filter((m) => m.dir !== 'note' && m.at > since && (m.dir === 'in' || m.status === 'sent'));
+  return {
+    messages: list.map((m) => ({ id: m.id, at: m.at, from: m.dir === 'in' ? 'visitor' : m.by === 'team' || m.by === 'app' ? 'team' : 'bot', author: m.by === 'team' ? first(m.author) : '', text: m.text || '', ...(m.choices ? { choices: m.choices } : {}), ...(m.cta ? { cta: m.cta } : {}), ...(m.media?.link ? { media: { type: m.media.type, link: m.media.link, filename: m.media.filename || '' } } : {}) })),
+    busy: queue.has(conv.id), human: !!conv.human,
+  };
 }
 
 // ---------- events from the Hive WhatsApp webhook ----------
@@ -1022,7 +1077,7 @@ async function rulesTick(now = Date.now()) {
         if (r.sla.action === 'ai' && agentOn(u) && winOpen(c)) {
           addMsg(c, { dir: 'note', by: 'system', text: `No reply for ${r.sla.minutes} minutes — the AI agent stepped in` });
           serial(c.id, () => runAgent(u, T.waconvs.update(c.id, (x) => { x.ai = true; x.human = false; })));
-        } else notify(id, { kind: 'whatsapp', title: `${c.name || `+${c.num}`} is waiting for a reply`, body: `No reply for ${r.sla.minutes} minutes: ${c.lastText || ''}`, link: `/inbox/${c.id}`, ckey: c.ckey });
+        } else notify(id, { kind: 'whatsapp', title: `${whoOf(c)} is waiting for a reply`, body: `No reply for ${r.sla.minutes} minutes: ${c.lastText || ''}`, link: `/inbox/${c.id}`, ckey: c.ckey });
       }
     }
     if (r.resolve.on) {
@@ -1212,9 +1267,9 @@ Edges: {"from":node id,"port":port,"to":node id}. Texts may use {{first_name}}, 
 
 // ---------- API ----------
 const convView = (c, flows) => ({
-  id: c.id, num: c.num, name: c.name || '', ckey: c.ckey || '', status: c.status, assignee: c.assignee || null, labels: c.labels || [], unread: c.unread || 0,
+  id: c.id, num: c.web ? '' : c.num, web: c.web ? { phone: c.phone || '', page: c.page || '' } : null, name: c.name || '', ckey: c.ckey || '', status: c.status, assignee: c.assignee || null, labels: c.labels || [], unread: c.unread || 0,
   lastAt: c.lastAt, lastText: c.lastText || '', lastDir: c.lastDir || '', lastBy: c.lastBy || '', ai: !!c.ai, human: !!c.human, bot: c.bot ? { flowId: c.bot.flowId, name: flows?.get(c.bot.flowId)?.name || c.bot.name || 'Chatbot', wait: c.bot.wait } : null,
-  window: winOpen(c) ? { open: true, closesAt: c.lastInAt + WINDOW } : { open: false }, intent: c.intent || '', summary: c.summary || null, handoff: c.handoff || null, memory: c.memory?.text || '',
+  window: c.web ? { open: true, web: true } : winOpen(c) ? { open: true, closesAt: c.lastInAt + WINDOW } : { open: false }, intent: c.intent || '', summary: c.summary || null, handoff: c.handoff || null, memory: c.memory?.text || '',
   ad: adView(c.ad), firstAd: c.firstAd && c.firstAd.id !== c.ad?.id ? adView(c.firstAd) : null,
 });
 const msgView = (m) => ({ id: m.id, dir: m.dir, by: m.by, author: m.author || '', type: m.type, text: m.text || '', buttons: m.buttons, list: m.list, media: m.media ? { type: m.media.type, caption: m.media.caption || '', filename: m.media.filename || '', has: !!(m.media.id || m.media.link), link: m.media.link || '' } : null, location: m.location || null, ...(m.transcribed ? { transcribed: true, lang: m.lang || '' } : {}), ...(m.form ? { form: m.form } : {}), ...(m.imported ? { imported: true } : {}), status: m.status || '', error: m.error || '', ...(m.ad ? { ad: m.ad } : {}), at: m.at });
@@ -1254,7 +1309,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
     const u = req.user;
     const team = [{ id: u.id, name: u.name || 'Owner' }, ...T.members.all({ ownerId: u.id, status: 'active' }).map((m) => { const x = m.userId && T.users.get(m.userId); return x && { id: x.id, name: x.name || m.email }; }).filter(Boolean)];
     const labels = q("SELECT DISTINCT value AS l FROM waconvs, json_each(json_extract(waconvs.data, '$.labels')) WHERE userId = ? LIMIT 100").all(u.id).map((r) => r.l);
-    res.json({ connected: !!waLive(u), me: actor(req).id, team, quick: arr(u.waQuick), labels, agent: { on: agentOf(u).on, name: agentOf(u).name }, ai: aiEnabled(), flows: T.waflows.count({ userId: u.id, active: 1 }), location: u.waLocation || null, open: isOpen(u), rules: Object.entries(rulesOf(u)).filter(([k, v]) => (k === 'labels' ? v.length : v.on)).map(([k]) => k) });
+    res.json({ connected: !!waLive(u), web: webchatOf(u).on || !!q("SELECT 1 FROM waconvs WHERE userId = ? AND json_extract(data, '$.web') = 1 LIMIT 1").get(u.id), me: actor(req).id, team, quick: arr(u.waQuick), labels, agent: { on: agentOf(u).on, name: agentOf(u).name }, ai: aiEnabled(), flows: T.waflows.count({ userId: u.id, active: 1 }), location: u.waLocation || null, open: isOpen(u), rules: Object.entries(rulesOf(u)).filter(([k, v]) => (k === 'labels' ? v.length : v.on)).map(([k]) => k) });
   });
   app.put('/api/inbox/quick', auth, (req, res) => {
     const list = arr(req.body?.quick).slice(0, 100).map((x) => ({ id: ID.test(x?.id || '') ? x.id : uid().slice(0, 10), short: clip(x?.short, 30).replace(/^\/+/, '').toLowerCase().replace(/\s+/g, '-'), text: clip(x?.text, 1000) })).filter((x) => x.short && x.text);
@@ -1346,6 +1401,7 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
     let msg;
     try {
       if (b.template) {
+        if (c.web) return res.status(400).json({ error: 'WhatsApp templates are for WhatsApp chats — just type your reply to a website chat' });
         msg = addMsg(c, { dir: 'out', by: 'team', author: me.name || '', type: 'template', text: clip(b.preview, 4096) || `Template: ${clip(b.template, 120)}`, status: 'sending' });
         const r = await waSession(req.user, c.num, { type: 'template', template: { name: clip(b.template, 120), language: clip(b.language, 10) || 'en', body: arr(b.params).map(waTemplateParam) } }, { ckey: c.ckey, event: 'inbox:template' });
         msg = T.wachat.update(msg.id, (m) => { m.status = 'sent'; m.waRec = r.rec; });

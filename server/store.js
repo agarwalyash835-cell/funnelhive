@@ -26,6 +26,7 @@ import { waRequired, waPhoneOk } from './hive-wa.js';
 import { notify } from './notify.js';
 import { registerStoreOrders, reviewStats, trackKey, publicReview, waitingCounts } from './store-orders.js';
 import { registerStoreFeeds } from './store-feeds.js';
+import { webchatTag } from './webchat-key.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -537,7 +538,7 @@ export function registerStore(app, { auth, wrap, rateLimit, isTest, appUrl, secr
       const img = (r ? r.images[0] : st.themeOptions?.heroImage || st.logo) || '';
       const abs = (u) => (u.startsWith('/') ? `${appUrl(req)}${u}` : u);
       const head = `<meta name="description" content="${esc(desc.slice(0, 200))}"><meta property="og:type" content="${r ? 'product' : 'website'}"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc.slice(0, 200))}">${img ? `<meta property="og:image" content="${esc(abs(img))}">` : ''}<meta name="theme-color" content="${esc(st.color)}">${(pv && !s.enabled) || demo || sub.startsWith('order/') ? '<meta name="robots" content="noindex">' : ''}`;
-      res.set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace(/<title>[^<]*<\/title>/, () => `<title>${esc(title)}</title>`).replace('<!--ff-head-->', () => head));
+      res.set('Cache-Control', 'no-cache').type('html').send(indexHtml.replace(/<title>[^<]*<\/title>/, () => `<title>${esc(title)}</title>`).replace('<!--ff-head-->', () => head + (owner && !pv ? webchatTag(owner) : '')));
     });
   }
 

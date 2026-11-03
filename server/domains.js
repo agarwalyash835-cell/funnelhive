@@ -56,7 +56,7 @@ export const robotsTxt = (base) => `User-agent: *\nAllow: /\nSitemap: ${base}/si
 const BUYER = 'access|invoice|booking|meet|webinar|legal|share|report|learn|cert', BUYER_API = 'public|access|access-recover|booking|meet|webinar-reg|report|share|learn|cert|hls';
 const BUYER_PATHS = new RegExp(`^/(${BUYER})(/|$)|^/api/(${BUYER_API})(/|$)`);
 // what may be served on the pages domain: funnel pages and what buyers open from them
-const PAGES_PATHS = new RegExp(`^/(f|${BUYER}|uploads|assets|t|u|favicon|robots\\.txt|sitemap)(/|$|\\.)|^/api/(${BUYER_API}|health|site|stripe/webhook|razorpay/webhook)(/|$)`);
+const PAGES_PATHS = new RegExp(`^/(f|${BUYER}|uploads|assets|t|u|favicon|robots\\.txt|sitemap)(/|$|\\.)|^/wc\\.js$|^/api/(${BUYER_API}|health|site|stripe/webhook|razorpay/webhook)(/|$)`);
 export function pagesSplit(req, res, next) {
   const pages = pagesBase(), app = String(process.env.APP_URL || '').replace(/\/+$/, '');
   if (!pages || !app) return next();

@@ -90,6 +90,8 @@ import './tally-crm.js'; // Tally customer / supplier ledgers → CRM contacts
 import { registerTallyReminders } from './tally-remind.js';
 import { registerTallyOcr } from './tally-ocr.js';
 import { registerWaInbox } from './wainbox.js';
+import { registerWebchat } from './webchat.js';
+import { webchatTag } from './webchat-key.js';
 import { registerShopify } from './shopify.js';
 import { registerDashKit } from './dashkit.js';
 import { registerTalk } from './talk.js';
@@ -1071,6 +1073,7 @@ registerGstReturns(app, { auth, rateLimit, isTest });
 registerTallyReminders(app, { auth, wrap, rateLimit, isTest });
 registerTallyOcr(app, { auth, wrap, rateLimit, isTest, credits });
 registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits });
+registerWebchat(app, { auth, rateLimit, isTest, secret: SECRET, appUrl });
 registerShopify(app, { auth, wrap, rateLimit, isTest });
 registerDashKit(app, { auth });
 registerTalk(app, { auth, rateLimit, isTest });
@@ -2156,7 +2159,10 @@ function renderFunnel(req, res, f, stepSlug, { domain = null, preview = false, f
   // the page's own inline scripts (window.__FUNNEL__ and friends) carry this request's nonce; nothing else inline runs
   const nonce = newNonce();
   res.set('Content-Security-Policy', csp(page.embed ? 'embed' : 'page', { nonce }));
-  res.set('Cache-Control', 'no-cache').type('html').send(page.embed ? page.html : page.html.replaceAll('<script>', `<script nonce="${nonce}">`));
+  // the website chat bubble, when the seller shows it on their pages (not in the editor preview)
+  const chat = preview ? '' : webchatTag(owner);
+  const html = chat ? page.html.replace('</body>', () => `${chat}</body>`) : page.html;
+  res.set('Cache-Control', 'no-cache').type('html').send(page.embed ? html : html.replaceAll('<script>', `<script nonce="${nonce}">`));
 }
 function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false }) {
   const data = publicData(f, owner, { full });

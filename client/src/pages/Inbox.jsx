@@ -17,7 +17,7 @@ const short = (t) => { const d = new Date(t), now = new Date(); if (d.toDateStri
 const dayOf = (t) => { const d = new Date(t), now = new Date(); if (d.toDateString() === now.toDateString()) return 'Today'; if (d.toDateString() === new Date(now - 86400000).toDateString()) return 'Yesterday'; return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }); };
 const left = (t) => { const m = Math.max(0, Math.round((t - Date.now()) / 60000)); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
 const WHO = { contact: '', team: 'You', app: 'You · WhatsApp app', bot: 'Chatbot', ai: 'AI' };
-const display = (c) => c.name || `+${c.num}`;
+const display = (c) => c.name || (c.web ? c.web.phone || 'Website visitor' : `+${c.num}`);
 const LANG_NAMES = { 'en-IN': 'English', 'hi-IN': 'Hindi', 'mr-IN': 'Marathi', 'gu-IN': 'Gujarati', 'bn-IN': 'Bengali', 'ta-IN': 'Tamil', 'te-IN': 'Telugu', 'kn-IN': 'Kannada', 'ml-IN': 'Malayalam', 'pa-IN': 'Punjabi', 'od-IN': 'Odia', 'ur-IN': 'Urdu' };
 // WhatsApp's own formatting: *bold*, _italic_, ~strike~, and links
 export const waFmt = (s) => String(s || '').split(/(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|https?:\/\/[^\s<]+)/g).map((p, i) => (
@@ -55,13 +55,14 @@ export default function Inbox() {
   const loadList = () => api(`/inbox?filter=${filter}&q=${encodeURIComponent(q.trim())}`).then(setList).catch(() => {});
   useEvery(loadList, 5000, [filter, q]);
   const toggleSide = () => { setSide(!side); if (wideScreen()) try { localStorage.setItem('ff_ib_side', side ? '0' : '1'); } catch {} };
-  const connected = meta ? meta.connected : true;
+  // a website chat works without a WhatsApp number: the inbox opens for it too ("New chat" stays WhatsApp-only)
+  const connected = meta ? meta.connected || meta.web : true;
   return (
-    <Layout wide title="Inbox" subtitle="Every WhatsApp chat in one place — your team, chatbots and the AI agent working together." actions={<>
+    <Layout wide title="Inbox" subtitle={meta?.web ? "Every WhatsApp and website chat in one place — your team, chatbots and the AI agent working together." : "Every WhatsApp chat in one place — your team, chatbots and the AI agent working together."} actions={<>
       {meta && meta.open === false && <span className="pill warn" title="Away replies go out until you open">Closed now</span>}
       <Link className="btn ghost sm" to="/chatbots?tab=rules"><Icon name="bolt" size={15} />Inbox automations{meta?.rules?.length > 0 && <span className="pill ok" style={{ marginLeft: 2 }}>{meta.rules.length} on</span>}</Link>
       <Link className="btn ghost sm" to="/chatbots"><Icon name="bot" size={15} />Chatbots &amp; AI agent</Link>
-      {connected && <button className="btn primary sm" onClick={() => setStartOpen(true)}><Icon name="plus" size={15} />New chat</button>}
+      {meta?.connected !== false && <button className="btn primary sm" onClick={() => setStartOpen(true)}><Icon name="plus" size={15} />New chat</button>}
     </>}>
       {!connected ? <NotConnected /> : (
         <div ref={shell} className={`ib ${side && id ? '' : 'no-side'} ${id ? 'has-conv' : ''}`}>
@@ -81,7 +82,8 @@ export default function Inbox() {
                   <div>
                     <div className="t1"><b>{display(c)}</b><time>{short(c.lastAt)}</time></div>
                     <div className="t2"><span>{c.lastDir === 'out' && `${c.lastBy === 'ai' ? '✨ ' : c.lastBy === 'bot' ? '🤖 ' : 'You: '}`}{c.lastText || '…'}</span>{c.unread > 0 && <em className="ib-n">{c.unread}</em>}</div>
-                    {(c.ai || c.bot || c.ad || c.labels.length > 0 || (c.human && c.handoff)) && <div className="t3">
+                    {(c.web || c.ai || c.bot || c.ad || c.labels.length > 0 || (c.human && c.handoff)) && <div className="t3">
+                      {c.web && <span className="ctwa-chip" title="From the chat on your website"><Icon name="globe" size={11} />Website</span>}
                       {c.ad && <span className="ctwa-chip" title={`Started from the ad “${c.ad.headline || c.ad.id}”`}><Icon name="target" size={11} />Ad</span>}
                       {c.ai && <span className="ai-chip"><Icon name="sparkles" size={11} />AI replying</span>}
                       {c.bot && <span className="bot-chip"><Icon name="bot" size={11} />{c.bot.name}</span>}
@@ -166,7 +168,7 @@ function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
         <header className="ib-th">
           <button className="icon-btn ib-back" onClick={onBack} aria-label="Back"><Icon name="chevron" className="flip" /></button>
           <Avatar c={c} sm dot={c.window.open} />
-          <div className="who"><b>{display(c)}</b><small>+{c.num}{c.window.open ? ` · window closes in ${left(c.window.closesAt)}` : ' · 24-hour window closed'}</small></div>
+          <div className="who"><b>{display(c)}</b><small>{c.web ? `Website chat${c.web.phone ? ` · ${c.web.phone}` : ''}${c.web.page ? ` · ${c.web.page.replace(/^https?:\/\//, '').slice(0, 60)}` : ''}` : <>+{c.num}{c.window.open ? ` · window closes in ${left(c.window.closesAt)}` : ' · 24-hour window closed'}</>}</small></div>
           <select value={c.assignee || ''} onChange={(e) => patch({ assignee: e.target.value || null })} aria-label="Assigned to">
             <option value="">Unassigned</option>
             {(meta?.team || []).map((p) => <option key={p.id} value={p.id}>{p.id === meta.me ? `${p.name} (you)` : p.name}</option>)}
@@ -296,7 +298,7 @@ function Composer({ c, contact, meta, onSent, patch }) {
       <div className="ib-ctabs">
         <button className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>Reply</button>
         <button className={mode === 'note' ? 'on' : ''} onClick={() => setMode('note')}>Internal note</button>
-        <span className={`ib-win ${c.window.open ? 'ok' : ''}`}>{c.window.open ? `Free replies for ${left(c.window.closesAt)}` : 'Window closed — templates only'}</span>
+        <span className={`ib-win ${c.window.open ? 'ok' : ''}`}>{c.web ? 'Website chat — replies show in their chat window' : c.window.open ? `Free replies for ${left(c.window.closesAt)}` : 'Window closed — templates only'}</span>
       </div>
       {closed || tpl ? (
         <div className="ib-closed">
@@ -308,7 +310,7 @@ function Composer({ c, contact, meta, onSent, patch }) {
         <>
           {rec ? <VoiceRecorder onCancel={() => setRec(false)} onDone={(blob) => { setRec(false); attach(blob, true); }} /> : (
             <div className="ib-input">
-              {mode === 'reply' && (
+              {mode === 'reply' && !c.web && (
                 <div style={{ position: 'relative' }}>
                   <button className="ib-attach" onClick={() => setMenu(menu === 'att' ? '' : 'att')} aria-label="Attach" title="Attach a file, photo or location"><Icon name="plus" size={20} /></button>
                   {menu === 'att' && <div className="ib-menu" style={{ left: 0 }}>
@@ -322,7 +324,7 @@ function Composer({ c, contact, meta, onSent, patch }) {
               <input ref={fileIn} type="file" accept="image/png,image/jpeg,video/mp4,video/3gpp" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
               <input ref={docIn} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
               <textarea ref={ta} rows={1} value={text} onChange={(e) => { setText(e.target.value); setQi(0); }} onKeyDown={key} placeholder={mode === 'note' ? 'A note only your team sees…' : 'Type a reply…  ( / for quick replies)'} disabled={busy === 'rw'} />
-              {mode === 'reply' && !text.trim()
+              {mode === 'reply' && !text.trim() && !c.web
                 ? <button className="ib-send" onClick={() => setRec(true)} disabled={!!busy} aria-label="Record a voice note" title="Record a voice note">{busy === 'send' ? <span className="spin" /> : <Icon name="mic" size={18} />}</button>
                 : <button className="ib-send" onClick={submit} disabled={!text.trim() || !!busy} aria-label="Send" style={mode === 'note' ? { background: '#ca8a04' } : undefined}>{busy === 'send' ? <span className="spin" /> : <Icon name={mode === 'note' ? 'check' : 'send'} size={18} />}</button>}
             </div>
@@ -337,7 +339,7 @@ function Composer({ c, contact, meta, onSent, patch }) {
               {menu === 'rw' && <div className="ib-menu" style={{ left: 120 }}>{REWRITE.map(([k, l]) => <button key={k} onClick={() => rewrite(k)}>{l}</button>)}</div>}
               {menu === 'quick' && <QuickMenu quick={quick} meta={meta} onPick={(t) => { setText(t); setMenu(''); }} />}
               {menu === 'more' && <div className="ib-menu" style={{ left: 200 }}>
-                <button onClick={() => { setMenu(''); setTpl(true); }}><Icon name="mail" size={15} />Send a template</button>
+                {!c.web && <button onClick={() => { setMenu(''); setTpl(true); }}><Icon name="mail" size={15} />Send a template</button>}
                 <button onClick={runBot}><Icon name="bot" size={15} />Run a chatbot here</button>
                 {meta?.agent?.on && !c.ai && <button onClick={() => { setMenu(''); patch({ ai: true }); }}><Icon name="sparkles" size={15} />Hand this chat to the AI</button>}
               </div>}

@@ -1060,10 +1060,10 @@ function Agent() {
               </select>
               <small className="muted">{a.language && a.language !== 'match' ? 'Always replies in this language, whatever the customer writes in.' : 'English to English, Hindi to Hindi, Hinglish to Hinglish — and it switches when the customer does.'}</small></label>
             <label className="sm strong">Reply length
-              <select value={a.length || 'normal'} onChange={(e) => setA({ ...a, length: e.target.value })} style={{ marginTop: 6 }}>
-                {(a.lengths || [{ id: 'normal', name: 'Normal — 2 to 4 sentences' }]).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              <select value={a.length || 'auto'} onChange={(e) => setA({ ...a, length: e.target.value })} style={{ marginTop: 6 }}>
+                {(a.lengths || [{ id: 'auto', name: 'Auto — the AI decides each time' }]).map((l) => <option key={l.id} value={l.id}>{l.name}{l.id === 'auto' ? ' (recommended)' : ''}</option>)}
               </select>
-              <small className="muted">A reply that runs longer is cut back to its last full sentence.</small></label>
+              <small className="muted">{(a.length || 'auto') === 'auto' ? 'Short for a hello or a quick question, longer when something needs explaining — like a person typing.' : 'A reply that runs longer is cut back to its last full sentence.'}</small></label>
             <label className="tog"><input type="checkbox" checked={a.auto} onChange={(e) => setA({ ...a, auto: e.target.checked })} /><span />Answer new chats automatically <small className="muted">· off: only when a chatbot or your team hands a chat to it</small></label>
             <label className="tog"><input type="checkbox" checked={a.capture} onChange={(e) => setA({ ...a, capture: e.target.checked })} /><span />Ask for their name and email (saved on the contact)</label>
             <label className="tog"><input type="checkbox" checked={!!a.buttons} onChange={(e) => setA({ ...a, buttons: e.target.checked })} /><span />Offer tap-to-reply buttons under its answers <small className="muted">· off: it chats in plain messages, like a person</small></label>
@@ -1092,6 +1092,7 @@ function Agent() {
         </Panel>
         <AgentDocs />
         <ShopifyStore />
+        <WebsiteChat />
         <Panel title="When to hand over to your team">
           <textarea rows={3} value={a.handoff} maxLength={1000} onChange={(e) => setA({ ...a, handoff: e.target.value })} placeholder="Bulk or corporate orders, anyone asking for a discount above 10%, and any medical question." />
           <p className="hint">It always hands over when it doesn’t have the answer, for complaints, refunds and payment problems, and when someone asks for — or insists on — a person. It tells the customer politely that the right person will get in touch, stops replying in that chat, and you get a notification.</p>
@@ -1106,6 +1107,50 @@ function Agent() {
       </div>
       <AgentPhone a={pickA(a)} name={a.name} ai={a.ai} />
     </div>
+  );
+}
+// the same agent (and chatbots, and your team) as a chat bubble on any website: one line to paste, chats in the inbox
+function WebsiteChat() {
+  const [w, setW] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api('/webchat').then(setW).catch(() => {}); }, []);
+  if (!w) return null;
+  const save = async (patch) => { setBusy(true); try { const x = await api('/webchat', 'PUT', patch); setW(x); toast(patch.on === true ? 'Website chat is on — paste the code on your site' : patch.on === false ? 'Website chat switched off' : patch.reset ? 'New code made — the old one stopped working' : 'Saved'); } catch (e) { toast(e.message); } setBusy(false); };
+  const copy = () => { navigator.clipboard?.writeText(w.snippet); toast('Code copied — paste it before </body> on your site'); };
+  // try it here: the same script, on this page
+  const tryIt = () => {
+    if (window.__fhChat) return toast('The chat bubble is already on this page — bottom corner');
+    const s = document.createElement('script'); s.src = '/wc.js'; s.async = true; s.dataset.key = w.key; document.body.appendChild(s);
+    toast('Look for the chat bubble in the corner');
+  };
+  const set = (k, v) => setW({ ...w, [k]: v });
+  return (
+    <Panel title="Website chat" actions={<label className="tog"><input type="checkbox" checked={w.on} disabled={busy} onChange={(e) => save({ on: e.target.checked })} /><span />{w.on ? 'On' : 'Off'}</label>}>
+      <p className="hint top">Put this assistant on your own website as a chat bubble. Visitors get the same answers as on WhatsApp — {w.agent.on ? `${w.agent.name} replies in seconds` : 'switch the AI agent on above so it replies instantly'} — and every chat lands in your <Link to="/inbox">inbox</Link>, marked Website, where your team can take over. Your WhatsApp chatbots answer there too.</p>
+      {w.on && <>
+        <div className="form2c">
+          <label className="sm strong">Title<input value={w.title} maxLength={60} placeholder="Chat with us" onChange={(e) => set('title', e.target.value)} /></label>
+          <label className="sm strong">Colour<input type="color" value={w.color} onChange={(e) => set('color', e.target.value)} style={{ height: 40, padding: 4, cursor: 'pointer' }} /></label>
+        </div>
+        <label className="sm strong">First message<input value={w.greeting} maxLength={300} placeholder="Hi! 👋 How can we help you today?" onChange={(e) => set('greeting', e.target.value)} /></label>
+        <div className="form2c">
+          <label className="sm strong">Bubble on the<select value={w.position} onChange={(e) => set('position', e.target.value)}><option value="right">Right</option><option value="left">Left</option></select></label>
+          <label className="sm strong">Ask for their phone or email<select value={w.ask} onChange={(e) => set('ask', e.target.value)}><option value="optional">Optional (recommended)</option><option value="required">Before they can chat</option><option value="off">Don’t ask</option></select></label>
+        </div>
+        <label className="tog"><input type="checkbox" checked={w.whatsapp} onChange={(e) => set('whatsapp', e.target.checked)} /><span />Show “Continue on WhatsApp” {w.whatsappNumber ? '' : <small className="muted">· connect your WhatsApp number first</small>}</label>
+        <label className="tog"><input type="checkbox" checked={w.pages} onChange={(e) => set('pages', e.target.checked)} /><span />Also show it on my FunnelHive pages and store</label>
+        <label className="sm strong">Only on these websites <small className="muted">(optional — leave empty to allow any)</small><input value={(w.sites || []).join(', ')} placeholder="mybusiness.in, shop.mybusiness.in" onChange={(e) => set('sites', e.target.value.split(/[\s,]+/).filter(Boolean))} /></label>
+        <div className="row"><button className="btn primary sm" disabled={busy} onClick={() => save({ title: w.title, color: w.color, greeting: w.greeting, position: w.position, ask: w.ask, whatsapp: w.whatsapp, pages: w.pages, sites: w.sites })}>Save</button></div>
+        <h5 className="cp-h5">Paste this on your website, before &lt;/body&gt;</h5>
+        <pre className="ag-learned" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{w.snippet}</pre>
+        <div className="row">
+          <button className="btn ghost sm" onClick={copy}><Icon name="copy" size={14} />Copy code</button>
+          <button className="btn ghost sm" onClick={tryIt} title={w.sites?.length ? 'Only works here if this site is in your list' : ''}><Icon name="chat" size={14} />Try it on this page</button>
+          <button className="link-btn" onClick={async () => { if (await confirmDialog({ title: 'Make a new code?', text: 'The code on your website stops working until you paste the new one.', confirm: 'Make new code' })) save({ reset: true }); }}>Make a new code</button>
+        </div>
+        <p className="hint">Works on any site — WordPress, Shopify, Wix, plain HTML. On WordPress, paste it with a “header & footer code” plugin.</p>
+      </>}
+    </Panel>
   );
 }
 function AgentPhone({ a, name, ai }) {

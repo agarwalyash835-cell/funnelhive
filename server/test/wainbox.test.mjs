@@ -233,10 +233,13 @@ test('the AI agent answers from the business knowledge, shares links, and hands 
   const call = ai.calls.findLast((x) => x.sys.includes('WhatsApp assistant'));
   assert.ok(!call.sys.includes('quick-reply options'), 'no buttons asked for');
   assert.match(call.sys, /never a numbered menu/);
-  // length: normal by default; short tells it 1–2 sentences
-  assert.equal(on.data.length, 'normal');
-  assert.match(call.sys, /2–4 sentences, under 550 characters/);
-  assert.equal((await api('/wa-agent', 'PUT', { length: 'essay' }, T)).data.length, 'normal', 'an unknown length falls back to normal');
+  // length: Auto by default — the AI sizes each reply to the message; a chosen length is kept and told as such
+  assert.equal(on.data.length, 'auto');
+  assert.deepEqual(on.data.lengths.map((l) => l.id), ['auto', 'short', 'normal', 'detailed'], 'Auto offered first');
+  assert.match(call.sys, /size each reply to the customer’s last message/);
+  assert.equal((await api('/wa-agent', 'PUT', { length: 'essay' }, T)).data.length, 'auto', 'an unknown length falls back to Auto');
+  assert.equal((await api('/wa-agent', 'PUT', { length: 'normal' }, T)).data.length, 'normal');
+  await api('/wa-agent', 'PUT', { length: 'auto' }, T);
   // language: by default it follows each customer's language; a fixed one is always used
   assert.equal(on.data.language, 'match');
   assert.match(call.sys, /if they switch language, switch with them/);
@@ -508,6 +511,12 @@ test('a reply longer than its length setting is cut back to its last full senten
   const one = fitReply('Our project manager will walk you through the sample flat and the actual tower floor', 40);
   assert.ok(one.endsWith('…') && one.length <= 41 && !/\s…$/.test(one), one);
   assert.ok(AGENT_LENGTHS.short.cap < AGENT_LENGTHS.normal.cap && AGENT_LENGTHS.normal.cap < AGENT_LENGTHS.detailed.cap);
+  // Auto: a short customer message keeps the reply to normal length; a long question may get a fuller answer
+  const { replyCap } = await import('../wainbox.js');
+  assert.equal(replyCap('auto', 'You (assistant): Hi! How can I help?\nCustomer: price?'), AGENT_LENGTHS.normal.cap);
+  assert.equal(replyCap('auto', 'Customer: Can you explain how the home loan works with the builder subvention plan and what I pay before possession?'), AGENT_LENGTHS.auto.cap);
+  assert.equal(replyCap('short', 'Customer: Can you explain the whole loan process in detail please, step by step?'), AGENT_LENGTHS.short.cap, 'a chosen length always wins');
+  assert.equal(replyCap('nope', ''), AGENT_LENGTHS.auto.cap);
 });
 
 test('chatbot steps "AI reply" (answers once, then carries on; unsure → its own path or a person) and "Jump to step"', async () => {
