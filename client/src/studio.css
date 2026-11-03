@@ -160,3 +160,21 @@
 .sx-ideas button { border: 1px dashed var(--c-line-strong, var(--c-line)); background: none; border-radius: 99px; padding: 5px 11px; font-size: 12.5px; color: var(--c-ink-2); text-align: left; }
 .sx-ideas button:hover { border-style: solid; border-color: var(--c-ink-2); background: var(--c-surface-2); }
 .sx-eta { color: var(--c-ink-2); }
+
+/* what Studio remembers about the seller (StudioMemory.jsx) */
+.sxm { display: flex; flex-direction: column; gap: 16px; }
+.sxm-sec { display: flex; flex-direction: column; gap: 8px; }
+.sxm-sec h4 { margin: 0; font-size: 14px; }
+.sxm .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sxm .row input:not([type=color]) { flex: 1; min-width: 140px; }
+.sxm .row label { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.sxm-items { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.sxm-item { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--c-line); background: var(--c-surface); border-radius: 99px; padding: 4px 6px 4px 11px; font-size: 13px; color: var(--c-ink-2); max-width: 100%; }
+.sxm-item > button { border: 0; background: none; padding: 2px; border-radius: 99px; color: var(--c-muted); display: inline-flex; }
+.sxm-item > button:hover { background: var(--c-surface-2); color: var(--c-ink); }
+.sxm-item input[type=color] { width: 26px; height: 22px; padding: 0; border: 0; background: none; }
+.sxm-swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--c-line); display: inline-block; }
+.sxm-who { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--c-line); }
+.sxm-who span { color: var(--c-ink-2); }
+.sxm-foot { border-top: 1px solid var(--c-line); padding-top: 12px; }
+.sxm-foot .grow { flex: 1; }

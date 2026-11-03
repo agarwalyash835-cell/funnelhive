@@ -20,6 +20,7 @@ import { render, dims, stillMotion, moveFor, cardLayout } from './assemble.js';
 import { makeMusic, MUSIC_MODEL } from './music.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
+import { memoryOf, memoryPrompt, withPrefs, withCharacters } from './memory.js';
 
 export const LENGTHS = [15, 30, 45];
 export const CAPTION_IDS = Object.keys(CAPTION_STYLES);
@@ -44,9 +45,9 @@ export function cleanScript(s) {
 export const wordBudget = (seconds) => Math.max(12, Math.round((seconds - 3) * 2.4));
 export const wordCount = (script) => (script.lines || []).join(' ').split(/\s+/).filter(Boolean).length;
 const parseScript = (text) => { try { return cleanScript(JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))); } catch { return { error: 'not JSON' }; } };
-export async function writeScript({ brief, lang, seconds, business, aspect = '9:16' }) {
+export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null }) {
   const budget = wordBudget(seconds);
-  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.`;
+  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(memoryOf(userId), business) : ''}`;
   let c = parseScript(await askAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
   // too long for the length asked (a 15-second Reel that runs 22 seconds): ask once to tighten it
@@ -61,11 +62,12 @@ export async function writeScript({ brief, lang, seconds, business, aspect = '9:
 // ---------- start, approve ----------
 export const REEL_ASPECTS = ['9:16', '16:9', '1:1', '4:5'];
 export function newReel(userId, o) {
+  o = withPrefs(userId, o); // what the seller didn't choose: their usual (memory.js)
   return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken
 export function approveReel(r, script) {
-  const shots = script.shots.map((s) => ({ ...s, imageId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, prompt: s.image, aspect: r.aspect, ref: r.ref, reelId: r.id, by: r.by }).id, clipId: null }));
+  const shots = script.shots.map((s) => ({ ...s, imageId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, prompt: withCharacters(r.userId, s.image), aspect: r.aspect, ref: r.ref, reelId: r.id, by: r.by }).id, clipId: null }));
   return T.studio.update(r.id, (x) => { x.script = script; x.shots = shots; x.lines = script.lines.map((text) => ({ text, url: null, tries: 0, check: null })); x.status = 'producing'; x.approvedAt = Date.now(); delete x.error; });
 }
 
