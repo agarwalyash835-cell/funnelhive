@@ -1001,16 +1001,18 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
       seen.set(sig, { n: 1, ok: true, summary });
       return { out: { waitingForUser: true, note: 'NOT done yet: a card with Confirm / Cancel shows under your reply and turns into the result once the seller presses it. Say in one line what it will do (“This adds the godown Test Shelf.”) — don’t write that it’s waiting, don’t tell them to press Confirm, and don’t claim it’s done (your text stays on screen after they confirm). Do not call this tool again for it.' }, ok: true, summary: null };
     }
-    let out, ok = true, summary;
+    let out, ok = true, summary, images;
     try {
       out = await runTool(ctx, c.name, args);
       summary = t.summary ? t.summary(out, args) : `Ran ${c.name}`;
+      images = t.images?.(out); // pictures the chat shows under the step (a Studio storyboard)
       const fid = t.touchesResult ? out?.id : t.touches ? args[t.touches] : null;
       if (fid) focus = fid;
     } catch (e) { ok = false; out = { error: e.message }; summary = `${c.name.replace(/_/g, ' ')} failed: ${e.message}`; }
     seen.set(sig, { n: (prev?.n || 0) + 1, ok, summary });
-    done.push({ name: c.name, ok, summary });
-    emit({ type: 'tool', status: ok ? 'done' : 'error', id: c.call_id, name: c.name, summary, funnelId: focus });
+    const pics = images?.length ? { images } : {};
+    done.push({ name: c.name, ok, summary, ...pics });
+    emit({ type: 'tool', status: ok ? 'done' : 'error', id: c.call_id, name: c.name, summary, funnelId: focus, ...pics });
     return { out, ok, summary };
   };
 
@@ -1265,22 +1267,23 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     let p = null;
     T.hive.update(t0.id, (t) => { const i = (t.pending || []).findIndex((x) => x.id === pid); if (i >= 0) [p] = t.pending.splice(i, 1); }); // claimed once, even on a double click
     if (!p || Date.now() - p.at > PENDING_TTL) return res.status(404).json({ error: 'This action was already handled or has expired — ask Hive again' });
-    let ok = true, summary, funnelId = null;
+    let ok = true, summary, funnelId = null, images;
     if (cancel) summary = `Cancelled: ${p.label}`;
     else {
       const tool = byName[p.name];
       try {
         const out = await runTool(ctxFor(req.user, appUrl(req), req.actor), p.name, p.args);
         summary = tool.summary ? tool.summary(out, p.args) : `Done: ${p.label}`;
+        images = tool.images?.(out);
         funnelId = tool.touchesResult ? out?.id : tool.touches ? p.args[tool.touches] : null;
       } catch (e) { ok = false; summary = `${p.label} failed: ${e.message}`; }
     }
     T.hive.update(t0.id, (t) => {
-      for (const m of t.messages) for (const x of m.tools || []) if (x.pending === pid) { x.resolved = cancel ? 'cancelled' : ok ? 'done' : 'error'; x.summary = summary; x.ok = ok; }
+      for (const m of t.messages) for (const x of m.tools || []) if (x.pending === pid) { x.resolved = cancel ? 'cancelled' : ok ? 'done' : 'error'; x.summary = summary; x.ok = ok; if (images?.length) x.images = images; }
       t.messages.push({ role: 'assistant', text: summary, ...(ok ? {} : { error: true }), at: Date.now() }); // so Hive knows in the next turn
       t.updatedAt = Date.now();
     });
-    res.json({ ok, cancelled: cancel, summary, funnelId });
+    res.json({ ok, cancelled: cancel, summary, funnelId, ...(images?.length ? { images } : {}) });
   });
 
   // ---- personal access tokens for MCP clients ----

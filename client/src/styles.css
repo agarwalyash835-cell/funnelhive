@@ -2183,6 +2183,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .hv-tools li { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--c-line-2); background: var(--c-surface-2); font-size: 13px; }
 .hv-tools li.running { border-color: color-mix(in srgb, var(--c-honey) 55%, var(--c-line)); background: color-mix(in srgb, var(--c-honey) 7%, var(--c-surface)); color: var(--c-ink); }
 .hv-tools li.confirm { border-color: color-mix(in srgb, var(--c-honey) 60%, var(--c-line)); background: color-mix(in srgb, var(--c-honey) 10%, var(--c-surface)); }
+/* a step's pictures (a Studio storyboard): thumbnails under the step, each opens large */
+.hv-tools li.has-pics { flex-wrap: wrap; }
+.hv-strip { flex-basis: 100%; display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 2px; }
+.hv-strip > button { flex: none; display: grid; gap: 4px; width: 84px; padding: 0; border: 0; background: none; cursor: zoom-in; text-align: left; font-size: 11px; font-weight: 600; color: var(--c-ink-2); }
+.hv-strip img { width: 84px; height: 112px; object-fit: cover; border-radius: 8px; border: 1px solid var(--c-line-2); background: var(--c-surface); }
+.hv-strip > button:hover img { border-color: var(--c-honey); }
 .hv-typing { padding: 6px 0; }
 /* composer */
 .hv-dock { padding: 10px 20px 18px; }

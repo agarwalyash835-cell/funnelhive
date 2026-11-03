@@ -42,6 +42,7 @@ const DOING = {
   create_automation: 'Writing your follow-ups', update_automation: 'Updating the automation', find_contacts: 'Finding contacts', tag_contacts: 'Tagging contacts', draft_broadcast: 'Drafting your broadcast',
   configure_calendar: 'Setting up your calendar', configure_webinar: 'Setting up your webinar', create_quote: 'Preparing your quote', create_course: 'Writing your course', add_quiz: 'Writing the quiz',
   setup_crm: 'Setting up your CRM', create_pipeline: 'Creating your pipeline', connect_domain: 'Connecting your domain', run_app_action: 'Working in your ads account', find_app_actions: 'Checking your ads account',
+  studio_make_reel: 'Writing your Reel', studio_storyboard: 'Drawing up the storyboard', studio_change_scene: 'Changing the scene', studio_animate: 'Bringing the scenes to life',
 };
 const LONG = new Set(['create_funnel', 'create_website', 'create_course', 'generate_image']);
 const MAGIC = ['Working the magic ✨', 'Genie under way 🧞', 'Brewing something good ☕', 'Polishing the pixels', 'Teaching your page to sell', 'Lining up the details', 'Sprinkling some conversion dust', 'Almost there…'];
@@ -72,11 +73,24 @@ function ReplyActions({ m, canUndo, onRate, onUndo, busy }) {
   );
 }
 
+// pictures a step brought back (a Studio storyboard): a strip of thumbnails, each opens large
+function SceneStrip({ images }) {
+  const [big, setBig] = useState(null);
+  useEffect(() => { if (big == null) return undefined; const key = (e) => { if (e.key === 'Escape') setBig(null); }; document.addEventListener('keydown', key); return () => document.removeEventListener('keydown', key); }, [big]);
+  const x = images[big];
+  return (
+    <div className="hv-strip">
+      {images.map((m, i) => <button key={m.url} type="button" title={m.caption || m.label} aria-label={`Open ${m.label || `picture ${i + 1}`}`} onClick={() => setBig(i)}><img src={m.url} alt="" loading="lazy" /><span>{m.label}</span></button>)}
+      {x && <div className="lightbox" role="dialog" aria-modal="true" onClick={() => setBig(null)}><figure><img src={x.url} alt={x.caption || x.label || ''} /><figcaption>{x.label}{x.caption ? ` — “${x.caption}”` : ''}</figcaption></figure></div>}
+    </div>
+  );
+}
+
 // an action Hive proposed that waits for the seller (sending, publishing, deleting…): Confirm / Cancel
 const waiting = (t) => t.pending && !t.resolved;
 const ToolChips = ({ tools, onDecide, deciding }) => (tools?.length ? (
   <ul className="hv-tools">{tools.map((t, i) => (
-    <li key={t.id || i} className={waiting(t) ? 'confirm' : t.resolved === 'cancelled' ? 'cancelled' : t.status === 'confirm' ? 'confirm' : t.status || (t.ok === false ? 'error' : 'done')}>
+    <li key={t.id || i} className={`${waiting(t) ? 'confirm' : t.resolved === 'cancelled' ? 'cancelled' : t.status === 'confirm' ? 'confirm' : t.status || (t.ok === false ? 'error' : 'done')}${t.images?.length ? ' has-pics' : ''}`}>
       {t.status === 'running' ? <Loader2 size={13} className="spin-i" /> : t.ok === false || t.status === 'error' || t.resolved === 'cancelled' ? <X size={13} /> : waiting(t) ? <Square size={13} /> : <Check size={13} />}
       <span>{t.summary || (t.status === 'running' && DOING[t.name] ? `${DOING[t.name]}…` : t.label || t.name)}</span>
       {waiting(t) && onDecide && (
@@ -85,6 +99,7 @@ const ToolChips = ({ tools, onDecide, deciding }) => (tools?.length ? (
           <button className="btn sm" disabled={deciding === t.pending} onClick={() => onDecide(t.pending, false)}>Cancel</button>
         </span>
       )}
+      {t.images?.length > 0 && <SceneStrip images={t.images} />}
     </li>
   ))}</ul>
 ) : null);
@@ -134,7 +149,7 @@ export default function Hive() {
     setDeciding(pendingId);
     try {
       const r = await api(`/hive/threads/${tid}/confirm`, 'POST', { pendingId, ok });
-      setMsgs((m) => [...m.map((x) => (x.tools ? { ...x, tools: x.tools.map((t) => (t.pending === pendingId ? { ...t, resolved: r.cancelled ? 'cancelled' : r.ok ? 'done' : 'error', summary: r.summary, ok: r.ok } : t)) } : x)), { role: 'assistant', text: r.summary, error: !r.ok, at: Date.now() }]);
+      setMsgs((m) => [...m.map((x) => (x.tools ? { ...x, tools: x.tools.map((t) => (t.pending === pendingId ? { ...t, resolved: r.cancelled ? 'cancelled' : r.ok ? 'done' : 'error', summary: r.summary, ok: r.ok, ...(r.images ? { images: r.images } : {}) } : t)) } : x)), { role: 'assistant', text: r.summary, error: !r.ok, at: Date.now() }]);
       if (r.funnelId && r.funnelId !== funnelId) setFunnelId(r.funnelId); else loadFunnel(funnelId);
     } catch (e) { toast(e.message); }
     setDeciding(null);

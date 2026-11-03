@@ -1,6 +1,7 @@
 // Studio → the Reel editor (server studio/reels.js), full screen:
 //   top     the steps (Script → Shots → Voiceover → Edit → Done), what's happening, and the next action
-//   left    the storyboard: each scene's picture or clip, the line spoken over it, its check — editable before approval
+//   left    the storyboard: each scene's picture or clip, the line spoken over it, its check — editable before approval;
+//           storyboard first: the pictures are made, then each scene can be changed, moved or dropped before animating
 //   middle  a phone-sized preview: the finished video in each size, or the selected scene with its caption style
 //   right   voice (with samples), caption style (visual), sizes and the closing card
 import { useEffect, useRef, useState } from 'react';
@@ -19,6 +20,7 @@ function stepsOf(r) {
   const voiceDone = r.lines?.length && r.lines.every((l) => l.url);
   const st = { Script: r.status === 'script_ready' ? 'now' : 'done' };
   if (r.status === 'script_ready') return st;
+  if (r.storyboard && r.status !== 'failed') return { ...st, Shots: 'now', Voiceover: voiceDone ? 'done' : 'now' };
   st.Shots = shotsDone ? 'done' : 'now';
   st.Voiceover = voiceDone ? 'done' : 'now';
   if (r.status === 'editing') { st.Edit = 'now'; }
@@ -29,7 +31,7 @@ function stepsOf(r) {
   }
   return st;
 }
-const STATUS_LINE = { script_ready: 'Check the script and storyboard, then approve — nothing is made until you do.', producing: 'Making the shots and recording the voiceover. Each is checked as it’s made.', editing: 'Putting it together: clips, voiceover, captions, logo and the closing card.', ready: 'Ready to download or put in an ad.', needs_review: 'Ready — but something needs a look (below).', failed: 'Stopped part-way — retry to finish only what’s missing.' };
+const STATUS_LINE = { script_ready: 'Check the script and storyboard, then approve — nothing is made until you do.', storyboard: 'Drawing the storyboard: a picture for each scene, about a minute. The voiceover is recorded meanwhile.', storyboard_ready: 'Your storyboard: change, move or drop any scene, then animate it.', producing: 'Making the shots and recording the voiceover. Each is checked as it’s made.', editing: 'Putting it together: clips, voiceover, captions, logo and the closing card.', ready: 'Ready to download or put in an ad.', needs_review: 'Ready — but something needs a look (below).', failed: 'Stopped part-way — retry to finish only what’s missing.' };
 
 function CapDemo({ id, text }) {
   const w = String(text || 'Only ₹499 today').split(/\s+/).slice(0, 4);
@@ -74,6 +76,9 @@ export function ReelEditor({ r, d, onClose, onChange }) {
   const choices = [...resOpts.map((x) => `story:${x}`), ...resOpts, 'photo'];
   const labelOf = (x) => (x === 'photo' ? 'Photo motion' : x.startsWith('story:') ? `Storyline ${resOf(x)}` : `AI video ${x}`);
   const perSec = (x) => (vm?.per5s?.[x] ?? tier?.clipCreditsPer5s?.[x] ?? 0) / 5;
+  // storyboard first: only the pictures (and the voiceover) now; the clips are priced and made after the scenes are right
+  const [board, setBoard] = useState(true);
+  const boardAt = (x) => (x === 'photo' ? est.video?.storyboard : x.startsWith('story:') ? est.story?.storyboard : est.video?.storyboard) ?? '…';
   const costAt = (x) => (x === 'photo' ? est.video?.photo : x.startsWith('story:') ? est.story?.byRes?.[resOf(x)] : est.video?.byRes?.[x]) ?? '…';
   // a Reel that stopped: only what's missing is made again — the failed stills and clips, and clips not started yet
   const retryCost = (r.shots || []).reduce((t, x, i) => t + (x.image?.status === 'failed' ? x.image.redoCredits || 0 : 0) + (x.clip ? (x.clip.status === 'failed' ? x.clip.redoCredits || 0 : 0) : res === 'photo' ? 0 : Math.ceil(perSec(resOf(res)) * (s.shots[i]?.seconds || 5))), 0);
@@ -113,11 +118,22 @@ export function ReelEditor({ r, d, onClose, onChange }) {
   };
   const noteChange = (a) => (a.type === 'redo_shot' ? `New shot: ${a.note}` : a.type === 'reword_line' ? `Say: “${a.text}”` : a.type === 'end_card' ? `Card: ${[a.endCard.headline, a.endCard.offer, a.endCard.cta].filter(Boolean).join(' · ')}` : a.type === 'captions' ? `Captions: ${d.captionStyles?.find((c) => c.id === a.style)?.name || a.style}` : '');
   const approve = async () => {
+    if (board) {
+      if (!(await confirmDialog({ title: `Make the storyboard? · about ${boardAt(res)} credits`, text: `A picture for each of the ${s.shots.length} scene${s.shots.length === 1 ? '' : 's'}${res.startsWith('story:') ? ' (an opening and a closing one each)' : ''} and the voiceover — about ${boardAt(res)} credits, ready in about a minute. Then change, move or drop any scene, and animate it when it’s right (about ${typeof costAt(res) === 'number' && typeof boardAt(res) === 'number' ? costAt(res) - boardAt(res) : '…'} credits more, asked then).`, confirm: `Make the storyboard · ${boardAt(res)} credits` }))) return;
+      return act(() => api(`/studio/reels/${r.id}/approve`, 'POST', { script: s, storyboard: true, motion: motionOf(res), vmodel, ...(res === 'photo' ? {} : { res: resOf(res) }) }), 'Drawing your storyboard — about a minute');
+    }
     const label = (x) => labelOf(x).toLowerCase();
     const other = choices.filter((x) => x !== res).map((x) => `${label(x)}: about ${costAt(x)} credits`).join(' · ');
     if (!(await confirmDialog({ title: `Make this Reel? · about ${costAt(res)} credits`, text: `${s.shots.length} shot${s.shots.length === 1 ? '' : 's'} ${res === 'photo' ? 'as stills with a smooth zoom or pan' : res.startsWith('story:') ? `as a storyline (an opening and a closing still each, animated between them) at ${resOf(res)}` : `at ${res}`} and ${s.lines.length} voiceover line${s.lines.length === 1 ? '' : 's'} will be made, checked and edited together — about ${costAt(res)} credits.${other ? ` (${other}.)` : ''} A shot that fails its check isn't redone on its own: you'll see it and decide. Below 720p is sharpened up to 720p for free. This takes several minutes.`, confirm: `Make it · ${costAt(res)} credits` }))) return;
     act(() => api(`/studio/reels/${r.id}/approve`, 'POST', { script: s, motion: motionOf(res), vmodel, ...(res === 'photo' ? {} : { res: resOf(res) }) }), 'Making your Reel — you can close this, it carries on');
   };
+  // the storyboard: one scene changed at a time (a new picture costs credits; words, order and dropping are free)
+  const boarding = r.status === 'storyboard_ready';
+  const scene$ = (b, msg) => act(() => api(`/studio/reels/${r.id}/storyboard-scene`, 'POST', b), msg);
+  const changePic = async (i, part = 'start') => { const c = r.sceneCredits?.[part] ?? '?'; const note = await promptDialog({ title: `Change scene ${i + 1}’s picture · about ${c} credits`, text: `Say what should be different — it’s made again with your note${r.motion === 'story' && part === 'start' ? ', and its closing picture after it' : ''}. About ${c} credits.`, label: 'Change', value: '', confirm: `Make it again · ${c} credits` }); if (note) scene$({ i, note, part }, 'Making that picture again — about a minute'); };
+  const rewordScene = async (i) => { const text = await promptDialog({ title: `Scene ${i + 1}`, label: 'New words', value: s.lines[i] || '' }); if (text && text !== s.lines[i]) scene$({ i, text }, 'Recording that line again'); };
+  const dropBoard = async (i) => { if (await confirmDialog({ title: `Drop scene ${i + 1}?`, text: 'Its picture and its line are left out of the Reel.', confirm: 'Drop scene' })) scene$({ i, drop: true }); };
+  const animate = async () => { const c = r.cost?.animate ?? '…'; if (await confirmDialog({ title: `Animate the storyboard? · about ${c} credits`, text: `Each scene’s picture becomes ${r.motion === 'photo' ? 'a smooth zoom or pan' : `a clip at ${r.res}`}, in order, then it’s edited with the voiceover, captions, music and the closing card — about ${c} credits. A clip that fails its check isn’t redone on its own: you’ll see it and decide. This takes several minutes.`, confirm: `Animate · ${c} credits` })) act(() => api(`/studio/reels/${r.id}/animate`, 'POST', {}), 'Bringing your scenes to life — you can close this, it carries on'); };
   const play = (v) => {
     if (playing === v.id) { audio.current?.pause(); return setPlaying(null); }
     audio.current?.pause();
@@ -139,7 +155,8 @@ export function ReelEditor({ r, d, onClose, onChange }) {
         <div><h2>{s.title}</h2><small>{r.seconds}s · {d.languages?.find((x) => x.id === r.lang)?.name || r.lang} · {d.tiers.find((t) => t.id === r.tier)?.name}</small></div>
         <nav className="sxr-stepper" aria-label="Progress">{STEPS.map((k, i) => <span key={k} className={`sxr-step ${st[k] || ''}`}><b>{st[k] === 'done' ? '✓' : st[k] === 'stop' ? '!' : i + 1}</b>{k}</span>)}</nav>
         <div className="row">
-          {editing && <><button className="btn ghost" disabled={busy || !dirty} onClick={() => act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s }), 'Saved')}>Save</button>{vms.length > 1 && <label className="sx-pill" title={vm?.note}><span className="lbl">Model</span>{vm?.name}<select value={vm?.id} onChange={(e) => setVmodel(e.target.value)}>{vms.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note}</option>)}</select></label>}<label className="sx-pill" title="Storyline: an opening and a closing still per scene, animated from one to the other — the scene tells its moment. AI video: animated from the opening still. Photo motion: a zoom or pan over each still, far cheaper. Below 720p is sharpened up to 720p for free"><span className="lbl">Video</span>{labelOf(res)}<select value={res} onChange={(e) => setRes(e.target.value)}>{choices.map((x) => <option key={x} value={x}>{labelOf(x)} · about {costAt(x)} credits</option>)}</select></label><button className="btn primary" disabled={busy} onClick={approve}><Icon name="play" size={14} /> Approve and make · {costAt(res)} credits</button></>}
+          {editing && <><button className="btn ghost" disabled={busy || !dirty} onClick={() => act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s }), 'Saved')}>Save</button>{vms.length > 1 && <label className="sx-pill" title={vm?.note}><span className="lbl">Model</span>{vm?.name}<select value={vm?.id} onChange={(e) => setVmodel(e.target.value)}>{vms.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note}</option>)}</select></label>}<label className="sx-pill" title="Storyline: an opening and a closing still per scene, animated from one to the other — the scene tells its moment. AI video: animated from the opening still. Photo motion: a zoom or pan over each still, far cheaper. Below 720p is sharpened up to 720p for free"><span className="lbl">Video</span>{labelOf(res)}<select value={res} onChange={(e) => setRes(e.target.value)}>{choices.map((x) => <option key={x} value={x}>{labelOf(x)} · about {costAt(x)} credits</option>)}</select></label><label className="sx-pill" title="See every scene’s picture first (about a minute), change any of them, then animate — the clips are paid for only then"><input type="checkbox" checked={board} onChange={(e) => setBoard(e.target.checked)} /> Storyboard first</label><button className="btn primary" disabled={busy} onClick={approve}><Icon name="play" size={14} /> {board ? `Make the storyboard · ${boardAt(res)} credits` : `Approve and make · ${costAt(res)} credits`}</button></>}
+          {boarding && <button className="btn primary" disabled={busy} onClick={animate}><Icon name="play" size={14} /> Animate · {r.cost?.animate ?? '…'} credits</button>}
           {r.status === 'failed' && <button className="btn primary" disabled={busy} onClick={async () => { if (await confirmDialog({ title: `Carry on? · about ${retryCost} credits`, text: `Only what's missing is made again — about ${retryCost} credits. Nothing that worked is made again.`, confirm: `Carry on · ${retryCost} credits` })) act(() => api(`/studio/reels/${r.id}/retry`, 'POST'), 'Carrying on from where it stopped'); }}><Icon name="redo" size={14} /> Retry · {retryCost} credits</button>}
           {made && r.outputs?.[size] && <><a className="btn primary" href={r.outputs[size]} download><Icon name="download" size={14} /> Download {size}</a><button className="btn ghost" onClick={() => { navigator.clipboard?.writeText(r.links?.[size] || ''); toast('Link copied — paste it in your ad, or ask Hive to put it in an ad'); }}><Icon name="link" size={14} /> Link for ads</button></>}
         </div>
@@ -148,7 +165,7 @@ export function ReelEditor({ r, d, onClose, onChange }) {
       <div className="sxr-body">
         <section className="sxr-col" aria-label="Storyboard">
           <h4>Storyboard · {n} scene{n === 1 ? '' : 's'}</h4>
-          <p className="sx-hint" style={{ margin: 0 }}>{STATUS_LINE[r.status]}</p>
+          <p className="sx-hint" style={{ margin: 0 }}>{STATUS_LINE[r.storyboard && r.status === 'producing' ? 'storyboard' : r.status]}</p>
           {r.status === 'failed' && <div className="sxr-note bad"><b>{r.error || 'It stopped part-way.'}</b><span>Retry finishes only what’s missing — nothing that worked is made again.</span></div>}
           {r.status === 'needs_review' && r.issues?.length > 0 && <div className="sxr-note"><b>Have a look at:</b><ul>{r.issues.map((x) => <li key={x}>{x}</li>)}</ul></div>}
           {made && r.reviewing && <div className="sxr-notes"><h4>Editor’s notes</h4><p className="sx-hint" style={{ margin: 0 }}><span className="spin dark" /> Watching the finished video…</p></div>}
@@ -194,6 +211,14 @@ export function ReelEditor({ r, d, onClose, onChange }) {
                       {c.made?.clip?.issues?.length > 0 && <span className="sxr-check warn">⚠ {c.made.clip.issues.join('; ')}</span>}
                     </div>
                     {c.voice?.url && <audio src={c.voice.url} controls preload="none" />}
+                    {c.made?.end && !c.made.clip?.url && <div className="row" style={{ alignItems: 'center', gap: 6 }}><small className="muted">Ends on</small>{c.made.end.url ? <img src={c.made.end.url} alt={`Scene ${i + 1}, the end`} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6 }} /> : <span className="spin dark" />}</div>}
+                    {boarding && <div className="row" style={{ flexWrap: 'wrap' }}>
+                      {c.made && <button className="btn ghost sm" disabled={busy} onClick={(e) => { e.stopPropagation(); changePic(i); }}><Icon name="wand" size={13} /> Change · {r.sceneCredits?.start}</button>}
+                      {c.made?.end && <button className="btn ghost sm" disabled={busy} onClick={(e) => { e.stopPropagation(); changePic(i, 'end'); }}>Change the end · {r.sceneCredits?.end}</button>}
+                      {c.line != null && <button className="btn ghost sm" disabled={busy} onClick={(e) => { e.stopPropagation(); rewordScene(i); }}><Icon name="edit" size={13} /> Reword</button>}
+                      {c.made && <><button className="btn ghost sm" aria-label={`Move scene ${i + 1} up`} disabled={busy || i === 0} onClick={(e) => { e.stopPropagation(); scene$({ i, to: i - 1 }); }}>↑</button><button className="btn ghost sm" aria-label={`Move scene ${i + 1} down`} disabled={busy || i >= (r.shots?.length || 0) - 1} onClick={(e) => { e.stopPropagation(); scene$({ i, to: i + 1 }); }}>↓</button></>}
+                      {n > 1 && <button className="btn ghost sm" disabled={busy} onClick={(e) => { e.stopPropagation(); dropBoard(i); }}><Icon name="trash" size={13} /> Drop</button>}
+                    </div>}
                     {made && <div className="row">{c.shot && <button className="btn ghost sm" disabled={busy} onClick={() => redoShot(i)}><Icon name="redo" size={13} /> Redo shot</button>}<button className="btn ghost sm" disabled={busy} onClick={() => reword(i)}><Icon name="edit" size={13} /> Reword</button></div>}
                   </>}
                 </div>
