@@ -62,7 +62,29 @@ export function cleanCalendar(b = {}, cur = {}) {
   if ('interval' in b || !cur.id) out.interval = [0, 10, 15, 20, 30, 60].includes(Number(b.interval)) ? Number(b.interval) : cur.interval ?? 0;
   if ('questions' in b || !cur.id) out.questions = (Array.isArray(b.questions) ? b.questions : cur.questions || []).filter((q) => q && clip(q.label, 200)).slice(0, 10).map((q) => ({ id: clip(q.id, 20) || uid().slice(0, 8), label: clip(q.label, 200), type: ['text', 'long', 'phone', 'select'].includes(q.type) ? q.type : 'text', required: !!q.required, ...(/^[\w-]{1,20}$/.test(q.fieldId || '') ? { fieldId: q.fieldId } : {}), ...(q.type === 'select' ? { options: (Array.isArray(q.options) ? q.options : String(q.options || '').split(',')).map((o) => clip(o, 80)).filter(Boolean).slice(0, 12) } : {}) }));
   if ('blocked' in b || !cur.id) out.blocked = (Array.isArray(b.blocked) ? b.blocked : cur.blocked || []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 365);
+  // a group session (a demo class, a batch, a webinar-style call): this many people can book the same start time
+  if ('seats' in b || !cur.id) out.seats = intIn(b.seats, 1, 500, cur.seats ?? 1);
   return out;
+}
+// times the seller blocked on the calendar view (lunch, leave, an outside meeting) — for one call type or all of them;
+// kept on the seller (u.bookingBlocks), the past ones dropped as new ones are added
+const BLOCKS_MAX = 300;
+export const blocksOf = (userId, calId) => (T.users.get(userId)?.bookingBlocks || []).filter((x) => !x.calendarId || !calId || x.calendarId === calId);
+const seatsOf = (cal) => cal.seats || 1;
+// a group session's offered start times with the seats still free: { seats, left: { [start]: n } } (nothing for 1-seat calls)
+function seatInfo(cal, slots) {
+  const seats = seatsOf(cal);
+  if (seats < 2 || !slots.length) return {};
+  const n = {};
+  for (const b of T.bookings.all({ calendarId: cal.id, status: ['confirmed', 'held'], start: { gte: slots[0], lte: slots.at(-1) } })) if (b.status === 'confirmed' || b.holdUntil > Date.now()) n[b.start] = (n[b.start] || 0) + 1;
+  return { seats, left: Object.fromEntries(slots.map((x) => [x, seats - (n[x] || 0)])) };
+}
+// a booking's time against the others on its calendar: a 1-seat call can't overlap one (with the buffer); a group session
+// takes more people at the same start until it's full, and nothing else overlapping
+function clashes(cal, taken, s, e) {
+  const buf = cal.buffer * MIN, seats = seatsOf(cal);
+  if (seats > 1 && taken.filter((b) => b.start === s).length >= seats) return true;
+  return taken.some((b) => (seats > 1 ? b.start !== s : true) && s < b.end + buf && e > b.start - buf);
 }
 export const calendarsOf = (userId) => T.calendars.all({ userId }, { order: 'at' });
 const slugify = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'call';
@@ -110,7 +132,8 @@ export function freeSlots(cal, from = Date.now(), now = Date.now(), dur = cal.du
   const until = now + cal.daysAhead * DAY;
   // taken: confirmed bookings, slots held while someone pays, and busy times in the seller's Google Calendar
   const taken = T.bookings.all({ calendarId: cal.id, status: ['confirmed', 'held'], start: { gte: from - DAY, lte: until + DAY } }).filter((b) => b.id !== ignore && (b.status === 'confirmed' || b.holdUntil > now));
-  const busy = taken.map((b) => [b.start - cal.buffer * MIN, b.end + cal.buffer * MIN]).concat(cachedBusy(cal.userId).map(([a, b]) => [a - cal.buffer * MIN, b + cal.buffer * MIN]));
+  // busy (besides the bookings themselves): Google Calendar, with the buffer, and the times the seller blocked
+  const busy = cachedBusy(cal.userId).map(([a, b]) => [a - cal.buffer * MIN, b + cal.buffer * MIN]).concat(blocksOf(cal.userId, cal.id).map((x) => [x.start, x.end]));
   const perDayCount = {};
   for (const b of taken) perDayCount[localYmd(tz, b.start)] = (perDayCount[localYmd(tz, b.start)] || 0) + 1;
   const out = [];
@@ -126,7 +149,7 @@ export function freeSlots(cal, from = Date.now(), now = Date.now(), dur = cal.du
       for (let m = toMin(a); m + dur <= toMin(b); m += step) {
         const s = zoned(tz, key, m), e = s + dur * MIN;
         if (s < earliest || s > until) continue;
-        if (busy.some(([bs, be]) => s < be && e > bs)) continue;
+        if (clashes(cal, taken, s, e) || busy.some(([bs, be]) => s < be && e > bs)) continue;
         if (cal.perDay && (perDayCount[key] || 0) + today >= cal.perDay) break;
         out.push(s);
       }
@@ -174,13 +197,20 @@ function notifyBuyer(b, kind, base) {
 const outBooking = (b, cal) => ({ id: b.id, start: b.start, end: b.end, minutes: Math.round((b.end - b.start) / MIN), status: b.status, name: b.name, email: b.email, phone: b.phone, notes: b.notes || '', answers: b.answers || null, outcome: b.outcome || null, source: b.source || null, calendar: cal ? { id: cal.id, name: cal.name, duration: cal.duration, meetingLink: cal.meetingLink || b.meetLink || '', location: cal.location || '', tzOffset: offsetAt(calTz(cal)), timezone: calTz(cal), price: cal.price || 0, currency: cal.currency || 'INR', refundHours: cal.refundHours ?? 24 } : null, funnelId: b.funnelId, at: b.at, cancelledBy: b.cancelledBy || null, paid: b.paid ? b.amount || true : null, orderId: b.orderId || null, refunded: !!b.refunded, unpaid: !!b.unpaid, google: !!b.gEventId });
 
 // A booking (or reschedule) for one slot; refuses a slot that isn't free — checked inside one transaction
-export function book(cal, { start, email, name, phone, notes, funnelId = null, stepId = null, base = '', leadId = null, replaces = null, attr, hold = false, carry = null, unpaid = false, duration, answers, source }) {
+// anytime: the seller books (or moves) someone outside the calendar's hours — from the calendar view; it still can't
+// clash with another booking, a group session that's full, or a time they blocked
+export function book(cal, { start, email, name, phone, notes, funnelId = null, stepId = null, base = '', leadId = null, replaces = null, attr, hold = false, carry = null, unpaid = false, duration, answers, source, anytime = false }) {
   const s = Number(start), dur = lengthOf(cal, duration);
   const ans = answers && typeof answers === 'object' && !Array.isArray(answers) ? answers : null;
   const cleanEmail = clip(email, 200).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return { error: 'Please enter a valid email address' };
+  if (anytime && !(Number.isFinite(s) && s > Date.now() - 5 * MIN && s % (5 * MIN) === 0)) return { error: 'Pick a time from now on' };
   const b = tx(() => {
-    const ok = freeSlots(cal, s - DAY, Date.now(), dur, replaces).includes(s);
+    const free = () => {
+      const taken = T.bookings.all({ calendarId: cal.id, status: ['confirmed', 'held'], start: { gte: s - DAY, lte: s + DAY } }).filter((x) => x.id !== replaces && (x.status === 'confirmed' || x.holdUntil > Date.now()));
+      return !clashes(cal, taken, s, s + dur * MIN) && !blocksOf(cal.userId, cal.id).some((x) => s < x.end && s + dur * MIN > x.start);
+    };
+    const ok = anytime ? free() : freeSlots(cal, s - DAY, Date.now(), dur, replaces).includes(s);
     if (!ok) return null;
     return T.bookings.insert({ id: uid(), userId: cal.userId, calendarId: cal.id, funnelId, stepId, leadId, email: cleanEmail, name: clip(name, 120), phone: clip(phone, 40), notes: clip(notes, 1000), start: s, end: s + dur * MIN, ...(ans && Object.keys(ans).length ? { answers: ans } : {}), ...(source ? { source } : {}), status: hold ? 'held' : 'confirmed', ...(hold ? { holdUntil: Date.now() + HOLD } : {}), at: Date.now(), base, reminded: {}, ...(replaces ? { replaces } : {}), ...(attr ? { attr } : {}), ...(carry || {}), ...(unpaid ? { unpaid: true } : {}) });
   });
@@ -331,15 +361,47 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     res.json({ ok: true });
   });
   app.get('/api/bookings', auth, (req, res) => {
-    const from = Number(req.query.from) || Date.now() - 30 * DAY;
+    const from = Number(req.query.from) || Date.now() - 30 * DAY, to = Number(req.query.to) || null;
     const cals = Object.fromEntries(calendarsOf(req.user.id).map((c) => [c.id, c]));
     const funnels = Object.fromEntries(T.funnels.all({ userId: req.user.id }).map((f) => [f.id, f.name]));
     // slots held for a payment that never came aren't bookings
-    res.json(T.bookings.all({ userId: req.user.id, start: { gte: from }, status: ['confirmed', 'cancelled', 'rescheduled'] }, { order: 'start', limit: 2000 }).map((b) => ({ ...outBooking(b, cals[b.calendarId]), funnel: funnels[b.funnelId] || null })));
+    res.json(T.bookings.all({ userId: req.user.id, start: to ? { gte: from, lte: to } : { gte: from }, status: ['confirmed', 'cancelled', 'rescheduled'] }, { order: 'start', limit: 2000 }).map((b) => ({ ...outBooking(b, cals[b.calendarId]), funnel: funnels[b.funnelId] || null })));
+  });
+  const sellerBookLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 30, key: (req) => req.user.id });
+  // the seller moves a booking (dragged on the calendar): the customer is told, as when they reschedule themselves
+  app.post('/api/bookings/:bid/move', auth, sellerBookLimiter, (req, res) => {
+    const b = T.bookings.get(req.params.bid);
+    if (!b || b.userId !== req.user.id) return res.status(404).json({ error: 'Booking not found' });
+    if (b.status !== 'confirmed' || b.end < Date.now()) return res.status(400).json({ error: 'Only an upcoming booking can be moved' });
+    const cal = T.calendars.get(b.calendarId);
+    if (!cal) return res.status(404).json({ error: 'Calendar not found' });
+    const start = Number(req.body?.start);
+    if (start === b.start) return res.json(outBooking(b, cal));
+    const r = book(cal, { start, email: b.email, name: b.name, phone: b.phone, notes: b.notes, duration: Math.round((b.end - b.start) / MIN), answers: b.answers, source: b.source, funnelId: b.funnelId, stepId: b.stepId, base: b.base || process.env.APP_URL || appUrl(req), replaces: b.id, anytime: req.body?.anytime !== false, carry: b.paid ? { paid: true, amount: b.amount, paymentId: b.paymentId, orderId: b.orderId } : b.unpaid ? { unpaid: true } : null });
+    if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.taken ? 'That time clashes with another booking or a blocked time' : r.error });
+    T.bookings.update(b.id, (x) => { x.status = 'rescheduled'; x.movedTo = r.booking.id; });
+    removeEvent(b);
+    res.json(outBooking(r.booking, cal));
+  });
+  // blocked times: { start, end, note, calendarId (one call type; none = all) } — booking pages stop offering them
+  app.get('/api/booking-blocks', auth, (req, res) => res.json(blocksOf(req.user.id)));
+  app.post('/api/booking-blocks', auth, sellerBookLimiter, (req, res) => {
+    const b = req.body || {}, start = Number(b.start), end = Number(b.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 62 * DAY) return res.status(400).json({ error: 'Pick when the blocked time starts and ends (up to two months)' });
+    if (end < Date.now()) return res.status(400).json({ error: 'That time has already passed' });
+    const calId = b.calendarId ? String(b.calendarId) : null;
+    if (calId && T.calendars.get(calId)?.userId !== req.user.id) return res.status(404).json({ error: 'Calendar not found' });
+    const block = { id: uid(), start, end, note: clip(b.note, 120), ...(calId ? { calendarId: calId } : {}), at: Date.now() };
+    const u = T.users.update(req.user.id, (x) => { x.bookingBlocks = [...(x.bookingBlocks || []).filter((y) => y.end > Date.now()), block].sort((p, q2) => p.start - q2.start).slice(-BLOCKS_MAX); });
+    const clash = T.bookings.all({ userId: req.user.id, status: 'confirmed', start: { gte: start - DAY, lte: end } }).filter((x) => x.start < end && x.end > start && (!calId || x.calendarId === calId)).length;
+    res.json({ block, blocks: u.bookingBlocks, clash });
+  });
+  app.delete('/api/booking-blocks/:id', auth, (req, res) => {
+    const u = T.users.update(req.user.id, (x) => { x.bookingBlocks = (x.bookingBlocks || []).filter((y) => y.id !== req.params.id); });
+    res.json({ blocks: u.bookingBlocks || [] });
   });
   // the seller books a contact in from the CRM: a calendar's free times, then the booking — the same booking a buyer
   // makes on the booking page (no double-booking, confirmation email + invite, CRM stage, automations), never charged
-  const sellerBookLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 30, key: (req) => req.user.id });
   app.get('/api/calendars/:cid/slots', auth, (req, res) => {
     const cal = T.calendars.get(req.params.cid);
     if (!cal || cal.userId !== req.user.id) return res.status(404).json({ error: 'Calendar not found' });
@@ -351,7 +413,7 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     const cal = T.calendars.get(String(b.calendarId || ''));
     if (!cal || cal.userId !== req.user.id) return res.status(404).json({ error: 'Calendar not found' });
     if (!b.email) return res.status(400).json({ error: 'Add an email address to this contact first — the confirmation and invite go there' });
-    const r = book(cal, { start: b.start, email: b.email, name: b.name, phone: b.phone, notes: b.notes, duration: b.duration, base: process.env.APP_URL || appUrl(req), source: 'crm' });
+    const r = book(cal, { start: b.start, email: b.email, name: b.name, phone: b.phone, notes: b.notes, duration: b.duration, base: process.env.APP_URL || appUrl(req), source: 'crm', anytime: !!b.anytime });
     if (r.error) return res.status(r.taken ? 409 : 400).json({ error: r.error });
     res.json(outBooking(r.booking, cal));
   });
@@ -451,7 +513,8 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     const cal = calendarFor(f.userId, blk.props.calendarId);
     await refreshBusy(f.userId, cal.daysAhead + 1);
     const dur = lengthOf(cal, req.query.d);
-    res.json({ calendar: calInfo(cal, T.users.get(f.userId)), duration: dur, slots: freeSlots(cal, Date.now(), Date.now(), dur) });
+    const slots = freeSlots(cal, Date.now(), Date.now(), dur);
+    res.json({ calendar: calInfo(cal, T.users.get(f.userId)), duration: dur, slots, ...seatInfo(cal, slots) });
   }));
   app.post('/api/public/:slug/book', bookLimiter, wrap(async (req, res) => {
     const f = pub(req, res);
@@ -505,7 +568,8 @@ export function registerBookings(app, { auth, wrap, rateLimit, isTest, secret, a
     const cal = meetCal(req, res, u); if (!cal) return;
     await refreshBusy(u.id, cal.daysAhead + 1);
     const dur = lengthOf(cal, req.query.d);
-    res.set('Cache-Control', 'no-store').json({ seller: sellerInfo(u), calendar: calInfo(cal, u), duration: dur, slots: freeSlots(cal, Date.now(), Date.now(), dur) });
+    const slots = freeSlots(cal, Date.now(), Date.now(), dur);
+    res.set('Cache-Control', 'no-store').json({ seller: sellerInfo(u), calendar: calInfo(cal, u), duration: dur, slots, ...seatInfo(cal, slots) });
   }));
   app.post('/api/meet/:handle/:cal/book', bookLimiter, wrap(async (req, res) => {
     const u = sellerOf(req, res); if (!u) return;

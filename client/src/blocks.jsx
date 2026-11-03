@@ -1164,6 +1164,7 @@ function Booking({ p, ctx }) {
   const [done, setDone] = useState(null);
   const [len, setLen] = useState(null);
   const [want, setWant] = useState(null); // a length the visitor picked
+  const [left, setLeft] = useState(null); // a group session: seats still free at each time
   const [answers, setAnswers] = useState({});
   // slots are shown in the visitor's own time zone (the host's zone until the page is running in their browser)
   const vz = useViewerTz();
@@ -1173,7 +1174,7 @@ function Booking({ p, ctx }) {
   useEffect(() => {
     let on = true;
     if (!ctx.onSlots || !ctx.live) { setCal({ name: 'Strategy call', duration: 30, tzOffset: 330 }); setSlots(sampleSlots()); return; }
-    ctx.onSlots(want).then((r) => { if (!on) return; if (r.error) { setErr(r.error); setSlots([]); } else { setCal(r.calendar); setSlots(r.slots); if (r.duration) setLen(r.duration); } }).catch(() => on && setErr('Couldn’t load the calendar — please refresh'));
+    ctx.onSlots(want).then((r) => { if (!on) return; if (r.error) { setErr(r.error); setSlots([]); } else { setCal(r.calendar); setSlots(r.slots); setLeft(r.left || null); if (r.duration) setLen(r.duration); } }).catch(() => on && setErr('Couldn’t load the calendar — please refresh'));
     return () => { on = false; };
   }, [ctx.live, want]);
   // the call's price for the chosen length
@@ -1217,7 +1218,7 @@ function Booking({ p, ctx }) {
         {!slots ? <div className="bk-load">{tr(ctx.lang, 'Loading available times…')}</div> : !slots.length ? <p className="bk-empty">{err || tr(ctx.lang, 'No times are free right now — please check back soon or message us on WhatsApp.')}</p> : (
           <>
             <div className="bk-days" role="tablist">{days.slice(0, 21).map((d) => { const t = slots.find((s) => dayKey(s, off) === d); return <button type="button" key={d} role="tab" aria-selected={d === day} className={d === day ? 'on' : ''} onClick={() => { setDay(d); setPick(null); }}>{fmtDay(t, off).split(' ').map((x, i) => <span key={i}>{x}</span>)}</button>; })}</div>
-            <div className="bk-slots">{daySlots.map((s) => <button type="button" key={s} className={s === pick ? 'on' : ''} onClick={() => setPick(s)}>{fmtTime(s, off)}</button>)}</div>
+            <div className="bk-slots">{daySlots.map((s) => <button type="button" key={s} className={s === pick ? 'on' : ''} onClick={() => setPick(s)}>{fmtTime(s, off)}{left?.[s] != null && <small className="bk-left">{left[s] === 1 ? tr(ctx.lang, '1 seat left') : `${left[s]} ${tr(ctx.lang, 'seats left')}`}</small>}</button>)}</div>
             {pick && (
               <form className="bk-form" onSubmit={submit}>
                 <p className="bk-picked">📅 <b>{fmtDay(pick, off)}</b> at <b>{fmtTime(pick, off)}</b> {tzLabel(off)}</p>

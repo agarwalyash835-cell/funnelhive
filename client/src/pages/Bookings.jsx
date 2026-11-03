@@ -5,6 +5,7 @@ import { KitIcon } from '../blockIcons';
 import { fmtWhenShort, zoneCity, allZones, zoneOption, viewerTz, dayKey, fmtTime, zoneLabel } from '../tzfmt';
 import { Layout, Panel, Icon, Empty, Modal, toast, num, confirmDialog, promptDialog } from '../ui';
 import { t, tx } from '../appI18n';
+import BookingCalendar from './BookingCalendar';
 
 const DAYS = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']];
 export const fmtWhen = (t, zone) => fmtWhenShort(t, zone ?? 330);
@@ -31,8 +32,8 @@ export default function Bookings() {
     <Layout title={t('Bookings')} subtitle={t('Your booking page, your call types, and every call booked.')}>
       {handle && cals && <BookingPage handle={handle} setHandle={setHandle} cals={cals} onEdit={(id) => setQs({ tab: 'calendars', cal: id })} />}
       {cals && <NewCallType cals={cals} onCreated={(c) => { loadCals(); setQs({ tab: 'calendars', cal: c.id }); }} />}
-      <div className="seg pr-tabs">{[['upcoming', 'Upcoming calls'], ['past', 'Past & cancelled'], ['calendars', 'Call types & hours']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setQs({ tab: k })}>{t(l)}</button>)}</div>
-      {tab === 'calendars' ? <Calendars handle={handle} initial={qs.get('cal')} onChange={loadCals} /> : <BookingList past={tab === 'past'} handle={handle} />}
+      <div className="seg pr-tabs">{[['upcoming', 'Upcoming calls'], ['calendar', 'Calendar'], ['past', 'Past & cancelled'], ['calendars', 'Call types & hours']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setQs({ tab: k })}>{t(l)}</button>)}</div>
+      {tab === 'calendars' ? <Calendars handle={handle} initial={qs.get('cal')} onChange={loadCals} /> : tab === 'calendar' ? (cals ? <BookingCalendar cals={cals} /> : <div className="skeleton" />) : <BookingList past={tab === 'past'} handle={handle} />}
     </Layout>
   );
 }
@@ -370,6 +371,7 @@ function CalendarEditor({ c, handle, onSaved, canDelete }) {
           <label className="fld"><span>Minimum notice</span><select value={v.noticeHours} onChange={(e) => set({ noticeHours: Number(e.target.value) })}>{[0, 1, 2, 4, 12, 24, 48].map((h) => <option key={h} value={h}>{h ? `${h} hour${h > 1 ? 's' : ''}` : 'None'}</option>)}</select></label>
           <label className="fld"><span>Book up to</span><select value={v.daysAhead} onChange={(e) => set({ daysAhead: Number(e.target.value) })}>{[7, 14, 21, 30, 60, 90].map((d) => <option key={d} value={d}>{d} days ahead</option>)}</select></label>
           <label className="fld"><span>Max calls per day</span><input type="number" min="0" max="100" value={v.perDay} onChange={(e) => set({ perDay: Number(e.target.value) || 0 })} /><small className="hint">0 = no limit</small></label>
+          <label className="fld"><span>People per time slot</span><input type="number" min="1" max="500" value={v.seats || 1} onChange={(e) => set({ seats: Math.min(500, Math.max(1, Number(e.target.value) || 1)) })} /><small className="hint">{(v.seats || 1) > 1 ? `A group session: up to ${v.seats} people book the same time — the booking page shows the seats left.` : '1 = a one-to-one call. More for a demo class, batch or group session.'}</small></label>
         </div>
         <div className="row"><label className="tog"><input type="checkbox" checked={!!v.reminders?.day} onChange={(e) => set({ reminders: { ...v.reminders, day: e.target.checked } })} /><span />Email reminder the day before</label>
           <label className="tog"><input type="checkbox" checked={!!v.reminders?.hour} onChange={(e) => set({ reminders: { ...v.reminders, hour: e.target.checked } })} /><span />Reminder 1 hour before</label></div>
