@@ -42,7 +42,7 @@ async function startRender(a) {
   const m = pick(a.kind, a.tier);
   let req;
   if (a.kind === 'image') req = { input: imageInput(m.model, { prompt: promptFor(a), refs: a.ref ? [publicUrl(a.ref)] : [], aspect: a.aspect, resolution: m.resolution }), resolution: m.resolution, seconds: 0 };
-  else req = clipInput(m.model, { prompt: promptFor(a), image: a.ref ? publicUrl(a.ref) : null, aspect: a.aspect, seconds: a.seconds || 5, resolution: clipRes(a.tier, a.res) });
+  else req = clipInput(m.model, { prompt: promptFor(a), image: a.ref ? publicUrl(a.ref) : null, last: a.last ? publicUrl(a.last) : null, aspect: a.aspect, seconds: a.seconds || 5, resolution: clipRes(a.tier, a.res) });
   const taskId = await startTask({ model: m.model, input: req.input });
   set(a.id, (x) => {
     x.status = 'rendering'; x.taskId = taskId; x.attempts = (x.attempts || 0) + 1; x.startedAt = Date.now(); x.model = m.model; x.resolution = req.resolution;

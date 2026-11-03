@@ -93,10 +93,11 @@ test('approved: shots and voiceover are made and checked (a misread price is red
   // the price line was spoken twice: the first one was heard as "four nine nine"
   assert.equal(r.lines[1].tries, 2);
   assert.ok(r.lines.every((l) => l.url && l.check?.ok));
-  // the default voice is one of Sarvam's Indian voices (fast, made for Indian languages)
+  // the default voice is a natural Indian ElevenLabs voice; kie.ai's voice model is down in this test, so after one
+  // try Sarvam's matching Indian voice speaks every line
   assert.equal(spoken.length, 4, 'three lines, one redone');
   assert.deepEqual([spoken[0].speaker, spoken[0].model, spoken[0].target_language_code], ['priya', 'bulbul:v3', 'en-IN']);
-  assert.equal(created.filter((c) => /elevenlabs/.test(c.model)).length, 0);
+  assert.deepEqual(created.filter((c) => /elevenlabs/.test(c.model)).map((c) => c.input.voice), ['2zRM7PkgwBPiau2jvVXc']);
   // shots: still, then a clip from it, in order
   assert.equal(created.filter((c) => c.model === 'nano-banana-2').length, 2);
   assert.ok(created.filter((c) => /seedance/.test(c.model)).every((c) => /^https:\/\/app\.reel\.test\/uploads\//.test(c.input.first_frame_url)));
@@ -136,7 +137,8 @@ test('another voice: an ElevenLabs voice through kie.ai, and Sarvam takes over w
   heardQueue.push(...['Fresh desi ghee for your whole family', LINES[1], LINES[2]].map((t) => timed(t)), timed(['Fresh desi ghee for your whole family', LINES[1], LINES[2]].join(' ')));
   const r = await until(['ready', 'needs_review', 'failed']);
   assert.notEqual(r.status, 'failed', JSON.stringify(r.lines));
-  assert.ok(created.some((c) => /elevenlabs/.test(c.model) && c.input.voice === 'P1bg08DkjqiVEzOn76yG'), 'kie.ai was asked first');
+  // kie.ai's voice already failed in an earlier Reel, so it's skipped for a while rather than tried line after line
+  assert.ok(!created.some((c) => /elevenlabs/.test(c.model) && c.input.voice === 'P1bg08DkjqiVEzOn76yG'), 'kie.ai not asked while it is down');
   assert.ok(spoken.slice(done).every((x) => x.speaker === 'aditya'), 'then a male Sarvam voice');
   // the voice samples: Sarvam's made once and kept
   const g = (await api('/studio', 'GET', null, S)).data;
@@ -175,4 +177,29 @@ test('the closing card: a long headline wraps and pushes the offer down — noth
     assert.ok(b.at(-1).top < H * 0.97, `${W}x${H} fits`);
     if (still) assert.ok(b[0].top >= H * 0.5, 'under the picture');
   }
+});
+
+test('storyline in 16:9: each shot gets an opening and a closing still (made from the opening one), and the clip moves between them', async () => {
+  const r0 = (await api('/studio/reels', 'POST', { brief: 'Desi ghee from our farm, ₹499 a litre, for families in Pune', lang: 'en', seconds: 15, tier: 'quick', aspect: '16:9', captions: 'pop' }, S)).data;
+  reelId = r0.id;
+  assert.equal(r0.aspect, '16:9');
+  assert.deepEqual(r0.sizes, ['16:9'], 'the size asked for is the one made');
+  const n = created.length;
+  heardQueue.push(...LINES.map((l) => timed(l)), timed(LINES.join(' ')));
+  const a = await api(`/studio/reels/${reelId}/approve`, 'POST', { motion: 'story', res: '480p' }, S);
+  assert.equal(a.data.cost.motion, 'story');
+  assert.equal(a.data.cost.credits, a.data.cost.byRes['480p']);
+  const plain = (await api('/studio/estimate', 'POST', { kind: 'reel', tier: 'quick', seconds: 15, shots: 2, lines: 3, res: '480p' }, S)).data.credits;
+  assert.equal(a.data.cost.credits, plain + 2 * 8, 'a second still per shot on top of the usual');
+  const r = await until(['ready', 'needs_review', 'failed']);
+  assert.ok(['ready', 'needs_review'].includes(r.status), JSON.stringify({ status: r.status, error: r.error }));
+  const mine = created.slice(n), stills = mine.filter((c) => c.model === 'nano-banana-2'), clips = mine.filter((c) => /seedance/.test(c.model));
+  assert.equal(stills.length, 4, 'two shots, two stills each');
+  assert.equal(stills.filter((c) => c.input.image_input?.length).length, 2, 'each closing still is made from its opening still');
+  assert.ok(stills.every((c) => c.input.aspect_ratio === '16:9'));
+  assert.equal(clips.length, 2);
+  assert.ok(clips.every((c) => c.input.first_frame_url && c.input.last_frame_url && c.input.first_frame_url !== c.input.last_frame_url));
+  assert.ok(r.shots.every((s) => s.end?.url));
+  const wide = probe(onDisk(r.outputs['16:9']));
+  assert.ok(wide.w > wide.h, `${wide.w}x${wide.h}`);
 });

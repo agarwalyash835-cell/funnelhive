@@ -12,7 +12,7 @@ import { publicUrlFor } from '../storage.js';
 import { adminMiddleware, audit } from '../admin-guard.js';
 import { studioReady } from './kie.js';
 import { enqueue, view, tick, tierOk } from './jobs.js';
-import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample, voiceId, CLIP_RES, clipRes, imageCost, clipCost, reelCost } from './models.js';
+import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample, voiceId, CLIP_RES, clipRes, imageCost, clipCost, reelCost, MOTIONS } from './models.js';
 import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, reelsTick, LENGTHS, CAPTION_IDS } from './reels.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
@@ -23,7 +23,7 @@ const brief = (a) => (a ? view(a) : null);
 export function reelView(r) {
   // what it costs (shown before approving: each resolution the tier offers)
   const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion }) : null;
-  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null };
+  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null };
 }
 const anyView = (a) => (a.kind === 'reel' ? reelView(a) : view(a));
 
@@ -110,9 +110,9 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const seconds = LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30;
     const business = req.user.settings?.businessName || req.user.name;
     let script;
-    try { script = await writeScript({ brief, lang: b.lang, seconds, business }); } catch (e) { return res.status(502).json({ error: e.message }); }
-    const sizes = (Array.isArray(b.sizes) ? b.sizes : ['9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
-    const r = newReel(req.user.id, { brief, lang: b.lang, seconds, tier: b.tier, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], script, by: who(req) });
+    try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect }); } catch (e) { return res.status(502).json({ error: e.message }); }
+    const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.aspect || '9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
+    const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], script, by: who(req) });
     res.status(201).json(reelView(r));
   }));
   const myReel = (req, res, statuses) => {
@@ -143,7 +143,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const c = req.body?.script ? cleanScript(req.body.script) : { script: r.script };
     if (c.error) return res.status(400).json(c);
     if (req.body?.res) T.studio.update(r.id, (x) => { x.res = clipRes(x.tier, req.body.res); });
-    if (req.body?.motion) T.studio.update(r.id, (x) => { x.motion = req.body.motion === 'photo' ? 'photo' : 'video'; });
+    if (req.body?.motion) T.studio.update(r.id, (x) => { x.motion = MOTIONS.includes(req.body.motion) ? req.body.motion : 'video'; });
     res.json(reelView(approveReel(T.studio.get(r.id), c.script)));
   });
   // a Reel that stopped part-way: redo only what failed

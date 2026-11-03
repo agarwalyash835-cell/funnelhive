@@ -28,13 +28,13 @@ const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const transcriber = () => (process.env.SARVAM_API_KEY ? sarvamTranscriber() : null);
 
 // ---------- the script ----------
-const SCRIPT_SYSTEM = `You write short vertical video ads (Instagram Reels / YouTube Shorts) for Indian small businesses.
-Answer only JSON: {"title": short name, "lines": [voiceover lines], "shots": [{"image": a detailed photo prompt for the shot's opening still (subject, setting, light, camera; no text, logos or captions in the picture), "motion": what moves in the shot (camera move, action), "seconds": 4-8}], "endCard": {"headline": max 40 chars, "offer": price or offer max 40 chars, "cta": call to action max 30 chars}}.
-Rules: the first line is a hook that stops the scroll; 3-6 lines, each one short spoken sentence; stay within the word limit given (it's how long the video runs); one shot per line, in order; show the real product in most shots; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
+const SCRIPT_SYSTEM = `You write short video ads (Instagram Reels, YouTube Shorts, video sales letters) for Indian small businesses.
+Answer only JSON: {"title": short name, "lines": [voiceover lines], "shots": [{"image": a detailed photo prompt for the shot's opening still (subject, setting, light, camera; no text, logos or captions in the picture), "end": a detailed photo prompt for the shot's closing still — the SAME people, place, clothes and light as the opening still, with only what changed by the end of the shot (the action finished, the camera moved), "motion": what moves in the shot (camera move, action), "seconds": 4-8}], "endCard": {"headline": max 40 chars, "offer": price or offer max 40 chars, "cta": call to action max 30 chars}}.
+Rules: the first line is a hook that stops the scroll; 3-6 lines, each one short spoken sentence; stay within the word limit given (it's how long the video runs); one shot per line, in order; the shots tell one story from problem to result, with the same main person throughout (described the same way in every prompt — age, look, clothes); every person is Indian unless the brief says otherwise; show the real product in most shots; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
 
 export function cleanScript(s) {
   const lines = (Array.isArray(s?.lines) ? s.lines : []).map((x) => clip(typeof x === 'string' ? x : x?.text, 220)).filter(Boolean).slice(0, 8);
-  const shots = (Array.isArray(s?.shots) ? s.shots : []).slice(0, 8).map((x) => ({ image: clip(x?.image, 600), motion: clip(x?.motion, 300), seconds: Math.min(10, Math.max(4, Math.round(Number(x?.seconds) || 5))) })).filter((x) => x.image.length >= 3);
+  const shots = (Array.isArray(s?.shots) ? s.shots : []).slice(0, 8).map((x) => ({ image: clip(x?.image, 600), end: clip(x?.end, 600), motion: clip(x?.motion, 300), seconds: Math.min(10, Math.max(4, Math.round(Number(x?.seconds) || 5))) })).filter((x) => x.image.length >= 3);
   if (lines.length < 1 || shots.length < 1) return { error: 'The script needs at least one line and one shot' };
   const e = s?.endCard || {};
   return { script: { title: clip(s?.title, 80) || 'Reel', lines, shots, endCard: { headline: clip(e.headline, 40), offer: clip(e.offer, 40), cta: clip(e.cta, 30) } } };
@@ -43,9 +43,9 @@ export function cleanScript(s) {
 export const wordBudget = (seconds) => Math.max(12, Math.round((seconds - 3) * 2.4));
 export const wordCount = (script) => (script.lines || []).join(' ').split(/\s+/).filter(Boolean).length;
 const parseScript = (text) => { try { return cleanScript(JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))); } catch { return { error: 'not JSON' }; } };
-export async function writeScript({ brief, lang, seconds, business }) {
+export async function writeScript({ brief, lang, seconds, business, aspect = '9:16' }) {
   const budget = wordBudget(seconds);
-  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.`;
+  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.`;
   let c = parseScript(await askAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
   // too long for the length asked (a 15-second Reel that runs 22 seconds): ask once to tighten it
@@ -58,8 +58,9 @@ export async function writeScript({ brief, lang, seconds, business }) {
 }
 
 // ---------- start, approve ----------
+export const REEL_ASPECTS = ['9:16', '16:9', '1:1', '4:5'];
 export function newReel(userId, o) {
-  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', res: clipRes(o.tier, o.res), prompt: o.brief, aspect: '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', res: clipRes(o.tier, o.res), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken
 export function approveReel(r, script) {
@@ -75,24 +76,31 @@ async function produce(r) {
   // and once its voiceover line is recorded, so the clip lasts as long as the words over it (the cut lands where the line
   // changes; the last shot also covers any lines beyond the last shot, and the breath before the closing card)
   const said = (i) => (r.lines[i]?.secs ? r.lines[i].secs + 0.25 : null);
+  // storyline: once a shot's opening still is made, its closing still is made from it (same people and place), and the
+  // clip moves from one to the other
+  const story = r.motion === 'story';
   shots = shots.map((s, i) => {
     if (s.clipId) return s;
     const img = T.studio.get(s.imageId);
     if (!done(img)) return s;
+    if (story && !s.endId) { changed = true; return { ...s, endId: enqueue(r.userId, { kind: 'image', tier: r.tier, prompt: `${s.end || `${s.image}. The moment the shot ends: ${s.motion}`}
+Keep the same people, faces, clothes, place and light as the reference picture — only what the action changed.`, aspect: r.aspect, ref: img.url, reelId: r.id, by: r.by }).id }; }
+    const endImg = story ? T.studio.get(s.endId) : null;
+    if (story && !done(endImg)) return s;
     const last = i === shots.length - 1, mine = last ? r.lines.slice(i) : r.lines.slice(i, i + 1);
     if (mine.some((l) => !l.url && l.tries < MAX_LINE_TRIES)) return s; // wait for the words
     const words = mine.reduce((t, l, k) => t + (said(i + k) || 0), 0) + (last ? 0.5 : 0);
-    const seconds = words ? Math.min(10, Math.max(4, Math.ceil(words))) : s.seconds;
+    const seconds = words ? Math.min(story ? 15 : 10, Math.max(4, Math.ceil(words))) : s.seconds;
     changed = true;
     if (r.motion === 'photo') return { ...s, seconds, still: img.url };
-    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, res: r.res, prompt: s.motion || s.image, aspect: r.aspect, seconds, ref: img.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
+    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, res: r.res, prompt: s.motion || s.image, aspect: r.aspect, seconds, ref: img.url, ...(endImg ? { last: endImg.url } : {}), sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
   });
   if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
   // photo motion: the editor animates the still here (free, a few seconds) and it's kept as the shot's clip
   const p = r.shots.findIndex((s) => s.still && !s.clipId);
   if (p >= 0) return photoClip(r, p);
   // a shot that couldn't be made even after its retries: stop with the reason (the seller can Retry), don't wait forever
-  const lost = r.shots.findIndex((s) => T.studio.get(s.imageId)?.status === 'failed' || (s.clipId && T.studio.get(s.clipId)?.status === 'failed'));
+  const lost = r.shots.findIndex((s) => T.studio.get(s.imageId)?.status === 'failed' || (s.endId && T.studio.get(s.endId)?.status === 'failed') || (s.clipId && T.studio.get(s.clipId)?.status === 'failed'));
   if (lost >= 0) {
     const a = T.studio.get(r.shots[lost].clipId) || T.studio.get(r.shots[lost].imageId);
     return T.studio.update(r.id, (x) => { x.status = 'failed'; x.error = `Shot ${lost + 1} couldn’t be made${a?.error ? ` — ${a.error}` : ''}`; x.doneAt = Date.now(); });
@@ -250,7 +258,7 @@ async function edit(r) {
 // Only what failed is done again: failed shots go back in the queue, lines with no voice get fresh tries, and a Reel
 // whose parts are all there is edited again.
 export function retryReel(r) {
-  for (const s of r.shots || []) for (const id of [s.imageId, s.clipId]) {
+  for (const s of r.shots || []) for (const id of [s.imageId, s.endId, s.clipId]) {
     const a = id && T.studio.get(id);
     if (a?.status === 'failed') T.studio.update(a.id, (y) => { y.status = 'queued'; y.attempts = 0; y.error = ''; delete y.taskId; delete y.doneAt; });
   }
