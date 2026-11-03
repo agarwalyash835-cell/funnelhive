@@ -106,7 +106,7 @@ export function pick(kind, tier, key) {
 export function tierMenu(tier) {
   const t = tierOf(tier), m = TIER_MENU[t];
   return {
-    video: m.video.map((k) => ({ id: k, name: VIDEO_MODELS[k].name, note: VIDEO_MODELS[k].note, res: resOf(t, k), per5s: Object.fromEntries(resOf(t, k).map((r) => [r, clipCost(t, 5, r, k)])) })),
+    video: m.video.map((k) => ({ id: k, name: VIDEO_MODELS[k].name, note: VIDEO_MODELS[k].note, res: resOf(t, k), defaultRes: clipRes(t, null, k), per5s: Object.fromEntries(resOf(t, k).map((r) => [r, clipCost(t, 5, r, k)])) })),
     image: m.image.map((k) => ({ id: k, name: IMAGE_MODELS[k].name, note: IMAGE_MODELS[k].note, product: IMAGE_MODELS[k].refs > 0, credits: imageCost(t, k) })),
   };
 }

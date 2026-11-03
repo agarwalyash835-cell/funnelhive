@@ -75,7 +75,7 @@ export default function Studio() {
   const vms = tierInfo?.models?.video || [], ims = tierInfo?.models?.image || [];
   const vm = vms.find((m) => m.id === v.vmodel) || vms[0], im = ims.find((m) => m.id === v.imodel) || ims[0];
   const resOpts = vm?.res || tierInfo?.clipRes || [];
-  const res = resOpts.includes(v.res) ? v.res : resOpts.at(-1);
+  const res = resOpts.includes(v.res) ? v.res : vm?.defaultRes || resOpts.at(-1);
   const perSec = (r) => (vm?.per5s?.[r] ?? tierInfo?.clipCreditsPer5s?.[r] ?? 0) / 5;
   // a clip's exact cost comes from the server (some models charge per clip, by length)
   const [clipCredits, setClipCredits] = useState(null);
