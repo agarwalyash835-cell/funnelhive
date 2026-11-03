@@ -20,6 +20,7 @@ import { render, dims, stillMotion, moveFor, cardLayout } from './assemble.js';
 import { makeMusic, MUSIC_MODEL } from './music.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
+import { reviewReel } from './qa.js';
 
 export const LENGTHS = [15, 30, 45];
 export const CAPTION_IDS = Object.keys(CAPTION_STYLES);
@@ -255,8 +256,12 @@ async function edit(r) {
     const poster = fs.existsSync(pf) ? (await save(r.userId, pf, 'jpg', 'image/jpeg')).url : null;
     // anything kept for review along the way: the Reel is made, but the seller should look
     const flagged = [...r.shots.flatMap((s, i) => (T.studio.get(s.clipId)?.status === 'needs_review' ? [`Shot ${i + 1}: ${(T.studio.get(s.clipId).qa?.issues || []).join('; ')}`] : [])), ...r.lines.flatMap((l, i) => (l.check && !l.check.ok ? [`Line ${i + 1}: ${l.check.issues.join('; ')}`] : []))];
-    T.studio.update(r.id, (x) => { x.outputs = outputs; x.url = outputs[sizes[0]] || Object.values(outputs)[0]; x.poster = poster; x.duration = Math.round(out.duration * 10) / 10; x.lufs = out.lufs; x.status = flagged.length ? 'needs_review' : 'ready'; x.qa = { issues: flagged.slice(0, 8) }; x.doneAt = Date.now(); delete x.error; });
+    const url = outputs[sizes[0]] || Object.values(outputs)[0];
+    T.studio.update(r.id, (x) => { x.outputs = outputs; x.url = url; x.poster = poster; x.duration = Math.round(out.duration * 10) / 10; x.lufs = out.lufs; x.status = flagged.length ? 'needs_review' : 'ready'; x.qa = { issues: flagged.slice(0, 8) }; x.doneAt = Date.now(); x.reviewing = true; delete x.review; delete x.error; });
     notify(r.userId, { kind: 'support', title: 'Your Reel is ready', body: r.script.title, link: '/studio' });
+    // the editor's notes on the finished video (free; the Reel is already ready, so a reviewer that fails costs nothing)
+    const review = await reviewReel({ file: first, script: r.script, lines: r.lines.map((l) => l.text), words, spans: voice.spans, captions: r.captions?.style || null }).catch((e) => { console.error('reel review failed', r.id, e.message); return null; });
+    T.studio.update(r.id, (x) => { if (x.url === url && x.doneAt) { x.review = review; delete x.reviewing; } }); // unless it's been changed since
   } catch (e) {
     console.error('reel edit failed', r.id, e.message, e.detail || '');
     T.studio.update(r.id, (x) => { x.editTries = (x.editTries || 0) + 1; if (x.editTries >= 2) { x.status = 'failed'; x.error = 'The video couldn’t be put together — try again'; x.doneAt = Date.now(); } });

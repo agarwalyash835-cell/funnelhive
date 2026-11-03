@@ -99,6 +99,19 @@ export function ReelEditor({ r, d, onClose, onChange }) {
   const settings = (p) => (editing ? act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s, ...p })) : act(() => api(`/studio/reels/${r.id}`, 'PUT', p), p.voice ? 'Recording the voiceover again in the new voice' : 'Re-editing'));
   const reword = async (i) => { const text = await promptDialog({ title: `Line ${i + 1}`, label: 'New words', value: r.lines[i].text }); if (text && text !== r.lines[i].text) act(() => api(`/studio/reels/${r.id}`, 'PUT', { lines: [{ i, text }] }), 'Recording that line again, then re-editing'); };
   const redoShot = async (i) => { const c = r.shots?.[i]?.clip || {}; const note = await promptDialog({ title: `Redo shot ${i + 1} · about ${c.redoCredits || '?'} credits`, text: `A new ${c.seconds || ''}-second clip at ${c.res || res} uses about ${c.redoCredits || '?'} credits. What should change?${c.fix ? ` Leave it empty to use the quality check's suggestion: “${c.fix}”` : ' Leave it empty to just try again.'}`, label: 'Change', value: '', confirm: 'Redo shot' }); if (note !== null && note !== undefined) act(() => api(`/studio/reels/${r.id}`, 'PUT', { shots: [{ i, note }] }), 'Redoing that shot, then re-editing'); };
+  // the editor's notes on the finished video (server studio/qa.js reviewReel): each fix goes through the same change as
+  // the seller's own; a redo shows its cost first. While the notes are being written, look again every few seconds
+  useEffect(() => { if (!r.reviewing) return undefined; const t = setInterval(onChange, 5000); return () => clearInterval(t); }, [r.reviewing]);
+  const applyNote = async (a) => {
+    const put = (body, msg) => act(() => api(`/studio/reels/${r.id}`, 'PUT', body), msg);
+    if (a.type === 'redo_shot') {
+      const c = r.shots?.[a.i]?.clip || {};
+      if (await confirmDialog({ title: `Redo shot ${a.i + 1}? · about ${c.redoCredits || '?'} credits`, text: `A new ${c.seconds ? `${c.seconds}-second ` : ''}${c.photo ? 'picture' : 'clip'} is made with this change: “${a.note}” — about ${c.redoCredits || '?'} credits. Then the Reel is edited again.`, confirm: `Redo shot · ${c.redoCredits || '?'} credits` })) put({ shots: [{ i: a.i, note: a.note }] }, 'Redoing that shot, then re-editing');
+    } else if (a.type === 'reword_line') put({ lines: [{ i: a.i, text: a.text }] }, 'Recording that line again, then re-editing');
+    else if (a.type === 'end_card') put({ endCard: a.endCard }, 'Re-editing with the new closing card');
+    else if (a.type === 'captions') put({ captions: { style: a.style } }, 'Re-editing with the new captions');
+  };
+  const noteChange = (a) => (a.type === 'redo_shot' ? `New shot: ${a.note}` : a.type === 'reword_line' ? `Say: “${a.text}”` : a.type === 'end_card' ? `Card: ${[a.endCard.headline, a.endCard.offer, a.endCard.cta].filter(Boolean).join(' · ')}` : a.type === 'captions' ? `Captions: ${d.captionStyles?.find((c) => c.id === a.style)?.name || a.style}` : '');
   const approve = async () => {
     const label = (x) => labelOf(x).toLowerCase();
     const other = choices.filter((x) => x !== res).map((x) => `${label(x)}: about ${costAt(x)} credits`).join(' · ');
@@ -138,6 +151,24 @@ export function ReelEditor({ r, d, onClose, onChange }) {
           <p className="sx-hint" style={{ margin: 0 }}>{STATUS_LINE[r.status]}</p>
           {r.status === 'failed' && <div className="sxr-note bad"><b>{r.error || 'It stopped part-way.'}</b><span>Retry finishes only what’s missing — nothing that worked is made again.</span></div>}
           {r.status === 'needs_review' && r.issues?.length > 0 && <div className="sxr-note"><b>Have a look at:</b><ul>{r.issues.map((x) => <li key={x}>{x}</li>)}</ul></div>}
+          {made && r.reviewing && <div className="sxr-notes"><h4>Editor’s notes</h4><p className="sx-hint" style={{ margin: 0 }}><span className="spin dark" /> Watching the finished video…</p></div>}
+          {made && r.review && <div className="sxr-notes">
+            <div className="sxr-notes-head"><h4>Editor’s notes</h4>{r.review.score != null && <b className={`sxr-score ${r.review.score >= 85 ? 'ok' : r.review.score >= 60 ? 'warn' : 'bad'}`}>{r.review.score}<small>/100</small></b>}</div>
+            {r.review.summary && <p className="sxr-say">{r.review.summary}</p>}
+            {r.review.suggestions.length === 0 && <p className="sx-hint" style={{ margin: 0 }}>Nothing to change — it’s ready to run.</p>}
+            {r.review.suggestions.map((x, k) => {
+              const cost = x.action?.type === 'redo_shot' ? r.shots?.[x.action.i]?.clip?.redoCredits : null;
+              return (
+                <div key={k} className="sxr-tip">
+                  <span className="no">{x.area}{x.scene != null ? ` · scene ${x.scene + 1}` : ''}</span>
+                  <b>{x.problem}</b>
+                  {x.fix && <span>{x.fix}</span>}
+                  {x.action && <small className="muted">{noteChange(x.action)}</small>}
+                  {x.action && <button type="button" className="btn ghost sm" disabled={busy} onClick={() => applyNote(x.action)}><Icon name={x.action.type === 'redo_shot' ? 'redo' : 'check'} size={13} /> Apply{x.action.type === 'redo_shot' ? ` · ${cost ?? '?'} credits` : ''}</button>}
+                </div>
+              );
+            })}
+          </div>}
           {Array.from({ length: n }, (_, i) => {
             const c = sceneOf(i), media = c.made?.clip?.url ? c.made.clip : c.made?.image?.url ? c.made.image : null, step = c.made?.clip?.status || c.made?.image?.status;
             const check = c.voice?.url ? (c.voice.check && !c.voice.check.ok ? 'warn' : 'ok') : null;

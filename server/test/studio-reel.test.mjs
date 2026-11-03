@@ -17,6 +17,17 @@ const LINES = ['Pure desi ghee for your whole family', 'Only ₹499 for one litr
 const SCRIPT = { title: 'Ghee Reel', lines: LINES, shots: [{ image: 'A jar of ghee on a kitchen counter', motion: 'Slow push-in', seconds: 4 }, { image: 'Ghee poured over hot rice', motion: 'Pour in slow motion', seconds: 4 }], endCard: { headline: 'Shuddh Ghee Co', offer: '₹499 / litre', cta: 'Order on WhatsApp' } };
 const created = [], heardQueue = [], spoken = []; // spoken: Sarvam text-to-speech requests
 let fake, srv, api, ADMIN, S, sid, reelId;
+// the editor's notes on a finished Reel: some fixes point at scenes that don't exist or change nothing, and there are too
+// many — the server keeps only what can be applied. reviewDown: the reviewer doesn't answer
+const REVIEW = { score: 72, summary: 'Clear offer, but the opening is slow.', suggestions: [
+  { scene: 1, area: 'hook', problem: 'The first shot is a still jar', fix: 'Open on the pour', action: { type: 'redo_shot', scene: 1, note: 'Open on golden ghee pouring onto hot rice, close up' } },
+  { scene: 2, area: 'voice', problem: 'The price line is flat', fix: 'Say it as a deal', action: { type: 'reword_line', scene: 2, text: 'Just ₹499 for a full litre' } },
+  { scene: 9, area: 'visual', problem: 'Scene that isn’t there', fix: 'x', action: { type: 'redo_shot', scene: 9, note: 'nothing' } },
+  { scene: null, area: 'captions', problem: 'Captions are small', fix: 'Bigger captions', action: { type: 'captions', style: 'neon' } },
+  { scene: null, area: 'sparkle', problem: 'The closing card is busy', fix: 'Shorter call to action', action: { type: 'end_card', endCard: { cta: 'Order now' } } },
+  { scene: 1, area: 'pacing', problem: 'One too many', fix: 'x', action: null },
+] };
+let reviewDown = false, reviewAsks = [];
 
 // what the speech-to-text "hears": each line right, except the price the first time; then the whole voiceover
 const timed = (text, start = 0) => { const ws = text.split(' '); return { transcript: text, language_code: 'en-IN', timestamps: { words: ws, start_time_seconds: ws.map((_, i) => start + i * 0.4), end_time_seconds: ws.map((_, i) => start + i * 0.4 + 0.35) } }; };
@@ -35,6 +46,11 @@ before(async () => {
       if (url.pathname === '/speech-to-text') return send(heardQueue.shift() || timed(LINES.join(' ')));
       if (url.pathname === '/text-to-speech') { spoken.push(JSON.parse(b)); return send({ audios: [fs.readFileSync(path.join(tmp, 'line.wav')).toString('base64')] }); }
       if (url.pathname === '/openai/v1/responses') return send({ output: [{ type: 'message', content: [{ text: JSON.stringify(SCRIPT) }] }] });
+      if (url.pathname === '/gemini-3-8-flash-openai/v1/chat/completions' && /senior video ad editor/.test(JSON.parse(b).messages[0].content[0].text)) {
+        reviewAsks.push(JSON.parse(b).messages[0].content.length - 1);
+        if (reviewDown) { res.writeHead(500); return res.end('{}'); }
+        return send({ choices: [{ message: { content: JSON.stringify(REVIEW) } }] });
+      }
       if (url.pathname === '/gemini-3-8-flash-openai/v1/chat/completions') return send({ choices: [{ message: { content: JSON.stringify({ product_match: 9, text_ok: 9, anatomy_ok: 10, matches_brief: 9, consistency: 9, safe: true, issues: [], fix: '' }) } }] });
       if (url.pathname === '/api/v1/jobs/createTask') { const body = JSON.parse(b); created.push(body); return send({ code: 200, data: { taskId: `t${created.length - 1}` } }); }
       if (url.pathname === '/api/v1/jobs/recordInfo') {
@@ -111,13 +127,31 @@ test('approved: shots and voiceover are made and checked (a misread price is red
   assert.ok(tall.s > 9 && tall.s < 16, `length ${tall.s}`);
   assert.ok(r.poster);
   assert.match(r.links['9:16'], /^https:\/\/app\.reel\.test\/uploads\//, 'a public link for ads');
+  // the editor's notes: frames across the finished video, and only fixes that can be applied
+  assert.equal(reviewAsks.at(-1), 8, 'eight frames');
+  assert.equal(r.reviewing, false);
+  assert.equal(r.review.score, 72);
+  assert.equal(r.review.summary, REVIEW.summary);
+  assert.equal(r.review.suggestions.length, 5, 'at most five');
+  const [a1, a2, a3, a4, a5] = r.review.suggestions;
+  assert.deepEqual([a1.scene, a1.action], [0, { type: 'redo_shot', i: 0, note: REVIEW.suggestions[0].action.note }]);
+  assert.deepEqual([a2.scene, a2.action], [1, { type: 'reword_line', i: 1, text: 'Just ₹499 for a full litre' }]);
+  assert.deepEqual([a3.scene, a3.action], [null, null], 'no scene 9');
+  assert.equal(a4.action, null, 'not a caption style');
+  assert.equal(a5.area, 'story');
+  assert.deepEqual(a5.action, { type: 'end_card', endCard: { headline: 'Shuddh Ghee Co', offer: '₹499 / litre', cta: 'Order now' } }, 'the rest of the card kept');
+  assert.equal(r.shots[0].clip.redoCredits > 0, true, 'a redo shows its cost');
 });
 
 test('changes: a new caption style re-edits only; a reworded line re-voices that line, then re-edits', async () => {
   const before = (await get()).outputs['9:16'], renders = created.length;
+  reviewDown = true; // the reviewer is down: the Reel is made all the same, with no notes
   const e = await api(`/studio/reels/${reelId}`, 'PUT', { captions: { style: 'karaoke' } }, S);
   assert.equal(e.data.status, 'editing');
   const r = await until(['ready', 'needs_review']);
+  reviewDown = false;
+  assert.equal(r.review, null);
+  assert.equal(r.reviewing, false);
   assert.notEqual(r.outputs['9:16'], before);
   assert.equal(created.length, renders, 'nothing re-rendered');
   assert.equal(r.captions.style, 'karaoke');
@@ -127,6 +161,14 @@ test('changes: a new caption style re-edits only; a reworded line re-voices that
   const r2 = await until(['ready', 'needs_review']);
   assert.equal(spoken.length, 5, 'one line re-voiced');
   assert.equal(r2.script.lines[0], 'Fresh desi ghee for your whole family');
+  assert.equal(r2.review?.score, 72, 'reviewed again after the change');
+  // a note's fix applied as it is: the closing card one re-edits only
+  const card = r2.review.suggestions.find((x) => x.action?.type === 'end_card').action;
+  const n = created.length;
+  assert.equal((await api(`/studio/reels/${reelId}`, 'PUT', { endCard: card.endCard }, S)).data.status, 'editing');
+  const r3 = await until(['ready', 'needs_review']);
+  assert.equal(r3.script.endCard.cta, 'Order now');
+  assert.equal(created.length, n, 'nothing re-rendered');
   assert.equal((await api(`/studio/reels/${reelId}`, 'PUT', { captions: { style: 'pop' } }, (await register(api)).token)).status, 403, 'not someone else’s');
 });
 

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import { ffmpeg, probe, frames, tmpFile, rm } from './media.js';
 import { reviewWith } from './kie.js';
 import { studioModels } from './models.js';
+import { PRESETS as CAPTION_PRESETS } from './captions.js';
 
 const PASS = 6; // out of 10, the reviewer's lowest checklist score
 
@@ -95,4 +96,88 @@ function verdict(measured, r) {
   const issues = [...measured.issues, ...(r?.issues || [])];
   const ok = !measured.issues.length && (!r || (r.safe && (r.score == null || r.score >= PASS)));
   return { ok, score: r?.score ?? null, issues: ok ? [] : issues.length ? issues : ['Didn’t pass the quality check'], fix: r?.fix || '', measured, reviewed: !!r };
+}
+
+// ---------- 3. the finished Reel, as a senior editor would watch it ----------
+// Frames across the whole video (two in the first 2 seconds: the hook), the script and what was actually said → a score,
+// one sentence, and up to 5 notes, each with a fix the seller can apply in one click (studio/reels.js editReel):
+//   redo_shot { i, note } (paid) · reword_line { i, text } · end_card { endCard } · captions { style } · or none.
+// Free and never holds the Reel up: no reviewer → null.
+export const REVIEW_AREAS = ['hook', 'visual', 'pacing', 'captions', 'voice', 'end card', 'story'];
+const CAPTION_IDS = Object.keys(CAPTION_PRESETS);
+const EDITOR = (n, captions) => `You are a senior video ad editor (the kind agencies pay for) reviewing a FINISHED short video ad made for an Indian small business, before it runs on Instagram Reels / YouTube Shorts. The pictures are frames from the finished video, in order, with the time and scene of each.
+Judge it like a premium human editor, cinematographer and sound designer would:
+- hook: do the first 2 seconds stop the scroll (a striking picture, a face, movement, a bold first line)?
+- story: is it clear what is sold, to whom and why, from problem to result?
+- visual: does the main person and the product look the same in every scene (face, age, clothes, packaging)? consistent light and colour? anything warped or fake-looking?
+- pacing: does each scene hold as long as it should, nothing dragging or rushed?
+- captions: big enough, readable on a phone, not covering faces or the product, not cut off?
+- voice: do the words fit the pictures and the brand, in natural spoken language?
+- end card: clear brand, offer and call to action, readable at a glance?
+- brand fit: does it look and sound like a trustworthy business?
+Scenes are numbered 1 to ${n}. Answer only JSON:
+{"score": 0-100 as a demanding editor would grade it (85+ ready to run as it is, below 60 not ready),
+ "summary": "one sentence verdict, in plain words",
+ "suggestions": [{"scene": scene number or null, "area": one of ${REVIEW_AREAS.map((a) => `"${a}"`).join(', ')}, "problem": "what's wrong, in a few plain words a shop owner understands", "fix": "what to change", "action": a one-click fix or null}]}
+The one-click fixes:
+ {"type": "redo_shot", "scene": n, "note": "what the new clip must show or change, written for the video maker"} — costs the seller credits: only for a clear visual problem
+ {"type": "reword_line", "scene": n, "text": "the new voiceover line for that scene, in the same language and script, about as long"}
+ {"type": "end_card", "endCard": {"headline": max 40 chars, "offer": max 40 chars, "cta": max 30 chars}} — never invent a price or offer the script doesn't have
+ {"type": "captions", "style": one of ${CAPTION_IDS.map((c) => `"${c}"`).join(', ')}} (now: ${captions || 'no captions'})
+At most 5 suggestions, the most important first; none when it is already excellent. Never mention AI, models or tools.`;
+
+// the reviewer's answer, made safe: known areas, at most 5 notes, and only fixes that point at a real scene and change
+// something (scenes come back numbered from 1; they're kept as indexes from 0)
+export function cleanReview(v, { lines = [], shots = 0, endCard = {}, captions = null } = {}) {
+  if (!v || typeof v !== 'object') return null;
+  const s = (x, n) => String(x ?? '').trim().slice(0, n);
+  const idx = (x, max) => { const k = Math.round(Number(x)) - 1; return Number.isInteger(k) && k >= 0 && k < max ? k : null; };
+  const scenes = Math.max(lines.length, shots);
+  const action = (a, scene) => {
+    if (!a || typeof a !== 'object') return null;
+    const at = a.scene ?? a.i ?? (scene == null ? null : scene + 1);
+    if (a.type === 'redo_shot') { const i = idx(at, shots), note = s(a.note, 300); return i != null && note ? { type: 'redo_shot', i, note } : null; }
+    if (a.type === 'reword_line') { const i = idx(at, lines.length), text = s(a.text, 220); return i != null && text && text !== lines[i] ? { type: 'reword_line', i, text } : null; }
+    if (a.type === 'end_card') {
+      const e = a.endCard || {}, card = { headline: s(e.headline, 40) || s(endCard.headline, 40), offer: s(e.offer, 40) || s(endCard.offer, 40), cta: s(e.cta, 30) || s(endCard.cta, 30) };
+      return ['headline', 'offer', 'cta'].some((k) => card[k] !== s(endCard[k], 40)) ? { type: 'end_card', endCard: card } : null;
+    }
+    if (a.type === 'captions') return CAPTION_IDS.includes(a.style) && a.style !== captions ? { type: 'captions', style: a.style } : null;
+    return null;
+  };
+  const suggestions = (Array.isArray(v.suggestions) ? v.suggestions : []).filter((x) => x && s(x.problem, 200)).slice(0, 5).map((x) => {
+    let scene = idx(x.scene, scenes);
+    const act = action(x.action, scene);
+    if (act && 'i' in act) scene = act.i;
+    return { scene, area: REVIEW_AREAS.includes(x.area) ? x.area : 'story', problem: s(x.problem, 200), fix: s(x.fix, 300), action: act };
+  });
+  const score = Number(v.score);
+  return { score: Number.isFinite(score) ? Math.min(100, Math.max(0, Math.round(score))) : null, summary: s(v.summary, 240), suggestions, at: Date.now() };
+}
+
+// spans: [[start, end] seconds per line] when known, to say which scene each frame is from
+export async function reviewReel({ file, script = {}, lines = [], words = null, spans = null, captions = null }) {
+  const { model, fallback } = studioModels().review;
+  const secs = (await probe(file)).seconds;
+  if (!secs) return null;
+  // the hook twice (0.3 s, 1.5 s), then evenly to the last frame: 8 in all
+  const times = [0.3, Math.min(1.5, secs / 2), ...Array.from({ length: 6 }, (_, k) => 2 + ((secs - 2.3) * (k + 1)) / 6)].filter((t) => t < secs).map((t) => Math.round(t * 10) / 10);
+  const images = [];
+  for (const t of times) {
+    const f = tmpFile('jpg');
+    await ffmpeg(['-ss', String(t), '-i', file, '-frames:v', '1', '-vf', "scale='min(512,iw)':-2", '-q:v', '4', f], { timeoutMs: 30000 });
+    if (fs.existsSync(f)) { images.push({ t, buf: fs.readFileSync(f), type: 'image/jpeg' }); rm(f); }
+  }
+  if (!images.length) return null;
+  const n = Math.max(lines.length, script.shots?.length || 0);
+  const sceneAt = (t) => { if (!spans?.length) return null; const k = spans.findIndex(([, z]) => t <= z + 0.3); return k < 0 ? 'closing card' : `scene ${Math.min(k, n - 1) + 1}`; };
+  const said = (Array.isArray(words) ? words.map((w) => w?.w || w?.word || '').join(' ') : '').slice(0, 1500);
+  const prompt = `${EDITOR(n, captions)}
+
+The frames: ${images.map((x, k) => `picture ${k + 1} at ${x.t}s${sceneAt(x.t) ? ` (${sceneAt(x.t)})` : ''}`).join('; ')}. The video is ${Math.round(secs * 10) / 10}s long.
+The scenes (voiceover line · what the shot shows):
+${Array.from({ length: n }, (_, i) => `${i + 1}. “${String(lines[i] || '').slice(0, 220)}” · ${String(script.shots?.[i]?.image || '(voice only)').slice(0, 300)}${script.shots?.[i]?.motion ? ` · moves: ${String(script.shots[i].motion).slice(0, 120)}` : ''}`).join('\n')}
+Closing card: ${JSON.stringify(script.endCard || {})}${said ? `\nWhat the voiceover actually says: ${said}` : ''}`;
+  const v = await reviewWith([model, fallback], { prompt, images });
+  return v ? cleanReview(v, { lines, shots: script.shots?.length || 0, endCard: script.endCard || {}, captions }) : null;
 }
