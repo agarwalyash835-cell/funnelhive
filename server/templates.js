@@ -436,7 +436,11 @@ export function similarTemplates(prompt, k = 2) {
   // "apply for a call"); a bakery selling cakes wants a sales page, not the webinar about starting a bakery.
   // A clear ask picks from that kind of funnel only; "consultation" alone just tilts towards it.
   const webinar = /webinar|masterclass|workshop|live (session|class|training)|info session|seminar/i.test(prompt);
-  const vsl = !webinar && /\bvsl\b|video sales|\bapply\b|application|qualif|strategy call|discovery call|high[- ]ticket|book a call|book a demo|product demo|live demo/i.test(prompt);
+  // a video sales letter that sells straight away (a checkout, a monthly / yearly price) is a sales page with the video
+  // on top — not the "apply for a call" funnel the VSL templates are
+  const direct = /checkout|buy now|pay (now|online)|direct (payment|purchase|checkout|sale)|per (month|year)|\/ ?(month|mo|year|yr)\b|a month\b|subscription/i.test(prompt)
+    && !/\bapply\b|application|qualif|strategy call|discovery call|high[- ]ticket|book a (call|demo)/i.test(prompt);
+  const vsl = !webinar && !direct && /\bvsl\b|video sales|\bapply\b|application|qualif|strategy call|discovery call|high[- ]ticket|book a call|book a demo|product demo|live demo/i.test(prompt);
   const leaning = /consultation/i.test(prompt);
   const quiz = /\bquiz (funnel|page)|\b(a|an) (\w+ )?quiz\b|\bquiz to\b|\bassessment funnel|which .{1,30} is right for (me|you)/i.test(prompt);
   const sells = /₹|\brs\.?\s*\d|\bupsell|\bsell\b|\bcourse\b|\bprogramme\b|\bprogram\b/i.test(prompt);

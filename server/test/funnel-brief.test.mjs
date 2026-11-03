@@ -90,6 +90,9 @@ test('a free guide / list-building brief gets a sign-up funnel, not a paid sales
   assert.equal(shape('Free ebook on home loans for first-time buyers'), 'optin>thankyou');
   assert.match(shape('Homemade mango pickles delivered across India'), /^sales>checkout/);
   assert.match(shape('Free masterclass on stock trading'), /^optin>thankyou>sales/);
+  // a VSL that sells straight away is a sales page with a checkout; "apply / book a call" stays an application funnel
+  assert.match(shape('Video sales letter (VSL) funnel selling software for traders, ₹2,999 per month, buy button then checkout'), /^sales>checkout/);
+  assert.match(shape('VSL for my high-ticket coaching — watch, apply, book a strategy call'), /^sales>optin/);
 });
 
 test('page lengths: short and standard drop the extras and never repeat a section; detailed is the full template', () => {
