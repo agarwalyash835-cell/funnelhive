@@ -15,7 +15,10 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-test-'));
 const ff = (...a) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
 const LINES = ['Pure desi ghee for your whole family', 'Only ₹499 for one litre jar', 'Order today on WhatsApp now'];
 const SCRIPT = { title: 'Ghee Reel', lines: LINES, shots: [{ image: 'A jar of ghee on a kitchen counter', motion: 'Slow push-in', seconds: 4 }, { image: 'Ghee poured over hot rice', motion: 'Pour in slow motion', seconds: 4 }], endCard: { headline: 'Shuddh Ghee Co', offer: '₹499 / litre', cta: 'Order on WhatsApp' } };
-const created = [], heardQueue = [], spoken = []; // spoken: Sarvam text-to-speech requests
+const created = [], heardQueue = [], spoken = [], checks = [];
+// the check before spending, as the fake director answers it (scene 9 doesn't exist and is dropped)
+const PLAN_CHECK = { quality: 72, virality: 58, verdict: 'Good product, slow start.', hook: { score: 50, problem: 'The first line is a statement, not a hook', line: 'Is your ghee really pure?', image: '' }, scenes: [{ scene: 2, score: 64, problem: 'No movement in the pour', motion: 'Slow pour of golden ghee over steaming rice, camera pushes in', line: '' }, { scene: 9, score: 10, problem: 'ghost' }], voice: { score: 80, problem: '' }, endCard: { headline: '', offer: '', cta: 'Order on WhatsApp now' }, music: 'Warm flute and tabla, gentle build' };
+const PROMPT_CHECK = { quality: 61, virality: 55, verdict: 'Too vague to stop the scroll.', problems: ['No light or setting', 'No hook in the picture'], prompt: 'A glass jar of golden desi ghee on a rustic wooden table, morning window light, close-up, steam rising from rice beside it' }; // spoken: Sarvam text-to-speech requests
 let fake, srv, api, ADMIN, S, sid, reelId;
 // the editor's notes on a finished Reel: some fixes point at scenes that don't exist or change nothing, and there are too
 // many — the server keeps only what can be applied. reviewDown: the reviewer doesn't answer
@@ -51,7 +54,7 @@ before(async () => {
       if (url.pathname.startsWith('/files/')) return res.end(fs.readFileSync(path.join(tmp, url.pathname.slice(7))));
       if (url.pathname === '/speech-to-text') return send(heardQueue.shift() || timed(LINES.join(' ')));
       if (url.pathname === '/text-to-speech') { spoken.push(JSON.parse(b)); return send({ audios: [fs.readFileSync(path.join(tmp, 'line.wav')).toString('base64')] }); }
-      if (url.pathname === '/openai/v1/responses') { const j = JSON.parse(b || '{}'); if (j.tools) return send(hiveBrain(j)); return send({ output: [{ type: 'message', content: [{ text: JSON.stringify(SCRIPT) }] }] }); }
+      if (url.pathname === '/openai/v1/responses') { const j = JSON.parse(b || '{}'); if (j.tools) return send(hiveBrain(j)); if (/creative director/.test(j.instructions || '')) { checks.push(j.input?.at(-1)?.content || ''); return send({ output: [{ type: 'message', content: [{ text: JSON.stringify(/an image|a short video clip/.test(j.instructions) ? PROMPT_CHECK : PLAN_CHECK) }] }] }); } return send({ output: [{ type: 'message', content: [{ text: JSON.stringify(SCRIPT) }] }] }); }
       if (url.pathname === '/gemini-3-8-flash-openai/v1/chat/completions' && /senior video ad editor/.test(JSON.parse(b).messages[0].content[0].text)) {
         reviewAsks.push(JSON.parse(b).messages[0].content.length - 1);
         if (reviewDown) { res.writeHead(500); return res.end('{}'); }
@@ -355,4 +358,27 @@ test('Hive: the storyboard waits for an OK that states its credits, its pictures
   assert.equal((await mcp('studio_change_scene', { id: made.id, i: 0, drop: true })).error !== undefined, true, 'the last scene stays');
   const an = await mcp('studio_animate', { id: made.id, res: '720p' });
   assert.equal(an.reel.status, 'producing', JSON.stringify(an));
+});
+
+test('before spending: the plan is checked for quality and virality, scene by scene, with changes to apply — free and kept until the script changes', async () => {
+  const r0 = (await api('/studio/reels', 'POST', { brief: 'Desi ghee from our farm, ₹499 a litre, for families in Pune', lang: 'en', seconds: 15, tier: 'quick' }, S)).data;
+  const n = created.length, asked = checks.length;
+  const a = (await api(`/studio/reels/${r0.id}/assess`, 'POST', {}, S)).data.assessment;
+  assert.deepEqual([a.quality, a.virality], [72, 58]);
+  assert.equal(a.hook.line, 'Is your ghee really pure?');
+  assert.deepEqual(a.scenes.map((x) => x.i), [1], 'scene 2 kept as index 1; a scene that isn’t there is dropped');
+  assert.equal(a.endCard.cta, 'Order on WhatsApp now');
+  assert.match(checks.at(-1), /Desi ghee/);
+  assert.equal(created.length, n, 'nothing made, no credits');
+  // asked again with the same plan: the kept answer; a changed script: checked afresh
+  await api(`/studio/reels/${r0.id}/assess`, 'POST', {}, S);
+  assert.equal(checks.length, asked + 1);
+  assert.equal((await api(`/studio/reels/${r0.id}/script`, 'PUT', { script: { ...r0.script, lines: ['Is your ghee really pure?', ...r0.script.lines.slice(1)] } }, S)).data.assessment, null, 'stale once the plan changes');
+  await api(`/studio/reels/${r0.id}/assess`, 'POST', {}, S);
+  assert.equal(checks.length, asked + 2);
+  // one image or ad creative: the words checked and a stronger version offered
+  const p = (await api('/studio/assess', 'POST', { kind: 'image', prompt: 'ghee jar', aspect: '1:1' }, S)).data;
+  assert.deepEqual([p.quality, p.virality, p.problems.length], [61, 55, 2]);
+  assert.match(p.prompt, /morning window light/);
+  assert.equal((await api('/studio/assess', 'POST', { kind: 'image', prompt: '' }, S)).status, 400);
 });

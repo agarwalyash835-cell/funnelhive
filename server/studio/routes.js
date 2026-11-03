@@ -18,17 +18,21 @@ import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
 import { memoryOf, setMemory, remember, forget, learn, withPrefs } from './memory.js';
+import { assessReel, assessPrompt, planHash } from './preflight.js';
 
 // a Reel as the seller sees it: the script, each shot's still and clip, each voiceover line and its check, the result
 const brief = (a) => (a ? view(a) : null);
 export function reelView(r) {
   // what it costs (shown before approving: each resolution the tier offers)
   const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion, vmodel: r.vmodel, imodel: r.imodel }) : null;
-  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r) };
+  // the check before spending, while it still matches the plan
+  const assessment = r.script && r.assessment?.hash === planOf(r) ? r.assessment : null;
+  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r), assessment };
 }
 // the editor's notes on the finished video (studio/qa.js reviewReel), each fix applied through PUT /reels/:id; "reviewing"
 // only for a few minutes (a restart mid-review leaves no notes, not a spinner forever)
 const editorNotes = (r) => ({ review: r.review || null, reviewing: !!r.reviewing && !r.review && Date.now() - (r.doneAt || 0) < 300000 });
+const planOf = (r) => planHash({ script: r.script, aspect: r.aspect, seconds: r.seconds });
 const anyView = (a) => (a.kind === 'reel' ? reelView(a) : view(a));
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -127,6 +131,24 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     if (statuses && !statuses.includes(r.status)) { res.status(409).json({ error: r.status === 'producing' || r.status === 'editing' ? 'It’s still being made' : 'It can’t be changed right now' }); return null; }
     return r;
   };
+  // the check before spending: quality and virality of the plan, scene by scene and line by line, with changes to apply
+  // (free — nothing is rendered). Kept on the Reel until the script changes.
+  app.post('/api/studio/reels/:id/assess', auth, scriptLimiter, wrap(async (req, res) => {
+    const r = myReel(req, res, ['script_ready', 'storyboard_ready']); if (!r) return;
+    const hash = planOf(r);
+    if (r.assessment?.hash === hash && !req.body?.again) return res.json(reelView(r));
+    const a = await assessReel({ brief: r.prompt, script: r.script, seconds: r.seconds, aspect: r.aspect, motion: req.body?.motion || r.motion, lang: r.lang });
+    if (!a) return res.status(503).json({ error: 'The check isn’t available right now — you can still go ahead' });
+    res.json(reelView(T.studio.update(r.id, (x) => { x.assessment = { ...a, hash }; })));
+  }));
+  // the same for one image, ad creative or clip: the words checked, and a stronger version offered
+  app.post('/api/studio/assess', auth, scriptLimiter, wrap(async (req, res) => {
+    const b = req.body || {}, prompt = clip(b.prompt, 1500);
+    if (prompt.length < 3) return res.status(400).json({ error: 'Describe what you want first' });
+    const a = await assessPrompt({ kind: b.kind === 'clip' ? 'clip' : 'image', prompt, aspect: b.aspect, seconds: b.seconds, product: !!(b.ref || b.sourceId) });
+    if (!a) return res.status(503).json({ error: 'The check isn’t available right now — you can still go ahead' });
+    res.json(a);
+  }));
   app.put('/api/studio/reels/:id/script', auth, (req, res) => {
     const r = myReel(req, res, ['script_ready']); if (!r) return;
     const b = req.body || {};

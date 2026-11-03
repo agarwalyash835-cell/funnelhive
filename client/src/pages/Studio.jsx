@@ -100,12 +100,20 @@ export default function Studio() {
         const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || undefined, captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
         set({ prompt: '' }); await load(); setOpen(r.id);
       } else {
-        if (mode === 'image') await api('/studio/images', 'POST', { prompt: v.prompt, tier: v.tier, model: im?.id, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
+        // before spending: the words checked for quality and virality, and a stronger version offered (free)
+        let prompt = v.prompt;
+        const chk = await api('/studio/assess', 'POST', { kind: mode, prompt, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) }).catch(() => null);
+        if (chk) {
+          const why = `Quality ${chk.quality ?? '–'}/100 · Virality ${chk.virality ?? '–'}/100. ${chk.verdict}${chk.problems.length ? `\n\n• ${chk.problems.join('\n• ')}` : ''}`;
+          if (chk.prompt && await confirmDialog({ title: 'Before you spend', text: `${why}\n\nA stronger version:\n“${chk.prompt}”`, confirm: 'Use the stronger version', cancel: 'Keep mine' })) { prompt = chk.prompt; set({ prompt }); }
+        }
+        if (mode === 'image' && !(await confirmDialog({ title: `Make ${v.count > 1 ? `${v.count} images` : 'this image'}?`, text: `${im?.name || 'The image model'} makes ${v.count > 1 ? 'them' : 'it'} for about ${cost} credits.`, confirm: `Make it · ${cost} credits` }))) { setBusy(false); return; }
+        if (mode === 'image') await api('/studio/images', 'POST', { prompt, tier: v.tier, model: im?.id, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
         else {
           // a video costs real credits: say how many, and go ahead only on a yes
           const other = resOpts.filter((r) => r !== res).map((r) => `${r}: about ${Math.ceil(perSec(r) * v.seconds)} credits`).join(' · ');
           if (!(await confirmDialog({ title: `Make this ${v.seconds}-second clip?`, text: `${vm?.name || 'The video model'} makes it at ${res} for about ${cost} credits.${other ? ` (${other}.)` : ''} Clips below 720p are sharpened up to 720p for free.`, confirm: `Make it · ${cost} credits` }))) { setBusy(false); return; }
-          await api('/studio/clips', 'POST', { prompt: v.prompt, tier: v.tier, model: vm?.id, res, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) });
+          await api('/studio/clips', 'POST', { prompt, tier: v.tier, model: vm?.id, res, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) });
         }
         set({ prompt: '' }); setFilter('all'); load();
       }

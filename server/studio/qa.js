@@ -117,6 +117,8 @@ Judge it like a premium human editor, cinematographer and sound designer would:
 - brand fit: does it look and sound like a trustworthy business?
 Scenes are numbered 1 to ${n}. Answer only JSON:
 {"score": 0-100 as a demanding editor would grade it (85+ ready to run as it is, below 60 not ready),
+ "virality": 0-100 — how likely it is to be watched to the end, shared and acted on in an Indian feed (scroll-stopping hook, emotion, relatability, a clear payoff, rewatch value),
+ "viralityWhy": "one short sentence: what helps or hurts its reach",
  "summary": "one sentence verdict, in plain words",
  "suggestions": [{"scene": scene number or null, "area": one of ${REVIEW_AREAS.map((a) => `"${a}"`).join(', ')}, "problem": "what's wrong, in a few plain words a shop owner understands", "fix": "what to change", "action": a one-click fix or null}]}
 The one-click fixes:
@@ -151,8 +153,8 @@ export function cleanReview(v, { lines = [], shots = 0, endCard = {}, captions =
     if (act && 'i' in act) scene = act.i;
     return { scene, area: REVIEW_AREAS.includes(x.area) ? x.area : 'story', problem: s(x.problem, 200), fix: s(x.fix, 300), action: act };
   });
-  const score = Number(v.score);
-  return { score: Number.isFinite(score) ? Math.min(100, Math.max(0, Math.round(score))) : null, summary: s(v.summary, 240), suggestions, at: Date.now() };
+  const pct = (x) => { const n = Number(x); return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : null; };
+  return { score: pct(v.score), virality: pct(v.virality), viralityWhy: s(v.viralityWhy, 200), summary: s(v.summary, 240), suggestions, at: Date.now() };
 }
 
 // spans: [[start, end] seconds per line] when known, to say which scene each frame is from

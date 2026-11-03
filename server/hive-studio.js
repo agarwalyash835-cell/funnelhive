@@ -105,6 +105,18 @@ export const TOOLS = [
     summary: () => 'Studio will remember that',
   },
   // ---------- storyboard first: the scene pictures (about a minute) → change scenes by talking → animate ----------
+  // ---------- the check before spending: quality and virality, with changes to make first (free) ----------
+  {
+    name: 'studio_check',
+    description: 'Before ANY paid Studio step (images, ad creatives, clips, a Reel’s storyboard or approval), check the plan for quality and virality — free, nothing is made. With id: a Reel’s script, scene by scene and line by line (hook, each scene’s pictures and movement, voice, closing card, music). With prompt (+ kind image|clip): one image, ad creative or clip. Tell the seller the two scores in plain words and the changes that would help most; apply the ones they accept (studio_approve_reel / studio_storyboard take the edited script), then go ahead.',
+    schema: S({ id: str('Optional: the Reel id'), prompt: str('Optional: the words for an image or clip'), kind: { type: 'string', enum: ['image', 'clip'], description: 'For a prompt: image (default) or clip' }, aspect: str('Optional: frame, e.g. 1:1, 9:16'), seconds: num('Optional: clip length') }),
+    run: async (ctx, a) => {
+      if (a.id) { const r = await ctx.call('POST', `/studio/reels/${encodeURIComponent(a.id)}/assess`, {}); return { ok: true, id: r.id, assessment: r.assessment, script: r.script }; }
+      if (!a.prompt) throw new Error('Give a Reel id or the words to check');
+      return { ok: true, ...(await ctx.call('POST', '/studio/assess', { kind: a.kind || 'image', prompt: a.prompt, aspect: a.aspect, seconds: a.seconds })) };
+    },
+    summary: (r) => (r.assessment || r.quality != null ? `Checked: quality ${(r.assessment || r).quality ?? '–'}, virality ${(r.assessment || r).virality ?? '–'}` : 'Checked the plan'),
+  },
   {
     name: 'studio_storyboard',
     description: 'The Reel’s storyboard: each scene’s picture and line, shown in the chat. On a Reel whose script is waiting (studio_make_reel), it starts the storyboard: only the scene pictures are made (and the voiceover recorded) — about a minute — then it waits; the clips are made only after studio_animate. On a Reel already storyboarding, it shows the pictures so far (call again after a minute when some are still being made). Show the seller the scenes, offer changes (studio_change_scene), then studio_animate.',

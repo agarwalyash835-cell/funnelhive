@@ -168,9 +168,10 @@ export function ReelEditor({ r, d, onClose, onChange }) {
           <p className="sx-hint" style={{ margin: 0 }}>{STATUS_LINE[r.storyboard && r.status === 'producing' ? 'storyboard' : r.status]}</p>
           {r.status === 'failed' && <div className="sxr-note bad"><b>{r.error || 'It stopped part-way.'}</b><span>Retry finishes only what’s missing — nothing that worked is made again.</span></div>}
           {r.status === 'needs_review' && r.issues?.length > 0 && <div className="sxr-note"><b>Have a look at:</b><ul>{r.issues.map((x) => <li key={x}>{x}</li>)}</ul></div>}
+          {(editing || boarding) && <PlanCheck r={r} s={s} edit={edit} dirty={dirty} onChange={onChange} />}
           {made && r.reviewing && <div className="sxr-notes"><h4>Editor’s notes</h4><p className="sx-hint" style={{ margin: 0 }}><span className="spin dark" /> Watching the finished video…</p></div>}
           {made && r.review && <div className="sxr-notes">
-            <div className="sxr-notes-head"><h4>Editor’s notes</h4>{r.review.score != null && <b className={`sxr-score ${r.review.score >= 85 ? 'ok' : r.review.score >= 60 ? 'warn' : 'bad'}`}>{r.review.score}<small>/100</small></b>}</div>
+            <div className="sxr-notes-head"><h4>Editor’s notes</h4>{r.review.virality != null && <b className={`sxr-score ${band(r.review.virality)}`} title={r.review.viralityWhy || 'Virality'}>🔥 {r.review.virality}</b>}{r.review.score != null && <b className={`sxr-score ${r.review.score >= 85 ? 'ok' : r.review.score >= 60 ? 'warn' : 'bad'}`}>{r.review.score}<small>/100</small></b>}</div>
             {r.review.summary && <p className="sxr-say">{r.review.summary}</p>}
             {r.review.suggestions.length === 0 && <p className="sx-hint" style={{ margin: 0 }}>Nothing to change — it’s ready to run.</p>}
             {r.review.suggestions.map((x, k) => {
@@ -275,6 +276,53 @@ export function ReelEditor({ r, d, onClose, onChange }) {
         </section>
       </div>
       {view != null && shotItems[view] && <Viewer items={shotItems} index={view} onIndex={setView} onClose={() => setView(null)} />}
+    </div>
+  );
+}
+
+// the check before spending: the plan read for quality and virality — the hook, every scene's pictures and movement,
+// every line, the closing card, the music — with each suggested change one click away (applied to the script here, so
+// it's in what gets approved). Free: nothing is made.
+const band = (n) => (n >= 80 ? 'ok' : n >= 60 ? 'warn' : 'bad');
+function PlanCheck({ r, s, edit, dirty, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const a = r.assessment;
+  const run = async (again) => {
+    setBusy(true); setErr('');
+    try {
+      if (dirty) await api(`/studio/reels/${r.id}/script`, 'PUT', { script: s });
+      await api(`/studio/reels/${r.id}/assess`, 'POST', again ? { again: true } : {});
+      await onChange();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  useEffect(() => { if (!a && !busy) run(false); }, [r.id]);
+  const shot = (i, p) => edit({ shots: s.shots.map((x, j) => (j === i ? { ...x, ...p } : x)) });
+  const line = (i, text) => edit({ lines: s.lines.map((x, j) => (j === i ? text : x)) });
+  const Use = ({ on, label }) => <button type="button" className="btn ghost sm" onClick={on}><Icon name="check" size={13} /> {label}</button>;
+  return (
+    <div className="sxr-notes">
+      <div className="sxr-notes-head"><h4>Before you spend</h4>{a && <><b className={`sxr-score ${band(a.quality)}`} title="Production quality">{a.quality ?? '–'}</b><b className={`sxr-score ${band(a.virality)}`} title="Virality: watched to the end, shared, acted on">🔥 {a.virality ?? '–'}</b></>}</div>
+      {busy && <p className="sx-hint" style={{ margin: 0 }}><span className="spin dark" /> Checking every scene, picture and line…</p>}
+      {err && <p className="sx-hint" style={{ margin: 0 }}>{err}</p>}
+      {a && <>
+        {a.verdict && <p className="sxr-say">{a.verdict}</p>}
+        {(a.hook?.problem || a.hook?.line || a.hook?.image) && <div className="sxr-tip"><span className="no">hook · first 2 seconds</span>{a.hook.problem && <b>{a.hook.problem}</b>}
+          {a.hook.line && <small className="muted">“{a.hook.line}”</small>}{a.hook.line && <Use on={() => line(0, a.hook.line)} label="Use this first line" />}
+          {a.hook.image && <Use on={() => shot(0, { image: a.hook.image })} label="Use this first picture" />}</div>}
+        {a.scenes.filter((x) => x.problem || x.image || x.end || x.motion || x.line).map((x) => (
+          <div key={x.i} className="sxr-tip"><span className="no">scene {x.i + 1}{x.score != null ? ` · ${x.score}` : ''}</span>{x.problem && <b>{x.problem}</b>}
+            {x.line && <><small className="muted">“{x.line}”</small><Use on={() => line(x.i, x.line)} label="Use this line" /></>}
+            {x.image && <Use on={() => shot(x.i, { image: x.image })} label="Use the better picture" />}
+            {x.end && <Use on={() => shot(x.i, { end: x.end })} label="Use the better ending" />}
+            {x.motion && <Use on={() => shot(x.i, { motion: x.motion })} label="Use the better movement" />}</div>
+        ))}
+        {a.voice?.problem && <div className="sxr-tip"><span className="no">voice{a.voice.score != null ? ` · ${a.voice.score}` : ''}</span><b>{a.voice.problem}</b></div>}
+        {a.endCard && <div className="sxr-tip"><span className="no">closing card</span><small className="muted">{[a.endCard.headline, a.endCard.offer, a.endCard.cta].filter(Boolean).join(' · ')}</small><Use on={() => edit({ endCard: { headline: a.endCard.headline || s.endCard?.headline || '', offer: a.endCard.offer || s.endCard?.offer || '', cta: a.endCard.cta || s.endCard?.cta || '' } })} label="Use this card" /></div>}
+        {a.music && <div className="sxr-tip"><span className="no">music</span><small className="muted">{a.music}</small><Use on={() => edit({ music: a.music })} label="Use this mood" /></div>}
+        <button type="button" className="btn ghost sm" disabled={busy} onClick={() => run(true)}><Icon name="redo" size={13} /> Check again{dirty ? ' with my changes' : ''}</button>
+      </>}
     </div>
   );
 }
