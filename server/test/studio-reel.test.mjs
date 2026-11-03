@@ -164,3 +164,15 @@ test('photo motion: stills only (no AI clips), each animated by the editor; the 
   const tall = probe(onDisk(r.outputs['9:16']));
   assert.ok(tall.audio && tall.s > 9 && tall.s < 16, `length ${tall.s}`);
 });
+
+test('the closing card: a long headline wraps and pushes the offer down — nothing overlaps, in any size', async () => {
+  const { cardLayout } = await import('../studio/assemble.js');
+  const card = { headline: 'Get paid faster from your own Tally', offer: '₹2,999/mo · Free setup · 14-day refund', cta: 'Book your free setup today' };
+  for (const [W, H] of [[1080, 1920], [1920, 1080], [1080, 1080]]) for (const still of [true, false]) {
+    const b = cardLayout(card, W, H, still);
+    assert.equal(b.length, 3);
+    for (let i = 1; i < b.length; i++) assert.ok(b[i].top > b[i - 1].top + b[i - 1].fs * 1.1, `${W}x${H} block ${i} starts below the one above`);
+    assert.ok(b.at(-1).top < H * 0.97, `${W}x${H} fits`);
+    if (still) assert.ok(b[0].top >= H * 0.5, 'under the picture');
+  }
+});

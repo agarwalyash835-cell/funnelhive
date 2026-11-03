@@ -88,6 +88,23 @@ export async function fitDuration(video, seconds, out, { fps = 30 } = {}) {
   return out;
 }
 
+// where the card's three texts go: stacked top-down by how many lines each one really wraps to (Noto Sans bold runs
+// about 0.58 of the font size per character), so a long headline pushes the offer down instead of running into it.
+// A text that would take more than two lines is set smaller. With a picture they sit under it (it ends at 49% of the
+// height); without one, the block is centred. → [{ style, text, fs, top }]
+export function cardLayout(card, W, H, still) {
+  const usable = W - 120, gap = Math.round(H * 0.022), pad = Math.round(H * 0.018);
+  const lines = (text, fs) => Math.max(1, Math.ceil((String(text).length * fs * 0.58) / usable));
+  const blocks = [['Card', 0.046, card.headline], ['Card', 0.062, card.offer], ['Cta', 0.034, card.cta]].filter((b) => b[2]).map(([style, size, text]) => {
+    let fs = Math.round(H * size);
+    while (lines(text, fs) > 2 && fs > H * 0.022) fs = Math.round(fs * 0.9);
+    const n = lines(text, fs), box = style === 'Cta' ? pad * 2 : 0;
+    return { style, text, fs, h: Math.round(n * fs * 1.2) + box, box };
+  });
+  const total = blocks.reduce((t, b) => t + b.h, 0) + gap * Math.max(0, blocks.length - 1);
+  let top = still ? Math.round(Math.max(H * 0.53, Math.min(H * 0.58, H * 0.96 - total))) : Math.round((H - total) / 2);
+  return blocks.map((b) => { const at = top + b.box / 2; top += b.h + gap; return { style: b.style, text: b.text, fs: b.fs, top: Math.round(at) }; });
+}
 // a still brought to life without an AI clip ("photo motion", free): a slow, eased zoom or pan over the picture, the
 // way an editor animates a photo. The picture is scaled to twice the frame first so the move stays smooth (zoompan
 // steps in whole pixels). move: in | out | left | right

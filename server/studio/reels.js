@@ -16,7 +16,7 @@ import { runTask, studioReady } from './kie.js';
 import { enqueue } from './jobs.js';
 import { localCopy, save, rm, ffmpeg, tmpFile, probe } from './media.js';
 import { makeLine, checkLine, sarvamTranscriber, applyPronunciations, LANGUAGES, langBase } from './voice.js';
-import { render, dims, stillMotion, moveFor } from './assemble.js';
+import { render, dims, stillMotion, moveFor, cardLayout } from './assemble.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
 
@@ -186,16 +186,15 @@ export async function makeCard(card, colour, aspect, still = null) {
   if (!card || !(card.headline || card.offer || card.cta)) return null;
   const { width: W, height: H } = dims(aspect, 1080);
   const hex = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : '#111827';
-  const button = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : '#FFD400';
+  // the button in the brand colour over a picture; on the plain brand-colour card it would vanish, so it's white there
+  const button = /^#[0-9a-f]{6}$/i.test(colour || '') ? (still ? colour : '#FFFFFF') : '#FFD400';
   const ass = tmpFile('ass'), png = tmpFile('png');
-  const y = still ? { h: 0.6, o: 0.68, c: 0.79 } : { h: 0.4, o: 0.5, c: 0.62 };
-  const L = (style, at, size, text) => `Dialogue: 0,0:00:00.00,0:00:05.00,${style},,0,0,0,,{\\an5\\pos(${W / 2},${Math.round(H * at)})\\fs${Math.round(H * size)}}${assEsc(text)}`;
   const styles = [
     'Style: Card,Noto Sans,60,&H00FFFFFF,&H00FFFFFF,&H78000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,5,60,60,60,1',
     // the call to action as a button: dark text on an opaque box in the brand colour (yellow without one)
     `Style: Cta,Noto Sans,60,${/^#(ffd|fff|fe|fd|fc)/i.test(button) ? '&H00111111' : '&H00FFFFFF'},&H00FFFFFF,${assHex(button)},&H00000000,-1,0,0,0,100,100,0,0,3,${Math.round(H * 0.018)},0,5,60,60,60,1`,
   ];
-  const events = [card.headline && L('Card', y.h, 0.046, card.headline), card.offer && L('Card', y.o, 0.062, card.offer), card.cta && L('Cta', y.c, 0.034, card.cta)].filter(Boolean);
+  const events = cardLayout(card, W, H, !!still).map((b) => `Dialogue: 0,0:00:00.00,0:00:05.00,${b.style},,0,0,0,,{\\an8\\pos(${W / 2},${b.top})\\fs${b.fs}}${assEsc(b.text)}`);
   fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`);
   const fileArg = ass.replace(/\\/g, '/').replace(/^([A-Za-z]):/, '$1\\:');
   if (still) {
