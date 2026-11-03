@@ -199,12 +199,17 @@ export async function appendEndCard(video, image, out, { seconds = 2.5, fps = 30
 // voice + music → one stereo track `duration` long. The voice starts after `voiceDelay`; the music loops, sits at
 // musicDb and dips under speech (a compressor keyed on the voice; mixing 32% of the untouched music back caps the dip at
 // about 10 dB, so the music ducks rather than vanishes), then fades out at the end.
+// the voice as a mix engineer would treat it: rumble cut, a gentle compressor so every word sits at one level, a little
+// presence for clarity and a de-esser for the hard S sounds
+export const VOICE_FX = 'highpass=f=80,acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=2,equalizer=f=3200:t=q:w=1.2:g=2.5,deesser=i=0.35';
 // whooshes: times (seconds) of the cuts — a soft filtered-noise swish under each, quiet enough to feel rather than hear
-export async function mixAudio({ voice, music, duration, voiceDelay = 0.15, musicDb = -16, duck = true, fadeOut = 1.5, whooshes = [] }, out) {
+export async function mixAudio({ voice, music, duration, voiceDelay = 0.15, musicDb = -16, duck = true, fadeOut = 1.5, whooshes = [], polish = false }, out) {
   if (!voice && !music) throw new Error('Add a voiceover or music');
   if (!(duration > 0)) throw new Error('The video has no length');
   need('adelay', 'apad', 'afade', ...(voice && music ? ['amix', ...(duck ? ['sidechaincompress'] : [])] : []));
   const fmt = 'aformat=sample_rates=48000:channel_layouts=stereo';
+  if (polish) need('acompressor', 'equalizer', 'deesser', 'highpass');
+  const vfx = polish ? `${VOICE_FX},` : '';
   const ms = Math.round(voiceDelay * 1000);
   const fo = Math.min(fadeOut, duration / 3);
   const end = `atrim=0:${duration.toFixed(3)},afade=t=out:st=${(duration - fo).toFixed(3)}:d=${fo.toFixed(3)}`;
@@ -213,12 +218,12 @@ export async function mixAudio({ voice, music, duration, voiceDelay = 0.15, musi
   if (voice) args.push('-i', voice);
   if (music) args.push('-stream_loop', '-1', '-i', music);
   if (voice && music) {
-    graph = `[0:a]${fmt},adelay=${ms}|${ms},apad[vo];`
+    graph = `[0:a]${fmt},${vfx}adelay=${ms}|${ms},apad[vo];`
       + (duck
-        ? `[vo]asplit=2[vmix][vkey];[1:a]${fmt},volume=${musicDb}dB[mu];[mu][vkey]sidechaincompress=threshold=0.015:ratio=10:attack=15:release=400:mix=0.68[md];[vmix][md]`
+        ? `[vo]asplit=2[vmix][vkey];[1:a]${fmt},volume=${musicDb}dB,afade=t=in:d=0.8[mu];[mu][vkey]sidechaincompress=threshold=0.015:ratio=10:attack=15:release=400:mix=0.68[md];[vmix][md]`
         : `[1:a]${fmt},volume=${musicDb}dB[md];[vo][md]`)
       + `amix=inputs=2:duration=longest:normalize=0,${end}[a]`;
-  } else if (voice) graph = `[0:a]${fmt},adelay=${ms}|${ms},apad,${end}[a]`;
+  } else if (voice) graph = `[0:a]${fmt},${vfx}adelay=${ms}|${ms},apad,${end}[a]`;
   else graph = `[0:a]${fmt},volume=${musicDb}dB,${end}[a]`;
   const sw = whooshes.filter((t) => t > 0.2 && t < duration - 0.3).slice(0, 20);
   if (sw.length) {
@@ -285,7 +290,7 @@ export async function render({ clips, voice, music, words = [], captions = { sty
     }
     let audio = null;
     if (voice || music) {
-      const mixed = await mixAudio({ voice, music, duration, voiceDelay, musicDb, whooshes }, t('mix', 'wav'));
+      const mixed = await mixAudio({ voice, music, duration, voiceDelay, musicDb, whooshes, polish: look === 'cinematic' }, t('mix', 'wav'));
       audio = await normaliseLoudness(mixed, t('norm', 'wav'));
     }
     const files = {};
