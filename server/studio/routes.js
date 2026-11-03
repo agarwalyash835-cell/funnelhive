@@ -17,6 +17,7 @@ import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, re
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
+import { memoryOf, setMemory, remember, forget, learn, withPrefs } from './memory.js';
 
 // a Reel as the seller sees it: the script, each shot's still and clip, each voiceover line and its check, the result
 const brief = (a) => (a ? view(a) : null);
@@ -106,13 +107,13 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   // a brief → the script, straight away (the cheap step); nothing is rendered until it's approved
   app.post('/api/studio/reels', auth, scriptLimiter, wrap(async (req, res) => {
     if (!gate(req, res)) return;
-    const b = req.body || {}, brief = clip(b.brief, 1500);
+    const b = withPrefs(req.user.id, req.body || {}), brief = clip(b.brief, 1500); // unset choices: the seller's usual
     if (brief.length < 10) return res.status(400).json({ error: 'Tell us what the Reel is about: the product, who it’s for, the offer' });
     for (const k of ['ref', 'logo']) if (b[k] && !ownUpload(req.user.id, b[k])) return res.status(400).json({ error: 'Pick one of your own pictures' });
     const seconds = LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30;
     const business = req.user.settings?.businessName || req.user.name;
     let script;
-    try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect }); } catch (e) { return res.status(502).json({ error: e.message }); }
+    try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect, userId: req.user.id }); } catch (e) { return res.status(502).json({ error: e.message }); }
     const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.aspect || '9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
     const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], script, by: who(req) });
     res.status(201).json(reelView(r));
@@ -128,6 +129,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const b = req.body || {};
     const c = b.script ? cleanScript(b.script) : { script: r.script };
     if (c.error) return res.status(400).json(c);
+    if (b.script) learn(r.userId, { kind: 'script_edited', reel: r, script: c.script });
     // the settings can change before anything is made: voice, caption style, sizes
     const sizes = Array.isArray(b.sizes) ? b.sizes.filter((x) => ['9:16', '1:1', '16:9', '4:5'].includes(x)).slice(0, 4) : null;
     res.json(reelView(T.studio.update(r.id, (x) => {
@@ -147,6 +149,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     if (req.body?.vmodel || req.body?.imodel) T.studio.update(r.id, (x) => { x.vmodel = modelKey('clip', x.tier, req.body.vmodel || x.vmodel); x.imodel = modelKey('image', x.tier, req.body.imodel || x.imodel); });
     if (req.body?.res) T.studio.update(r.id, (x) => { x.res = clipRes(x.tier, req.body.res, x.vmodel); });
     if (req.body?.motion) T.studio.update(r.id, (x) => { x.motion = MOTIONS.includes(req.body.motion) ? req.body.motion : 'video'; });
+    learn(r.userId, { kind: 'approve', reel: T.studio.get(r.id), script: c.script });
     res.json(reelView(approveReel(T.studio.get(r.id), c.script)));
   });
   // a Reel that stopped part-way: redo only what failed
@@ -159,6 +162,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.put('/api/studio/reels/:id', auth, limiter, (req, res) => {
     if (!gate(req, res)) return;
     const r = myReel(req, res, ['ready', 'needs_review', 'failed']); if (!r) return;
+    for (const s of Array.isArray(req.body?.shots) ? req.body.shots : []) learn(r.userId, { kind: 'redo', note: s?.note });
     res.json(reelView(editReel(r, req.body || {})));
   });
   // make it again, with what to change (the note joins the request); a fresh set of attempts
@@ -168,6 +172,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     if (a.kind === 'reel') return res.status(400).json({ error: 'Change a Reel from its own edit options' });
     if (['queued', 'rendering', 'checking'].includes(a.status)) return res.status(409).json({ error: 'It’s still being made' });
     const note = clip(req.body?.note, 300);
+    learn(a.userId, { kind: 'redo', note: note || a.fix });
     if (a.kind === 'clip' && req.body?.res) T.studio.update(a.id, (y) => { y.res = clipRes(y.tier, req.body.res); });
     const x = T.studio.update(a.id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [note] : y.fix ? [y.fix] : []; y.error = ''; delete y.qa; delete y.doneAt; delete y.taskId; if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); });
     res.json(view(x));
@@ -178,6 +183,19 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     T.studio.del(a.id);
     res.json({ ok: true });
   });
+
+  // ---------- what Studio remembers about the seller (memory.js): they see it, correct it, add to it or wipe it ----------
+  app.get('/api/studio/memory', auth, (req, res) => res.json(memoryOf(req.user.id)));
+  // replaces each field given (lists as a whole): the seller's own corrections
+  app.put('/api/studio/memory', auth, (req, res) => res.json(setMemory(req.user.id, req.body || {})));
+  // adds to it: { likes, avoid, characters, brand, prefs } or { feedback: free text }
+  app.post('/api/studio/memory', auth, (req, res) => {
+    const b = req.body || {};
+    if (b.feedback) learn(req.user.id, { kind: 'feedback', text: b.feedback });
+    const { feedback, ...rest } = b;
+    res.json(Object.keys(rest).length ? remember(req.user.id, rest) : memoryOf(req.user.id));
+  });
+  app.delete('/api/studio/memory', auth, (req, res) => { forget(req.user.id); res.json({ ok: true }); });
 
   // ---------- the platform admin ----------
   const A = [auth, adminMiddleware];

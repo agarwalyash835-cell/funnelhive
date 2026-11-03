@@ -6,6 +6,7 @@ import { api } from '../api';
 import { Layout, Icon, Empty, toast, confirmDialog, promptDialog } from '../ui';
 import { Viewer } from './StudioViewer';
 import { ReelEditor } from './StudioReel';
+import { StudioMemory } from './StudioMemory';
 import '../studio.css';
 
 const ACTIVE = ['queued', 'rendering', 'checking', 'producing', 'editing'];
@@ -40,6 +41,7 @@ export default function Studio() {
   const [filter, setFilter] = useState('all');
   const [view, setView] = useState(null); // index in the viewable list
   const [open, setOpen] = useState(null); // a Reel's id
+  const [memory, setMemory] = useState(false); // what Studio remembers about the seller
   const [, tick] = useState(0);
   const file = useRef(), logoFile = useRef(), box = useRef();
   const seen = useRef(null); // ids that were still being made at the last look
@@ -95,7 +97,7 @@ export default function Studio() {
     setBusy(true);
     try {
       if (mode === 'reel') {
-        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || 'female', captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
+        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || undefined, captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
         set({ prompt: '' }); await load(); setOpen(r.id);
       } else {
         if (mode === 'image') await api('/studio/images', 'POST', { prompt: v.prompt, tier: v.tier, model: im?.id, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
@@ -159,7 +161,7 @@ export default function Studio() {
               <label className="sx-pill" title="The shape every scene is made in — wide for a video on a web page (a sales letter), vertical for Reels and Stories"><span className="lbl">Frame</span>{ASPECT_NAME[v.sizes[0]] || 'Reels / Stories'}<select value={v.sizes[0] || '9:16'} onChange={(e) => set({ sizes: [e.target.value] })}>{['9:16', '16:9', '1:1', '4:5'].map((a) => <option key={a} value={a}>{a} · {a === '16:9' ? 'Web page / sales letter' : ASPECT_NAME[a]}</option>)}</select></label>
               <label className="sx-pill"><span className="lbl">Length</span>{v.length}s<select value={v.length} onChange={(e) => set({ length: Number(e.target.value) })}>{d.lengths.map((n) => <option key={n} value={n}>{n} seconds</option>)}</select></label>
               <label className="sx-pill"><span className="lbl">Language</span>{d.languages.find((x) => x.id === v.lang)?.name}<select value={v.lang} onChange={(e) => set({ lang: e.target.value })}>{d.languages.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-              <label className="sx-pill"><span className="lbl">Voice</span>{voices.find((x) => x.id === v.voice)?.name || 'Auto'}<select value={v.voice} onChange={(e) => set({ voice: e.target.value })}><option value="">Auto (Priya, Indian female)</option>{voices.map((x) => <option key={x.id} value={x.id}>{x.name} — {x.note}</option>)}</select></label>
+              <label className="sx-pill"><span className="lbl">Voice</span>{voices.find((x) => x.id === v.voice)?.name || 'Auto'}<select value={v.voice} onChange={(e) => set({ voice: e.target.value })}><option value="">Auto (your usual, or Priya)</option>{voices.map((x) => <option key={x.id} value={x.id}>{x.name} — {x.note}</option>)}</select></label>
               <label className="sx-pill"><span className="lbl">Captions</span>{d.captionStyles.find((x) => x.id === v.captions)?.name}<select value={v.captions} onChange={(e) => set({ captions: e.target.value })}>{d.captionStyles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
               <button type="button" className="sx-pill" onClick={() => logoFile.current?.click()}>{v.logo ? <img src={v.logo} alt="" style={{ height: 18, maxWidth: 60, objectFit: 'contain' }} /> : <Icon name="plus" size={14} />}{v.logo ? 'Logo' : 'Add logo'}</button>
               <input ref={logoFile} type="file" accept="image/png,image/webp,image/jpeg" hidden onChange={(e) => { upload(e.target.files?.[0], 'logo'); e.target.value = ''; }} />
@@ -173,6 +175,7 @@ export default function Studio() {
 
         <div className="sx-filters" role="tablist" aria-label="Show">
           {[['all', 'All'], ['image', 'Images'], ['clip', 'Clips'], ['reel', 'Reels'], ['live', 'In progress'], ['review', 'Needs a look']].map(([k, l]) => (counts[k] || k === 'all') ? <button key={k} type="button" className={`sx-chip${filter === k ? ' on' : ''}`} onClick={() => setFilter(k)}>{l}<span className="n">{counts[k]}</span></button> : null)}
+          <button type="button" className="sx-chip" style={{ marginLeft: 'auto' }} title="Your brand, taste, characters and usual choices — every new Reel script uses them" onClick={() => setMemory(true)}><Icon name="sparkles" size={13} /> What Studio remembers</button>
         </div>
 
         {!shown.length ? <Empty icon="image" title={assets.length ? 'Nothing here' : 'Nothing made yet'} text={assets.length ? 'Try another filter.' : 'Describe a product shot, a short clip or a whole Reel above. Add your real product photo to keep it exactly as it is.'} /> : (
@@ -219,6 +222,7 @@ export default function Studio() {
       </div>
       {view != null && viewable[view] && <Viewer items={viewable.map((a) => ({ ...a, tierName: d.tiers.find((t) => t.id === a.tier)?.name }))} index={view} onIndex={setView} onClose={() => setView(null)} actions={actionsFor} />}
       {reel && <ReelEditor r={reel} d={d} onClose={() => setOpen(null)} onChange={load} />}
+      {memory && <StudioMemory d={d} onClose={() => setMemory(false)} />}
     </Layout>
   );
 }

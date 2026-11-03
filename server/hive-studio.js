@@ -54,10 +54,10 @@ export const TOOLS = [
   // ---------- Reels: brief → script (cheap, shown to the seller) → approve → shots + voiceover + edit ----------
   {
     name: 'studio_make_reel',
-    description: 'Start a finished vertical ad video (Reel / Short) from a brief: Studio writes the script first — hook, voiceover lines, one shot per line, a closing offer card — and nothing is rendered yet. Show the seller the script (lines and shots), offer changes, then call studio_approve_reel. Ask for the product, the audience and the offer if the brief lacks them. Pass productPhoto (their own uploaded photo) so the real product appears in the shots.',
+    description: 'Start a finished vertical ad video (Reel / Short) from a brief (anything left out — language, length, voice, captions, frame, logo — is the seller’s usual, from studio_memory): Studio writes the script first — hook, voiceover lines, one shot per line, a closing offer card — and nothing is rendered yet. Show the seller the script (lines and shots), offer changes, then call studio_approve_reel. Ask for the product, the audience and the offer if the brief lacks them. Pass productPhoto (their own uploaded photo) so the real product appears in the shots.',
     schema: S({ brief: str('What to advertise: product, who it’s for, the offer, the mood'), lang: str('Voiceover language code: en, hi, mr, gu, bn, ta, te, kn, ml, pa, or, ur (default en)'), seconds: num('15, 30 or 45 (default 30)'), tier: TIER, voice: str('female | male'), captions: str('pop | lower | karaoke | minimal (default pop)'), sizes: { type: 'array', items: { type: 'string' }, description: 'Any of 9:16, 1:1, 16:9, 4:5 (default 9:16)' }, productPhoto: str('Optional: URL of their own product photo (/uploads/…)'), logo: str('Optional: URL of their logo (/uploads/…)') }, ['brief']),
     run: async (ctx, a) => {
-      const r = await ctx.call('POST', '/studio/reels', { brief: a.brief, lang: a.lang || 'en', seconds: a.seconds || 30, tier: a.tier, voice: a.voice, captions: a.captions, sizes: a.sizes, aspect: a.sizes?.[0] || '9:16', ...(a.productPhoto ? { ref: a.productPhoto } : {}), ...(a.logo ? { logo: a.logo } : {}) });
+      const r = await ctx.call('POST', '/studio/reels', { brief: a.brief, lang: a.lang, seconds: a.seconds, tier: a.tier, voice: a.voice, captions: a.captions, sizes: a.sizes, aspect: a.sizes?.[0], ...(a.productPhoto ? { ref: a.productPhoto } : {}), ...(a.logo ? { logo: a.logo } : {}) });
       return { ok: true, id: r.id, status: r.status, script: r.script, cost: r.cost, note: 'Nothing is rendered yet. Show this script to the seller with what it costs (cost.byRes: credits at each resolution) and let them pick the resolution, then approve it (with their changes) via studio_approve_reel.' };
     },
     summary: (r) => `Wrote a Reel script (${r.script.lines.length} lines, ${r.script.shots.length} shots)`,
@@ -75,6 +75,25 @@ export const TOOLS = [
     schema: S({ id: str('The Reel id'), captions: { type: 'object', description: '{ style, colour }' }, sizes: { type: 'array', items: { type: 'string' } }, lines: { type: 'array', items: { type: 'object' } }, shots: { type: 'array', items: { type: 'object' } }, endCard: { type: 'object' } }, ['id']),
     run: async (ctx, a) => { const { id, ...b } = a; return { ok: true, reel: brief(await ctx.call('PUT', `/studio/reels/${encodeURIComponent(id)}`, b)) }; },
     summary: () => 'Changed the Reel',
+  },
+  // ---------- what Studio remembers about the seller: their brand, taste, characters and usual choices ----------
+  {
+    name: 'studio_memory',
+    description: 'What Studio remembers about the seller: brand (name, colours, logo), what they like, what to avoid (learned from their redo notes and script edits), their recurring characters, their usual choices (tier, models, voice, captions, frame) and scripts they approved as written. Every new Reel script uses it.',
+    schema: S({}),
+    run: async (ctx) => ctx.call('GET', '/studio/memory'),
+    summary: () => 'Checked what Studio remembers',
+  },
+  {
+    name: 'studio_remember',
+    description: 'Teach Studio something about the seller for every future Reel: a like (“short punchy lines”, “warm morning light”), something to avoid, a recurring character (name + look: age, face, hair, clothes — kept the same in every video), brand colours, or free-text feedback on a Reel (sorted into likes / avoid). Only what the seller said or clearly wants.',
+    schema: S({ like: str('Optional: a look or tone they like'), avoid: str('Optional: something not to do again'), feedback: str('Optional: their feedback in their words'), character: { type: 'object', properties: { name: str('Short name, e.g. Asha'), look: str('How they look: age, face, hair, clothes') }, required: ['name', 'look'], additionalProperties: false, description: 'Optional: a recurring character' }, brandColours: { type: 'array', items: { type: 'string' }, description: 'Optional: brand colours as #rrggbb' } }),
+    run: async (ctx, a) => {
+      const body = { ...(a.like ? { likes: [a.like] } : {}), ...(a.avoid ? { avoid: [a.avoid] } : {}), ...(a.feedback ? { feedback: a.feedback } : {}), ...(a.character ? { characters: [a.character] } : {}), ...(a.brandColours?.length ? { brand: { colours: a.brandColours } } : {}) };
+      const m = await ctx.call('POST', '/studio/memory', body);
+      return { ok: true, likes: m.likes, avoid: m.avoid, characters: m.characters, brand: m.brand };
+    },
+    summary: () => 'Studio will remember that',
   },
 ];
 
