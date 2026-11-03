@@ -68,13 +68,9 @@ export default function Studio() {
   const viewable = shown.filter((a) => a.kind !== 'reel' && a.url);
   const reel = open && assets.find((a) => a.id === open);
 
-  if (d === false) return <Layout title="Studio"><Empty icon="wand" title="Studio didn’t load" text="Reload the page to try again." /></Layout>;
-  if (!d) return <Layout title="Studio" wide><div className="skeleton" /></Layout>;
-  if (!d.on) return <Layout title="Studio" subtitle="AI images, video clips and Reels for your ads and pages"><Empty icon="wand" title="Studio isn’t on for your account yet" text="Studio makes product photos, scenes, short video clips and finished Reels for your ads, each one checked for quality before you see it. Ask us to switch it on." /></Layout>;
-
-  const set = (p) => setV((x) => ({ ...x, ...p }));
+  // (worked out before the early returns below: hooks must run on every render)
   // what it costs, said before anything is made: the tier's prices (server studio/models.js), the clip resolution chosen
-  const tierInfo = d.tiers.find((t) => t.id === v.tier) || d.tiers[0];
+  const tierInfo = d?.tiers?.find((t) => t.id === v.tier) || d?.tiers?.[0];
   // the tier's models (the first is its default): what each makes, what it costs
   const vms = tierInfo?.models?.video || [], ims = tierInfo?.models?.image || [];
   const vm = vms.find((m) => m.id === v.vmodel) || vms[0], im = ims.find((m) => m.id === v.imodel) || ims[0];
@@ -83,7 +79,13 @@ export default function Studio() {
   const perSec = (r) => (vm?.per5s?.[r] ?? tierInfo?.clipCreditsPer5s?.[r] ?? 0) / 5;
   // a clip's exact cost comes from the server (some models charge per clip, by length)
   const [clipCredits, setClipCredits] = useState(null);
-  useEffect(() => { if (mode !== 'clip') return; let live = true; api('/studio/estimate', 'POST', { kind: 'clip', tier: v.tier, model: vm?.id, seconds: v.seconds, res }).then((e) => live && setClipCredits(e.credits)).catch(() => {}); return () => { live = false; }; }, [mode, v.tier, vm?.id, v.seconds, res]);
+  useEffect(() => { if (mode !== 'clip' || !vm) return undefined; let live = true; api('/studio/estimate', 'POST', { kind: 'clip', tier: v.tier, model: vm?.id, seconds: v.seconds, res }).then((e) => live && setClipCredits(e.credits)).catch(() => {}); return () => { live = false; }; }, [mode, v.tier, vm?.id, v.seconds, res]);
+
+  if (d === false) return <Layout title="Studio"><Empty icon="wand" title="Studio didn’t load" text="Reload the page to try again." /></Layout>;
+  if (!d) return <Layout title="Studio" wide><div className="skeleton" /></Layout>;
+  if (!d.on) return <Layout title="Studio" subtitle="AI images, video clips and Reels for your ads and pages"><Empty icon="wand" title="Studio isn’t on for your account yet" text="Studio makes product photos, scenes, short video clips and finished Reels for your ads, each one checked for quality before you see it. Ask us to switch it on." /></Layout>;
+
+  const set = (p) => setV((x) => ({ ...x, ...p }));
   const cost = mode === 'image' ? (im?.credits ?? tierInfo?.imageCredits ?? 0) * v.count : mode === 'clip' ? clipCredits ?? Math.ceil(perSec(res) * v.seconds) : null;
   const images = assets.filter((a) => a.kind === 'image' && a.url && a.status !== 'failed');
   const src = v.sourceId ? images.find((x) => x.id === v.sourceId)?.url : v.ref;
