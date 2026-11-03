@@ -1434,11 +1434,17 @@ export function registerWaInbox(app, { auth, wrap, rateLimit, isTest, credits })
   const MIMES = { 'image/jpeg': 'image', 'image/png': 'image', 'video/mp4': 'video', 'video/3gpp': 'video', 'audio/ogg': 'audio', 'audio/mpeg': 'audio', 'audio/mp4': 'audio', 'audio/aac': 'audio', 'audio/amr': 'audio',
     'application/pdf': 'document', 'application/msword': 'document', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'document', 'application/vnd.ms-excel': 'document',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'document', 'application/vnd.ms-powerpoint': 'document', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'document', 'text/plain': 'document', 'text/csv': 'document' };
+  const AUDIO_ALIAS = { 'audio/x-m4a': 'audio/mp4', 'audio/m4a': 'audio/mp4', 'audio/mp4a-latm': 'audio/mp4', 'audio/mp3': 'audio/mpeg', 'audio/mpeg3': 'audio/mpeg', 'audio/x-mpeg': 'audio/mpeg', 'audio/x-aac': 'audio/aac', 'audio/aacp': 'audio/aac', 'audio/opus': 'audio/ogg', 'application/ogg': 'audio/ogg', 'audio/x-amr': 'audio/amr', 'audio/amr-nb': 'audio/amr' };
+  const AUDIO_EXT = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', opus: 'audio/ogg', oga: 'audio/ogg', amr: 'audio/amr' };
   app.post('/api/inbox/:id/upload', auth, sendLimiter, wrap(async (req, res) => {
     const c = own(req, res); if (!c) return;
-    const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    // an audio file as browsers name it ("audio/x-m4a", "audio/mp3"), or by its name when the browser gave no type
+    let mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    mime = AUDIO_ALIAS[mime] || mime;
+    if (!MIMES[mime] || mime === 'application/octet-stream') mime = AUDIO_EXT[String(req.query.name || '').toLowerCase().split('.').pop()] || mime;
     let type = MIMES[mime];
-    if (!type) return res.status(400).json({ error: mime === 'audio/webm' || mime === 'video/webm' ? 'WhatsApp can’t play this recording format — please update your browser (Chrome, Edge, Safari or Firefox) and record again' : 'WhatsApp accepts photos (JPG, PNG), videos (MP4), voice notes and documents (PDF, Word, Excel, PowerPoint, text)' });
+    if (/^audio\/(wav|x-wav|wave|flac|x-flac)$/.test(mime) || /\.(wav|flac)$/i.test(String(req.query.name || ''))) return res.status(400).json({ error: 'WhatsApp can’t play WAV or FLAC files — send it as MP3 or M4A' });
+    if (!type) return res.status(400).json({ error: mime === 'audio/webm' || mime === 'video/webm' ? 'WhatsApp can’t play this recording format — please update your browser (Chrome, Edge, Safari or Firefox) and record again' : 'WhatsApp accepts photos (JPG, PNG), videos (MP4), audio (MP3, M4A, AAC, OGG, AMR), voice notes and documents (PDF, Word, Excel, PowerPoint, text)' });
     const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
     if (!buf.length) return res.status(400).json({ error: 'The file is empty' });
     if (buf.length > (type === 'image' ? 5 : 16) * 1024 * 1024) return res.status(413).json({ error: type === 'image' ? 'Photos can be up to 5 MB' : 'Files can be up to 16 MB' });

@@ -399,6 +399,16 @@ test('files, voice notes and locations from the inbox', async () => {
   assert.equal(webm.status, 400);
   assert.match(webm.data.error, /recording format/);
   assert.equal((await up('application/x-msdownload', Buffer.from('MZ'))).status, 400);
+  // an audio file (not a recording): the types browsers give, or the file's name when they give none
+  for (const [type, name, want] of [['audio/mpeg', 'jingle.mp3', 'audio/mpeg'], ['audio/x-m4a', 'Voice memo.m4a', 'audio/mp4'], ['audio/mp3', 'song.mp3', 'audio/mpeg'], ['application/octet-stream', 'call.amr', 'audio/amr'], ['application/octet-stream', 'note.opus', 'audio/ogg']]) {
+    const a = await up(type, Buffer.from('ID3 audio'), `?name=${encodeURIComponent(name)}`);
+    assert.equal(a.status, 200, `${type} ${name}: ${JSON.stringify(a.data)}`);
+    assert.equal(sentTo(num).at(-1).type, 'audio', name);
+    assert.equal(sentTo(num).at(-1).audio.voice, undefined, `${name}: an audio file, not a voice note`);
+    assert.match(fake.uploads.at(-1).text, new RegExp(`Content-Type: ${want.replace('/', '\\/')}`), `${name} uploaded as ${want}`);
+  }
+  const wav = await up('audio/wav', Buffer.from('RIFF'), '?name=take1.wav');
+  assert.deepEqual([wav.status, /MP3 or M4A/.test(wav.data.error)], [400, true]);
 
   const loc = await api(`/inbox/${c.id}/messages`, 'POST', { location: { lat: 18.5204, lng: 73.8567, name: 'Ananya Yoga Studio', address: 'FC Road, Pune' } }, T);
   assert.equal(loc.status, 200, JSON.stringify(loc.data));

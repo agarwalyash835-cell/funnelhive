@@ -259,6 +259,7 @@ function Composer({ c, contact, meta, onSent, patch }) {
   const suggest = async () => { setBusy('sug'); setSugs([]); try { setSugs((await api(`/inbox/${c.id}/ai/suggest`, 'POST')).suggestions); } catch (e) { toast(e.message); setSugs(null); } setBusy(''); };
   const rewrite = async (m) => { setMenu(''); setBusy('rw'); try { setText((await api('/inbox/ai/rewrite', 'POST', { text, mode: m })).text); } catch (e) { toast(e.message); } setBusy(''); };
   const docIn = useRef();
+  const audioIn = useRef();
   const [rec, setRec] = useState(false);
   const [locOpen, setLocOpen] = useState(false);
   // a photo, video, document or voice note: the file goes to WhatsApp (through Hive) and the typed text is its caption
@@ -316,12 +317,14 @@ function Composer({ c, contact, meta, onSent, patch }) {
                   {menu === 'att' && <div className="ib-menu" style={{ left: 0 }}>
                     <button onClick={() => { setMenu(''); fileIn.current?.click(); }}><span className="att-ic" style={{ background: '#7c3aed' }}><Icon name="image" size={14} /></span>Photo or video</button>
                     <button onClick={() => { setMenu(''); docIn.current?.click(); }}><span className="att-ic" style={{ background: '#2563eb' }}><Icon name="attach" size={14} /></span>Document</button>
+                    <button onClick={() => { setMenu(''); audioIn.current?.click(); }}><span className="att-ic" style={{ background: '#ea580c' }}><Icon name="mic" size={14} /></span>Audio file</button>
                     <button onClick={() => { setMenu(''); setLocOpen(true); }}><span className="att-ic" style={{ background: '#16a34a' }}><Icon name="globe" size={14} /></span>Location</button>
                     <button onClick={() => { setMenu(''); setTpl(true); }}><span className="att-ic" style={{ background: '#ca8a04' }}><Icon name="mail" size={14} /></span>Template</button>
                   </div>}
                 </div>
               )}
               <input ref={fileIn} type="file" accept="image/png,image/jpeg,video/mp4,video/3gpp" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
+              <input ref={audioIn} type="file" accept=".mp3,.m4a,.aac,.ogg,.opus,.amr,audio/mpeg,audio/mp4,audio/aac,audio/ogg,audio/amr" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
               <input ref={docIn} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
               <textarea ref={ta} rows={1} value={text} onChange={(e) => { setText(e.target.value); setQi(0); }} onKeyDown={key} placeholder={mode === 'note' ? 'A note only your team sees…' : 'Type a reply…  ( / for quick replies)'} disabled={busy === 'rw'} />
               {mode === 'reply' && !text.trim() && !c.web
