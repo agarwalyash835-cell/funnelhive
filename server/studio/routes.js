@@ -13,7 +13,7 @@ import { adminMiddleware, audit } from '../admin-guard.js';
 import { studioReady } from './kie.js';
 import { enqueue, view, tick, tierOk } from './jobs.js';
 import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample, voiceId, CLIP_RES, clipRes, imageCost, clipCost, reelCost, MOTIONS, modelKey, tierMenu } from './models.js';
-import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, reelsTick, LENGTHS, CAPTION_IDS } from './reels.js';
+import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, reelsTick, LENGTHS, CAPTION_IDS, storyboardScene, animateReel, sceneCost } from './reels.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
@@ -23,7 +23,7 @@ const brief = (a) => (a ? view(a) : null);
 export function reelView(r) {
   // what it costs (shown before approving: each resolution the tier offers)
   const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion, vmodel: r.vmodel, imodel: r.imodel }) : null;
-  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null };
+  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null };
 }
 const anyView = (a) => (a.kind === 'reel' ? reelView(a) : view(a));
 
@@ -147,7 +147,26 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     if (req.body?.vmodel || req.body?.imodel) T.studio.update(r.id, (x) => { x.vmodel = modelKey('clip', x.tier, req.body.vmodel || x.vmodel); x.imodel = modelKey('image', x.tier, req.body.imodel || x.imodel); });
     if (req.body?.res) T.studio.update(r.id, (x) => { x.res = clipRes(x.tier, req.body.res, x.vmodel); });
     if (req.body?.motion) T.studio.update(r.id, (x) => { x.motion = MOTIONS.includes(req.body.motion) ? req.body.motion : 'video'; });
-    res.json(reelView(approveReel(T.studio.get(r.id), c.script)));
+    res.json(reelView(approveReel(T.studio.get(r.id), c.script, { storyboard: !!req.body?.storyboard })));
+  });
+  // the storyboard (approved with storyboard: true, stills made): change one scene — { i, note, part } a new picture
+  // (one still, two in a storyline), { i, text } new words, { i, to } moved, { i, drop: true } removed
+  app.post('/api/studio/reels/:id/storyboard-scene', auth, limiter, (req, res) => {
+    if (!gate(req, res)) return;
+    const r = myReel(req, res, ['storyboard_ready']); if (!r) return;
+    const out = storyboardScene(r, req.body || {});
+    if (out.error) return res.status(400).json(out);
+    res.json(reelView(out.reel));
+  });
+  // the go-ahead to animate the storyboard: the clips (this is where most of the cost is), then the edit
+  app.post('/api/studio/reels/:id/animate', auth, limiter, (req, res) => {
+    if (!gate(req, res)) return;
+    const r = myReel(req, res, ['storyboard_ready']); if (!r) return;
+    if (req.body?.vmodel) T.studio.update(r.id, (x) => { x.vmodel = modelKey('clip', x.tier, req.body.vmodel); });
+    if (req.body?.res) T.studio.update(r.id, (x) => { x.res = clipRes(x.tier, req.body.res, x.vmodel); });
+    const out = animateReel(T.studio.get(r.id));
+    if (out.error) return res.status(409).json(out);
+    res.json(reelView(out.reel));
   });
   // a Reel that stopped part-way: redo only what failed
   app.post('/api/studio/reels/:id/retry', auth, limiter, (req, res) => {

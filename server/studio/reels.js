@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import { T, q, JOBS } from '../db.js';
 import { askAI } from '../ai.js';
-import { studioModels, TIERS, ASPECTS, voiceId, sarvamFor, clipRes, modelKey, clipLength } from './models.js';
+import { studioModels, TIERS, ASPECTS, voiceId, sarvamFor, clipRes, modelKey, clipLength, imageCost } from './models.js';
 import { speak, TTS_MODEL } from '../sarvam.js';
 import { runTask, studioReady } from './kie.js';
 import { enqueue } from './jobs.js';
@@ -63,11 +63,56 @@ export const REEL_ASPECTS = ['9:16', '16:9', '1:1', '4:5'];
 export function newReel(userId, o) {
   return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
 }
-// the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken
-export function approveReel(r, script) {
+// the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken. Storyboard first
+// ({ storyboard: true }): only the stills are made (and the lines spoken), then it waits at storyboard_ready for scene
+// changes and the go-ahead to animate (animateReel) — the clips, the expensive part, are paid for only then
+export function approveReel(r, script, o = {}) {
   const shots = script.shots.map((s) => ({ ...s, imageId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, prompt: s.image, aspect: r.aspect, ref: r.ref, reelId: r.id, by: r.by }).id, clipId: null }));
-  return T.studio.update(r.id, (x) => { x.script = script; x.shots = shots; x.lines = script.lines.map((text) => ({ text, url: null, tries: 0, check: null })); x.status = 'producing'; x.approvedAt = Date.now(); delete x.error; });
+  return T.studio.update(r.id, (x) => { x.script = script; x.shots = shots; x.lines = script.lines.map((text) => ({ text, url: null, tries: 0, check: null })); x.status = 'producing'; x.approvedAt = Date.now(); if (o.storyboard) x.storyboard = true; else delete x.storyboard; delete x.error; });
 }
+
+// ---------- the storyboard: change a scene, then animate ----------
+const stillsDone = (r) => r.shots.every((s) => done(T.studio.get(s.imageId)) && (r.motion !== 'story' || done(T.studio.get(s.endId))));
+// a still made again with the note (the job runs it through the queue and its checks again)
+const remake = (id, note) => T.studio.update(id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [note] : y.fix ? [y.fix] : []; y.error = ''; if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
+// what remaking scene i's picture costs: one still; in a storyline the opening still also brings a new closing one
+export const sceneCost = (r, part) => imageCost(r.tier, r.imodel) * (r.motion === 'story' && part !== 'end' ? 2 : 1);
+// one change at a time: { i, note, part: 'start'|'end' } a new picture · { i, text } new words · { i, to } moved · { i, drop }
+export function storyboardScene(r, b) {
+  const i = Number(b.i), shots = [...r.shots], lines = [...r.lines];
+  if (!(i >= 0 && i < Math.max(shots.length, lines.length))) return { error: 'There’s no such scene' };
+  if (b.drop) {
+    if ((i < shots.length && shots.length < 2) || (i < lines.length && lines.length < 2)) return { error: 'A Reel needs at least one scene' };
+    shots.splice(i, 1); lines.splice(i, 1);
+  } else if (b.to !== undefined && b.to !== null) {
+    const to = Math.min(shots.length - 1, Math.max(0, Number(b.to) || 0));
+    if (i >= shots.length) return { error: 'That scene has no picture to move' };
+    shots.splice(to, 0, shots.splice(i, 1)[0]);
+    if (i < lines.length && to < lines.length) lines.splice(to, 0, lines.splice(i, 1)[0]);
+  } else if (clip(b.text, 220)) {
+    if (!lines[i]) return { error: 'That scene has no line' };
+    lines[i] = { text: clip(b.text, 220), url: null, tries: 0, check: null };
+  } else {
+    const s = shots[i];
+    if (!s) return { error: 'That scene has no picture' };
+    const note = clip(b.note, 300), end = b.part === 'end' && s.endId;
+    if (end) remake(s.endId, note);
+    else {
+      remake(s.imageId, note);
+      // a storyline's closing still is made from the opening one: it's made again once the new opening still is ready
+      if (s.endId) { T.studio.del(s.endId); shots[i] = { ...s, endId: null }; }
+    }
+    if (note) shots[i] = { ...shots[i], [end ? 'end' : 'image']: `${shots[i][end ? 'end' : 'image'] || ''}\n${note}`.trim().slice(0, 600) };
+  }
+  return { reel: T.studio.update(r.id, (x) => { x.shots = shots; x.lines = lines; x.script = { ...x.script, lines: lines.map((l) => l.text), shots: shots.map(({ image, end, motion, seconds }) => ({ image, end, motion, seconds })) }; }) };
+}
+// the go-ahead to animate: the clips are made (once every line is recorded), then the edit
+export function animateReel(r) {
+  if (!stillsDone(r)) return { error: 'A scene’s picture is still being made — animate once they’re all there' };
+  return { reel: T.studio.update(r.id, (x) => { delete x.storyboard; x.status = 'producing'; delete x.error; }) };
+}
+// a storyboard with work going on (a still being made again, lines still to record): the loop keeps it moving
+const storyboardBusy = (r) => r.lines.some((l) => !l.url && l.tries < MAX_LINE_TRIES) || !stillsDone(r);
 
 // ---------- producing: shots and lines ----------
 const done = (a) => a && ['ready', 'needs_review'].includes(a.status) && a.url;
@@ -88,6 +133,7 @@ async function produce(r) {
 Keep the same people, faces, clothes, place and light as the reference picture — only what the action changed.`, aspect: r.aspect, ref: img.url, reelId: r.id, by: r.by }).id }; }
     const endImg = story ? T.studio.get(s.endId) : null;
     if (story && !done(endImg)) return s;
+    if (r.storyboard) return s; // the storyboard: stills only, until the seller animates it
     const last = i === shots.length - 1, mine = last ? r.lines.slice(i) : r.lines.slice(i, i + 1);
     if (mine.some((l) => !l.url && l.tries < MAX_LINE_TRIES)) return s; // wait for the words
     const words = mine.reduce((t, l, k) => t + (said(i + k) || 0), 0) + (last ? 0.5 : 0);
@@ -105,6 +151,11 @@ Keep the same people, faces, clothes, place and light as the reference picture �
   if (lost >= 0) {
     const a = T.studio.get(r.shots[lost].clipId) || T.studio.get(r.shots[lost].imageId);
     return T.studio.update(r.id, (x) => { x.status = 'failed'; x.error = `Shot ${lost + 1} couldn’t be made${a?.error ? ` — ${a.error}` : ''}`; x.doneAt = Date.now(); });
+  }
+  // every still is there: the storyboard waits for the seller (the lines go on being recorded meanwhile)
+  if (r.storyboard && r.status === 'producing' && stillsDone(r)) {
+    r = T.studio.update(r.id, (x) => { x.status = 'storyboard_ready'; });
+    notify(r.userId, { kind: 'support', title: 'Your storyboard is ready', body: r.script.title, link: '/studio' });
   }
   // one voiceover line per step
   const i = r.lines.findIndex((l) => !l.url && l.tries < MAX_LINE_TRIES);
@@ -170,7 +221,8 @@ async function voiceLine(r, i) {
   } finally { rm(file); }
 }
 const brief = (c) => ({ ok: c.ok, score: c.score, issues: (c.issues || []).map((x) => x.detail).slice(0, 5) });
-const setLine = (r, i, patch) => T.studio.update(r.id, (x) => { x.lines = x.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)); });
+// by its words (the storyboard can move or drop a scene while its line is being recorded)
+const setLine = (r, i, patch) => T.studio.update(r.id, (x) => { const t = r.lines[i].text, k = x.lines[i]?.text === t ? i : x.lines.findIndex((l) => l.text === t && !l.url); x.lines = x.lines.map((l, j) => (j === k ? { ...l, ...patch } : l)); });
 
 // ---------- editing ----------
 // the lines → one voiceover with a short breath between them; → { file, spans: [[start, end] per line] }
@@ -316,11 +368,11 @@ let editing = false, voicing = false;
 const busy = new Set();
 export async function reelsTick() {
   if (!studioReady()) return;
-  const rows = q("SELECT data FROM studio WHERE status IN ('producing', 'editing') ORDER BY at").all().map((x) => JSON.parse(x.data)).filter((x) => x.kind === 'reel');
+  const rows = q("SELECT data FROM studio WHERE status IN ('producing', 'editing', 'storyboard_ready') ORDER BY at").all().map((x) => JSON.parse(x.data)).filter((x) => x.kind === 'reel' && (x.status !== 'storyboard_ready' || storyboardBusy(x)));
   const jobs = [];
   for (const r of rows) {
     if (busy.has(r.id)) continue;
-    if (r.status === 'producing' && !voicing) { voicing = true; busy.add(r.id); jobs.push(produce(r).catch((e) => console.error('reel step failed', r.id, e.message)).finally(() => { voicing = false; busy.delete(r.id); })); }
+    if (['producing', 'storyboard_ready'].includes(r.status) && !voicing) { voicing = true; busy.add(r.id); jobs.push(produce(r).catch((e) => console.error('reel step failed', r.id, e.message)).finally(() => { voicing = false; busy.delete(r.id); })); }
     else if (r.status === 'editing' && !editing) { editing = true; busy.add(r.id); jobs.push(edit(r).finally(() => { editing = false; busy.delete(r.id); })); }
   }
   await Promise.all(jobs);

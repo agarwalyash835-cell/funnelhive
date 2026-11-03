@@ -18,6 +18,12 @@ const SCRIPT = { title: 'Ghee Reel', lines: LINES, shots: [{ image: 'A jar of gh
 const created = [], heardQueue = [], spoken = []; // spoken: Sarvam text-to-speech requests
 let fake, srv, api, ADMIN, S, sid, reelId;
 
+// Hive's model in the chat test: "show the storyboard of <id>" → studio_storyboard, then a short answer
+const hiveBrain = (j) => {
+  const user = [...j.input].reverse().find((x) => x.role === 'user')?.content || '';
+  if (j.input.some((x) => x.type === 'function_call')) return { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'Here is your storyboard.' }] }] };
+  return { status: 'completed', output: [{ type: 'function_call', call_id: 'c1', name: 'studio_storyboard', arguments: JSON.stringify({ id: user.match(/storyboard of (\S+)/)?.[1] }) }] };
+};
 // what the speech-to-text "hears": each line right, except the price the first time; then the whole voiceover
 const timed = (text, start = 0) => { const ws = text.split(' '); return { transcript: text, language_code: 'en-IN', timestamps: { words: ws, start_time_seconds: ws.map((_, i) => start + i * 0.4), end_time_seconds: ws.map((_, i) => start + i * 0.4 + 0.35) } }; };
 before(async () => {
@@ -34,7 +40,7 @@ before(async () => {
       if (url.pathname.startsWith('/files/')) return res.end(fs.readFileSync(path.join(tmp, url.pathname.slice(7))));
       if (url.pathname === '/speech-to-text') return send(heardQueue.shift() || timed(LINES.join(' ')));
       if (url.pathname === '/text-to-speech') { spoken.push(JSON.parse(b)); return send({ audios: [fs.readFileSync(path.join(tmp, 'line.wav')).toString('base64')] }); }
-      if (url.pathname === '/openai/v1/responses') return send({ output: [{ type: 'message', content: [{ text: JSON.stringify(SCRIPT) }] }] });
+      if (url.pathname === '/openai/v1/responses') { const j = JSON.parse(b || '{}'); if (j.tools) return send(hiveBrain(j)); return send({ output: [{ type: 'message', content: [{ text: JSON.stringify(SCRIPT) }] }] }); }
       if (url.pathname === '/gemini-3-8-flash-openai/v1/chat/completions') return send({ choices: [{ message: { content: JSON.stringify({ product_match: 9, text_ok: 9, anatomy_ok: 10, matches_brief: 9, consistency: 9, safe: true, issues: [], fix: '' }) } }] });
       if (url.pathname === '/api/v1/jobs/createTask') { const body = JSON.parse(b); created.push(body); return send({ code: 200, data: { taskId: `t${created.length - 1}` } }); }
       if (url.pathname === '/api/v1/jobs/recordInfo') {
@@ -214,4 +220,97 @@ test('every Reel gets a music bed in the script’s mood (instrumental, never of
   // a re-edit (new caption style) doesn't make music again: one per Reel
   const reels = new Set(created.filter((c) => /ai-music-api/.test(c.model)).map((c) => c.input.title));
   assert.ok(music.length <= reels.size + 3, `${music.length} music tasks`);
+});
+
+test('storyboard first: only the stills are made and it waits; a scene is changed by words (only that still is made again), moved and reworded; then it animates to the end', async () => {
+  const r0 = (await api('/studio/reels', 'POST', { brief: 'Desi ghee from our farm, ₹499 a litre, for families in Pune', lang: 'en', seconds: 15, tier: 'quick', captions: 'pop' }, S)).data;
+  reelId = r0.id;
+  const n = created.length, clipsOf = () => created.slice(n).filter((c) => /seedance|kling/.test(c.model)), stillsOf = () => created.slice(n).filter((c) => c.model === 'nano-banana-2-1');
+  heardQueue.length = 0; heardQueue.push(...LINES.map((l) => timed(l)));
+  const a = await api(`/studio/reels/${reelId}/approve`, 'POST', { storyboard: true }, S);
+  assert.equal(a.data.status, 'producing');
+  assert.equal(a.data.storyboard, true);
+  // up front: the stills and the voiceover only; the clips and the music are priced at the next step
+  assert.equal(a.data.cost.storyboard, 2 * a.data.cost.perImage + 3);
+  assert.equal(a.data.cost.storyboard + a.data.cost.animate, a.data.cost.credits);
+  let r = await until(['storyboard_ready', 'failed']);
+  assert.equal(r.status, 'storyboard_ready', JSON.stringify({ error: r.error }));
+  assert.equal(clipsOf().length, 0, 'no clip until it’s animated');
+  assert.equal(stillsOf().length, 2);
+  assert.ok(r.shots.every((s) => s.image.url && !s.clip));
+  // a scene's picture changed by words: only that still is made again, with the note
+  const [first, second] = r.shots.map((s) => s.image.id);
+  assert.equal((await api(`/studio/reels/${reelId}/storyboard-scene`, 'POST', { i: 1, note: 'Brighter light, steam rising' }, S)).data.shots[1].image.status, 'queued');
+  for (let k = 0; k < 20 && (await get()).shots[1].image.status !== 'ready'; k++) await api('/__test/studio-tick', 'POST', { times: 1 });
+  r = await get();
+  assert.equal(r.status, 'storyboard_ready');
+  assert.equal(stillsOf().length, 3, 'one still made again');
+  assert.match(stillsOf().at(-1).input.prompt, /Brighter light, steam rising/);
+  assert.deepEqual(r.shots.map((s) => s.image.id), [first, second]);
+  // moved: the picture and its line go together
+  r = (await api(`/studio/reels/${reelId}/storyboard-scene`, 'POST', { i: 1, to: 0 }, S)).data;
+  assert.deepEqual(r.shots.map((s) => s.image.id), [second, first]);
+  assert.deepEqual(r.script.lines.slice(0, 2), [LINES[1], LINES[0]]);
+  // reworded: only that line is recorded again (while it waits; the first recordings went on meanwhile)
+  for (let k = 0; k < 20 && !(await get()).lines.every((l) => l.url); k++) await api('/__test/studio-tick', 'POST', { times: 1 });
+  assert.equal((await get()).status, 'storyboard_ready');
+  const said = spoken.length;
+  heardQueue.push(timed('Pure ghee, only ₹499'));
+  r = (await api(`/studio/reels/${reelId}/storyboard-scene`, 'POST', { i: 0, text: 'Pure ghee, only ₹499' }, S)).data;
+  assert.equal(r.lines[0].url, null);
+  assert.equal((await api(`/studio/reels/${reelId}/storyboard-scene`, 'POST', { i: 9, drop: true }, S)).status, 400);
+  assert.equal((await api(`/studio/reels/${reelId}`, 'PUT', { captions: { style: 'karaoke' } }, S)).status, 409, 'the finished-Reel edits wait');
+  // animate: the clips (in the new order), then the edit
+  heardQueue.push(timed(['Pure ghee, only ₹499', LINES[0], LINES[2]].join(' ')));
+  const an = await api(`/studio/reels/${reelId}/animate`, 'POST', {}, S);
+  assert.equal(an.data.status, 'producing');
+  assert.equal(an.data.storyboard, false);
+  r = await until(['ready', 'needs_review', 'failed']);
+  assert.ok(['ready', 'needs_review'].includes(r.status), JSON.stringify({ status: r.status, error: r.error }));
+  assert.equal(spoken.length - said, 1, 'one line recorded again');
+  assert.equal(clipsOf().length, 2);
+  assert.equal(stillsOf().length, 3, 'no still made again for the animation');
+  assert.equal(r.shots[0].clip.sourceId, second, 'the moved scene comes first');
+  assert.equal((await api(`/studio/reels/${reelId}/animate`, 'POST', {}, S)).status, 409);
+});
+
+test('Hive: the storyboard waits for an OK that states its credits, its pictures show in the chat, a scene is dropped, then it animates', async () => {
+  const tok = (await api('/hive/tokens', 'POST', { name: 'test' }, S)).data.token;
+  const mcp = async (name, args) => {
+    const r = await (await fetch(`${srv.base}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })).json();
+    const text = r.result?.content?.[0]?.text || '';
+    return r.result?.isError ? { error: text } : JSON.parse(text);
+  };
+  const chat = async (message) => {
+    const res = await fetch(`${srv.base}/api/hive/chat`, { method: 'POST', headers: { authorization: `Bearer ${S}`, 'content-type': 'application/json' }, body: JSON.stringify({ message }) });
+    return (await res.text()).split('\n\n').filter((x) => x.startsWith('data: ')).map((x) => JSON.parse(x.slice(6)));
+  };
+  // Hive can pick the models (ids from the tier's menu)
+  const made = await mcp('studio_make_reel', { brief: 'Desi ghee from our farm, ₹499 a litre, for families in Pune', seconds: 15, tier: 'standard', vmodel: 'kling-4', imodel: 'gpt-image-2' });
+  assert.deepEqual([made.cost.vmodel, made.cost.imodel], ['kling-4', 'gpt-image-2'], JSON.stringify(made));
+  reelId = made.id;
+  // starting it costs credits: the seller's OK says how many (the stills and the voiceover now, the animation after)
+  let ev = await chat(`start the storyboard of ${made.id}`);
+  const ask = ev.find((e) => e.type === 'tool' && e.status === 'confirm');
+  assert.ok(ask, JSON.stringify(ev.slice(0, 6)));
+  assert.match(ask.summary, new RegExp(`about ${made.cost.storyboard} credits \\(animating it afterwards: about ${made.cost.animate} credits`));
+  assert.equal((await get()).status, 'script_ready', 'nothing made before the OK');
+  heardQueue.length = 0; heardQueue.push(...LINES.map((l) => timed(l)));
+  const tid = ev.find((e) => e.type === 'thread').threadId;
+  const ok = (await api(`/hive/threads/${tid}/confirm`, 'POST', { pendingId: ask.pending }, S)).data;
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.equal((await get()).status, 'producing');
+  await until(['storyboard_ready']);
+  // showing it is free: the pictures come back with the step, to show as a strip (and are kept with the message)
+  ev = await chat(`show the storyboard of ${made.id}`);
+  const step = ev.find((e) => e.type === 'tool' && e.name === 'studio_storyboard' && e.status !== 'running');
+  assert.equal(step.status, 'done', JSON.stringify(step));
+  assert.equal(step.images.length, 2);
+  assert.ok(step.images.every((x) => x.url && x.label && x.caption));
+  assert.equal(ev.find((e) => e.type === 'reply').tools[0].images.length, 2);
+  const ch = await mcp('studio_change_scene', { id: made.id, i: 1, drop: true });
+  assert.equal(ch.scenes.length, 1, JSON.stringify(ch));
+  assert.equal((await mcp('studio_change_scene', { id: made.id, i: 0, drop: true })).error !== undefined, true, 'the last scene stays');
+  const an = await mcp('studio_animate', { id: made.id, res: '720p' });
+  assert.equal(an.reel.status, 'producing', JSON.stringify(an));
 });

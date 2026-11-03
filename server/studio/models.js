@@ -148,7 +148,10 @@ export function reelCost({ tier, seconds = 30, shots = 4, lines = 4, res, motion
   const stills = motion === 'story' ? shots * imageCost(t, im) : 0;
   const total = (r) => base + stills + shots * clipCost(t, perShot, r, v);
   const byRes = Object.fromEntries(resOf(t, v).map((r) => [r, total(r)]));
-  return { credits: motion === 'photo' ? base : total(clipRes(t, res, v)), res: clipRes(t, res, v), motion: MOTIONS.includes(motion) ? motion : 'video', vmodel: v, imodel: im, byRes, photo: base, perImage: imageCost(t, im), clipSeconds: clipSecs };
+  const credits = motion === 'photo' ? base : total(clipRes(t, res, v));
+  // storyboard first: the stills (and the voiceover, cheap) are paid up front; the clips and the music when it's animated
+  const storyboard = shots * imageCost(t, im) + stills + Math.ceil(lines * PRICES.voiceLine);
+  return { credits, res: clipRes(t, res, v), motion: MOTIONS.includes(motion) ? motion : 'video', vmodel: v, imodel: im, byRes, photo: base, perImage: imageCost(t, im), clipSeconds: clipSecs, storyboard, animate: credits - storyboard, animateByRes: Object.fromEntries(Object.entries(byRes).map(([r, c]) => [r, c - storyboard])) };
 }
 
 // ---------- request → each family's input ----------
