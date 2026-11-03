@@ -52,18 +52,29 @@ export function ReelEditor({ r, d, onClose, onChange }) {
   const [size, setSize] = useState(Object.keys(r.outputs || {})[0] || r.sizes?.[0] || '9:16');
   const [view, setView] = useState(null);
   const [playing, setPlaying] = useState(null);
-  // what it costs (studio/models.js reelCost, worked out here too so it follows the storyboard as scenes are added or
-  // removed): a still and a clip per shot, the voiceover — at the clip resolution chosen
+  // what it costs (studio/models.js reelCost, asked of the server so it follows the storyboard as scenes are added or
+  // removed, and the video model chosen): the stills, a clip per shot, the voiceover and the music
   const tier = d.tiers.find((t) => t.id === r.tier) || d.tiers[0];
-  const resOpts = tier?.clipRes || [];
+  const vms = tier?.models?.video || [];
+  const [vmodel, setVmodel] = useState(r.cost?.vmodel || vms[0]?.id);
+  const vm = vms.find((m) => m.id === vmodel) || vms[0];
+  const resOpts = vm?.res || tier?.clipRes || [];
+  const [est, setEst] = useState({});
+  useEffect(() => {
+    if (!editing) return undefined;
+    let live = true;
+    const q = (motion) => api('/studio/estimate', 'POST', { kind: 'reel', tier: r.tier, seconds: r.seconds, shots: s.shots.length, lines: s.lines.length, vmodel, imodel: r.cost?.imodel, motion });
+    Promise.all([q('video'), q('story')]).then(([v, st]) => live && setEst({ video: v, story: st })).catch(() => {});
+    return () => { live = false; };
+  }, [vmodel, s.shots.length, s.lines.length, editing]);
   // 'photo': each still gets a free zoom or pan from the editor instead of an AI clip — stills and voice only
   // 'story:480p': storyline — an opening and a closing still per scene, and the AI animates from one to the other
   const [res, setRes] = useState(r.cost?.motion === 'photo' ? 'photo' : r.cost?.motion === 'story' ? `story:${r.res}` : resOpts.includes(r.res) ? r.res : resOpts.at(-1));
   const motionOf = (x) => (x === 'photo' ? 'photo' : x.startsWith('story:') ? 'story' : 'video'), resOf = (x) => x.replace('story:', '');
   const choices = [...resOpts.map((x) => `story:${x}`), ...resOpts, 'photo'];
   const labelOf = (x) => (x === 'photo' ? 'Photo motion' : x.startsWith('story:') ? `Storyline ${resOf(x)}` : `AI video ${x}`);
-  const perSec = (x) => (tier?.clipCreditsPer5s?.[x] || 0) / 5;
-  const costAt = (x) => { if (x === 'photo') return s.shots.length * (tier?.imageCredits || 0) + s.lines.length; if (x.startsWith('story:')) return costAt(resOf(x)) + s.shots.length * (tier?.imageCredits || 0); const shots = s.shots.length, secs = Math.max(4 * shots, Math.round((r.seconds || 30) - 2.5)); return shots * (tier?.imageCredits || 0) + Math.ceil(perSec(x) * secs) + s.lines.length; };
+  const perSec = (x) => (vm?.per5s?.[x] ?? tier?.clipCreditsPer5s?.[x] ?? 0) / 5;
+  const costAt = (x) => (x === 'photo' ? est.video?.photo : x.startsWith('story:') ? est.story?.byRes?.[resOf(x)] : est.video?.byRes?.[x]) ?? '…';
   // a Reel that stopped: only what's missing is made again — the failed stills and clips, and clips not started yet
   const retryCost = (r.shots || []).reduce((t, x, i) => t + (x.image?.status === 'failed' ? x.image.redoCredits || 0 : 0) + (x.clip ? (x.clip.status === 'failed' ? x.clip.redoCredits || 0 : 0) : res === 'photo' ? 0 : Math.ceil(perSec(resOf(res)) * (s.shots[i]?.seconds || 5))), 0);
   const audio = useRef(null);
@@ -92,7 +103,7 @@ export function ReelEditor({ r, d, onClose, onChange }) {
     const label = (x) => labelOf(x).toLowerCase();
     const other = choices.filter((x) => x !== res).map((x) => `${label(x)}: about ${costAt(x)} credits`).join(' · ');
     if (!(await confirmDialog({ title: `Make this Reel? · about ${costAt(res)} credits`, text: `${s.shots.length} shot${s.shots.length === 1 ? '' : 's'} ${res === 'photo' ? 'as stills with a smooth zoom or pan' : res.startsWith('story:') ? `as a storyline (an opening and a closing still each, animated between them) at ${resOf(res)}` : `at ${res}`} and ${s.lines.length} voiceover line${s.lines.length === 1 ? '' : 's'} will be made, checked and edited together — about ${costAt(res)} credits.${other ? ` (${other}.)` : ''} A shot that fails its check isn't redone on its own: you'll see it and decide. Below 720p is sharpened up to 720p for free. This takes several minutes.`, confirm: `Make it · ${costAt(res)} credits` }))) return;
-    act(() => api(`/studio/reels/${r.id}/approve`, 'POST', { script: s, motion: motionOf(res), ...(res === 'photo' ? {} : { res: resOf(res) }) }), 'Making your Reel — you can close this, it carries on');
+    act(() => api(`/studio/reels/${r.id}/approve`, 'POST', { script: s, motion: motionOf(res), vmodel, ...(res === 'photo' ? {} : { res: resOf(res) }) }), 'Making your Reel — you can close this, it carries on');
   };
   const play = (v) => {
     if (playing === v.id) { audio.current?.pause(); return setPlaying(null); }
@@ -115,7 +126,7 @@ export function ReelEditor({ r, d, onClose, onChange }) {
         <div><h2>{s.title}</h2><small>{r.seconds}s · {d.languages?.find((x) => x.id === r.lang)?.name || r.lang} · {d.tiers.find((t) => t.id === r.tier)?.name}</small></div>
         <nav className="sxr-stepper" aria-label="Progress">{STEPS.map((k, i) => <span key={k} className={`sxr-step ${st[k] || ''}`}><b>{st[k] === 'done' ? '✓' : st[k] === 'stop' ? '!' : i + 1}</b>{k}</span>)}</nav>
         <div className="row">
-          {editing && <><button className="btn ghost" disabled={busy || !dirty} onClick={() => act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s }), 'Saved')}>Save</button><label className="sx-pill" title="Storyline: an opening and a closing still per scene, animated from one to the other — the scene tells its moment. AI video: animated from the opening still. Photo motion: a zoom or pan over each still, far cheaper. Below 720p is sharpened up to 720p for free"><span className="lbl">Video</span>{labelOf(res)}<select value={res} onChange={(e) => setRes(e.target.value)}>{choices.map((x) => <option key={x} value={x}>{labelOf(x)} · about {costAt(x)} credits</option>)}</select></label><button className="btn primary" disabled={busy} onClick={approve}><Icon name="play" size={14} /> Approve and make · {costAt(res)} credits</button></>}
+          {editing && <><button className="btn ghost" disabled={busy || !dirty} onClick={() => act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s }), 'Saved')}>Save</button>{vms.length > 1 && <label className="sx-pill" title={vm?.note}><span className="lbl">Model</span>{vm?.name}<select value={vm?.id} onChange={(e) => setVmodel(e.target.value)}>{vms.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note}</option>)}</select></label>}<label className="sx-pill" title="Storyline: an opening and a closing still per scene, animated from one to the other — the scene tells its moment. AI video: animated from the opening still. Photo motion: a zoom or pan over each still, far cheaper. Below 720p is sharpened up to 720p for free"><span className="lbl">Video</span>{labelOf(res)}<select value={res} onChange={(e) => setRes(e.target.value)}>{choices.map((x) => <option key={x} value={x}>{labelOf(x)} · about {costAt(x)} credits</option>)}</select></label><button className="btn primary" disabled={busy} onClick={approve}><Icon name="play" size={14} /> Approve and make · {costAt(res)} credits</button></>}
           {r.status === 'failed' && <button className="btn primary" disabled={busy} onClick={async () => { if (await confirmDialog({ title: `Carry on? · about ${retryCost} credits`, text: `Only what's missing is made again — about ${retryCost} credits. Nothing that worked is made again.`, confirm: `Carry on · ${retryCost} credits` })) act(() => api(`/studio/reels/${r.id}/retry`, 'POST'), 'Carrying on from where it stopped'); }}><Icon name="redo" size={14} /> Retry · {retryCost} credits</button>}
           {made && r.outputs?.[size] && <><a className="btn primary" href={r.outputs[size]} download><Icon name="download" size={14} /> Download {size}</a><button className="btn ghost" onClick={() => { navigator.clipboard?.writeText(r.links?.[size] || ''); toast('Link copied — paste it in your ad, or ask Hive to put it in an ad'); }}><Icon name="link" size={14} /> Link for ads</button></>}
         </div>
