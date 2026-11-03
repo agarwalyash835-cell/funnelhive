@@ -41,7 +41,9 @@ before(async () => {
         const t = created[Number(url.searchParams.get('taskId').slice(1))];
         // kie.ai's voice model is down (as it was on 2 Nov 2026): every task fails
         if (/elevenlabs/.test(t.model)) return send({ code: 200, data: { state: 'fail', failCode: '500', failMsg: 'Internal Error' } });
-        const file = /seedance|kling/.test(t.model) ? `clip${Math.min(10, Math.max(4, t.input.duration || 5))}.mp4` : 'image.png';
+        // music comes back as tracks with their own links, like the real one
+        if (/ai-music-api/.test(t.model)) return send({ code: 200, data: { state: 'success', resultJson: JSON.stringify({ data: [{ audio_url: `http://127.0.0.1:${fake.address().port}/files/line.wav`, duration: 30 }] }) } });
+        const file = /seedance|kling/.test(t.model) ?`clip${Math.min(10, Math.max(4, t.input.duration || 5))}.mp4` : 'image.png';
         return send({ code: 200, data: { state: 'success', resultJson: JSON.stringify({ resultUrls: [`http://127.0.0.1:${fake.address().port}/files/${file}`] }) } });
       }
       res.writeHead(404); res.end('{}');
@@ -93,13 +95,12 @@ test('approved: shots and voiceover are made and checked (a misread price is red
   // the price line was spoken twice: the first one was heard as "four nine nine"
   assert.equal(r.lines[1].tries, 2);
   assert.ok(r.lines.every((l) => l.url && l.check?.ok));
-  // the default voice is a natural Indian ElevenLabs voice; kie.ai's voice model is down in this test, so after one
-  // try Sarvam's matching Indian voice speaks every line
+  // the default voice is one of Sarvam's Indian voices (fast, made for Indian languages)
   assert.equal(spoken.length, 4, 'three lines, one redone');
   assert.deepEqual([spoken[0].speaker, spoken[0].model, spoken[0].target_language_code], ['priya', 'bulbul:v3', 'en-IN']);
-  assert.deepEqual(created.filter((c) => /elevenlabs/.test(c.model)).map((c) => c.input.voice), ['2zRM7PkgwBPiau2jvVXc']);
+  assert.equal(created.filter((c) => /elevenlabs/.test(c.model)).length, 0);
   // shots: still, then a clip from it, in order
-  assert.equal(created.filter((c) => c.model === 'nano-banana-2').length, 2);
+  assert.equal(created.filter((c) => c.model === 'nano-banana-2-1').length, 2);
   assert.ok(created.filter((c) => /seedance/.test(c.model)).every((c) => /^https:\/\/app\.reel\.test\/uploads\//.test(c.input.first_frame_url)));
   // the outputs: each size, with sound, as long as the voiceover plus the closing card
   assert.deepEqual(Object.keys(r.outputs).sort(), ['1:1', '9:16']);
@@ -137,8 +138,7 @@ test('another voice: an ElevenLabs voice through kie.ai, and Sarvam takes over w
   heardQueue.push(...['Fresh desi ghee for your whole family', LINES[1], LINES[2]].map((t) => timed(t)), timed(['Fresh desi ghee for your whole family', LINES[1], LINES[2]].join(' ')));
   const r = await until(['ready', 'needs_review', 'failed']);
   assert.notEqual(r.status, 'failed', JSON.stringify(r.lines));
-  // kie.ai's voice already failed in an earlier Reel, so it's skipped for a while rather than tried line after line
-  assert.ok(!created.some((c) => /elevenlabs/.test(c.model) && c.input.voice === 'P1bg08DkjqiVEzOn76yG'), 'kie.ai not asked while it is down');
+  assert.ok(created.some((c) => /elevenlabs/.test(c.model) && c.input.voice === 'P1bg08DkjqiVEzOn76yG'), 'kie.ai was asked first');
   assert.ok(spoken.slice(done).every((x) => x.speaker === 'aditya'), 'then a male Sarvam voice');
   // the voice samples: Sarvam's made once and kept
   const g = (await api('/studio', 'GET', null, S)).data;
@@ -158,7 +158,7 @@ test('photo motion: stills only (no AI clips), each animated by the editor; the 
   heardQueue.push(...LINES.map((l) => timed(l)), timed(LINES.join(' ')));
   const a = await api(`/studio/reels/${reelId}/approve`, 'POST', { motion: 'photo' }, S);
   assert.equal(a.data.cost.motion, 'photo');
-  assert.equal(a.data.cost.credits, 2 * 8 + 3, 'two Quick stills and three lines');
+  assert.equal(a.data.cost.credits, 2 * a.data.cost.perImage + 3 + 12, 'two Quick stills, three lines and the music');
   const r = await until(['ready', 'needs_review', 'failed']);
   assert.ok(['ready', 'needs_review'].includes(r.status), JSON.stringify({ status: r.status, error: r.error }));
   assert.equal(created.filter((c) => /seedance|kling/.test(c.model)).length, clipsBefore, 'no AI clip ordered');
@@ -190,10 +190,10 @@ test('storyline in 16:9: each shot gets an opening and a closing still (made fro
   assert.equal(a.data.cost.motion, 'story');
   assert.equal(a.data.cost.credits, a.data.cost.byRes['480p']);
   const plain = (await api('/studio/estimate', 'POST', { kind: 'reel', tier: 'quick', seconds: 15, shots: 2, lines: 3, res: '480p' }, S)).data.credits;
-  assert.equal(a.data.cost.credits, plain + 2 * 8, 'a second still per shot on top of the usual');
+  assert.equal(a.data.cost.credits, plain + 2 * a.data.cost.perImage, 'a second still per shot on top of the usual');
   const r = await until(['ready', 'needs_review', 'failed']);
   assert.ok(['ready', 'needs_review'].includes(r.status), JSON.stringify({ status: r.status, error: r.error }));
-  const mine = created.slice(n), stills = mine.filter((c) => c.model === 'nano-banana-2'), clips = mine.filter((c) => /seedance/.test(c.model));
+  const mine = created.slice(n), stills = mine.filter((c) => c.model === 'nano-banana-2-1'), clips = mine.filter((c) => /seedance/.test(c.model));
   assert.equal(stills.length, 4, 'two shots, two stills each');
   assert.equal(stills.filter((c) => c.input.image_input?.length).length, 2, 'each closing still is made from its opening still');
   assert.ok(stills.every((c) => c.input.aspect_ratio === '16:9'));
@@ -202,4 +202,16 @@ test('storyline in 16:9: each shot gets an opening and a closing still (made fro
   assert.ok(r.shots.every((s) => s.end?.url));
   const wide = probe(onDisk(r.outputs['16:9']));
   assert.ok(wide.w > wide.h, `${wide.w}x${wide.h}`);
+});
+
+test('every Reel gets a music bed in the script’s mood (instrumental, never offered as a choice), made once and reused', () => {
+  const music = created.filter((c) => /ai-music-api/.test(c.model));
+  assert.ok(music.length >= 1, 'music was made');
+  assert.equal(music[0].input.instrumental, true);
+  assert.equal(music[0].input.custom_mode, true);
+  assert.match(music[0].input.style, /instrumental, no vocals/);
+  assert.ok(music[0].input.duration >= 10);
+  // a re-edit (new caption style) doesn't make music again: one per Reel
+  const reels = new Set(created.filter((c) => /ai-music-api/.test(c.model)).map((c) => c.input.title));
+  assert.ok(music.length <= reels.size + 3, `${music.length} music tasks`);
 });

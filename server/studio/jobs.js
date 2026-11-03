@@ -7,7 +7,7 @@
 // Every attempt is written to the row's usage log (model, resolution, seconds, outcome) for pricing later.
 import fs from 'node:fs';
 import { T, q, uid, JOBS } from '../db.js';
-import { pick, imageInput, clipInput, clipRes, imageCost, clipCost, TIERS } from './models.js';
+import { pick, imageRequest, clipInput, clipRes, imageCost, clipCost, TIERS } from './models.js';
 import { startTask, taskState, studioReady } from './kie.js';
 import { download, save, localCopy, publicUrl, rm, ffmpeg, tmpFile } from './media.js';
 import { checkImage, checkClip } from './qa.js';
@@ -28,7 +28,7 @@ function promptFor(a) {
   return [a.prompt, a.kind === 'clip' ? KEEP_CLIP : a.ref ? KEEP_PRODUCT : 'Photorealistic. No added text, words, logos or watermarks.', notes.length ? `Avoid this time: ${notes.join(' ')}` : ''].filter(Boolean).join('\n').slice(0, 4000);
 }
 
-export const view = (a) => ({ id: a.id, kind: a.kind, tier: a.tier, prompt: a.prompt, aspect: a.aspect, seconds: a.seconds || null, status: a.status, url: a.url || null, poster: a.poster || null, ref: a.ref || null, sourceId: a.sourceId || null, issues: a.qa?.issues || [], score: a.qa?.score ?? null, enhanced: !!a.enhanced, measured: a.qa?.measured ? { width: a.qa.measured.width, height: a.qa.measured.height, seconds: a.qa.measured.seconds ?? null } : null, reviewed: !!a.qa?.reviewed, fix: a.fix || '', res: a.kind === 'clip' ? clipRes(a.tier, a.res) : null, photo: !!a.photo, redoCredits: a.kind === 'image' || a.photo ? imageCost(a.tier) : a.kind === 'clip' ? clipCost(a.tier, a.seconds, a.res) : null, attempts: a.attempts || 0, error: a.error || '', at: a.at, doneAt: a.doneAt || null, by: a.by || null });
+export const view = (a) => ({ id: a.id, kind: a.kind, tier: a.tier, prompt: a.prompt, aspect: a.aspect, seconds: a.seconds || null, status: a.status, url: a.url || null, poster: a.poster || null, ref: a.ref || null, sourceId: a.sourceId || null, issues: a.qa?.issues || [], score: a.qa?.score ?? null, enhanced: !!a.enhanced, measured: a.qa?.measured ? { width: a.qa.measured.width, height: a.qa.measured.height, seconds: a.qa.measured.seconds ?? null } : null, reviewed: !!a.qa?.reviewed, fix: a.fix || '', res: a.kind === 'clip' ? clipRes(a.tier, a.res, a.vmodel) : null, photo: !!a.photo, model: a.kind === 'image' || a.kind === 'clip' ? pick(a.kind, a.tier, a.kind === 'clip' ? a.vmodel : a.imodel).name : null, redoCredits: a.kind === 'image' || a.photo ? imageCost(a.tier, a.imodel) : a.kind === 'clip' ? clipCost(a.tier, a.seconds, a.res, a.vmodel) : null, attempts: a.attempts || 0, error: a.error || '', at: a.at, doneAt: a.doneAt || null, by: a.by || null });
 
 export function enqueue(userId, a) {
   const row = { id: uid(), userId, status: 'queued', attempts: 0, notes: [], usage: [], at: Date.now(), ...a };
@@ -39,14 +39,16 @@ const lastUsage = (x, patch) => { const u = x.usage?.at(-1); if (u) Object.assig
 
 // ---------- one step for one row ----------
 async function startRender(a) {
-  const m = pick(a.kind, a.tier);
-  let req;
-  if (a.kind === 'image') req = { input: imageInput(m.model, { prompt: promptFor(a), refs: a.ref ? [publicUrl(a.ref)] : [], aspect: a.aspect, resolution: m.resolution }), resolution: m.resolution, seconds: 0 };
-  else req = clipInput(m.model, { prompt: promptFor(a), image: a.ref ? publicUrl(a.ref) : null, last: a.last ? publicUrl(a.last) : null, aspect: a.aspect, seconds: a.seconds || 5, resolution: clipRes(a.tier, a.res) });
-  const taskId = await startTask({ model: m.model, input: req.input });
+  let m = pick(a.kind, a.tier, a.kind === 'clip' ? a.vmodel : a.imodel);
+  // a model that can't take a product photo: the tier's default makes the stills that must keep the product
+  if (a.kind === 'image' && a.ref && m.entry?.refs === 0) m = pick('image', a.tier);
+  let req, model = m.model;
+  if (a.kind === 'image') { const q = imageRequest(m.model, { prompt: promptFor(a), refs: a.ref ? [publicUrl(a.ref)] : [], aspect: a.aspect, resolution: m.resolution }); model = q.model; req = { input: q.input, resolution: m.resolution, seconds: 0 }; }
+  else req = clipInput(m.model, { prompt: promptFor(a), image: a.ref ? publicUrl(a.ref) : null, last: a.last ? publicUrl(a.last) : null, aspect: a.aspect, seconds: a.seconds || 5, resolution: clipRes(a.tier, a.res, m.key), variant: m.entry?.variant || '' });
+  const taskId = await startTask({ model, input: req.input });
   set(a.id, (x) => {
-    x.status = 'rendering'; x.taskId = taskId; x.attempts = (x.attempts || 0) + 1; x.startedAt = Date.now(); x.model = m.model; x.resolution = req.resolution;
-    x.usage = [...(x.usage || []), { attempt: x.attempts, model: m.model, resolution: req.resolution, seconds: req.seconds, at: Date.now(), outcome: 'rendering' }];
+    x.status = 'rendering'; x.taskId = taskId; x.attempts = (x.attempts || 0) + 1; x.startedAt = Date.now(); x.model = model; x.resolution = req.resolution;
+    x.usage = [...(x.usage || []), { attempt: x.attempts, model, resolution: req.resolution, seconds: req.seconds, at: Date.now(), outcome: 'rendering' }];
   });
 }
 function retryOrFail(a, why, { note = '', keep = null } = {}) {

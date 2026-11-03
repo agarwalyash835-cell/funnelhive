@@ -12,7 +12,7 @@ import { publicUrlFor } from '../storage.js';
 import { adminMiddleware, audit } from '../admin-guard.js';
 import { studioReady } from './kie.js';
 import { enqueue, view, tick, tierOk } from './jobs.js';
-import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample, voiceId, CLIP_RES, clipRes, imageCost, clipCost, reelCost, MOTIONS } from './models.js';
+import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample, voiceId, CLIP_RES, clipRes, imageCost, clipCost, reelCost, MOTIONS, modelKey, tierMenu } from './models.js';
 import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, reelsTick, LENGTHS, CAPTION_IDS } from './reels.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
@@ -22,7 +22,7 @@ import { publicUrl } from './media.js';
 const brief = (a) => (a ? view(a) : null);
 export function reelView(r) {
   // what it costs (shown before approving: each resolution the tier offers)
-  const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion }) : null;
+  const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion, vmodel: r.vmodel, imodel: r.imodel }) : null;
   return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null };
 }
 const anyView = (a) => (a.kind === 'reel' ? reelView(a) : view(a));
@@ -48,7 +48,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.get('/api/studio', auth, (req, res) => {
     // a Reel's own shots are shown inside the Reel, not again in the gallery
     const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId).slice(0, 200);
-    res.json({ on: studioOn(req.user) && studioReady(), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], clipRes: CLIP_RES[id], imageCredits: imageCost(id), clipCreditsPer5s: Object.fromEntries(CLIP_RES[id].map((r) => [r, clipCost(id, 5, r)])) })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), assets: rows.map(anyView) });
+    res.json({ on: studioOn(req.user) && studioReady(), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], clipRes: CLIP_RES[id], imageCredits: imageCost(id), clipCreditsPer5s: Object.fromEntries(CLIP_RES[id].map((r) => [r, clipCost(id, 5, r)])), models: tierMenu(id) })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), assets: rows.map(anyView) });
   });
   // images: 1–4 at a time, from words, optionally keeping the seller's real product (their photo as the reference)
   app.post('/api/studio/images', auth, limiter, (req, res) => {
@@ -57,8 +57,9 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     if (prompt.length < 3) return res.status(400).json({ error: 'Describe the image you want' });
     if (b.ref && !ownUpload(req.user.id, b.ref)) return res.status(400).json({ error: 'Pick one of your own photos' });
     const n = Math.min(4, Math.max(1, Math.round(Number(b.count) || 1)));
-    const made = Array.from({ length: n }, () => enqueue(req.user.id, { kind: 'image', tier: tierOk(b.tier) ? b.tier : 'standard', prompt, aspect: ASPECTS.includes(b.aspect) ? b.aspect : '1:1', ref: b.ref || null, by: who(req), notifyDone: true }));
-    res.status(201).json({ assets: made.map(view), credits: n * imageCost(made[0].tier) });
+    const tier = tierOk(b.tier) ? b.tier : 'standard', imodel = b.model ? modelKey('image', tier, b.model) : undefined;
+    const made = Array.from({ length: n }, () => enqueue(req.user.id, { kind: 'image', tier, imodel, prompt, aspect: ASPECTS.includes(b.aspect) ? b.aspect : '1:1', ref: b.ref || null, by: who(req), notifyDone: true }));
+    res.status(201).json({ assets: made.map(view), credits: n * imageCost(tier, imodel) });
   });
   // clips: from one of the seller's Studio images (or own photo) as the first frame, or from words alone
   app.post('/api/studio/clips', auth, limiter, (req, res) => {
@@ -76,15 +77,16 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     }
     const seconds = Math.min(15, Math.max(4, Math.round(Number(b.seconds) || 5)));
     const tier = tierOk(b.tier) ? b.tier : 'standard';
-    const a = enqueue(req.user.id, { kind: 'clip', tier, res: clipRes(tier, b.res), prompt, aspect: ASPECTS.includes(b.aspect) ? b.aspect : '9:16', seconds, ref, sourceId, enhance: b.enhance !== false, by: who(req), notifyDone: true });
-    res.status(201).json({ asset: view(a), credits: clipCost(tier, seconds, a.res) });
+    const vmodel = b.model ? modelKey('clip', tier, b.model) : undefined;
+    const a = enqueue(req.user.id, { kind: 'clip', tier, vmodel, res: clipRes(tier, b.res, vmodel), prompt, aspect: ASPECTS.includes(b.aspect) ? b.aspect : '9:16', seconds, ref, sourceId, enhance: b.enhance !== false, by: who(req), notifyDone: true });
+    res.status(201).json({ asset: view(a), credits: clipCost(tier, seconds, a.res, vmodel) });
   });
-  // what something would cost, before making it: { kind: image|clip|reel, tier, count, seconds, res, shots, lines }
+  // what something would cost, before making it: { kind: image|clip|reel, tier, model, count, seconds, res, shots, lines, vmodel, imodel }
   app.post('/api/studio/estimate', auth, (req, res) => {
     const b = req.body || {}, tier = tierOk(b.tier) ? b.tier : 'standard';
-    if (b.kind === 'image') return res.json({ credits: Math.min(4, Math.max(1, Math.round(Number(b.count) || 1))) * imageCost(tier) });
-    if (b.kind === 'clip') { const secs = Math.min(15, Math.max(4, Math.round(Number(b.seconds) || 5))); return res.json({ credits: clipCost(tier, secs, b.res), res: clipRes(tier, b.res), byRes: Object.fromEntries(CLIP_RES[tier].map((r) => [r, clipCost(tier, secs, r)])) }); }
-    res.json(reelCost({ tier, seconds: LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30, shots: Math.min(8, Math.max(1, Number(b.shots) || 4)), lines: Math.min(8, Math.max(1, Number(b.lines) || 4)), res: b.res, motion: b.motion }));
+    if (b.kind === 'image') return res.json({ credits: Math.min(4, Math.max(1, Math.round(Number(b.count) || 1))) * imageCost(tier, b.model), model: modelKey('image', tier, b.model) });
+    if (b.kind === 'clip') { const secs = Math.min(15, Math.max(4, Math.round(Number(b.seconds) || 5))); const k = modelKey('clip', tier, b.model); return res.json({ credits: clipCost(tier, secs, b.res, k), res: clipRes(tier, b.res, k), model: k, byRes: Object.fromEntries(tierMenu(tier).video.find((x) => x.id === k).res.map((r) => [r, clipCost(tier, secs, r, k)])) }); }
+    res.json(reelCost({ tier, seconds: LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30, shots: Math.min(8, Math.max(1, Number(b.shots) || 4)), lines: Math.min(8, Math.max(1, Number(b.lines) || 4)), res: b.res, motion: b.motion, vmodel: b.vmodel, imodel: b.imodel }));
   });
   const mine = (req, res) => { const a = T.studio.get(req.params.id); if (!a || a.userId !== req.user.id) { res.status(404).json({ error: 'Not found' }); return null; } return a; };
   // a voice's sample, to hear it before choosing: made once per Sarvam voice and kept (no seller data in it, so it's
@@ -112,7 +114,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     let script;
     try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect }); } catch (e) { return res.status(502).json({ error: e.message }); }
     const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.aspect || '9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
-    const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], script, by: who(req) });
+    const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], script, by: who(req) });
     res.status(201).json(reelView(r));
   }));
   const myReel = (req, res, statuses) => {
@@ -142,7 +144,8 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const r = myReel(req, res, ['script_ready']); if (!r) return;
     const c = req.body?.script ? cleanScript(req.body.script) : { script: r.script };
     if (c.error) return res.status(400).json(c);
-    if (req.body?.res) T.studio.update(r.id, (x) => { x.res = clipRes(x.tier, req.body.res); });
+    if (req.body?.vmodel || req.body?.imodel) T.studio.update(r.id, (x) => { x.vmodel = modelKey('clip', x.tier, req.body.vmodel || x.vmodel); x.imodel = modelKey('image', x.tier, req.body.imodel || x.imodel); });
+    if (req.body?.res) T.studio.update(r.id, (x) => { x.res = clipRes(x.tier, req.body.res, x.vmodel); });
     if (req.body?.motion) T.studio.update(r.id, (x) => { x.motion = MOTIONS.includes(req.body.motion) ? req.body.motion : 'video'; });
     res.json(reelView(approveReel(T.studio.get(r.id), c.script)));
   });

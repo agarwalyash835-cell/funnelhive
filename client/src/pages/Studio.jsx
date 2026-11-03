@@ -29,7 +29,7 @@ const IDEAS = {
 };
 const PREFS = 'ff_studio_prefs';
 const savedPrefs = () => { try { const p = JSON.parse(localStorage.getItem(PREFS) || '{}'); return p && typeof p === 'object' ? p : {}; } catch { return {}; } };
-const savePrefs = (mode, v) => { try { localStorage.setItem(PREFS, JSON.stringify({ tier: v.tier, res: v.res, aspect: v.aspect, count: v.count, seconds: v.seconds, lang: v.lang, length: v.length, voice: v.voice, captions: v.captions, sizes: v.sizes })); } catch { /* private mode */ } };
+const savePrefs = (mode, v) => { try { localStorage.setItem(PREFS, JSON.stringify({ tier: v.tier, vmodel: v.vmodel, imodel: v.imodel, res: v.res, aspect: v.aspect, count: v.count, seconds: v.seconds, lang: v.lang, length: v.length, voice: v.voice, captions: v.captions, sizes: v.sizes })); } catch { /* private mode */ } };
 
 export default function Studio() {
   const [d, setD] = useState(null);
@@ -54,7 +54,7 @@ export default function Studio() {
     seen.current = now; setD(x);
   }).catch(() => setD(false));
   useEffect(() => { load(); const back = () => { document.title = document.title.replace(/^● /, ''); }; document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back); }, []);
-  useEffect(() => { savePrefs(mode, v); }, [mode, v.tier, v.res, v.aspect, v.count, v.seconds, v.lang, v.length, v.voice, v.captions, v.sizes.join()]);
+  useEffect(() => { savePrefs(mode, v); }, [mode, v.tier, v.vmodel, v.imodel, v.res, v.aspect, v.count, v.seconds, v.lang, v.length, v.voice, v.captions, v.sizes.join()]);
   const live = !!d?.assets?.some((a) => ACTIVE.includes(a.status));
   // while something renders: look again every few seconds, and keep the timers moving
   useEffect(() => { if (!live) return undefined; const p = setInterval(load, 4000), t = setInterval(() => tick((n) => n + 1), 1000); return () => { clearInterval(p); clearInterval(t); }; }, [live]);
@@ -73,10 +73,16 @@ export default function Studio() {
   const set = (p) => setV((x) => ({ ...x, ...p }));
   // what it costs, said before anything is made: the tier's prices (server studio/models.js), the clip resolution chosen
   const tierInfo = d.tiers.find((t) => t.id === v.tier) || d.tiers[0];
-  const resOpts = tierInfo?.clipRes || [];
+  // the tier's models (the first is its default): what each makes, what it costs
+  const vms = tierInfo?.models?.video || [], ims = tierInfo?.models?.image || [];
+  const vm = vms.find((m) => m.id === v.vmodel) || vms[0], im = ims.find((m) => m.id === v.imodel) || ims[0];
+  const resOpts = vm?.res || tierInfo?.clipRes || [];
   const res = resOpts.includes(v.res) ? v.res : resOpts.at(-1);
-  const perSec = (r) => (tierInfo?.clipCreditsPer5s?.[r] || 0) / 5;
-  const cost = mode === 'image' ? (tierInfo?.imageCredits || 0) * v.count : mode === 'clip' ? Math.ceil(perSec(res) * v.seconds) : null;
+  const perSec = (r) => (vm?.per5s?.[r] ?? tierInfo?.clipCreditsPer5s?.[r] ?? 0) / 5;
+  // a clip's exact cost comes from the server (some models charge per clip, by length)
+  const [clipCredits, setClipCredits] = useState(null);
+  useEffect(() => { if (mode !== 'clip') return; let live = true; api('/studio/estimate', 'POST', { kind: 'clip', tier: v.tier, model: vm?.id, seconds: v.seconds, res }).then((e) => live && setClipCredits(e.credits)).catch(() => {}); return () => { live = false; }; }, [mode, v.tier, vm?.id, v.seconds, res]);
+  const cost = mode === 'image' ? (im?.credits ?? tierInfo?.imageCredits ?? 0) * v.count : mode === 'clip' ? clipCredits ?? Math.ceil(perSec(res) * v.seconds) : null;
   const images = assets.filter((a) => a.kind === 'image' && a.url && a.status !== 'failed');
   const src = v.sourceId ? images.find((x) => x.id === v.sourceId)?.url : v.ref;
   const upload = async (f, key = 'ref') => {
@@ -89,15 +95,15 @@ export default function Studio() {
     setBusy(true);
     try {
       if (mode === 'reel') {
-        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, res, voice: v.voice || 'female', captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
+        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || 'female', captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
         set({ prompt: '' }); await load(); setOpen(r.id);
       } else {
-        if (mode === 'image') await api('/studio/images', 'POST', { prompt: v.prompt, tier: v.tier, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
+        if (mode === 'image') await api('/studio/images', 'POST', { prompt: v.prompt, tier: v.tier, model: im?.id, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
         else {
           // a video costs real credits: say how many, and go ahead only on a yes
           const other = resOpts.filter((r) => r !== res).map((r) => `${r}: about ${Math.ceil(perSec(r) * v.seconds)} credits`).join(' · ');
-          if (!(await confirmDialog({ title: `Make this ${v.seconds}-second clip?`, text: `It uses about ${cost} credits at ${res}.${other ? ` (${other}.)` : ''} Clips below 720p are sharpened up to 720p for free.`, confirm: `Make it · ${cost} credits` }))) { setBusy(false); return; }
-          await api('/studio/clips', 'POST', { prompt: v.prompt, tier: v.tier, res, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) });
+          if (!(await confirmDialog({ title: `Make this ${v.seconds}-second clip?`, text: `${vm?.name || 'The video model'} makes it at ${res} for about ${cost} credits.${other ? ` (${other}.)` : ''} Clips below 720p are sharpened up to 720p for free.`, confirm: `Make it · ${cost} credits` }))) { setBusy(false); return; }
+          await api('/studio/clips', 'POST', { prompt: v.prompt, tier: v.tier, model: vm?.id, res, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) });
         }
         set({ prompt: '' }); setFilter('all'); load();
       }
@@ -143,6 +149,8 @@ export default function Studio() {
           </div>
           <div className="sx-bar">
             <label className="sx-pill" title={TIER_HINT[v.tier]}><span className="lbl">Quality</span>{d.tiers.find((t) => t.id === v.tier)?.name}<select value={v.tier} onChange={(e) => set({ tier: e.target.value })}>{d.tiers.map((t) => <option key={t.id} value={t.id}>{t.name} — {TIER_HINT[t.id]}</option>)}</select></label>
+            {mode !== 'image' && vms.length > 1 && <label className="sx-pill" title={vm?.note}><span className="lbl">Video model</span>{vm?.name}<select value={vm?.id} onChange={(e) => set({ vmodel: e.target.value })}>{vms.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note} · from {Math.min(...Object.values(m.per5s))} credits / 5s</option>)}</select></label>}
+            {(mode === 'image' || mode === 'reel') && ims.length > 1 && <label className="sx-pill" title={im?.note}><span className="lbl">{mode === 'reel' ? 'Stills' : 'Image model'}</span>{im?.name}<select value={im?.id} onChange={(e) => set({ imodel: e.target.value })}>{ims.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note}{v.ref && !m.product ? ' (can’t keep your product photo)' : ''} · {m.credits} credits</option>)}</select></label>}
             {mode !== 'reel' && <label className="sx-pill"><Ratio a={v.aspect} />{v.aspect}<select value={v.aspect} onChange={(e) => set({ aspect: e.target.value })}>{d.aspects.map((x) => <option key={x} value={x}>{x} · {ASPECT_NAME[x] || ''}</option>)}</select></label>}
             {mode === 'image' && <label className="sx-pill"><span className="lbl">Versions</span>{v.count}<select value={v.count} onChange={(e) => set({ count: Number(e.target.value) })}>{[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
             {mode !== 'image' && resOpts.length > 1 && <label className="sx-pill" title="Lower resolution costs fewer credits; below 720p is sharpened up to 720p for free"><span className="lbl">Video</span>{res}<select value={res} onChange={(e) => set({ res: e.target.value })}>{resOpts.map((r) => <option key={r} value={r}>{r} · {mode === 'clip' ? `about ${Math.ceil(perSec(r) * v.seconds)} credits` : `${Math.round(perSec(r) * 10) / 10} credits a second`}</option>)}</select></label>}
@@ -151,7 +159,7 @@ export default function Studio() {
               <label className="sx-pill" title="The shape every scene is made in — wide for a video on a web page (a sales letter), vertical for Reels and Stories"><span className="lbl">Frame</span>{ASPECT_NAME[v.sizes[0]] || 'Reels / Stories'}<select value={v.sizes[0] || '9:16'} onChange={(e) => set({ sizes: [e.target.value] })}>{['9:16', '16:9', '1:1', '4:5'].map((a) => <option key={a} value={a}>{a} · {a === '16:9' ? 'Web page / sales letter' : ASPECT_NAME[a]}</option>)}</select></label>
               <label className="sx-pill"><span className="lbl">Length</span>{v.length}s<select value={v.length} onChange={(e) => set({ length: Number(e.target.value) })}>{d.lengths.map((n) => <option key={n} value={n}>{n} seconds</option>)}</select></label>
               <label className="sx-pill"><span className="lbl">Language</span>{d.languages.find((x) => x.id === v.lang)?.name}<select value={v.lang} onChange={(e) => set({ lang: e.target.value })}>{d.languages.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-              <label className="sx-pill"><span className="lbl">Voice</span>{voices.find((x) => x.id === v.voice)?.name || 'Auto'}<select value={v.voice} onChange={(e) => set({ voice: e.target.value })}><option value="">Auto (Monika, Indian female)</option>{voices.map((x) => <option key={x.id} value={x.id}>{x.name} — {x.note}</option>)}</select></label>
+              <label className="sx-pill"><span className="lbl">Voice</span>{voices.find((x) => x.id === v.voice)?.name || 'Auto'}<select value={v.voice} onChange={(e) => set({ voice: e.target.value })}><option value="">Auto (Priya, Indian female)</option>{voices.map((x) => <option key={x.id} value={x.id}>{x.name} — {x.note}</option>)}</select></label>
               <label className="sx-pill"><span className="lbl">Captions</span>{d.captionStyles.find((x) => x.id === v.captions)?.name}<select value={v.captions} onChange={(e) => set({ captions: e.target.value })}>{d.captionStyles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
               <button type="button" className="sx-pill" onClick={() => logoFile.current?.click()}>{v.logo ? <img src={v.logo} alt="" style={{ height: 18, maxWidth: 60, objectFit: 'contain' }} /> : <Icon name="plus" size={14} />}{v.logo ? 'Logo' : 'Add logo'}</button>
               <input ref={logoFile} type="file" accept="image/png,image/webp,image/jpeg" hidden onChange={(e) => { upload(e.target.files?.[0], 'logo'); e.target.value = ''; }} />

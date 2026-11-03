@@ -81,7 +81,10 @@ test('Studio is off until the platform switches it on for the account', async ()
   const g = (await api('/studio', 'GET', null, S)).data;
   assert.equal(g.on, true);
   assert.deepEqual(g.tiers.map((t) => t.name), ['Quick', 'Standard', 'Cinematic']);
-  assert.ok(!JSON.stringify(g).match(/seedance|nano-banana|kie|gemini/i), 'no model names for sellers');
+  // sellers pick models by name in each tier; the provider behind them is never shown
+  assert.deepEqual(g.tiers[0].models.video.map((m) => m.name), ['Seedance 2 Mini', 'Grok Imagine 1.5', 'Wan 3.0']);
+  assert.ok(g.tiers[1].models.video.some((m) => m.name === 'Google Veo 3.1 Fast') && g.tiers[2].models.image.some((m) => m.name === 'Nano Banana Pro'));
+  assert.ok(!/kie|bytedance\//i.test(JSON.stringify(g)), 'no provider for sellers');
 });
 
 let imageId;
@@ -94,7 +97,7 @@ test('an image: rendered, measured, reviewed against the product photo, saved to
   assert.equal(a.status, 'ready', JSON.stringify(a));
   assert.match(a.url, new RegExp(`^/uploads/${sid}/studio-`));
   assert.ok(fs.existsSync(onDisk(a.url)));
-  const sent = created.find((c) => c.model === 'nano-banana-2');
+  const sent = created.find((c) => c.model === 'nano-banana-2-1');
   assert.equal(sent.input.resolution, '2K');
   assert.deepEqual(sent.input.image_input, [`https://app.studio.test/uploads/${sid}/product.png`], 'the product photo as a public reference');
   assert.match(sent.input.prompt, /Keep the product exactly as in the reference photo/);
@@ -172,9 +175,9 @@ test('the admin sees usage by model and resolution, and can move a tier to anoth
 test('what it costs, before anything is made: per image, per clip and per Reel, for each resolution the tier offers', async () => {
   const st = (await api('/studio', 'GET', null, S)).data;
   const std = st.tiers.find((t) => t.id === 'standard');
-  assert.deepEqual(std.clipRes, ['480p', '720p']);
+  assert.deepEqual(std.clipRes, ['480p', '720p', '1080p']);
   assert.ok(std.clipCreditsPer5s['480p'] < std.clipCreditsPer5s['720p'], JSON.stringify(std));
-  assert.deepEqual(st.tiers.find((t) => t.id === 'cinematic').clipRes, ['1080p'], 'no choice there');
+  assert.deepEqual(st.tiers.find((t) => t.id === 'cinematic').clipRes, ['720p', '1080p']);
   const clip = (await api('/studio/estimate', 'POST', { kind: 'clip', tier: 'standard', seconds: 6, res: '480p' }, S)).data;
   assert.equal(clip.res, '480p');
   assert.ok(clip.byRes['480p'] < clip.byRes['720p']);

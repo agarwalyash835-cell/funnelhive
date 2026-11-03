@@ -42,18 +42,38 @@ export function fitGraph(inp, out, w, h, mode) {
 // how long the crossfade between two shots is: a quick dissolve (a hard cut between AI shots looks like a jump), never
 // more than a fifth of the shorter shot
 export const xfadeFor = (a, b, d = 0.3) => Math.max(0, Math.min(d, a / 5, b / 5));
+// the cut between shot i-1 and shot i of n: 'dissolve' is a quick fade every time; 'cinematic' moves the story along —
+// dissolves, a soft push to the side between related moments, and a dip to black into the last scene (the payoff)
+export const TRANSITION_STYLES = ['dissolve', 'cinematic', 'cut'];
+export function transitionFor(i, n, style = 'dissolve') {
+  if (style !== 'cinematic') return 'fade';
+  if (n > 2 && i === n - 1) return 'fadeblack';
+  return i % 2 ? 'fade' : 'smoothleft';
+}
+// one look across every shot (they come from different models and renders): a touch more contrast and colour, and a
+// soft vignette that pulls the eye to the middle
+export const LOOKS = { natural: '', cinematic: 'eq=contrast=1.05:saturation=1.08:gamma=0.99,vignette=angle=PI/6' };
+// where each cut lands in the joined picture (seconds), for the whoosh under it
+export function cutTimes(lens, fade = 0.3, style = 'dissolve') {
+  const out = [];
+  let end = lens[0] || 0;
+  for (let i = 1; i < lens.length; i++) { const d = style === 'cut' ? 0 : xfadeFor(lens[i - 1], lens[i], fade); out.push(Math.max(0, end - d / 2)); end += lens[i] - d; }
+  return out;
+}
 // clips (any sizes, any lengths, with or without sound) → one silent video at w×h, each shot dissolving into the next.
 // The dissolves overlap the shots, so the result is a little shorter than the clips laid end to end; fitDuration then
 // fits it to the voiceover.
-export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3 } = {}) {
+export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3, transitions = 'dissolve', look = 'natural' } = {}) {
   if (!files?.length) throw new Error('Add at least one clip');
-  need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []));
+  if (transitions === 'cut') fade = 0;
+  need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []), ...(LOOKS[look] ? ['eq', 'vignette'] : []));
+  const grade = LOOKS[look] ? `,${LOOKS[look]}` : '';
   const lens = [];
   const parts = files.map((f, i) => {
     const p = probe(f);
     if (!p.hasVideo) throw new Error(`Clip ${i + 1} has no picture`);
     lens.push(p.duration || 0);
-    return `${fitGraph(`${i}:v`, `f${i}`, width, height, fitMode(p.width, p.height, width, height, mode))};[f${i}]fps=${fps},format=yuv420p,settb=AVTB[v${i}]`;
+    return `${fitGraph(`${i}:v`, `f${i}`, width, height, fitMode(p.width, p.height, width, height, mode))};[f${i}]fps=${fps}${grade},format=yuv420p,settb=AVTB[v${i}]`;
   });
   let tail;
   if (files.length > 1 && fade > 0 && lens.every((l) => l > 0)) {
@@ -63,7 +83,7 @@ export async function joinClips(files, out, { width = 1080, height = 1920, fps =
     for (let i = 1; i < files.length; i++) {
       const d = xfadeFor(lens[i - 1], lens[i], fade);
       const label = i === files.length - 1 ? 'v' : `x${i}`;
-      steps.push(`[${prev}][v${i}]xfade=transition=fade:duration=${d.toFixed(3)}:offset=${Math.max(0, end - d).toFixed(3)}[${label}]`);
+      steps.push(`[${prev}][v${i}]xfade=transition=${transitionFor(i, files.length, transitions)}:duration=${d.toFixed(3)}:offset=${Math.max(0, end - d).toFixed(3)}[${label}]`);
       end += lens[i] - d; prev = label;
     }
     tail = steps.join(';');
@@ -163,20 +183,24 @@ export async function overlayLogo(video, logo, out, { position = 'top-right', si
 }
 
 // the closing offer / price card: an image shown full-frame (over its own blurred copy if its shape differs) for `seconds`
-export async function appendEndCard(video, image, out, { seconds = 2.5, fps = 30, fade = 0.25 } = {}) {
-  need('scale', 'concat', 'overlay', 'boxblur', 'crop');
+// the card eases in slowly (a 4% push over its seconds) so the last frame isn't a dead still
+export async function appendEndCard(video, image, out, { seconds = 2.5, fps = 30, fade = 0.25, push = 0.04 } = {}) {
+  need('scale', 'concat', 'overlay', 'boxblur', 'crop', ...(push ? ['zoompan'] : []));
   const { width: W, height: H } = probe(video);
   const img = probe(image);
   const m = fitMode(img.width || W, img.height || H, W, H, 'pad');
-  const graph = `${fitGraph('1:v', 'c0', W, H, m)};[c0]fps=${fps},format=yuv420p,trim=duration=${seconds},fade=t=in:st=0:d=${fade}[card];[0:v]fps=${fps},format=yuv420p,setsar=1[main];[main][card]concat=n=2:v=1:a=0[v]`;
-  await run(['-i', video, '-loop', '1', '-t', String(seconds), '-i', image, '-filter_complex', graph, '-map', '[v]', '-an', ...venc({ fps }), out]);
+  const n = Math.round(seconds * fps);
+  const move = push ? `scale=${W * 2}:${H * 2}:flags=lanczos,zoompan=z='1+${push}*on/${n}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${n}:s=${W}x${H}:fps=${fps},` : `fps=${fps},`;
+  const graph = `${fitGraph('1:v', 'c0', W, H, m)};[c0]${move}format=yuv420p,trim=duration=${seconds},fade=t=in:st=0:d=${fade}[card];[0:v]fps=${fps},format=yuv420p,setsar=1[main];[main][card]concat=n=2:v=1:a=0[v]`;
+  await run(['-i', video, ...(push ? [] : ['-loop', '1', '-t', String(seconds)]), '-i', image, '-filter_complex', graph, '-map', '[v]', '-an', ...venc({ fps }), out]);
   return out;
 }
 
 // voice + music → one stereo track `duration` long. The voice starts after `voiceDelay`; the music loops, sits at
 // musicDb and dips under speech (a compressor keyed on the voice; mixing 32% of the untouched music back caps the dip at
 // about 10 dB, so the music ducks rather than vanishes), then fades out at the end.
-export async function mixAudio({ voice, music, duration, voiceDelay = 0.15, musicDb = -16, duck = true, fadeOut = 1.5 }, out) {
+// whooshes: times (seconds) of the cuts — a soft filtered-noise swish under each, quiet enough to feel rather than hear
+export async function mixAudio({ voice, music, duration, voiceDelay = 0.15, musicDb = -16, duck = true, fadeOut = 1.5, whooshes = [] }, out) {
   if (!voice && !music) throw new Error('Add a voiceover or music');
   if (!(duration > 0)) throw new Error('The video has no length');
   need('adelay', 'apad', 'afade', ...(voice && music ? ['amix', ...(duck ? ['sidechaincompress'] : [])] : []));
@@ -196,6 +220,16 @@ export async function mixAudio({ voice, music, duration, voiceDelay = 0.15, musi
       + `amix=inputs=2:duration=longest:normalize=0,${end}[a]`;
   } else if (voice) graph = `[0:a]${fmt},adelay=${ms}|${ms},apad,${end}[a]`;
   else graph = `[0:a]${fmt},volume=${musicDb}dB,${end}[a]`;
+  const sw = whooshes.filter((t) => t > 0.2 && t < duration - 0.3).slice(0, 20);
+  if (sw.length) {
+    need('anoisesrc', 'highpass', 'lowpass', 'asplit');
+    const k = args.filter((x) => x === '-i').length;
+    args.push('-f', 'lavfi', '-i', 'anoisesrc=color=pink:duration=0.7:amplitude=0.6:seed=7');
+    // the swish builds over 0.4 s to the cut, then falls away
+    const parts = sw.map((t, i) => `[w${i}]adelay=${Math.round(Math.max(0, t - 0.4) * 1000)}|${Math.round(Math.max(0, t - 0.4) * 1000)},apad[d${i}]`);
+    graph = graph.replace(/\[a\]$/, '[pre]')
+      + `;[${k}:a]${fmt},highpass=f=700,lowpass=f=4500,afade=t=in:d=0.4:curve=exp,afade=t=out:st=0.4:d=0.3,volume=-22dB,asplit=${sw.length}${sw.map((_, i) => `[w${i}]`).join('')};${parts.join(';')};[pre]${sw.map((_, i) => `[d${i}]`).join('')}amix=inputs=${sw.length + 1}:duration=first:normalize=0[a]`;
+  }
   await run([...args, '-filter_complex', graph, '-map', '[a]', '-t', duration.toFixed(3), '-c:a', 'pcm_s16le', out]);
   return out;
 }
@@ -228,7 +262,9 @@ export async function mux(video, audio, out) {
 //   words: the voiceover's transcript word timings [{ w, start, end }] (from checkLine's transcriber), for captions
 //   captions: { style, mode, font, colour, highlight, upper } or null · logo: { file, position, size } or null
 //   endCard: { image, seconds } or null · sizes: ['9:16', '1:1', '16:9'] · short: frame's short side
-export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio' }) {
+//   look: 'cinematic' (one grade over every shot) | 'natural' · transitions: 'cinematic' | 'dissolve' | 'cut' ·
+//   sfx: a soft whoosh under each cut
+export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false }) {
   const temp = [];
   const t = (n, ext = 'mp4') => { const f = tmpFile(outDir, n, ext); temp.push(f); return f; };
   try {
@@ -238,15 +274,24 @@ export async function render({ clips, voice, music, words = [], captions = { sty
     const card = endCard?.image ? Math.max(1, Math.min(6, Number(endCard.seconds) || 2.5)) : 0;
     const duration = body + card;
 
+    // where the cuts land once the joined picture is fitted to the voice (fitDuration slows it up to 30% when short)
+    const fade = transitions === 'cinematic' ? 0.45 : 0.3;
+    let whooshes = [];
+    if (sfx && clips.length > 1) {
+      const lens = clips.map((c) => probe(c).duration || 0), cuts = cutTimes(lens, fade, transitions);
+      const joined = lens.reduce((a, b) => a + b, 0) - (transitions === 'cut' ? 0 : lens.slice(1).reduce((n, l, i) => n + xfadeFor(lens[i], l, fade), 0));
+      const k = joined < body ? Math.min(1.3, body / Math.max(joined, 0.1)) : 1;
+      whooshes = cuts.map((c) => c * k).filter((c) => c < body);
+    }
     let audio = null;
     if (voice || music) {
-      const mixed = await mixAudio({ voice, music, duration, voiceDelay, musicDb }, t('mix', 'wav'));
+      const mixed = await mixAudio({ voice, music, duration, voiceDelay, musicDb, whooshes }, t('mix', 'wav'));
       audio = await normaliseLoudness(mixed, t('norm', 'wav'));
     }
     const files = {};
     for (const aspect of [...new Set(sizes)].filter((a) => ASPECTS[a])) {
       const { width, height } = dims(aspect, short);
-      let v = await joinClips(clips, t(`join-${aspect.replace(':', 'x')}`), { width, height, fps });
+      let v = await joinClips(clips, t(`join-${aspect.replace(':', 'x')}`), { width, height, fps, fade, transitions, look });
       v = await fitDuration(v, body, t('fit'), { fps });
       if (captions && words.length) {
         const ass = writeAss(words, t('captions', 'ass'), { ...captions, width, height, offset: voiceDelay });

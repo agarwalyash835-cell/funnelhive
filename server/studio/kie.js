@@ -29,7 +29,9 @@ export async function taskState(taskId) {
   let res = {};
   try { res = typeof s.resultJson === 'string' ? JSON.parse(s.resultJson || '{}') : s.resultJson || {}; } catch { /* not JSON yet */ }
   // Veo puts its links elsewhere on some resolutions (docs disagree): take whichever is there
-  const urls = [res.resultUrls, res.data?.result_urls, s.info?.resultUrls, s.origin_urls].find((x) => Array.isArray(x) && x.length) || [];
+  // music comes back as tracks with their own links (audio_url)
+  const tracks = (Array.isArray(res.data) ? res.data : Array.isArray(s.response?.data) ? s.response.data : []).map((x) => x?.audio_url).filter(Boolean);
+  const urls = [res.resultUrls, res.data?.result_urls, s.info?.resultUrls, s.origin_urls, tracks].find((x) => Array.isArray(x) && x.length) || [];
   return { state: s.state || (r ? 'waiting' : 'unknown'), urls: urls.filter((u) => /^https?:\/\//.test(u)), failMsg: s.failMsg || '', lastFrame: res.lastFrameUrl || null };
 }
 // the contract Phase 2 builds on: start, wait, → { urls, raw }

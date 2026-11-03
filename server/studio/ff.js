@@ -47,7 +47,7 @@ export function filters() {
 export const NEEDED = {
   ass: 'captions on the video', overlay: 'logos and end cards', scale: 'resizing', pad: 'fitting sizes', crop: 'fitting sizes', boxblur: 'blurred backgrounds for other sizes',
   concat: 'joining clips', tpad: 'holding the last frame', loudnorm: 'even loudness', ebur128: 'measuring loudness', silencedetect: 'finding long pauses', astats: 'finding distorted audio',
-  sidechaincompress: 'lowering music under the voice', amix: 'mixing voice and music', adelay: 'timing the voice', afade: 'fading music out', apad: 'padding audio', asplit: 'lowering music under the voice', fade: 'fading in the end card', zoompan: 'photo motion',
+  sidechaincompress: 'lowering music under the voice', amix: 'mixing voice and music', adelay: 'timing the voice', afade: 'fading music out', apad: 'padding audio', asplit: 'lowering music under the voice', fade: 'fading in the end card', zoompan: 'photo motion', eq: 'the colour grade', vignette: 'the colour grade', anoisesrc: 'sound effects', highpass: 'sound effects', lowpass: 'sound effects', xfade: 'transitions',
 };
 // → names of missing filters (empty when this build has everything)
 export const missingFilters = (names = Object.keys(NEEDED)) => names.filter((n) => !filters().has(n));
