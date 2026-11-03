@@ -30,7 +30,15 @@ export default function Agency() {
   const owner = d?.me?.role !== 'clients';
   const reportLink = async (c) => { try { const r = await api(`/agency/clients/${c.id}/report-link`, 'POST', { days: 30 }); copy(`${location.origin}${r.url}`); toast('Report link copied — works for 30 days'); load(); } catch (e) { toast(e.message); } };
   const act = async (fn, msg) => { try { await fn(); if (msg) toast(msg); load(); } catch (e) { toast(e.message); } };
-  const total = (d?.clients || []).reduce((a, c) => ({ visitors: a.visitors + c.stats.visitors, leads: a.leads + c.stats.leads, revenue: a.revenue + c.stats.revenue }), { visitors: 0, leads: 0, revenue: 0 });
+  // the report emailed to the client every week or month (a copy to you)
+  const reportEmail = async (c) => {
+    const to = await promptDialog({ title: `Email ${c.business}’s report`, text: c.reportEmail ? `Now ${c.reportEmail.every} to ${c.reportEmail.to}. Leave it empty to stop.` : 'Every Monday the client gets their numbers — visitors, leads, sales, ad spend, cost per lead, ROAS — and a link to the full live report. You get a copy.', label: 'Client’s email', value: c.reportEmail?.to || c.email || '', placeholder: 'owner@client.com' });
+    if (to === null || to === undefined) return;
+    if (!to) return act(() => api(`/agency/clients/${c.id}/report-email`, 'PUT', {}), 'Report emails stopped');
+    const monthly = await confirmDialog({ title: 'How often?', text: 'Weekly works for most clients running ads; monthly suits slower businesses.', confirm: 'Monthly', cancel: 'Weekly' });
+    act(() => api(`/agency/clients/${c.id}/report-email`, 'PUT', { to, every: monthly ? 'monthly' : 'weekly' }), `The report goes to ${to} ${monthly ? 'every month' : 'every week'}`);
+  };
+  const total = (d?.clients || []).reduce((a, c) => ({ visitors: a.visitors + c.stats.visitors, leads: a.leads + c.stats.leads, revenue: a.revenue + c.stats.revenue, spend: a.spend + (c.stats.spend || 0) }), { visitors: 0, leads: 0, revenue: 0, spend: 0 });
   return (
     <Layout title="Agency" subtitle="Your clients’ accounts in one place — one login, one bill, your brand." actions={d?.limit > 0 && <button className="btn primary" onClick={() => setAdd(true)}><Icon name="plus" size={16} /> Add client</button>}>
       {err ? <Panel><Empty icon="users" title="Agency tools" text={err} /></Panel> : !d ? <div className="skeleton" /> : (
@@ -40,7 +48,7 @@ export default function Agency() {
           )}
           <div className="kpis k4">
             <div className="kpi"><span className="kpi-l">Client accounts</span><b className="kpi-v">{num(d.used)}<small> / {num(d.limit)}</small></b></div>
-            <div className="kpi"><span className="kpi-l">Visitors (30 days)</span><b className="kpi-v">{num(total.visitors)}</b></div>
+            <div className="kpi"><span className="kpi-l">Ad spend managed (30 days)</span><b className="kpi-v">{inr(total.spend)}</b>{total.spend > 0 && <small>{(Math.round((total.revenue / total.spend) * 100) / 100)}× ROAS across clients</small>}</div>
             <div className="kpi"><span className="kpi-l">Leads (30 days)</span><b className="kpi-v">{num(total.leads)}</b></div>
             <div className="kpi"><span className="kpi-l">Client revenue (30 days)</span><b className="kpi-v">{inr(total.revenue)}</b></div>
           </div>
@@ -48,18 +56,20 @@ export default function Agency() {
           <Panel pad={false} title="Clients">
             {!d.clients.length ? <Empty icon="users" title="No client accounts yet" text="Each client gets their own account — funnels, contacts, payments, domains and data kept separate. You switch between them from the sidebar; they can log in too.">{d.limit > 0 && <button className="btn primary" onClick={() => setAdd(true)}>Add your first client</button>}</Empty> : (
               <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>Client</th><th className="r">Funnels</th><th className="r">Visitors</th><th className="r">Leads</th><th className="r">Revenue</th><th>Login</th><th /></tr></thead>
+                <thead><tr><th>Client</th><th className="r">Funnels</th><th className="r">Visitors</th><th className="r">Leads</th><th className="r">Revenue</th><th className="r">Ad spend</th><th className="r">Cost / lead</th><th className="r">ROAS</th><th>Login</th><th /></tr></thead>
                 <tbody>{d.clients.map((c) => (
                   <tr key={c.id}>
                     <td><b>{c.business}</b><small className="sub-t">since {new Date(c.createdAt).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</small>
                       {c.access && c.access !== 'full' && <span className={`pill ${ACCESS[c.access][0]}`}>{ACCESS[c.access][1]}</span>}
                       {c.deletion && <span className="pill bad">Deleting on {fmtDate(c.deletion.purgeAt)}</span>}</td>
                     <td className="r">{num(c.funnels)}</td><td className="r">{num(c.stats.visitors)}</td><td className="r">{num(c.stats.leads)}</td><td className="r strong">{inr(c.stats.revenue)}</td>
+                    <td className="r">{c.stats.spend ? inr(c.stats.spend) : '—'}</td><td className="r">{c.stats.cpl != null ? inr(c.stats.cpl) : '—'}</td><td className="r">{c.stats.roas != null ? <span className={`pill ${c.stats.roas >= 2 ? 'ok' : c.stats.roas >= 1 ? '' : 'bad'}`}>{c.stats.roas}×</span> : '—'}</td>
                     <td>{c.email ? <span className="pill ok">{c.email}</span> : c.invited ? <span className="pill warn">invited</span> : owner && !c.deletion ? <button className="link-btn" onClick={() => setInvite(c)}>Invite client</button> : <span className="muted sm">—</span>}</td>
                     <td className="r"><div className="row end">
                       {c.deletion ? (owner && <button className="btn ghost sm" onClick={() => act(() => api(`/agency/clients/${c.id}/restore`, 'POST'), 'Deletion cancelled')}>Undo delete</button>) : <>
                         <button className="btn primary sm" disabled={c.access === 'off'} title={c.access === 'off' ? 'This client turned off agency access' : undefined} onClick={() => open(c)}>Open</button>
                         <button className="icon-btn" title={c.report ? `Copy a new client report link (the current one, valid until ${fmtDate(c.reportExpires)}, stops working)` : 'Make a client report link (30 days)'} aria-label="Client report link" onClick={() => reportLink(c)}><Icon name="chart" size={15} /></button>
+                        <button className={`icon-btn${c.reportEmail ? ' on' : ''}`} title={c.reportEmail ? `Report emailed ${c.reportEmail.every} to ${c.reportEmail.to}` : 'Email the report to the client every week or month'} aria-label="Email the report" onClick={() => reportEmail(c)}><Icon name="mail" size={15} /></button>
                         {c.report && <button className="icon-btn" title="Turn the report link off" aria-label="Turn the report link off" onClick={() => act(() => api(`/agency/clients/${c.id}/report-link`, 'DELETE'), 'Report link turned off')}><Icon name="x" size={15} /></button>}
                         {owner && c.email && <button className="icon-btn" title="Hand the account over (they pay for it themselves)" aria-label="Hand the account over (they pay for it themselves)" onClick={async () => (await confirmDialog({ title: `Hand ${c.business} over?`, text: 'It leaves your Agency plan and starts its own trial; you stay on its team as an admin.', confirm: 'Hand over' })) && act(() => api(`/agency/clients/${c.id}/detach`, 'POST'), 'Handed over')}><Icon name="external" size={15} /></button>}
                         {owner && <button className="icon-btn danger" title="Delete the client account" aria-label="Delete the client account" onClick={async () => (await promptDialog({ title: `Delete ${c.business}?`, text: 'The account is paused now and deleted with all its funnels, contacts and orders after 30 days. The client is told. You can undo it until then.', confirmWord: 'DELETE', confirm: 'Delete', danger: true })) === 'DELETE' && act(() => api(`/agency/clients/${c.id}`, 'DELETE', { confirm: 'DELETE' }), 'Paused — deleted in 30 days')}><Icon name="trash" size={15} /></button>}
@@ -303,8 +313,26 @@ export function ClientReport() {
           <tbody>{d.funnels.map((f) => <tr key={f.name}><td>{f.name}{!f.published && <small className="sub-t">draft</small>}</td><td className="r">{num(f.visitors)}</td><td className="r">{num(f.leads)}</td><td className="r">{num(f.orders)}</td><td className="r strong">{inr(f.revenue)}</td></tr>)}</tbody></table></Panel>
         <Panel title="Where visitors come from" pad={false}><table className="tbl compact"><tbody>{d.sources.map((s) => <tr key={s.source}><td>{s.source}</td><td className="r">{num(s.views)} views</td><td className="r">{num(s.leads)} leads</td><td className="r">{inr(s.revenue)}</td></tr>)}</tbody></table></Panel>
       </div>
+      {d.ads && <ReportAds a={d.ads} />}
       <p className="hint center">Updated live · {new Date().toLocaleString('en-IN')}</p>
     </div>
+  );
+}
+
+// the report's paid ads: spend and what it bought, against the period before, and the ads that did it
+function ReportAds({ a }) {
+  const t = a.totals, p = a.prev;
+  // lower is better for costs
+  const K = ({ k, l, fmt, low }) => { const x = t[k], y = p[k], ch = x != null && y ? Math.round(((x - y) / y) * 100) : null; return <div className="kpi"><span className="kpi-l">{l}</span><b className="kpi-v">{x == null ? '—' : fmt(x)}</b>{ch != null && <small className={(low ? ch <= 0 : ch >= 0) ? 'up' : 'down'}>{ch >= 0 ? '▲' : '▼'} {Math.abs(ch)}% vs previous</small>}</div>; };
+  const times = (v) => `${v}×`, pct = (v) => `${v}%`;
+  return (
+    <>
+      <h2 className="report-sub">Paid ads</h2>
+      <div className="kpis k4"><K k="spend" l="Ad spend" fmt={inr} /><K k="cpl" l="Cost per lead" fmt={inr} low /><K k="cpa" l="Cost per sale" fmt={inr} low /><K k="roas" l="ROAS" fmt={times} /></div>
+      {t.impressions > 0 && <div className="kpis k4"><K k="reach" l="People reached" fmt={num} /><K k="cpm" l="Cost per 1,000 views" fmt={inr} low /><K k="ctr" l="Click rate" fmt={pct} /><K k="ltvRoas" l="Lifetime ROAS" fmt={times} /></div>}
+      {a.top.length > 0 && <Panel title="Ads" pad={false}><table className="tbl compact"><thead><tr><th>Ad</th><th className="r">Spend</th><th className="r">Leads</th><th className="r">Cost / lead</th><th className="r">Sales</th><th className="r">ROAS</th></tr></thead>
+        <tbody>{a.top.map((r, i) => <tr key={i}><td><div className="ads-ad">{r.thumb && <img src={r.thumb} alt="" loading="lazy" />}<div>{r.name}{r.campaign && r.campaign !== r.name && <small className="sub-t">{r.campaign}</small>}</div></div></td><td className="r">{r.spend ? inr(r.spend) : '—'}</td><td className="r">{num(r.leads)}</td><td className="r">{r.cpl != null ? inr(r.cpl) : '—'}</td><td className="r">{num(r.sales)}</td><td className="r strong">{r.roas != null ? `${r.roas}×` : '—'}</td></tr>)}</tbody></table></Panel>}
+    </>
   );
 }
 

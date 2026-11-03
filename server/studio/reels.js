@@ -16,7 +16,7 @@ import { runTask, studioReady } from './kie.js';
 import { enqueue } from './jobs.js';
 import { localCopy, save, rm, ffmpeg, tmpFile, probe } from './media.js';
 import { makeLine, checkLine, sarvamTranscriber, applyPronunciations, LANGUAGES, langBase } from './voice.js';
-import { render, dims } from './assemble.js';
+import { render, dims, stillMotion, moveFor } from './assemble.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
 
@@ -84,9 +84,13 @@ async function produce(r) {
     const words = mine.reduce((t, l, k) => t + (said(i + k) || 0), 0) + (last ? 0.5 : 0);
     const seconds = words ? Math.min(10, Math.max(4, Math.ceil(words))) : s.seconds;
     changed = true;
+    if (r.motion === 'photo') return { ...s, seconds, still: img.url };
     return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, res: r.res, prompt: s.motion || s.image, aspect: r.aspect, seconds, ref: img.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
   });
   if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
+  // photo motion: the editor animates the still here (free, a few seconds) and it's kept as the shot's clip
+  const p = r.shots.findIndex((s) => s.still && !s.clipId);
+  if (p >= 0) return photoClip(r, p);
   // a shot that couldn't be made even after its retries: stop with the reason (the seller can Retry), don't wait forever
   const lost = r.shots.findIndex((s) => T.studio.get(s.imageId)?.status === 'failed' || (s.clipId && T.studio.get(s.clipId)?.status === 'failed'));
   if (lost >= 0) {
@@ -99,6 +103,21 @@ async function produce(r) {
   const clipsDone = r.shots.every((s) => done(T.studio.get(s.clipId)));
   if (clipsDone && r.lines.every((l) => l.url)) T.studio.update(r.id, (x) => { x.status = 'editing'; });
 }
+async function photoClip(r, i) {
+  const s = r.shots[i], out = tmpFile('mp4');
+  let src;
+  try {
+    src = await localCopy(s.still, 'png');
+    await stillMotion(src.file, out, { seconds: s.seconds, aspect: r.aspect, move: moveFor(s.motion || '', i) });
+    const saved = await save(r.userId, out, 'mp4', 'video/mp4');
+    const c = enqueue(r.userId, { kind: 'clip', status: 'ready', tier: r.tier, prompt: s.motion || s.image, aspect: r.aspect, seconds: s.seconds, ref: s.still, sourceId: s.imageId, reelId: r.id, url: saved.url, poster: s.still, photo: true, doneAt: Date.now(), by: r.by });
+    T.studio.update(r.id, (x) => { x.shots = x.shots.map((y, j) => (j === i ? { ...y, clipId: c.id } : y)); });
+  } catch (e) {
+    console.error('photo motion failed', r.id, i, e.message);
+    T.studio.update(r.id, (x) => { x.status = 'failed'; x.error = `Shot ${i + 1} couldn’t be animated — try again`; x.doneAt = Date.now(); });
+  } finally { rm(out, src?.temp ? src.file : null); }
+}
+
 // one line spoken: Sarvam for its own voices (and whenever kie.ai can't — then it's skipped for 10 minutes rather than
 // failing line after line), kie.ai's ElevenLabs for the others. → a local audio file
 let kieVoiceDownUntil = 0;
@@ -255,6 +274,13 @@ export function editReel(r, b) {
   for (const { i, note } of Array.isArray(b.shots) ? b.shots : []) {
     const c = shots[i] && T.studio.get(shots[i].clipId);
     if (!c) continue;
+    // photo motion: a new still (with the change), animated again once it's made
+    if (c.photo) {
+      T.studio.update(shots[i].imageId, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [clip(note, 300)] : y.fix ? [y.fix] : []; if (note) y.prompt = `${y.prompt}\n${clip(note, 300)}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
+      shots[i] = { ...shots[i], still: null, clipId: null };
+      reproduce = true;
+      continue;
+    }
     T.studio.update(c.id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [clip(note, 300)] : y.fix ? [y.fix] : []; if (note) y.prompt = `${y.prompt}\n${clip(note, 300)}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
     reproduce = true;
   }
@@ -264,7 +290,7 @@ export function editReel(r, b) {
     if (Array.isArray(b.sizes) && b.sizes.length) x.sizes = b.sizes.filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a)).slice(0, 4);
     if (b.endCard) x.script = { ...x.script, endCard: { headline: clip(b.endCard.headline, 40), offer: clip(b.endCard.offer, 40), cta: clip(b.endCard.cta, 30) } };
     if (voice) x.voice = voice;
-    x.lines = lines; x.script = { ...x.script, lines: lines.map((l) => l.text) };
+    x.lines = lines; x.shots = shots; x.script = { ...x.script, lines: lines.map((l) => l.text) };
     x.status = reproduce ? 'producing' : 'editing'; x.editTries = 0; delete x.doneAt; delete x.error;
   });
 }

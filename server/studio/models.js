@@ -77,12 +77,16 @@ export const imageCost = (tier) => { const m = pick('image', tier); return Math.
 export const clipCost = (tier, seconds, res) => { const m = pick('clip', tier); return Math.ceil(per(prices().clip, m.model, clipRes(tier, res)) * Math.max(1, Number(seconds) || 5)); };
 // a Reel: a still and a clip per shot (the clips together run about as long as the video, less the closing card), and
 // the voiceover → { credits, perShot, byRes: { '480p': n, '720p': n } } for the resolutions the tier offers
-export function reelCost({ tier, seconds = 30, shots = 4, lines = 4, res }) {
+// With motion 'photo' each still is animated by the editor (a zoom or pan, free) instead of an AI clip: stills and voice only.
+export const MOTIONS = ['video', 'photo'];
+export function reelCost({ tier, seconds = 30, shots = 4, lines = 4, res, motion = 'video' }) {
   const t = TIERS.includes(tier) ? tier : 'standard';
   const clipSecs = Math.max(4 * shots, Math.round((Number(seconds) || 30) - 2.5));
-  const total = (r) => shots * imageCost(t) + clipCost(t, clipSecs, r) + Math.ceil(lines * prices().voiceLine);
+  const base = shots * imageCost(t) + Math.ceil(lines * prices().voiceLine);
+  const total = (r) => base + clipCost(t, clipSecs, r);
   const byRes = Object.fromEntries(CLIP_RES[t].map((r) => [r, total(r)]));
-  return { credits: total(clipRes(t, res)), res: clipRes(t, res), byRes, perImage: imageCost(t), clipSeconds: clipSecs };
+  const photo = motion === 'photo';
+  return { credits: photo ? base : total(clipRes(t, res)), res: clipRes(t, res), motion: photo ? 'photo' : 'video', byRes, photo: base, perImage: imageCost(t), clipSeconds: clipSecs };
 }
 
 // ---------- request → each family's input ----------

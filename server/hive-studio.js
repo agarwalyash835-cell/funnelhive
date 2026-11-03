@@ -64,9 +64,9 @@ export const TOOLS = [
   },
   {
     name: 'studio_approve_reel',
-    description: 'Make the Reel from its script (optionally the seller’s edited script: { title, lines: [..], shots: [{ image, motion, seconds }], endCard: { headline, offer, cta } }). Shots and voiceover are made and quality-checked, then edited together with captions — this takes several minutes; say so and check with studio_status.',
-    schema: S({ id: str('The Reel id'), script: { type: 'object', description: 'Optional: the edited script' }, res: RES }, ['id']),
-    run: async (ctx, a) => ({ ok: true, reel: brief(await ctx.call('POST', `/studio/reels/${encodeURIComponent(a.id)}/approve`, { ...(a.script ? { script: a.script } : {}), ...(a.res ? { res: a.res } : {}) })) }),
+    description: 'Make the Reel from its script (optionally the seller’s edited script: { title, lines: [..], shots: [{ image, motion, seconds }], endCard: { headline, offer, cta } }). Shots and voiceover are made and quality-checked, then edited together with captions — this takes several minutes; say so and check with studio_status. motion "photo" animates each still with a zoom or pan instead of making AI clips: far fewer credits (stills and voice only), for tight budgets.',
+    schema: S({ id: str('The Reel id'), script: { type: 'object', description: 'Optional: the edited script' }, res: RES, motion: { type: 'string', enum: ['video', 'photo'], description: 'video (AI clips, default) | photo (stills with a zoom or pan, far cheaper)' } }, ['id']),
+    run: async (ctx, a) => ({ ok: true, reel: brief(await ctx.call('POST', `/studio/reels/${encodeURIComponent(a.id)}/approve`, { ...(a.script ? { script: a.script } : {}), ...(a.res ? { res: a.res } : {}), ...(a.motion ? { motion: a.motion } : {}) })) }),
     summary: () => 'Started making the Reel',
   },
   {
@@ -85,6 +85,6 @@ export const OK = {
   studio_make_images: (a) => { const n = Math.min(4, Math.max(1, Math.round(a.count || 1))); return `Make ${n} ${TIER_NAME(a.tier)} image${n === 1 ? '' : 's'} in Studio — about ${n * imageCost(a.tier)} credits`; },
   studio_make_clip: (a) => `Make a ${secs(a)}-second ${TIER_NAME(a.tier)} video clip at ${clipRes(a.tier, a.res)} in Studio — about ${clipCost(a.tier, secs(a), a.res)} credits`,
   studio_redo: (a) => { const x = T.studio.get(String(a.id || '')); const c = x?.kind === 'image' ? imageCost(x.tier) : x?.kind === 'clip' ? clipCost(x.tier, x.seconds, x.res) : null; return `Make it again in Studio${c ? ` — about ${c} credits` : ''}`; },
-  studio_approve_reel: (a) => { const r = T.studio.get(String(a.id || '')), sc = a.script || r?.script; const c = r && sc ? reelCost({ tier: r.tier, seconds: r.seconds, shots: sc.shots?.length || 4, lines: sc.lines?.length || 4, res: a.res || r.res }) : null; return `Make this Reel: its shots, voiceover and edit${c ? ` at ${c.res} — about ${c.credits} credits` : ''}`; },
+  studio_approve_reel: (a) => { const r = T.studio.get(String(a.id || '')), sc = a.script || r?.script; const c = r && sc ? reelCost({ tier: r.tier, seconds: r.seconds, shots: sc.shots?.length || 4, lines: sc.lines?.length || 4, res: a.res || r.res, motion: a.motion || r.motion }) : null; return `Make this Reel: its shots, voiceover and edit${c ? ` ${c.motion === 'photo' ? 'as stills with photo motion' : `at ${c.res}`} — about ${c.credits} credits` : ''}`; },
   studio_edit_reel: (a) => { if (!a.shots?.length) return null; const r = T.studio.get(String(a.id || '')); const c = (a.shots || []).reduce((t, { i }) => { const x = r?.shots?.[i] && T.studio.get(r.shots[i].clipId); return t + (x ? clipCost(x.tier, x.seconds, x.res) : 0); }, 0); return `Redo ${a.shots.length} shot${a.shots.length === 1 ? '' : 's'} of the Reel and edit it again${c ? ` — about ${c} credits` : ''}`; },
 };

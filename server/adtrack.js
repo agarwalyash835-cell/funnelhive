@@ -5,7 +5,7 @@
 // Ads are recognised by the URL parameters on the ad (utm_campaign / utm_term / utm_content = campaign / ad set /
 // ad name, ad_id = the Meta ad id); spend per ad comes from the seller's Meta connection (adspend.js).
 import { q, T } from './db.js';
-import { norm } from './adspend.js';
+import { norm, METRICS, WINDOWS, creativesOf, windowOf, syncMeta } from './adspend.js';
 import { metaLink } from './composio.js';
 import { adChatsReport } from './ctwa.js';
 
@@ -44,7 +44,7 @@ export function adReport(userId, { from, to = Date.now() + 1, model = 'last', fu
   if (wonStages.size) for (const m of q("SELECT json_extract(data, '$.key') AS k, json_extract(data, '$.stages') AS st FROM crm WHERE userId = ?").all(userId)) if (Object.values(parse(m.st) || {}).some((id) => wonStages.has(id))) won.add(m.k);
 
   const rows = new Map();
-  const row = (a) => { const id = adOf(a); return rows.get(id.key) || rows.set(id.key, { ...id, leads: 0, calls: 0, sales: 0, revenue: 0, customers: 0, ltv: 0, won: 0, spend: 0, impressions: 0, clicks: 0, people: new Set() }).get(id.key); };
+  const row = (a) => { const id = adOf(a); return rows.get(id.key) || rows.set(id.key, { ...id, leads: 0, calls: 0, sales: 0, revenue: 0, customers: 0, ltv: 0, won: 0, spend: 0, ...Object.fromEntries(METRICS.map((k) => [k, 0])), people: new Set() }).get(id.key); };
   const inRange = (t) => t >= from && t < to;
   const credit = (e) => (model === 'first' ? first.get(e.ckey) || e.a : e.a);
   for (const e of events) {
@@ -64,7 +64,7 @@ export function adReport(userId, { from, to = Date.now() + 1, model = 'last', fu
   }
 
   // what each ad cost: matched by ad id, else campaign + ad name, else campaign; spend nobody matched still shows
-  const spend = q("SELECT json_extract(data, '$.platform') AS p, json_extract(data, '$.campaign') AS c, json_extract(data, '$.key') AS k, json_extract(data, '$.ad') AS ad, json_extract(data, '$.adKey') AS ak, json_extract(data, '$.adId') AS id, json_extract(data, '$.adset') AS adset, SUM(json_extract(data, '$.spend')) AS s, SUM(COALESCE(json_extract(data, '$.impressions'), 0)) AS imp, SUM(COALESCE(json_extract(data, '$.clicks'), 0)) AS clk FROM adspend WHERE userId = ? AND at >= ? AND at < ? GROUP BY p, k, ak, id").all(userId, from - DAY / 2, to);
+  const spend = q(`SELECT json_extract(data, '$.platform') AS p, json_extract(data, '$.campaign') AS c, json_extract(data, '$.key') AS k, json_extract(data, '$.ad') AS ad, json_extract(data, '$.adKey') AS ak, json_extract(data, '$.adId') AS id, json_extract(data, '$.adset') AS adset, SUM(json_extract(data, '$.spend')) AS s, ${METRICS.map((k) => `SUM(COALESCE(json_extract(data, '$.${k}'), 0)) AS m_${k}`).join(', ')} FROM adspend WHERE userId = ? AND at >= ? AND at < ? GROUP BY p, k, ak, id`).all(userId, from - DAY / 2, to);
   if (!funnelId) {
     const list = [...rows.values()];
     for (const sp of spend) {
@@ -73,23 +73,44 @@ export function adReport(userId, { from, to = Date.now() + 1, model = 'last', fu
       if (!r && sp.ak) r = list.find((x) => !x.adId && !x.campaign && norm(x.ad) === sp.ak);
       if (!r && !sp.ak) r = list.find((x) => !x.adId && norm(x.campaign) === sp.k && !x.ad);
       if (!r) r = row({ utm_source: sp.p === 'meta' ? 'facebook' : sp.p, utm_campaign: sp.c, utm_content: sp.ad || '', utm_term: sp.adset || '', ad_id: sp.id || '' });
-      r.spend += sp.s || 0; r.impressions += sp.imp || 0; r.clicks += sp.clk || 0;
+      r.spend += sp.s || 0;
+      for (const k of METRICS) r[k] += sp[`m_${k}`] || 0;
       if (!r.adset && sp.adset) r.adset = sp.adset;
       if (!r.adId && sp.id) r.adId = sp.id;
     }
   }
   const r2 = (n) => Math.round(n * 100) / 100;
+  const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : null);
+  // what agencies report per ad: delivery (CPM, frequency), the click (CTR, CPC, landing page views), the creative
+  // (hook rate = 3-second plays per impression, hold rate = ThruPlays per 3-second play), and Meta's own results next
+  // to ours. Frequency is impressions per reach summed by day — a little high over long periods, like Ads Manager's
+  // per-day breakdown.
+  const kpis = (r) => ({
+    cpm: r.impressions ? Math.round((r.spend / r.impressions) * 1000) : null, frequency: r.reach ? r2(r.impressions / r.reach) : null,
+    ctr: pct(r.linkClicks, r.impressions), cpc: r.linkClicks ? r2(r.spend / r.linkClicks) : null, lpvRate: pct(r.lpv, r.linkClicks), costPerLpv: r.lpv ? r2(r.spend / r.lpv) : null,
+    hookRate: pct(r.video3s, r.impressions), holdRate: pct(r.thruplay, r.video3s),
+    leadRate: pct(r.leads, r.lpv || r.linkClicks), saleRate: pct(r.sales, r.leads || r.lpv || r.linkClicks),
+    metaRoas: r.spend && r.metaValue ? r2(r.metaValue / r.spend) : null, cac: r.customers && r.spend ? Math.round(r.spend / r.customers) : null,
+  });
+  const creatives = creativesOf(userId);
   const out = [...rows.values()].map(({ people, ...r }) => ({
-    ...r, spend: Math.round(r.spend), revenue: Math.round(r.revenue), ltv: Math.round(r.ltv), people: people.size,
+    ...r, spend: Math.round(r.spend), revenue: Math.round(r.revenue), ltv: Math.round(r.ltv), metaValue: Math.round(r.metaValue), people: people.size,
     cpl: r.leads && r.spend ? Math.round(r.spend / r.leads) : null, cpa: r.sales && r.spend ? Math.round(r.spend / r.sales) : null,
     roas: r.spend ? r2(r.revenue / r.spend) : null, ltvRoas: r.spend ? r2(r.ltv / r.spend) : null,
-    profit: Math.round(r.ltv - r.spend),
+    profit: Math.round(r.ltv - r.spend), ...kpis(r),
+    creative: r.adId && creatives.get(r.adId) ? { thumb: creatives.get(r.adId).thumb, title: creatives.get(r.adId).title, body: creatives.get(r.adId).body } : null,
   })).filter((r) => r.leads || r.calls || r.sales || r.spend || r.customers)
     .sort((x, y) => y.spend - x.spend || y.revenue - x.revenue || y.leads - x.leads).slice(0, 300);
   const sum = (k) => out.reduce((n, r) => n + (r[k] || 0), 0);
-  const totals = { spend: sum('spend'), leads: sum('leads'), calls: sum('calls'), sales: sum('sales'), revenue: sum('revenue'), ltv: sum('ltv'), customers: sum('customers'), won: sum('won') };
+  const totals = { spend: sum('spend'), leads: sum('leads'), calls: sum('calls'), sales: sum('sales'), revenue: sum('revenue'), ltv: sum('ltv'), customers: sum('customers'), won: sum('won'), ...Object.fromEntries(METRICS.map((k) => [k, sum(k)])) };
   totals.roas = totals.spend ? r2(totals.revenue / totals.spend) : null;
   totals.ltvRoas = totals.spend ? r2(totals.ltv / totals.spend) : null;
+  totals.cpl = totals.leads && totals.spend ? Math.round(totals.spend / totals.leads) : null;
+  totals.cpa = totals.sales && totals.spend ? Math.round(totals.spend / totals.sales) : null;
+  Object.assign(totals, kpis(totals));
+  // Meta's count against ours: a big gap means tracking is off (pixel, URL parameters) or the window is too generous
+  const gap = (meta, ours) => (meta || ours ? { meta, ours, diff: pct(ours - meta, meta || ours) } : null);
+  totals.check = { leads: gap(totals.metaLeads, totals.leads), sales: gap(totals.metaPurchases, totals.sales), revenue: gap(Math.round(totals.metaValue), totals.revenue), window: windowOf(T.users.get(userId)) };
   const paid = out.filter((r) => r.source !== 'direct');
   return {
     model, rows: out, totals,
@@ -106,6 +127,15 @@ export function registerAds(app, { auth }) {
     const days = req.query.days === 'all' ? 3650 : Math.min(3650, Math.max(1, Number(req.query.days) || 30));
     const funnelId = typeof req.query.funnelId === 'string' && T.funnels.get(req.query.funnelId)?.userId === req.user.id ? req.query.funnelId : '';
     res.json({ days, ...adReport(req.user.id, { from: Date.now() - days * DAY, model: req.query.model === 'first' ? 'first' : 'last', funnelId }) });
+  });
+  // the window Meta counts its results in; the last 30 days are pulled again in the new window
+  app.put('/api/ads/window', auth, async (req, res) => {
+    const w = String(req.body?.window || '');
+    if (!WINDOWS[w]) return res.status(400).json({ error: 'Pick one of: 7-day click + 1-day view, 7-day click, 1-day click, 28-day click' });
+    const u = T.users.update(req.user.id, (x) => { x.settings = { ...(x.settings || {}), adWindow: w }; });
+    let rows = 0, error = '';
+    try { rows = await syncMeta(u, 30); } catch (e) { error = e.message; }
+    res.json({ window: w, rows, error });
   });
   // WhatsApp chats started from click-to-WhatsApp ads, per ad (ctwa.js)
   app.get('/api/ads/whatsapp', auth, (req, res) => {

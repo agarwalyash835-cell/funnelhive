@@ -22,7 +22,7 @@ import { publicUrl } from './media.js';
 const brief = (a) => (a ? view(a) : null);
 export function reelView(r) {
   // what it costs (shown before approving: each resolution the tier offers)
-  const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res }) : null;
+  const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion }) : null;
   return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null };
 }
 const anyView = (a) => (a.kind === 'reel' ? reelView(a) : view(a));
@@ -84,7 +84,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const b = req.body || {}, tier = tierOk(b.tier) ? b.tier : 'standard';
     if (b.kind === 'image') return res.json({ credits: Math.min(4, Math.max(1, Math.round(Number(b.count) || 1))) * imageCost(tier) });
     if (b.kind === 'clip') { const secs = Math.min(15, Math.max(4, Math.round(Number(b.seconds) || 5))); return res.json({ credits: clipCost(tier, secs, b.res), res: clipRes(tier, b.res), byRes: Object.fromEntries(CLIP_RES[tier].map((r) => [r, clipCost(tier, secs, r)])) }); }
-    res.json(reelCost({ tier, seconds: LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30, shots: Math.min(8, Math.max(1, Number(b.shots) || 4)), lines: Math.min(8, Math.max(1, Number(b.lines) || 4)), res: b.res }));
+    res.json(reelCost({ tier, seconds: LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30, shots: Math.min(8, Math.max(1, Number(b.shots) || 4)), lines: Math.min(8, Math.max(1, Number(b.lines) || 4)), res: b.res, motion: b.motion }));
   });
   const mine = (req, res) => { const a = T.studio.get(req.params.id); if (!a || a.userId !== req.user.id) { res.status(404).json({ error: 'Not found' }); return null; } return a; };
   // a voice's sample, to hear it before choosing: made once per Sarvam voice and kept (no seller data in it, so it's
@@ -143,6 +143,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const c = req.body?.script ? cleanScript(req.body.script) : { script: r.script };
     if (c.error) return res.status(400).json(c);
     if (req.body?.res) T.studio.update(r.id, (x) => { x.res = clipRes(x.tier, req.body.res); });
+    if (req.body?.motion) T.studio.update(r.id, (x) => { x.motion = req.body.motion === 'photo' ? 'photo' : 'video'; });
     res.json(reelView(approveReel(T.studio.get(r.id), c.script)));
   });
   // a Reel that stopped part-way: redo only what failed

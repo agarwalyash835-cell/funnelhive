@@ -203,6 +203,19 @@ test('client report link, activity log, inviting and handing over a client', asy
   assert.equal((await api(`/report/${tok}`)).status, 404, 'revoked');
   const tok2 = (await api(`/agency/clients/${client.id}/report-link`, 'POST', {}, A)).data.url.split('/report/')[1];
   assert.equal((await api(`/report/${tok2}`)).status, 200);
+  // the report has an ads section (null with no ads); the client list shows spend, ROAS and cost per lead
+  assert.ok('ads' in (await api(`/report/${tok2}`)).data);
+  assert.ok('roas' in (await api('/agency', 'GET', null, A)).data.clients.find((c) => c.id === client.id).stats);
+  // the report emailed weekly to the client (and a copy to the agency): due now, not again until next week
+  assert.equal((await api(`/agency/clients/${client.id}/report-email`, 'PUT', { to: 'nope', every: 'weekly' }, A)).status, 400);
+  const re = await api(`/agency/clients/${client.id}/report-email`, 'PUT', { to: 'Owner@SharmaYoga.in', every: 'weekly' }, A);
+  assert.equal(re.data.reportEmail?.to, 'owner@sharmayoga.in', JSON.stringify(re));
+  assert.equal((await api('/__test/client-reports', 'POST', {})).data.sent, 1);
+  assert.match(srv.log(), /To: owner@sharmayoga\.in[\s\S]*?weekly performance report[\s\S]*?\/report\//);
+  assert.equal((await api('/__test/client-reports', 'POST', {})).data.sent, 0, 'not twice in a week');
+  assert.equal((await api('/__test/client-reports', 'POST', { now: Date.now() + 7 * 86400000 })).data.sent, 1, 'next week');
+  assert.equal((await api(`/report/${tok2}`)).status, 200, 'the link already sent still works');
+  assert.equal((await api(`/agency/clients/${client.id}/report-email`, 'PUT', {}, A)).data.reportEmail, null);
   assert.equal((await api(`/report/${tok}`)).status, 404);
   // expired: the same link after its date
   dbRun("UPDATE users SET data = json_set(data, '$.report.exp', ?) WHERE id = ?", Date.now() - 1000, client.id);

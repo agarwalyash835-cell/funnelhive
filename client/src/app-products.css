@@ -330,6 +330,7 @@ fieldset.plain:disabled { opacity: .75; }
 .report-h img, .report-h .logo { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; display: grid; place-items: center; background: var(--primary); color: #fff; }
 .report-h h1 { margin: 0; font-size: 24px; } .report-h p { margin: 0; } .report-h .seg { margin-left: auto; }
 .report-cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+.report-sub { font-size: 16px; margin: 24px 0 10px; }
 .kpi small.up { color: color-mix(in srgb, #16a34a var(--dk-lift, 100%), #fff); } .kpi small.down { color: color-mix(in srgb, #dc2626 var(--dk-lift, 100%), #fff); }
 @media (max-width: 760px) { .report-cols { grid-template-columns: 1fr; } }
 .lang-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; } .lang-pick select { padding: 6px 8px; border-radius: 8px; }

@@ -23,9 +23,32 @@ import { agencyForHost, verifiedDomainOf, domainTakenByOther, syncDomainProof, d
 import { termsOf, clientsOf, AGENCY_ADDONS } from './agency-terms.js';
 import { startAgencyAccess, staffMember, staffCovers, accessMode, logAgency } from './agency-access.js';
 import { notify } from './notify.js';
+import { adReport } from './adtrack.js';
+import { totalSpend } from './adspend.js';
 
 const DAY = 86400000;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
+
+// a client's paid ads for the report: the headline numbers, the period before for comparison, and the top ads with
+// their creatives (adtrack.js); null when they ran no ads
+const AD_KEYS = ['spend', 'leads', 'cpl', 'sales', 'cpa', 'revenue', 'roas', 'ltvRoas', 'customers', 'cac', 'impressions', 'reach', 'frequency', 'cpm', 'linkClicks', 'ctr', 'cpc', 'lpv', 'hookRate', 'holdRate'];
+export function adsSummary(userId, from, to) {
+  const now = adReport(userId, { from, to });
+  if (!now.totals.spend && !now.rows.some((r) => r.source !== 'direct')) return null;
+  const before = adReport(userId, { from: from - (to - from), to: from }).totals;
+  const pick = (t) => Object.fromEntries(AD_KEYS.map((k) => [k, t[k] ?? null]));
+  const top = now.rows.filter((r) => r.spend || r.leads || r.sales).slice(0, 10).map((r) => ({ name: r.ad || r.campaign || r.source, campaign: r.campaign, thumb: r.creative?.thumb || '', spend: r.spend, leads: r.leads, cpl: r.cpl, sales: r.sales, revenue: r.revenue, roas: r.roas, ctr: r.ctr, cpm: r.cpm }));
+  return { totals: pick(now.totals), prev: pick(before), top };
+}
+// what a scheduled report email says: the period's headline numbers and the link
+export function reportEmailText(c, url, days) {
+  const now = Date.now(), t = totals({ userId: c.id }, now - days * DAY, now), a = adsSummary(c.id, now - days * DAY, now)?.totals;
+  const inr = (n) => `₹${Math.round(n || 0).toLocaleString('en-IN')}`;
+  return [`Here is ${c.settings?.businessName || c.name}’s performance for the last ${days} days.`, '',
+    `Visitors: ${t.visitors} · Leads: ${t.leads} · Sales: ${t.orders} · Revenue: ${inr(t.revenue)}`,
+    ...(a ? [`Ad spend: ${inr(a.spend)} · Cost per lead: ${a.cpl != null ? inr(a.cpl) : '—'} · ROAS: ${a.roas ?? '—'}×`] : []),
+    '', `The full report (live, with every funnel and ad): ${url}`].join('\n');
+}
 let SECRET = '';
 const sig = (s) => crypto.createHmac('sha256', SECRET).update(`report:${s}`).digest('base64url').slice(0, 24);
 export const PURGE_DAYS = 30; // a deleted client account is suspended this long (the agency can undo it), then purged
@@ -146,6 +169,28 @@ export function purgeDeletedClients(now = Date.now(), del = purgeAccount) {
   }
   return n;
 }
+// scheduled client reports: due a week (or a month) after the last one; the report link is renewed when it would run
+// out before the next email, so every email's link works until the one after it
+export async function sendDueReports(now = Date.now()) {
+  let sent = 0;
+  for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.reportEmail.to') IS NOT NULL").all()) {
+    let c = JSON.parse(row.data);
+    const r = c.reportEmail, days = r.every === 'monthly' ? 30 : 7;
+    if (c.deletion || !c.agencyId || now - (r.lastAt || 0) < days * DAY - 3600000) continue;
+    if (!(c.report?.exp > now + (days + 3) * DAY)) c = T.users.update(c.id, (u) => { u.report = { v: (u.report?.v || 0) + 1, exp: now + (days * 2 + 7) * DAY }; });
+    const agency = T.users.get(c.agencyId);
+    try {
+      // to the client, and a copy to the agency
+      for (const to of [r.to, ...(r.copy && agency?.email && agency.email !== r.to ? [agency.email] : [])]) {
+        await sendBranded(c, null, (b) => ({ to, subject: `${c.settings?.businessName || c.name} — ${r.every === 'monthly' ? 'monthly' : 'weekly'} performance report`, text: reportEmailText(c, `${b.linkBase}/report/${reportToken(c)}`, days) }));
+      }
+      T.users.update(c.id, (u) => { if (u.reportEmail) u.reportEmail.lastAt = now; });
+      sent++;
+    } catch (e) { console.error('client report email failed', c.id, e.message); }
+  }
+  return sent;
+}
+if (JOBS && process.env.NODE_ENV !== 'test') { setInterval(() => { sendDueReports().catch((e) => console.error('client reports failed', e.message)); }, 3 * 3600000).unref(); }
 if (JOBS && process.env.NODE_ENV !== 'test') { setTimeout(() => { try { purgeDeletedClients(); } catch (e) { console.error('client purge failed', e.message); } }, 120000).unref(); setInterval(() => { try { purgeDeletedClients(); } catch (e) { console.error('client purge failed', e.message); } }, 6 * 3600000).unref(); }
 
 // ---------- client report links: expire, and can be revoked (c.report = { v, exp }) ----------
@@ -180,7 +225,8 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     if (!c || c.agencyId !== ctx.agency.id || (ctx.staff && !staffCovers(ctx.staff, c.id))) { res.status(404).json({ error: 'Client account not found' }); return null; }
     return { c, ...ctx };
   };
-  const statsOf = (uid0) => { const now = Date.now(); return totals({ userId: uid0 }, now - 30 * DAY, now); };
+  // the last 30 days, with what the client's ads cost against the leads and revenue they made
+  const statsOf = (uid0) => { const now = Date.now(), t = totals({ userId: uid0 }, now - 30 * DAY, now), spend = Math.round(totalSpend(uid0, now - 30 * DAY, now)); return { ...t, spend, roas: spend ? Math.round((t.revenue / spend) * 100) / 100 : null, cpl: spend && t.leads ? Math.round(spend / t.leads) : null }; };
   const tok = (c) => reportToken(c);
 
   app.get('/api/agency', auth, (req, res) => {
@@ -189,7 +235,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     const list = clientsOf(a.id).filter((c) => !ctx.staff || staffCovers(ctx.staff, c.id)).map((c) => ({
       id: c.id, business: c.settings?.businessName || c.name, name: c.name, email: c.passwordSet ? c.email : null, invited: !!c.invitedAt, ownLogin: !!c.passwordSet, createdAt: c.createdAt,
       funnels: T.funnels.count({ userId: c.id }), stats: statsOf(c.id), access: accessMode(c), addons: { tally: !!c.addons?.tally, inventory: !!c.addons?.inventory },
-      report: tok(c) ? `/report/${tok(c)}` : null, reportExpires: tok(c) ? c.report.exp : null, deletion: c.deletion ? { at: c.deletion.at, purgeAt: c.deletion.purgeAt } : null,
+      report: tok(c) ? `/report/${tok(c)}` : null, reportExpires: tok(c) ? c.report.exp : null, reportEmail: c.reportEmail || null, deletion: c.deletion ? { at: c.deletion.at, purgeAt: c.deletion.purgeAt } : null,
     }));
     const staff = ctx.staff ? null : T.members.all({ ownerId: a.id }).filter((m) => m.role === 'clients').map((m) => ({ id: m.id, email: m.email, name: m.userId ? T.users.get(m.userId)?.name || '' : '', status: m.status, clientIds: m.clientIds || null }));
     res.json({ limit: clientLimit(a), used: clientsOf(a.id).length, plan: isAgencyPlan(a) ? 'agency' : a.billing?.status, clients: list, whiteLabel: ctx.staff ? {} : a.settings?.whiteLabel || {}, clientMenu: a.settings?.clientMenu || null,
@@ -284,6 +330,18 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     const c = T.users.update(x.c.id, (u) => { u.report = { v: (u.report?.v || 0) + 1, exp: Date.now() + days * DAY }; });
     res.json({ url: `/report/${reportToken(c)}`, expiresAt: c.report.exp });
   });
+  // the report emailed to the client (and a copy to the agency) every week or month, with a fresh link each time
+  app.put('/api/agency/clients/:cid/report-email', auth, (req, res) => {
+    const x = myClient(req, res); if (!x) return;
+    const b = req.body || {};
+    if (!b.every) { T.users.update(x.c.id, (u) => { delete u.reportEmail; }); return res.json({ reportEmail: null }); }
+    const to = clip(b.to, 200).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: 'Enter the email the report goes to' });
+    if (!['weekly', 'monthly'].includes(b.every)) return res.status(400).json({ error: 'Weekly or monthly' });
+    const c = T.users.update(x.c.id, (u) => { u.reportEmail = { to, every: b.every, copy: b.copy !== false, by: req.user.id, at: Date.now(), lastAt: u.reportEmail?.lastAt || 0 }; });
+    res.json({ reportEmail: c.reportEmail });
+  });
+  if (process.env.NODE_ENV === 'test') app.post('/api/__test/client-reports', async (req, res) => res.json({ sent: await sendDueReports(Number(req.body?.now) || Date.now()) }));
   app.delete('/api/agency/clients/:cid/report-link', auth, (req, res) => {
     const x = myClient(req, res); if (!x) return;
     T.users.update(x.c.id, (u) => { u.report = { v: (u.report?.v || 0) + 1, exp: 0 }; });
@@ -400,6 +458,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
       totals: totals({ userId: c.id }, now - days * DAY, now), prev: totals({ userId: c.id }, now - 2 * days * DAY, now - days * DAY),
       sources: sources({ userId: c.id }, now - days * DAY).slice(0, 8),
       funnels: T.funnels.all({ userId: c.id }).map((f) => ({ name: f.name, published: !!f.published, ...totals({ funnelId: f.id }, now - days * DAY, now) })).sort((a, b2) => b2.revenue - a.revenue).slice(0, 20),
+      ads: adsSummary(c.id, now - days * DAY, now),
     });
   });
 

@@ -67,3 +67,24 @@ test('per ad: last click vs first click, lifetime value to the first ad, spend m
   const week = A.adReport(U.id, { from: now - 4 * DAY, model: 'last' });
   assert.equal(by(week, 'reel a')?.leads || 0, 0);
 });
+
+test('agency numbers: Meta’s insights become CPM, frequency, CTR, CPC, landing page views, hook and hold rate, and Meta’s results next to ours', async () => {
+  const { insightRow } = await import('../adspend.js');
+  const x = insightRow({ date_start: '2026-11-01', campaign_name: 'Tally Launch', adset_name: 'Traders', ad_name: 'VSL 1', ad_id: '130001', spend: '2000', impressions: '40000', reach: '20000', clicks: '900', inline_link_clicks: '600',
+    actions: [{ action_type: 'landing_page_view', value: '450' }, { action_type: 'lead', value: '40' }, { action_type: 'omni_purchase', value: '5' }, { action_type: 'purchase', value: '5' }, { action_type: 'video_view', value: '12000' }],
+    action_values: [{ action_type: 'omni_purchase', value: '15000' }], video_thruplay_watched_actions: [{ action_type: 'video_view', value: '3000' }] });
+  assert.deepEqual([x.reach, x.linkClicks, x.lpv, x.metaLeads, x.metaPurchases, x.metaValue, x.video3s, x.thruplay], [20000, 600, 450, 40, 5, 15000, 12000, 3000]);
+  const U2 = T.users.insert({ id: uid(), email: 'agency@ads.test', name: 'A', channels: {}, settings: { adWindow: '7d_click' } });
+  T.adspend.insert({ id: uid(), userId: U2.id, platform: 'meta', date: x.date, campaign: x.campaign, key: 'tallylaunch', ad: x.ad, adKey: 'vsl1', adId: x.adId, adset: x.adset, spend: 2000, at: now - DAY, ...x, date: x.date });
+  T.adcreatives.insert({ id: uid(), userId: U2.id, adId: '130001', thumb: 'https://scontent.example/t.jpg', title: 'Stuck payments?', body: 'Recover them on WhatsApp', at: now });
+  const vsl = { utm_source: 'facebook', utm_campaign: 'Tally Launch', utm_content: 'VSL 1', ad_id: '130001' };
+  for (let i = 0; i < 4; i++) T.leads.insert({ id: uid(), userId: U2.id, funnelId: 'f2', email: `l${i}@x.in`, name: 'L', phone: '', at: now - DAY, attr: vsl });
+  T.orders.insert({ id: uid(), userId: U2.id, funnelId: 'f2', email: 'l0@x.in', name: 'L', total: 4000, provider: 'razorpay', status: 'paid', items: [{ name: 'Plan', price: 4000, kind: 'main' }], at: now - DAY, attr: vsl });
+  const rep = A.adReport(U2.id, { from: now - 30 * DAY });
+  const r = rep.rows.find((y) => y.adId === '130001');
+  assert.deepEqual([r.cpm, r.frequency, r.ctr, r.cpc, r.lpvRate, r.hookRate, r.holdRate, r.metaRoas], [50, 2, 1.5, 3.33, 75, 30, 25, 7.5]);
+  assert.deepEqual([r.cpl, r.cpa, r.cac, r.roas], [500, 2000, 2000, 2]);
+  assert.equal(r.creative.thumb, 'https://scontent.example/t.jpg');
+  assert.deepEqual(rep.totals.check.leads, { meta: 40, ours: 4, diff: -90 }, 'Meta claims ten times the leads we saw: tracking is off');
+  assert.equal(rep.totals.check.window, '7d_click');
+});

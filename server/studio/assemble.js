@@ -88,6 +88,27 @@ export async function fitDuration(video, seconds, out, { fps = 30 } = {}) {
   return out;
 }
 
+// a still brought to life without an AI clip ("photo motion", free): a slow, eased zoom or pan over the picture, the
+// way an editor animates a photo. The picture is scaled to twice the frame first so the move stays smooth (zoompan
+// steps in whole pixels). move: in | out | left | right
+export const MOVES = ['in', 'right', 'out', 'left'];
+export const moveFor = (text, i) => (/zoom(ing)? out|pull(s|ing)? (back|out)/i.test(text) ? 'out' : /\bleft\b/i.test(text) ? 'left' : /\bright\b|\bpan/i.test(text) ? 'right' : /push|zoom|dolly/i.test(text) ? 'in' : MOVES[i % MOVES.length]);
+export async function stillMotion(image, out, { seconds = 5, aspect = '9:16', short = 1080, fps = 30, move = 'in' } = {}) {
+  need('scale', 'crop', 'zoompan');
+  const { width, height } = dims(aspect, short), n = Math.max(1, Math.round(seconds * fps));
+  const e = `((on/${n})*(on/${n})*(3-2*(on/${n})))`; // eased 0 → 1
+  const Z = 0.14, mid = { x: 'iw/2-(iw/zoom/2)', y: 'ih/2-(ih/zoom/2)' };
+  const m = {
+    in: { z: `1+${Z}*${e}`, ...mid },
+    out: { z: `${1 + Z}-${Z}*${e}`, ...mid },
+    right: { z: `${1 + Z}`, x: `(iw-iw/zoom)*${e}`, y: mid.y },
+    left: { z: `${1 + Z}`, x: `(iw-iw/zoom)*(1-${e})`, y: mid.y },
+  }[MOVES.includes(move) ? move : 'in'];
+  const graph = `[0:v]scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 2}:${height * 2},zoompan=z='${m.z}':x='${m.x}':y='${m.y}':d=${n}:s=${width}x${height}:fps=${fps},format=yuv420p,setsar=1[v]`;
+  await run(['-i', image, '-filter_complex', graph, '-map', '[v]', '-frames:v', String(n), '-an', ...venc({ fps }), out]);
+  return out;
+}
+
 // a video in another shape (9:16 → 1:1 / 16:9), cropped or padded as fitMode decides
 export async function fitSize(video, out, { aspect = '9:16', short = 1080, mode = 'smart', fps = 30 } = {}) {
   const { width, height } = dims(aspect, short);

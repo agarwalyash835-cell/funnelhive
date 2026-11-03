@@ -165,6 +165,14 @@ export async function runAs(userId, slug, args) {
   if (!r.successful) throw Object.assign(new Error(String(typeof r.error === 'string' ? r.error : r.error?.message || 'Meta returned an error').slice(0, 300)), { tool: true });
   return r.data || {};
 }
+// a plain GET to the app's own API through the seller's connection (Composio's proxy), for what no action covers
+// (Meta: ad creatives' thumbnails)
+export async function proxyAs(userId, app, endpoint) {
+  const acc = (await connections({ id: userId })).find((c) => c.app === app && c.status === 'ACTIVE');
+  if (!acc) throw new Error(`${APPS[app]?.name || app} isn’t connected`);
+  const r = await call('POST', '/tools/execute/proxy', { endpoint, method: 'GET', connected_account_id: acc.id });
+  return r.data ?? r;
+}
 export const metaLink = (u) => (composioReady() && u?.channels?.metaApp?.pixel ? u.channels.metaApp : null);
 async function metaAccounts(u) {
   const d = await runAs(u.id, 'METAADS_GET_AD_ACCOUNTS', { limit: 100, fields: 'id,account_id,name,currency' });

@@ -146,3 +146,21 @@ test('another voice: an ElevenLabs voice through kie.ai, and Sarvam takes over w
   assert.equal(a.headers.get('content-type'), 'audio/wav'); assert.ok((await b.arrayBuffer()).byteLength > 1000);
   assert.equal((await fetch(`${srv.base}/api/studio/voices/nobody/sample`)).status, 404);
 });
+
+test('photo motion: stills only (no AI clips), each animated by the editor; the cost is stills and voice', async () => {
+  const r0 = (await api('/studio/reels', 'POST', { brief: 'Desi ghee from our farm, ₹499 a litre, for families in Pune', lang: 'en', seconds: 15, tier: 'quick', captions: 'pop' }, S)).data;
+  reelId = r0.id;
+  const est = r0.cost;
+  assert.ok(est.photo < est.credits, JSON.stringify(est));
+  const clipsBefore = created.filter((c) => /seedance|kling/.test(c.model)).length;
+  heardQueue.push(...LINES.map((l) => timed(l)), timed(LINES.join(' ')));
+  const a = await api(`/studio/reels/${reelId}/approve`, 'POST', { motion: 'photo' }, S);
+  assert.equal(a.data.cost.motion, 'photo');
+  assert.equal(a.data.cost.credits, 2 * 8 + 3, 'two Quick stills and three lines');
+  const r = await until(['ready', 'needs_review', 'failed']);
+  assert.ok(['ready', 'needs_review'].includes(r.status), JSON.stringify({ status: r.status, error: r.error }));
+  assert.equal(created.filter((c) => /seedance|kling/.test(c.model)).length, clipsBefore, 'no AI clip ordered');
+  assert.ok(r.shots.every((s) => s.clip?.photo && s.clip.status === 'ready'));
+  const tall = probe(onDisk(r.outputs['9:16']));
+  assert.ok(tall.audio && tall.s > 9 && tall.s < 16, `length ${tall.s}`);
+});

@@ -106,6 +106,7 @@ const SCHEMA = {
   datarequests: { cols: { userId: 0, status: 0, tokenHash: 0, at: 0 }, index: [['userId', 'at'], ['tokenHash']] }, // buyers' DPDP requests to a seller (data-requests.js)
   roles: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // custom team roles an owner made (a permission per area, team.js)
   adspend: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // ad spend per campaign per day (Meta sync, CSV)
+  adcreatives: { cols: { userId: 0 }, index: [['userId']] }, // each Meta ad's thumbnail, headline and text (adspend.js)
   vcampaigns: { cols: { userId: 0, sarvamId: 0, at: 0 }, index: [['userId', 'at'], ['sarvamId']] }, // AI calling campaigns on the seller's Sarvam account (voice.js)
   vcalls: { cols: { userId: 0, campaignId: 0, at: 0 }, index: [['campaignId', 'at']] }, // each AI call attempt's result (voice.js)
   leadTokens: { cols: { userId: 0, kind: 0 }, index: [['kind']] }, // lead-source addresses → the account (leadsources.js)
