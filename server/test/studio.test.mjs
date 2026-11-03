@@ -101,14 +101,23 @@ test('an image: rendered, measured, reviewed against the product photo, saved to
   assert.ok(reviews.length >= 1);
 });
 
-test('a clip from that image: a failed review is retried with the fix note, then cleaned up from 480p to 720p', async () => {
+test('a clip that fails its review waits for the seller (no paid redo on its own); the redo uses the fix note; always 720p', async () => {
   reviewPlan = [{ ...PASS, consistency: 3, issues: ['The label changes in the last second'], fix: 'Keep the jar label unchanged until the end' }];
   const before = created.length;
   const r = await api('/studio/clips', 'POST', { prompt: 'Slow push-in on the jar as steam rises', tier: 'quick', aspect: '9:16', seconds: 5, sourceId: imageId }, S);
   assert.equal(r.status, 201, JSON.stringify(r.data));
-  const a = await until(r.data.asset.id);
+  assert.equal(r.data.credits, r.data.asset.redoCredits, 'what it costs, said up front');
+  let a = await until(r.data.asset.id);
+  // every render costs credits: kept for the seller with the reasons, the fix and what a redo would cost — not redone
+  assert.deepEqual([a.status, a.attempts, a.fix, a.res], ['needs_review', 1, 'Keep the jar label unchanged until the end', '480p'], JSON.stringify(a));
+  assert.ok(a.redoCredits > 0);
+  assert.equal(created.length - before, 1, 'one render only');
+  assert.ok(a.enhanced, 'brought up to 720p even while it waits for review');
+  // the seller asks for the redo: the reviewer's fix goes with it
+  const again = await api(`/studio/assets/${a.id}/redo`, 'POST', {}, S);
+  assert.equal(again.data.status, 'queued');
+  a = await until(a.id);
   assert.equal(a.status, 'ready', JSON.stringify(a));
-  assert.equal(a.attempts, 2, 'retried once');
   const sends = created.slice(before);
   assert.equal(sends.length, 2);
   assert.equal(sends[0].model, 'bytedance/seedance-2-mini');
@@ -134,9 +143,9 @@ test('a render that keeps failing stops after three tries; redo starts afresh wi
   assert.equal((await api(`/studio/assets/${a.id}`, 'GET', null, other.token)).status, 404, 'someone else’s');
 });
 
-test('a clip that still fails after retries is kept for the seller to judge, with the reasons', async () => {
+test('a clip that fails its check is kept for the seller to judge, with the reasons', async () => {
   const bad = { ...PASS, consistency: 2, issues: ['The jar melts halfway through'], fix: 'Keep the jar solid' };
-  reviewPlan = [bad, bad, bad];
+  reviewPlan = [bad];
   const r = await api('/studio/clips', 'POST', { prompt: 'Jar spins', tier: 'quick', seconds: 4 }, S);
   const a = await until(r.data.asset.id);
   assert.equal(a.status, 'needs_review');
@@ -158,4 +167,26 @@ test('the admin sees usage by model and resolution, and can move a tier to anoth
   assert.deepEqual([sent.input.resolution, sent.input.duration], ['1080p', 6]);
   assert.match(sent.input.prompt, /^@image_1 /);
   assert.ok(r.data.asset.id);
+});
+
+test('what it costs, before anything is made: per image, per clip and per Reel, for each resolution the tier offers', async () => {
+  const st = (await api('/studio', 'GET', null, S)).data;
+  const std = st.tiers.find((t) => t.id === 'standard');
+  assert.deepEqual(std.clipRes, ['480p', '720p']);
+  assert.ok(std.clipCreditsPer5s['480p'] < std.clipCreditsPer5s['720p'], JSON.stringify(std));
+  assert.deepEqual(st.tiers.find((t) => t.id === 'cinematic').clipRes, ['1080p'], 'no choice there');
+  const clip = (await api('/studio/estimate', 'POST', { kind: 'clip', tier: 'standard', seconds: 6, res: '480p' }, S)).data;
+  assert.equal(clip.res, '480p');
+  assert.ok(clip.byRes['480p'] < clip.byRes['720p']);
+  const reel = (await api('/studio/estimate', 'POST', { kind: 'reel', tier: 'standard', seconds: 45, shots: 6, lines: 6 }, S)).data;
+  assert.ok(reel.byRes['480p'] < reel.byRes['720p'] && reel.credits === reel.byRes['720p'], JSON.stringify(reel));
+  assert.equal((await api('/studio/estimate', 'POST', { kind: 'image', tier: 'standard', count: 3 }, S)).data.credits, 3 * std.imageCredits);
+  // a clip at the resolution chosen: 480p on Standard goes to the provider as 480p
+  const before = created.length;
+  const r = await api('/studio/clips', 'POST', { prompt: 'Jar on a table, slow pan', tier: 'standard', seconds: 5, res: '480p' }, S);
+  assert.equal(r.data.asset.res, '480p');
+  await until(r.data.asset.id);
+  assert.equal(created.slice(before).find((c) => /seedance/.test(c.model))?.input.resolution, '480p');
+  // nonsense falls back to the tier's own
+  assert.equal((await api('/studio/estimate', 'POST', { kind: 'clip', tier: 'standard', res: '4k' }, S)).data.res, '720p');
 });

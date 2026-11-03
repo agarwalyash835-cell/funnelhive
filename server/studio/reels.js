@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import { T, q, JOBS } from '../db.js';
 import { askAI } from '../ai.js';
-import { studioModels, TIERS, ASPECTS, voiceId, sarvamFor } from './models.js';
+import { studioModels, TIERS, ASPECTS, voiceId, sarvamFor, clipRes } from './models.js';
 import { speak, TTS_MODEL } from '../sarvam.js';
 import { runTask, studioReady } from './kie.js';
 import { enqueue } from './jobs.js';
@@ -59,7 +59,7 @@ export async function writeScript({ brief, lang, seconds, business }) {
 
 // ---------- start, approve ----------
 export function newReel(userId, o) {
-  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', prompt: o.brief, aspect: '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', res: clipRes(o.tier, o.res), prompt: o.brief, aspect: '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken
 export function approveReel(r, script) {
@@ -84,7 +84,7 @@ async function produce(r) {
     const words = mine.reduce((t, l, k) => t + (said(i + k) || 0), 0) + (last ? 0.5 : 0);
     const seconds = words ? Math.min(10, Math.max(4, Math.ceil(words))) : s.seconds;
     changed = true;
-    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, prompt: s.motion || s.image, aspect: r.aspect, seconds, ref: img.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
+    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, res: r.res, prompt: s.motion || s.image, aspect: r.aspect, seconds, ref: img.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
   });
   if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
   // a shot that couldn't be made even after its retries: stop with the reason (the seller can Retry), don't wait forever
@@ -255,7 +255,7 @@ export function editReel(r, b) {
   for (const { i, note } of Array.isArray(b.shots) ? b.shots : []) {
     const c = shots[i] && T.studio.get(shots[i].clipId);
     if (!c) continue;
-    T.studio.update(c.id, (y) => { y.status = 'queued'; y.attempts = 0; y.notes = note ? [clip(note, 300)] : []; if (note) y.prompt = `${y.prompt}\n${clip(note, 300)}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
+    T.studio.update(c.id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [clip(note, 300)] : y.fix ? [y.fix] : []; if (note) y.prompt = `${y.prompt}\n${clip(note, 300)}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
     reproduce = true;
   }
   return T.studio.update(r.id, (x) => {

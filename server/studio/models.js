@@ -58,6 +58,33 @@ export function studioModels() {
 }
 export const pick = (kind, tier) => studioModels()[kind][TIERS.includes(tier) ? tier : 'standard'];
 
+// ---------- what things cost, in credits ----------
+// The seller is told this before anything is made (and before any redo), and picks the clip resolution where the tier
+// offers a choice. Credits are the provider's units (kie.ai's pricing pages, read 2026-11-03: a clip made from an image is
+// "no video input"); the platform admin can correct them in platform().studio.prices without a code change.
+export const CLIP_RES = { quick: ['480p', '720p'], standard: ['480p', '720p'], cinematic: ['1080p'] };
+export const PRICES = {
+  image: { 'nano-banana-2': { '1K': 8, '2K': 12, '4K': 18 } },
+  // per second of clip
+  clip: { 'bytedance/seedance-2-mini': { '480p': 2.4, '720p': 5 }, 'bytedance/seedance-2': { '480p': 11.7, '720p': 24.8, '1080p': 50 }, 'bytedance/seedance-2-5': { '720p': 30, '1080p': 60 } },
+  voiceLine: 1, // a voiceover line (a few seconds of speech)
+};
+const prices = () => { const o = platform().studio?.prices || {}; return { image: { ...PRICES.image, ...(o.image || {}) }, clip: { ...PRICES.clip, ...(o.clip || {}) }, voiceLine: o.voiceLine ?? PRICES.voiceLine }; };
+const per = (table, model, res) => { const t = table[model] || {}; return t[res] ?? Math.max(0, ...Object.values(t), 0); };
+// a clip resolution the tier offers (the tier's own when none is asked for)
+export const clipRes = (tier, res) => { const t = TIERS.includes(tier) ? tier : 'standard'; return CLIP_RES[t].includes(res) ? res : pick('clip', t).resolution; };
+export const imageCost = (tier) => { const m = pick('image', tier); return Math.ceil(per(prices().image, m.model, m.resolution)); };
+export const clipCost = (tier, seconds, res) => { const m = pick('clip', tier); return Math.ceil(per(prices().clip, m.model, clipRes(tier, res)) * Math.max(1, Number(seconds) || 5)); };
+// a Reel: a still and a clip per shot (the clips together run about as long as the video, less the closing card), and
+// the voiceover → { credits, perShot, byRes: { '480p': n, '720p': n } } for the resolutions the tier offers
+export function reelCost({ tier, seconds = 30, shots = 4, lines = 4, res }) {
+  const t = TIERS.includes(tier) ? tier : 'standard';
+  const clipSecs = Math.max(4 * shots, Math.round((Number(seconds) || 30) - 2.5));
+  const total = (r) => shots * imageCost(t) + clipCost(t, clipSecs, r) + Math.ceil(lines * prices().voiceLine);
+  const byRes = Object.fromEntries(CLIP_RES[t].map((r) => [r, total(r)]));
+  return { credits: total(clipRes(t, res)), res: clipRes(t, res), byRes, perImage: imageCost(t), clipSeconds: clipSecs };
+}
+
 // ---------- request → each family's input ----------
 const nearest = (n, allowed) => allowed.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a));
 

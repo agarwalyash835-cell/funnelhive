@@ -17,8 +17,9 @@ export function dims(aspect = '9:16', short = 1080) {
   return a <= b ? { width: even(short), height: even((short * b) / a) } : { width: even((short * a) / b), height: even(short) };
 }
 const threads = () => (process.env.STUDIO_FF_THREADS ? ['-threads', String(process.env.STUDIO_FF_THREADS)] : []);
-// intermediate steps keep near-lossless quality; the last encode is the one people download
-const venc = ({ fps = 30, crf = 18 } = {}) => ['-c:v', 'libx264', '-preset', process.env.STUDIO_X264_PRESET || 'veryfast', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps), ...threads()];
+// every step re-encodes, and the last one is what people download (mux copies it): a low CRF keeps the five passes
+// from piling up blur and blocks
+const venc = ({ fps = 30, crf = 16 } = {}) => ['-c:v', 'libx264', '-preset', process.env.STUDIO_X264_PRESET || 'veryfast', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps), ...threads()];
 const tmpFile = (dir, name, ext) => path.join(studioTmp(dir), `${name}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${ext}`);
 
 // How a picture fits another shape. 'crop' fills the frame (cuts the edges), 'pad' shows it whole over a blurred,
@@ -32,22 +33,42 @@ export function fitMode(srcW, srcH, w, h, mode = 'smart') {
 // a filter graph piece [inp] → [out] at w×h
 export function fitGraph(inp, out, w, h, mode) {
   // crops sit a little above centre: faces and products are rarely at the very bottom of a shot
-  if (mode === 'crop') return `[${inp}]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(iw-${w})/2:(ih-${h})*0.4,setsar=1[${out}]`;
+  // lanczos: a 480p or 720p render scaled up to the frame stays crisp (the default bicubic softens it)
+  if (mode === 'crop') return `[${inp}]scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w}:${h}:(iw-${w})/2:(ih-${h})*0.4,setsar=1[${out}]`;
   return `[${inp}]split=2[${out}_a][${out}_b];[${out}_a]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=luma_radius=min(h\\,w)/20:luma_power=2[${out}_bg];`
-    + `[${out}_b]scale=${w}:${h}:force_original_aspect_ratio=decrease[${out}_fg];[${out}_bg][${out}_fg]overlay=(W-w)/2:(H-h)/2,setsar=1[${out}]`;
+    + `[${out}_b]scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=lanczos[${out}_fg];[${out}_bg][${out}_fg]overlay=(W-w)/2:(H-h)/2,setsar=1[${out}]`;
 }
 
-// clips (any sizes, any lengths, with or without sound) → one silent video at w×h
-export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart' } = {}) {
+// how long the crossfade between two shots is: a quick dissolve (a hard cut between AI shots looks like a jump), never
+// more than a fifth of the shorter shot
+export const xfadeFor = (a, b, d = 0.3) => Math.max(0, Math.min(d, a / 5, b / 5));
+// clips (any sizes, any lengths, with or without sound) → one silent video at w×h, each shot dissolving into the next.
+// The dissolves overlap the shots, so the result is a little shorter than the clips laid end to end; fitDuration then
+// fits it to the voiceover.
+export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3 } = {}) {
   if (!files?.length) throw new Error('Add at least one clip');
-  need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']));
+  need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []));
+  const lens = [];
   const parts = files.map((f, i) => {
     const p = probe(f);
     if (!p.hasVideo) throw new Error(`Clip ${i + 1} has no picture`);
-    return `${fitGraph(`${i}:v`, `f${i}`, width, height, fitMode(p.width, p.height, width, height, mode))};[f${i}]fps=${fps},format=yuv420p[v${i}]`;
+    lens.push(p.duration || 0);
+    return `${fitGraph(`${i}:v`, `f${i}`, width, height, fitMode(p.width, p.height, width, height, mode))};[f${i}]fps=${fps},format=yuv420p,settb=AVTB[v${i}]`;
   });
-  const graph = `${parts.join(';')};${files.map((_, i) => `[v${i}]`).join('')}concat=n=${files.length}:v=1:a=0[v]`;
-  await run([...files.flatMap((f) => ['-i', f]), '-filter_complex', graph, '-map', '[v]', '-an', ...venc({ fps }), out]);
+  let tail;
+  if (files.length > 1 && fade > 0 && lens.every((l) => l > 0)) {
+    // [v0][v1]xfade → [x1]; [x1][v2]xfade → [x2] … each offset is where the picture so far ends, less the dissolve
+    const steps = [];
+    let end = lens[0], prev = 'v0';
+    for (let i = 1; i < files.length; i++) {
+      const d = xfadeFor(lens[i - 1], lens[i], fade);
+      const label = i === files.length - 1 ? 'v' : `x${i}`;
+      steps.push(`[${prev}][v${i}]xfade=transition=fade:duration=${d.toFixed(3)}:offset=${Math.max(0, end - d).toFixed(3)}[${label}]`);
+      end += lens[i] - d; prev = label;
+    }
+    tail = steps.join(';');
+  } else tail = `${files.map((_, i) => `[v${i}]`).join('')}concat=n=${files.length}:v=1:a=0[v]`;
+  await run([...files.flatMap((f) => ['-i', f]), '-filter_complex', `${parts.join(';')};${tail}`, '-map', '[v]', '-an', ...venc({ fps }), out]);
   return out;
 }
 

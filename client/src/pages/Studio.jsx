@@ -29,13 +29,13 @@ const IDEAS = {
 };
 const PREFS = 'ff_studio_prefs';
 const savedPrefs = () => { try { const p = JSON.parse(localStorage.getItem(PREFS) || '{}'); return p && typeof p === 'object' ? p : {}; } catch { return {}; } };
-const savePrefs = (mode, v) => { try { localStorage.setItem(PREFS, JSON.stringify({ tier: v.tier, aspect: v.aspect, count: v.count, seconds: v.seconds, lang: v.lang, length: v.length, voice: v.voice, captions: v.captions, sizes: v.sizes })); } catch { /* private mode */ } };
+const savePrefs = (mode, v) => { try { localStorage.setItem(PREFS, JSON.stringify({ tier: v.tier, res: v.res, aspect: v.aspect, count: v.count, seconds: v.seconds, lang: v.lang, length: v.length, voice: v.voice, captions: v.captions, sizes: v.sizes })); } catch { /* private mode */ } };
 
 export default function Studio() {
   const [d, setD] = useState(null);
   const [mode, setMode] = useState('image');
   // the composer opens with this browser's last settings (never the words or pictures)
-  const [v, setV] = useState(() => ({ prompt: '', tier: 'standard', aspect: '1:1', count: 1, ref: '', sourceId: '', seconds: 5, lang: 'en', length: 30, voice: '', captions: 'pop', sizes: ['9:16'], logo: '', ...savedPrefs() }));
+  const [v, setV] = useState(() => ({ prompt: '', tier: 'standard', res: '', aspect: '1:1', count: 1, ref: '', sourceId: '', seconds: 5, lang: 'en', length: 30, voice: '', captions: 'pop', sizes: ['9:16'], logo: '', ...savedPrefs() }));
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('all');
   const [view, setView] = useState(null); // index in the viewable list
@@ -54,7 +54,7 @@ export default function Studio() {
     seen.current = now; setD(x);
   }).catch(() => setD(false));
   useEffect(() => { load(); const back = () => { document.title = document.title.replace(/^● /, ''); }; document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back); }, []);
-  useEffect(() => { savePrefs(mode, v); }, [mode, v.tier, v.aspect, v.count, v.seconds, v.lang, v.length, v.voice, v.captions, v.sizes.join()]);
+  useEffect(() => { savePrefs(mode, v); }, [mode, v.tier, v.res, v.aspect, v.count, v.seconds, v.lang, v.length, v.voice, v.captions, v.sizes.join()]);
   const live = !!d?.assets?.some((a) => ACTIVE.includes(a.status));
   // while something renders: look again every few seconds, and keep the timers moving
   useEffect(() => { if (!live) return undefined; const p = setInterval(load, 4000), t = setInterval(() => tick((n) => n + 1), 1000); return () => { clearInterval(p); clearInterval(t); }; }, [live]);
@@ -71,6 +71,12 @@ export default function Studio() {
   if (!d.on) return <Layout title="Studio" subtitle="AI images, video clips and Reels for your ads and pages"><Empty icon="wand" title="Studio isn’t on for your account yet" text="Studio makes product photos, scenes, short video clips and finished Reels for your ads, each one checked for quality before you see it. Ask us to switch it on." /></Layout>;
 
   const set = (p) => setV((x) => ({ ...x, ...p }));
+  // what it costs, said before anything is made: the tier's prices (server studio/models.js), the clip resolution chosen
+  const tierInfo = d.tiers.find((t) => t.id === v.tier) || d.tiers[0];
+  const resOpts = tierInfo?.clipRes || [];
+  const res = resOpts.includes(v.res) ? v.res : resOpts.at(-1);
+  const perSec = (r) => (tierInfo?.clipCreditsPer5s?.[r] || 0) / 5;
+  const cost = mode === 'image' ? (tierInfo?.imageCredits || 0) * v.count : mode === 'clip' ? Math.ceil(perSec(res) * v.seconds) : null;
   const images = assets.filter((a) => a.kind === 'image' && a.url && a.status !== 'failed');
   const src = v.sourceId ? images.find((x) => x.id === v.sourceId)?.url : v.ref;
   const upload = async (f, key = 'ref') => {
@@ -83,18 +89,24 @@ export default function Studio() {
     setBusy(true);
     try {
       if (mode === 'reel') {
-        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, voice: v.voice || 'female', captions: v.captions, sizes: v.sizes, ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
+        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, res, voice: v.voice || 'female', captions: v.captions, sizes: v.sizes, ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
         set({ prompt: '' }); await load(); setOpen(r.id);
       } else {
         if (mode === 'image') await api('/studio/images', 'POST', { prompt: v.prompt, tier: v.tier, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
-        else await api('/studio/clips', 'POST', { prompt: v.prompt, tier: v.tier, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) });
+        else {
+          // a video costs real credits: say how many, and go ahead only on a yes
+          const other = resOpts.filter((r) => r !== res).map((r) => `${r}: about ${Math.ceil(perSec(r) * v.seconds)} credits`).join(' · ');
+          if (!(await confirmDialog({ title: `Make this ${v.seconds}-second clip?`, text: `It uses about ${cost} credits at ${res}.${other ? ` (${other}.)` : ''} Clips below 720p are sharpened up to 720p for free.`, confirm: `Make it · ${cost} credits` }))) { setBusy(false); return; }
+          await api('/studio/clips', 'POST', { prompt: v.prompt, tier: v.tier, res, aspect: v.aspect, seconds: v.seconds, ...(v.sourceId ? { sourceId: v.sourceId } : v.ref ? { ref: v.ref } : {}) });
+        }
         set({ prompt: '' }); setFilter('all'); load();
       }
     } catch (e) { toast(e.message); }
     setBusy(false);
   };
   const redo = async (a) => {
-    const note = await promptDialog({ title: 'Make it again', text: 'What should change? Leave empty to just try again.', label: 'Change', value: '' });
+    const fix = a.fix ? ` Leave it empty to use the quality check's suggestion: “${a.fix}”` : ' Leave it empty to just try again.';
+    const note = await promptDialog({ title: `Make it again · about ${a.redoCredits || '?'} credits`, text: `This makes a new ${a.kind === 'clip' ? `${a.seconds}-second clip at ${a.res}` : 'image'} and uses about ${a.redoCredits || '?'} credits. What should change?${fix}`, label: 'Change', value: '', confirm: 'Redo' });
     if (note === null || note === undefined) return;
     try { await api(`/studio/assets/${a.id}/redo`, 'POST', { note }); setView(null); load(); } catch (e) { toast(e.message); }
   };
@@ -133,6 +145,7 @@ export default function Studio() {
             <label className="sx-pill" title={TIER_HINT[v.tier]}><span className="lbl">Quality</span>{d.tiers.find((t) => t.id === v.tier)?.name}<select value={v.tier} onChange={(e) => set({ tier: e.target.value })}>{d.tiers.map((t) => <option key={t.id} value={t.id}>{t.name} — {TIER_HINT[t.id]}</option>)}</select></label>
             {mode !== 'reel' && <label className="sx-pill"><Ratio a={v.aspect} />{v.aspect}<select value={v.aspect} onChange={(e) => set({ aspect: e.target.value })}>{d.aspects.map((x) => <option key={x} value={x}>{x} · {ASPECT_NAME[x] || ''}</option>)}</select></label>}
             {mode === 'image' && <label className="sx-pill"><span className="lbl">Versions</span>{v.count}<select value={v.count} onChange={(e) => set({ count: Number(e.target.value) })}>{[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
+            {mode !== 'image' && resOpts.length > 1 && <label className="sx-pill" title="Lower resolution costs fewer credits; below 720p is sharpened up to 720p for free"><span className="lbl">Video</span>{res}<select value={res} onChange={(e) => set({ res: e.target.value })}>{resOpts.map((r) => <option key={r} value={r}>{r} · {mode === 'clip' ? `about ${Math.ceil(perSec(r) * v.seconds)} credits` : `${Math.round(perSec(r) * 10) / 10} credits a second`}</option>)}</select></label>}
             {mode === 'clip' && <label className="sx-pill"><span className="lbl">Length</span>{v.seconds}s<select value={v.seconds} onChange={(e) => set({ seconds: Number(e.target.value) })}>{[4, 5, 6, 8, 10, 15].map((n) => <option key={n} value={n}>{n} seconds</option>)}</select></label>}
             {mode === 'reel' && <>
               <label className="sx-pill"><span className="lbl">Length</span>{v.length}s<select value={v.length} onChange={(e) => set({ length: Number(e.target.value) })}>{d.lengths.map((n) => <option key={n} value={n}>{n} seconds</option>)}</select></label>
@@ -143,10 +156,10 @@ export default function Studio() {
               <input ref={logoFile} type="file" accept="image/png,image/webp,image/jpeg" hidden onChange={(e) => { upload(e.target.files?.[0], 'logo'); e.target.value = ''; }} />
             </>}
             <span className="grow" />
-            <button className="btn primary sx-go" disabled={!canGo} onClick={make}><Icon name="wand" size={16} /> {busy ? (mode === 'reel' ? 'Writing the script…' : 'Starting…') : mode === 'image' ? `Make ${v.count > 1 ? `${v.count} images` : 'image'}` : mode === 'clip' ? 'Make clip' : 'Write the script'}</button>
+            <button className="btn primary sx-go" disabled={!canGo} onClick={make}><Icon name="wand" size={16} /> {busy ? (mode === 'reel' ? 'Writing the script…' : 'Starting…') : mode === 'image' ? `Make ${v.count > 1 ? `${v.count} images` : 'image'} · ${cost} credits` : mode === 'clip' ? `Make clip · ${cost} credits` : 'Write the script (free)'}</button>
           </div>
           {!v.prompt.trim() && <div className="sx-ideas" aria-label="Ideas"><span className="lbl">Try</span>{IDEAS[mode].map((x) => <button key={x} type="button" onClick={() => { set({ prompt: x }); box.current?.focus(); }}>{x}</button>)}</div>}
-          <p className="sx-hint">{mode === 'reel' ? 'You’ll see the script and storyboard first — nothing is made until you approve it.' : mode === 'clip' ? 'Clips start from your picture when you add one, so the product stays the same. Clips are silent; Reels add voice and captions.' : 'Add your real product photo to keep it exactly as it is.'} {USUALLY[mode][0].toUpperCase() + USUALLY[mode].slice(1)}. <span style={{ opacity: .7 }}>Ctrl + Enter to start.</span></p>
+          <p className="sx-hint">{mode === 'reel' ? 'You’ll see the script, the storyboard and what the video will cost first — nothing is made until you approve it.' : mode === 'clip' ? 'Clips start from your picture when you add one, so the product stays the same. Clips are silent; Reels add voice and captions.' : 'Add your real product photo to keep it exactly as it is.'} {USUALLY[mode][0].toUpperCase() + USUALLY[mode].slice(1)}. <span style={{ opacity: .7 }}>Ctrl + Enter to start.</span></p>
         </section>
 
         <div className="sx-filters" role="tablist" aria-label="Show">

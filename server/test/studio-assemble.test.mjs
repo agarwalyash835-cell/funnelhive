@@ -77,7 +77,9 @@ test('join clips of different shapes and frame rates → one silent video of the
   const out = await joinClips([f('wide.mp4'), f('tall.mp4')], f('joined.mp4'), { width: 240, height: 426, fps: 30 });
   const p = probe(out);
   assert.equal(p.width, 240); assert.equal(p.height, 426);
-  near(p.duration, 3.5, 0.1, 'duration');
+  // the shots dissolve into each other: shorter than laid end to end by the crossfade
+  const { xfadeFor } = await import('../studio/assemble.js');
+  near(p.duration, 3.5 - xfadeFor(probe(f('wide.mp4')).duration, probe(f('tall.mp4')).duration), 0.1, 'duration');
   near(p.fps, 30, 0.01, 'fps');
   assert.equal(p.hasAudio, false);
 });

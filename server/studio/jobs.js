@@ -1,13 +1,13 @@
 // Studio's queue. Every image or clip is a row in `studio` that moves
 //   queued → rendering (a kie.ai task is running) → checking (downloaded, measured, reviewed) → ready
-// and on a failed check goes back to queued with the reviewer's fix note added to the request, at most twice; after
-// that it's kept as needs_review (the seller sees it with the reasons and decides). A failed render is retried the
-// same way, then marked failed. Rows are the state, so a restart picks up where it left off; the task id lets a render
+// and on a failed check is kept as needs_review with the reasons: every render costs credits, so a redo only happens when
+// the seller asks for it (routes.js redo, with its cost shown first). A render that failed or timed out on the provider
+// isn't charged, so that one is retried on its own (at most twice), then marked failed. Rows are the state, so a restart picks up where it left off; the task id lets a render
 // that was running carry on. One check runs at a time (ffmpeg is the heavy part on this server) and a few renders.
 // Every attempt is written to the row's usage log (model, resolution, seconds, outcome) for pricing later.
 import fs from 'node:fs';
 import { T, q, uid, JOBS } from '../db.js';
-import { pick, imageInput, clipInput, TIERS } from './models.js';
+import { pick, imageInput, clipInput, clipRes, imageCost, clipCost, TIERS } from './models.js';
 import { startTask, taskState, studioReady } from './kie.js';
 import { download, save, localCopy, publicUrl, rm, ffmpeg, tmpFile } from './media.js';
 import { checkImage, checkClip } from './qa.js';
@@ -28,7 +28,7 @@ function promptFor(a) {
   return [a.prompt, a.kind === 'clip' ? KEEP_CLIP : a.ref ? KEEP_PRODUCT : 'Photorealistic. No added text, words, logos or watermarks.', notes.length ? `Avoid this time: ${notes.join(' ')}` : ''].filter(Boolean).join('\n').slice(0, 4000);
 }
 
-export const view = (a) => ({ id: a.id, kind: a.kind, tier: a.tier, prompt: a.prompt, aspect: a.aspect, seconds: a.seconds || null, status: a.status, url: a.url || null, poster: a.poster || null, ref: a.ref || null, sourceId: a.sourceId || null, issues: a.qa?.issues || [], score: a.qa?.score ?? null, enhanced: !!a.enhanced, measured: a.qa?.measured ? { width: a.qa.measured.width, height: a.qa.measured.height, seconds: a.qa.measured.seconds ?? null } : null, reviewed: !!a.qa?.reviewed, attempts: a.attempts || 0, error: a.error || '', at: a.at, doneAt: a.doneAt || null, by: a.by || null });
+export const view = (a) => ({ id: a.id, kind: a.kind, tier: a.tier, prompt: a.prompt, aspect: a.aspect, seconds: a.seconds || null, status: a.status, url: a.url || null, poster: a.poster || null, ref: a.ref || null, sourceId: a.sourceId || null, issues: a.qa?.issues || [], score: a.qa?.score ?? null, enhanced: !!a.enhanced, measured: a.qa?.measured ? { width: a.qa.measured.width, height: a.qa.measured.height, seconds: a.qa.measured.seconds ?? null } : null, reviewed: !!a.qa?.reviewed, fix: a.fix || '', res: a.kind === 'clip' ? clipRes(a.tier, a.res) : null, redoCredits: a.kind === 'image' ? imageCost(a.tier) : a.kind === 'clip' ? clipCost(a.tier, a.seconds, a.res) : null, attempts: a.attempts || 0, error: a.error || '', at: a.at, doneAt: a.doneAt || null, by: a.by || null });
 
 export function enqueue(userId, a) {
   const row = { id: uid(), userId, status: 'queued', attempts: 0, notes: [], usage: [], at: Date.now(), ...a };
@@ -42,7 +42,7 @@ async function startRender(a) {
   const m = pick(a.kind, a.tier);
   let req;
   if (a.kind === 'image') req = { input: imageInput(m.model, { prompt: promptFor(a), refs: a.ref ? [publicUrl(a.ref)] : [], aspect: a.aspect, resolution: m.resolution }), resolution: m.resolution, seconds: 0 };
-  else req = clipInput(m.model, { prompt: promptFor(a), image: a.ref ? publicUrl(a.ref) : null, aspect: a.aspect, seconds: a.seconds || 5, resolution: m.resolution });
+  else req = clipInput(m.model, { prompt: promptFor(a), image: a.ref ? publicUrl(a.ref) : null, aspect: a.aspect, seconds: a.seconds || 5, resolution: clipRes(a.tier, a.res) });
   const taskId = await startTask({ model: m.model, input: req.input });
   set(a.id, (x) => {
     x.status = 'rendering'; x.taskId = taskId; x.attempts = (x.attempts || 0) + 1; x.startedAt = Date.now(); x.model = m.model; x.resolution = req.resolution;
@@ -71,19 +71,20 @@ async function check(a) {
     if (a.ref) { const c = await localCopy(a.ref, 'png').catch(() => null); if (c) { ref = { buf: fs.readFileSync(c.file), type: 'image/png' }; if (c.temp) made.push(c.file); } }
     const qa = a.kind === 'image' ? await checkImage(file, { brief: a.prompt, reference: ref }) : await checkClip(file, { brief: a.prompt, reference: ref, expect: { seconds: a.usage?.at(-1)?.seconds, height: parseInt(a.resolution, 10) || 0 } });
     let deliver = file, enhanced = false;
-    // a passing clip below 720p gets the cleanup (enhance.js) before it's saved
-    if (a.kind === 'clip' && a.enhance !== false && qa.ok) { const e = await to720(file); if (e.file !== file) { made.push(e.file); deliver = e.file; enhanced = e.enhanced; } }
-    if (!qa.ok && (a.attempts || 0) < MAX_ATTEMPTS) { console.log('studio retry', a.id, qa.issues.join('; ')); return retryOrFail(a, 'failed check', { note: qa.fix || qa.issues.join('; ') }); }
+    // a clip below 720p is always brought up to 720p (enhance.js) before it's saved — kept for review or not
+    if (a.kind === 'clip' && a.enhance !== false) { const e = await to720(file); if (e.file !== file) { made.push(e.file); deliver = e.file; enhanced = e.enhanced; } }
     const saved = await save(a.userId, deliver, ext, a.kind === 'image' ? 'image/png' : 'video/mp4');
     let poster = null;
     if (a.kind === 'clip') { const pf = tmpFile('jpg'); made.push(pf); await ffmpeg(['-ss', '0.1', '-i', deliver, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '4', pf], { timeoutMs: 30000 }); if (fs.existsSync(pf)) poster = (await save(a.userId, pf, 'jpg', 'image/jpeg')).url; }
     const keep = { url: saved.url, poster, bytes: saved.bytes, qa: { ok: qa.ok, score: qa.score, issues: qa.issues, measured: qa.measured, reviewed: qa.reviewed }, enhanced };
-    if (!qa.ok) return retryOrFail(a, 'failed check', { keep }); // out of retries: the seller decides
+    // didn't pass: kept with the reasons and the reviewer's fix note — the seller decides whether a paid redo is worth it
+    if (!qa.ok) { console.log('studio needs review', a.id, qa.issues.join('; ')); return retryOrFail(a, 'failed check', { keep: { ...keep, fix: qa.fix || '' } }); }
     set(a.id, (x) => { Object.assign(x, keep); x.status = 'ready'; x.doneAt = Date.now(); delete x.taskId; delete x.result; lastUsage(x, { outcome: 'ready' }); });
     if (a.notifyDone) notify(a.userId, { kind: 'support', title: `Your Studio ${a.kind === 'clip' ? 'clip' : 'image'} is ready`, body: a.prompt.slice(0, 80), link: '/studio' });
   } catch (e) {
     console.error('studio check failed', a.id, e.message);
-    retryOrFail(a, 'check error');
+    // the render is paid for and still there: check it again (free) rather than render it again
+    set(a.id, (x) => { x.checkTries = (x.checkTries || 0) + 1; if (x.checkTries >= 3) { x.status = 'failed'; x.error = 'It was made but couldn’t be checked — try again'; x.doneAt = Date.now(); lastUsage(x, { outcome: 'check error' }); } });
   } finally { rm(file, ...made); }
 }
 

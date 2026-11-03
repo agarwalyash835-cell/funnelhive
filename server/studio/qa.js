@@ -6,7 +6,7 @@
 //      from the first frame to the last, safe.
 // → { ok, score, issues: [plain words], fix (a note for the next attempt), measured, reviewed }
 import fs from 'node:fs';
-import { ffmpeg, probe, frames } from './media.js';
+import { ffmpeg, probe, frames, tmpFile, rm } from './media.js';
 import { reviewWith } from './kie.js';
 import { studioModels } from './models.js';
 
@@ -68,16 +68,27 @@ export async function review(kind, { brief, items, reference }) {
   return { score, safe: v.safe !== false, issues: (Array.isArray(v.issues) ? v.issues : []).map((x) => String(x).slice(0, 160)).slice(0, 6), fix: String(v.fix || '').slice(0, 300) };
 }
 
+// a picture as the reviewer is sent it: at most 768 px, as a JPEG. A 2K PNG is ~10 MB of base64, which reviewers refuse
+// ("Inline data URL is too large") — and then the check silently didn't happen
+export async function forReview(input, type = 'image/png') {
+  const src = typeof input === 'string' ? input : tmpFile(type.includes('jpeg') ? 'jpg' : 'png'), out = tmpFile('jpg');
+  try {
+    if (typeof input !== 'string') fs.writeFileSync(src, input);
+    await ffmpeg(['-i', src, '-frames:v', '1', '-vf', "scale='min(768,iw)':'min(768,ih)':force_original_aspect_ratio=decrease", '-q:v', '4', out], { timeoutMs: 30000 });
+    return fs.existsSync(out) ? { buf: fs.readFileSync(out), type: 'image/jpeg' } : { buf: typeof input === 'string' ? fs.readFileSync(input) : input, type };
+  } finally { rm(out, ...(typeof input === 'string' ? [] : [src])); }
+}
+
 // ---------- together ----------
 export async function checkImage(file, { brief, reference }) {
   const measured = await measureImage(file);
   if (measured.issues.length) return { ok: false, score: 0, issues: measured.issues, fix: '', measured, reviewed: false };
-  const r = await review('image', { brief, items: [{ buf: fs.readFileSync(file), type: 'image/png' }], reference });
+  const r = await review('image', { brief, items: [await forReview(file)], reference: reference ? await forReview(reference.buf, reference.type) : null });
   return verdict(measured, r);
 }
 export async function checkClip(file, { brief, reference, expect }) {
   const measured = await measureClip(file, expect);
-  const r = await review('clip', { brief, items: await frames(file, measured.seconds || 5), reference });
+  const r = await review('clip', { brief, items: await frames(file, measured.seconds || 5), reference: reference ? await forReview(reference.buf, reference.type) : null });
   return verdict(measured, r);
 }
 function verdict(measured, r) {

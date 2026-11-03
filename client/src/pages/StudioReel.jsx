@@ -52,6 +52,15 @@ export function ReelEditor({ r, d, onClose, onChange }) {
   const [size, setSize] = useState(Object.keys(r.outputs || {})[0] || r.sizes?.[0] || '9:16');
   const [view, setView] = useState(null);
   const [playing, setPlaying] = useState(null);
+  // what it costs (studio/models.js reelCost, worked out here too so it follows the storyboard as scenes are added or
+  // removed): a still and a clip per shot, the voiceover — at the clip resolution chosen
+  const tier = d.tiers.find((t) => t.id === r.tier) || d.tiers[0];
+  const resOpts = tier?.clipRes || [];
+  const [res, setRes] = useState(resOpts.includes(r.res) ? r.res : resOpts.at(-1));
+  const perSec = (x) => (tier?.clipCreditsPer5s?.[x] || 0) / 5;
+  const costAt = (x) => { const shots = s.shots.length, secs = Math.max(4 * shots, Math.round((r.seconds || 30) - 2.5)); return shots * (tier?.imageCredits || 0) + Math.ceil(perSec(x) * secs) + s.lines.length; };
+  // a Reel that stopped: only what's missing is made again — the failed stills and clips, and clips not started yet
+  const retryCost = (r.shots || []).reduce((t, x, i) => t + (x.image?.status === 'failed' ? x.image.redoCredits || 0 : 0) + (x.clip ? (x.clip.status === 'failed' ? x.clip.redoCredits || 0 : 0) : Math.ceil(perSec(res) * (s.shots[i]?.seconds || 5))), 0);
   const audio = useRef(null);
   // a new script from the server (another tab, or after approving) replaces local edits only when there are none
   useEffect(() => { if (!dirty) setS(r.script); }, [r.script]);
@@ -73,10 +82,11 @@ export function ReelEditor({ r, d, onClose, onChange }) {
   const dropScene = (i) => edit({ lines: s.lines.filter((_, j) => j !== i), shots: s.shots.filter((_, j) => j !== i) });
   const settings = (p) => (editing ? act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s, ...p })) : act(() => api(`/studio/reels/${r.id}`, 'PUT', p), p.voice ? 'Recording the voiceover again in the new voice' : 'Re-editing'));
   const reword = async (i) => { const text = await promptDialog({ title: `Line ${i + 1}`, label: 'New words', value: r.lines[i].text }); if (text && text !== r.lines[i].text) act(() => api(`/studio/reels/${r.id}`, 'PUT', { lines: [{ i, text }] }), 'Recording that line again, then re-editing'); };
-  const redoShot = async (i) => { const note = await promptDialog({ title: `Redo shot ${i + 1}`, text: 'What should change? Leave empty to just try again.', label: 'Change', value: '' }); if (note !== null && note !== undefined) act(() => api(`/studio/reels/${r.id}`, 'PUT', { shots: [{ i, note }] }), 'Redoing that shot, then re-editing'); };
+  const redoShot = async (i) => { const c = r.shots?.[i]?.clip || {}; const note = await promptDialog({ title: `Redo shot ${i + 1} · about ${c.redoCredits || '?'} credits`, text: `A new ${c.seconds || ''}-second clip at ${c.res || res} uses about ${c.redoCredits || '?'} credits. What should change?${c.fix ? ` Leave it empty to use the quality check's suggestion: “${c.fix}”` : ' Leave it empty to just try again.'}`, label: 'Change', value: '', confirm: 'Redo shot' }); if (note !== null && note !== undefined) act(() => api(`/studio/reels/${r.id}`, 'PUT', { shots: [{ i, note }] }), 'Redoing that shot, then re-editing'); };
   const approve = async () => {
-    if (!(await confirmDialog({ title: 'Make this Reel?', text: `${s.shots.length} shot${s.shots.length === 1 ? '' : 's'} and ${s.lines.length} voiceover line${s.lines.length === 1 ? '' : 's'} will be made and checked, then edited together. This takes several minutes.`, confirm: 'Make it' }))) return;
-    act(() => api(`/studio/reels/${r.id}/approve`, 'POST', { script: s }), 'Making your Reel — you can close this, it carries on');
+    const other = resOpts.filter((x) => x !== res).map((x) => `${x}: about ${costAt(x)} credits`).join(' · ');
+    if (!(await confirmDialog({ title: `Make this Reel? · about ${costAt(res)} credits`, text: `${s.shots.length} shot${s.shots.length === 1 ? '' : 's'} at ${res} and ${s.lines.length} voiceover line${s.lines.length === 1 ? '' : 's'} will be made, checked and edited together — about ${costAt(res)} credits.${other ? ` (${other}.)` : ''} A shot that fails its check isn't redone on its own: you'll see it and decide. Below 720p is sharpened up to 720p for free. This takes several minutes.`, confirm: `Make it · ${costAt(res)} credits` }))) return;
+    act(() => api(`/studio/reels/${r.id}/approve`, 'POST', { script: s, res }), 'Making your Reel — you can close this, it carries on');
   };
   const play = (v) => {
     if (playing === v.id) { audio.current?.pause(); return setPlaying(null); }
@@ -99,8 +109,8 @@ export function ReelEditor({ r, d, onClose, onChange }) {
         <div><h2>{s.title}</h2><small>{r.seconds}s · {d.languages?.find((x) => x.id === r.lang)?.name || r.lang} · {d.tiers.find((t) => t.id === r.tier)?.name}</small></div>
         <nav className="sxr-stepper" aria-label="Progress">{STEPS.map((k, i) => <span key={k} className={`sxr-step ${st[k] || ''}`}><b>{st[k] === 'done' ? '✓' : st[k] === 'stop' ? '!' : i + 1}</b>{k}</span>)}</nav>
         <div className="row">
-          {editing && <><button className="btn ghost" disabled={busy || !dirty} onClick={() => act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s }), 'Saved')}>Save</button><button className="btn primary" disabled={busy} onClick={approve}><Icon name="play" size={14} /> Approve and make</button></>}
-          {r.status === 'failed' && <button className="btn primary" disabled={busy} onClick={() => act(() => api(`/studio/reels/${r.id}/retry`, 'POST'), 'Carrying on from where it stopped')}><Icon name="redo" size={14} /> Retry</button>}
+          {editing && <><button className="btn ghost" disabled={busy || !dirty} onClick={() => act(() => api(`/studio/reels/${r.id}/script`, 'PUT', { script: s }), 'Saved')}>Save</button>{resOpts.length > 1 && <label className="sx-pill" title="Lower resolution costs fewer credits; below 720p is sharpened up to 720p for free"><span className="lbl">Video</span>{res}<select value={res} onChange={(e) => setRes(e.target.value)}>{resOpts.map((x) => <option key={x} value={x}>{x} · about {costAt(x)} credits</option>)}</select></label>}<button className="btn primary" disabled={busy} onClick={approve}><Icon name="play" size={14} /> Approve and make · {costAt(res)} credits</button></>}
+          {r.status === 'failed' && <button className="btn primary" disabled={busy} onClick={async () => { if (await confirmDialog({ title: `Carry on? · about ${retryCost} credits`, text: `Only what's missing is made again — about ${retryCost} credits. Nothing that worked is made again.`, confirm: `Carry on · ${retryCost} credits` })) act(() => api(`/studio/reels/${r.id}/retry`, 'POST'), 'Carrying on from where it stopped'); }}><Icon name="redo" size={14} /> Retry · {retryCost} credits</button>}
           {made && r.outputs?.[size] && <><a className="btn primary" href={r.outputs[size]} download><Icon name="download" size={14} /> Download {size}</a><button className="btn ghost" onClick={() => { navigator.clipboard?.writeText(r.links?.[size] || ''); toast('Link copied — paste it in your ad, or ask Hive to put it in an ad'); }}><Icon name="link" size={14} /> Link for ads</button></>}
         </div>
       </header>
