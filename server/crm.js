@@ -577,6 +577,7 @@ export function registerCrm(app, { auth, rateLimit, isTest, onEvent = () => {} }
     if (!p || p.userId !== req.user.id) return res.status(404).json({ error: 'Pipeline not found' });
     if ('name' in req.body) p.name = str(req.body.name, 60) || p.name;
     if (req.body.stages) { const st = cleanStages(req.body.stages); if (!st.length) return res.status(400).json({ error: 'A pipeline needs at least one stage' }); p.stages = st; }
+    delete p.hidden; // one the seller edits is theirs to keep in view, whichever CRM style made it
     T.pipelines.put(p);
     const { userId, ...out } = p;
     res.json(out);

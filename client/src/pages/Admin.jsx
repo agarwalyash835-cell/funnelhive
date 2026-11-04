@@ -4,7 +4,7 @@ import { api, fmtDate, impersonate } from '../api';
 import { isSuper, appUrl } from '../tier';
 // the app's address for webhooks, health checks and sign-in origins: the super address answers only the admin API
 const site = appUrl || location.origin;
-import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV, confirmDialog, promptDialog, loadFailed } from '../ui';
+import { Layout, Panel, Icon, Modal, inr, num, ago, toast, downloadCSV, confirmDialog, promptDialog, loadFailed, ModuleSwitches } from '../ui';
 import { AreaChart } from '../charts';
 import { AdminPartners } from '../partnerKit';
 
@@ -290,6 +290,7 @@ function SellerModal({ id, onClose, onChange }) {
             <small className="muted">AI images, clips and Reels — each render is paid for, so it’s on per account</small>
             {u.studio?.on ? <button className="btn ghost sm danger" onClick={async () => (await confirmDialog({ title: 'Turn Studio off for this seller?', text: 'They can’t make new images, clips or Reels. What they made stays.', confirm: 'Turn off', danger: true })) && act('studio_off', {}, 'Studio turned off')}>Turn off</button> : <button className="btn ghost sm" onClick={() => act('studio_on', {}, 'Studio turned on — the seller sees it in their menu')}>Turn on</button>}
           </div>
+          {u.modules && <ModuleSwitches m={u.modules} save={(pages) => act('set_modules', { pages }, 'Modules saved')} />}
           <div className="row">
             {u.admin ? null : u.access.status === 'comped' ? <button className="btn ghost sm" onClick={() => act('uncomp')}>End free access</button> : <button className="btn ghost sm" onClick={async () => { const note = await promptDialog({ title: 'Give free access', text: 'Reason for free access (e.g. partner, beta tester)?', label: 'Reason', confirm: 'Give free access' }); if (note !== null) act('comp', { note }, 'Free access granted'); }}>Give free access</button>}
             {u.admin ? null : u.access.status === 'suspended' ? <button className="btn ghost sm" onClick={() => act('unsuspend')}>Unsuspend</button> : <button className="btn ghost sm danger" onClick={async () => { const note = await promptDialog({ title: 'Suspend seller', text: 'Reason for suspending (pages go offline and the seller is signed out)?', label: 'Reason', confirm: 'Suspend', danger: true }); if (note !== null) act('suspend', { note }, 'Seller suspended'); }}>Suspend</button>}

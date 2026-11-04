@@ -44,6 +44,7 @@ import { enqueue as fireWebhook, firstAttempt, retryNow, ensureSecret, newWebhoo
 import { registerProducts, deliver, resolveToken } from './products.js';
 import { registerSchool, studentAccess } from './school.js';
 import { registerCrmKits } from './crmkits.js';
+import { hiddenModules } from './modules.js';
 import { registerVideo } from './video.js';
 import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId, cleanTrackingIds, trackingFor, funnelTrackingView } from './tracking.js';
 import { registerVault } from './vault.js';
@@ -534,6 +535,7 @@ app.get('/api/me', auth, (req, res) => {
       unread: unreadCount(req.user.id), // notifications (the bell)
       chats: q("SELECT COUNT(*) AS n FROM waconvs WHERE userId = ? AND status <> 'resolved' AND IFNULL(json_extract(data, '$.unread'), 0) > 0").get(req.user.id).n, // unread WhatsApp chats (the phone's Inbox tab)
       industry: s.crmKit?.id || null, // the menu starts from the business's industry (its CRM kit)
+      hidden: hiddenModules(req.user), // industry tools this business doesn't use, unless switched on (modules.js)
       studio: studioOn(req.user), // Studio (studio/routes.js): switched on per account by the platform
       tally: !!req.user.addons?.tally, // the Tally add-on (tally.js): its page joins the menu
       inventory: !!req.user.addons?.inventory, // the Inventory add-on (inventory.js): its page joins the menu

@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { T, q, uid, dbBytes, backupFiles, backupNow, offsiteStatus, restorePending, safetyDir, dir as dataDir } from './db.js';
 import { saveComposio, composioView } from './composio.js';
 import { platform, savePlatform, platformRzp, isAdmin, adminLevel, encrypt, STATES, GSTIN_RE, DEFAULTS, companyMissing } from './platform.js';
+import { moduleView, cleanModules } from './modules.js';
 import { decrypt, mailFrom, platformMailer, platformSend, MAILERS } from './messaging.js';
 import { s3Enabled, storageFromEnv, testStorage, listKeys, getObject, videoBucketReady, videoStorageFromEnv } from './storage.js';
 import { accessFor, newBilling, usageSummary, chargeFor, pricing } from './billing.js';
@@ -128,7 +129,7 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
     if (!u) return;
     const since = Date.now() - 30 * DAY;
     res.json({
-      ...row(u), self: u.id === req.user.id, tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, studio: { on: !!u.studio?.on }, billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(termsOf(u)?.maxClients ? { agencyClients: termsOf(u).maxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
+      ...row(u), self: u.id === req.user.id, tally: adminSeller(u), inventory: { on: !!u.addons?.inventory }, studio: { on: !!u.studio?.on }, modules: moduleView(u), billing: u.billing || null, access: accessFor(u), credits: usageSummary(u), creditLimit: u.creditLimit ?? null, limits: { ...limitsFor(u), agencyClients: clientLimit(u) }, limitOverrides: { ...(u.limits || {}), ...(termsOf(u)?.maxClients ? { agencyClients: termsOf(u).maxClients } : {}) }, usage: usageFor(u), twoFactor: !!u.totpEnabled, settings: { businessName: u.settings?.businessName, supportWhatsapp: u.settings?.supportWhatsapp },
       counts: {
         funnels: T.funnels.count({ userId: u.id }), published: q("SELECT COUNT(*) AS n FROM funnels WHERE userId = ? AND json_extract(data, '$.published') = 1").get(u.id).n,
         contacts: T.crm.count({ userId: u.id }), leads: T.leads.count({ userId: u.id }), automations: T.automations.count({ userId: u.id }), domains: T.domains.count({ userId: u.id }),
@@ -177,6 +178,8 @@ export function registerAdmin(app, { auth, wrap, signAs }) {
       // Studio (studio/): AI images, clips and Reels — every render costs real money, so it's on per account
       case 'studio_on': T.users.update(u.id, (y) => { y.studio = { ...(y.studio || {}), on: true, since: y.studio?.since || Date.now() }; }); break;
       case 'studio_off': T.users.update(u.id, (y) => { y.studio = { ...(y.studio || {}), on: false }; }); break;
+      // industry tools (modules.js) shown to this account beyond what its CRM style shows
+      case 'set_modules': { const pages = cleanModules(req.body.pages); T.users.update(u.id, (y) => { if (pages.length) y.modulesOn = pages; else delete y.modulesOn; }); detail = pages.join(', ') || 'by industry'; break; }
       case 'make_admin': {
         // level: 'owner' (everything) or 'support' (look and help, no platform changes)
         const level = req.body.level === 'support' ? 'support' : 'owner';

@@ -24,7 +24,9 @@ export const KITS = [
   {
     id: 'general', name: 'Coach & creator', icon: '🎯', desc: 'Leads from your funnels, customers from checkouts, lifetime value — the standard FunnelHive CRM.',
     labels: { title: 'Contacts', one: 'contact', customers: 'Customers', leads: 'Leads', value: 'Lifetime value' },
-    fields: [], pipeline: null, columns: [], cardFields: [], filters: [], valueField: null, showSales: true,
+    // its own pipeline (the standard one every account starts with), so this style shows only that one
+    fields: [], pipeline: { name: 'Sales pipeline', stages: [S('New lead', '#6366f1'), S('Contacted', '#0ea5e9'), S('Interested', '#f59e0b'), S('Customer', '#16a34a', 'won'), S('Lost', '#94a3b8', 'lost')] },
+    columns: [], cardFields: [], filters: [], valueField: null, showSales: true,
   },
   {
     id: 'realestate', name: 'Real estate builder / broker', icon: '🏠', desc: 'Budget, BHK, location and site visits — from portal enquiry to booking.',
@@ -367,6 +369,13 @@ export function applyKit(userId, kit) {
       }
       if (pipes.length < PIPE_CAP) pipelineId = T.pipelines.insert({ id: uid(), userId, name: kit.pipeline.name, stages: kit.pipeline.stages.map((s) => ({ id: uid(), ...s })), at: Date.now() }).id;
     }
+  }
+  // the pipelines other styles made that nothing uses (no contact in them, nothing points at them) are tucked away —
+  // not deleted — so Contacts shows this style's pipeline and the seller's own; trying a style again brings its back
+  unused ||= unusedOtherKitItems(userId, kit);
+  for (const p of T.pipelines.all({ userId })) {
+    const hide = p.id !== pipelineId && unused.pipe(p);
+    if (!!p.hidden !== hide) T.pipelines.put(hide ? { ...p, hidden: true } : (({ hidden, ...x }) => x)(p));
   }
   const map = (list) => (list || []).map((id) => idMap[id]).filter(Boolean);
   const current = {

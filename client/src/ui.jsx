@@ -158,6 +158,8 @@ const navLocal = () => { try { return { pinned: [], hidden: [], closed: [], ...J
 // pages a person may open here (a team member doesn't see the owner's billing; one limited to some funnels sees only those)
 const allowed = (to, me) => {
   if (to === '/admin') return !!me?.admin && !agencyHost(); // never on an agency's own domain
+  // tools this business's industry doesn't use (server: modules.js) — unless the platform or its agency switched them on
+  if (me?.nav?.hidden?.includes(to)) return false;
   if (to === '/tally' && !me?.nav?.tally) return false; // an add-on we switch on per account
   if (to === '/studio' && !me?.nav?.studio) return false; // switched on per account by the platform
   if ((to === '/inventory' || to === '/counter') && !me?.nav?.inventory) return false;
@@ -173,6 +175,28 @@ const allowed = (to, me) => {
   if (to === '/vault') return me.workspace.role !== 'viewer';
   return to !== '/settings' || ['admin', 'agency'].includes(me.workspace.role);
 };
+// Admin / Agency: the industry tools an account sees. Its CRM style decides; the ones it leaves out can be switched on
+// here for this account (m: server modules.js moduleView)
+export function ModuleSwitches({ m, save, note }) {
+  const [on, setOn] = useState(() => m.modules.filter((x) => x.on).map((x) => x.page));
+  const dirty = on.slice().sort().join() !== m.modules.filter((x) => x.on).map((x) => x.page).sort().join();
+  const flip = (p) => setOn(on.includes(p) ? on.filter((x) => x !== p) : [...on, p]);
+  return (
+    <div className="mod-sw">
+      <div className="row"><b>Industry tools</b><small className="muted">{m.industry ? `Set by the ${m.industry} CRM style — switch others on for this account` : 'No CRM style picked yet — every tool shows'}</small></div>
+      {note && <small className="muted">{note}</small>}
+      <div className="chips">
+        {m.modules.map((x) => {
+          const fixed = x.industry || x.used || x.agency;
+          const lit = fixed || on.includes(x.page);
+          return <button key={x.page} type="button" className={lit ? 'on' : ''} aria-pressed={lit} disabled={fixed} onClick={() => flip(x.page)} title={x.industry ? 'Part of this industry' : x.used ? 'Shown because the account already uses it' : x.agency ? 'In the agency’s client menu' : lit ? 'Switched on for this account — click to hide it again' : 'Hidden for this industry — click to switch it on'}>{x.label}{!x.industry && (x.used ? ' · in use' : x.agency ? ' · agency' : '')}</button>;
+        })}
+      </div>
+      {m.industry && <button type="button" className="btn ghost sm" disabled={!dirty} onClick={() => save(on)}>Save tools</button>}
+    </div>
+  );
+}
+
 // a tool is in the menu when it's an everyday page, you use it, you pinned it, or you're on it — unless you hid it
 const inMenu = (to, me, p, here) => allowed(to, me) && !p.hidden.includes(to) && (everyday(me).includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || (to === '/tally' && !!me?.nav?.tally) || (to === '/studio' && !!me?.nav?.studio) || ((to === '/inventory' || to === '/counter') && !!me?.nav?.inventory) || here === to);
 const badgeOf = (to, me) => (to === '/orders' && me?.nav?.ship ? [me.nav.ship, t('{n} to ship', { n: me.nav.ship })] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, t(me.nav.calls > 1 ? '{n} calls in the next 24 hours' : '{n} call in the next 24 hours', { n: me.nav.calls })] : null);

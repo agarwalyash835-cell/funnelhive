@@ -79,7 +79,9 @@ export default function Contacts() {
     setMore(false);
   };
   useEffect(() => { LS.set('ff_contacts_view', view); }, [view]);
-  const pipe = pipes.find((p) => p.id === pid) || pipes.find((p) => p.id === kit?.pipelineId) || pipes[0];
+  // the pipelines this CRM style shows: its own and the seller's — other styles' unused ones are tucked away (server)
+  const shown = (() => { const s = pipes.filter((p) => !p.hidden || p.id === kit?.pipelineId); return s.length ? s : pipes; })();
+  const pipe = shown.find((p) => p.id === pid) || shown.find((p) => p.id === kit?.pipelineId) || shown[0];
   const L = kit?.labels || { title: 'Contacts', one: 'contact', customers: 'Customers', leads: 'Leads', value: 'Lifetime value' };
   const sales = kit ? kit.showSales !== false : true;
   const byId = Object.fromEntries(fields.map((x) => [x.id, x]));
@@ -167,7 +169,7 @@ export default function Contacts() {
             </div>
             <div className="seg">{[['all', 'All'], ['customer', L.customers], ['lead', L.leads]].map(([k, l]) => <button key={k} className={type === k ? 'on' : ''} onClick={() => setType(k)}>{l}</button>)}</div>
             <div className="crm-pipe">
-              <select value={pipe?.id || ''} onChange={(e) => setPid(e.target.value)} aria-label="Pipeline">{pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              <select value={pipe?.id || ''} onChange={(e) => setPid(e.target.value)} aria-label="Pipeline">{shown.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
               <button className="btn ghost sm" onClick={() => setModal('pipes')}><Icon name="settings" size={14} /> Pipelines</button>
             </div>
             <div className="search"><Icon name="search" size={16} /><input placeholder="Search name, email, phone, tag…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
@@ -369,7 +371,7 @@ function ContactPanel({ ckey, pipes, fields, L, onClose, onChanged, onEditFields
               <div><small>Source</small><b>{c.source}</b></div>
             </div>
             <div className="cp-stages">
-              {pipes.map((p) => {
+              {(pipes.some((p) => !p.hidden) ? pipes.filter((p) => !p.hidden || c.stages?.[p.id]) : pipes).map((p) => {
                 const cur = p.stages.find((s) => s.id === c.stages?.[p.id]);
                 return (
                   <label key={p.id} style={{ '--sc': cur?.color }}>
@@ -739,7 +741,7 @@ function PipelinesEditor({ pipes, current, onClose, onSaved }) {
     <Modal title="Pipelines" onClose={onClose} width={640}>
       <div className="m-body">
         <div className="pl-top">
-          <select value={pid} onChange={(e) => setPid(e.target.value)}>{Object.values(drafts).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <select value={pid} onChange={(e) => setPid(e.target.value)}>{Object.values(drafts).map((x) => <option key={x.id} value={x.id}>{x.name}{x.hidden ? ' · from another CRM style (hidden)' : ''}</option>)}</select>
           <button className="btn soft sm" onClick={create}><Plus size={14} /> New pipeline</button>
         </div>
         <div className="fld"><label>Pipeline name</label><input value={p.name} onChange={(e) => upd((x) => ({ ...x, name: e.target.value }))} /></div>
@@ -794,7 +796,7 @@ function KitPicker({ current, onClose, onApplied }) {
   };
   const apply = async () => {
     if (!chosen) return;
-    if (chosen.id === current?.id && chosen.id !== 'custom') return onClose();
+    // picking the current style again applies it again: its pipeline comes back into view, others' unused ones go
     setBusy(true);
     try { onApplied(await api('/crm/kit', 'POST', tab === 'ai' ? { kit: draft } : { id: chosen.id })); } catch (e) { toast(e.message); setBusy(false); }
   };

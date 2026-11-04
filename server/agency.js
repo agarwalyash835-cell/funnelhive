@@ -11,6 +11,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { T, q, tx, uid, JOBS } from './db.js';
 import { platform, isAdmin } from './platform.js';
+import { moduleView, cleanModules } from './modules.js';
 import { totals, sources } from './analytics.js';
 import { copyProduct } from './products.js';
 import { funnelLimitError } from './limits.js';
@@ -234,7 +235,7 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     const a = ctx.agency, t = termsOf(a);
     const list = clientsOf(a.id).filter((c) => !ctx.staff || staffCovers(ctx.staff, c.id)).map((c) => ({
       id: c.id, business: c.settings?.businessName || c.name, name: c.name, email: c.passwordSet ? c.email : null, invited: !!c.invitedAt, ownLogin: !!c.passwordSet, createdAt: c.createdAt,
-      funnels: T.funnels.count({ userId: c.id }), stats: statsOf(c.id), access: accessMode(c), addons: { tally: !!c.addons?.tally, inventory: !!c.addons?.inventory },
+      funnels: T.funnels.count({ userId: c.id }), stats: statsOf(c.id), access: accessMode(c), addons: { tally: !!c.addons?.tally, inventory: !!c.addons?.inventory }, modules: moduleView(c),
       report: tok(c) ? `/report/${tok(c)}` : null, reportExpires: tok(c) ? c.report.exp : null, reportEmail: c.reportEmail || null, deletion: c.deletion ? { at: c.deletion.at, purgeAt: c.deletion.purgeAt } : null,
     }));
     const staff = ctx.staff ? null : T.members.all({ ownerId: a.id }).filter((m) => m.role === 'clients').map((m) => ({ id: m.id, email: m.email, name: m.userId ? T.users.get(m.userId)?.name || '' : '', status: m.status, clientIds: m.clientIds || null }));
@@ -357,6 +358,13 @@ export function registerAgency(app, { auth, secret, createFunnel, deleteAccount,
     if (no) return res.status(403).json({ error: `Your agency plan doesn’t include the ${no} add-on for clients — contact support`, addon: no });
     const c = T.users.update(x.c.id, (u) => { u.addons = { ...(u.addons || {}) }; for (const k of keys) u.addons[k] = !!b[k]; });
     res.json({ addons: { tally: !!c.addons?.tally, inventory: !!c.addons?.inventory } });
+  });
+  // the industry tools a client sees beyond what its CRM style shows (modules.js): the agency switches them on
+  app.put('/api/agency/clients/:cid/modules', auth, (req, res) => {
+    const x = myClient(req, res, { owner: true }); if (!x) return;
+    const pages = cleanModules(req.body?.pages);
+    const c = T.users.update(x.c.id, (u) => { if (pages.length) u.modulesOn = pages; else delete u.modulesOn; });
+    res.json({ modules: moduleView(c) });
   });
   // a client manager: all clients, or only the ones assigned (clientIds; empty = all)
   app.put('/api/agency/staff/:mid', auth, (req, res) => {

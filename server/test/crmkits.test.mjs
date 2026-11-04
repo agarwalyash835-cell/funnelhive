@@ -63,6 +63,30 @@ test('ready-made: real estate adds its fields and pipeline, filters and money to
   assert.equal((await api('/crm/kit', 'POST', { id: 'nope' }, T)).status, 400);
 });
 
+test('each style shows its own pipeline: other styles’ unused pipelines are tucked away, never deleted', async () => {
+  const T2 = (await register(api)).token;
+  const visible = async () => (await api('/pipelines', 'GET', null, T2)).data.filter((p) => !p.hidden).map((p) => p.name).sort();
+  await api('/contacts', 'POST', { email: 'lead@example.com' }, T2);
+  const re = (await api('/crm/kit', 'POST', { id: 'realestate' }, T2)).data;
+  await api('/crm/kit', 'POST', { id: 'clinic' }, T2);
+  assert.deepEqual(await visible(), ['Patient journey'], 'clinic: only its pipeline (the starting one and real estate’s are unused)');
+  const coach = (await api('/crm/kit', 'POST', { id: 'general' }, T2)).data;
+  assert.ok(coach.current.pipelineId, 'Coach & creator has its own pipeline now');
+  assert.deepEqual(await visible(), ['Sales pipeline'], 'Coach & creator: only the standard pipeline');
+  assert.equal((await api('/pipelines', 'GET', null, T2)).data.length, 3, 'nothing deleted');
+  // a contact placed in another style's pipeline keeps that pipeline in view
+  await api(`/contacts/${k('lead@example.com')}`, 'PATCH', { stage: { pipelineId: re.current.pipelineId, stageId: (await api('/pipelines', 'GET', null, T2)).data.find((p) => p.id === re.current.pipelineId).stages[2].id } }, T2);
+  await api('/crm/kit', 'POST', { id: 'general' }, T2);
+  assert.deepEqual(await visible(), ['Property sales', 'Sales pipeline'], 'in use: still shown');
+  // back to real estate: its pipeline is the one in view again, and the unused starting one is tucked away
+  await api('/crm/kit', 'POST', { id: 'realestate' }, T2);
+  assert.deepEqual(await visible(), ['Property sales']);
+  // a pipeline the seller edits stays in view whatever the style
+  const clinicPipe = (await api('/pipelines', 'GET', null, T2)).data.find((p) => p.name === 'Patient journey');
+  await api(`/pipelines/${clinicPipe.id}`, 'PUT', { name: 'Patient journey' }, T2);
+  assert.deepEqual(await visible(), ['Patient journey', 'Property sales']);
+});
+
 test('AI designs a custom CRM, cleaned; Hive switches styles', async () => {
   assert.equal((await api('/ai/crm-kit', 'POST', { description: 'hi' }, T)).status, 400);
   const d = (await api('/ai/crm-kit', 'POST', { description: 'Interior design studio in Mumbai, full home projects' }, T)).data;

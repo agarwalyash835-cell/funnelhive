@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, loggedIn, enterClient, fmtDate } from '../api';
-import { Layout, Panel, Icon, Empty, Modal, toast, num, inr, ago, confirmDialog, promptDialog } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, toast, num, inr, ago, confirmDialog, promptDialog, ModuleSwitches } from '../ui';
 import { AuthShell } from './Auth';
 import { shareLink } from './Team';
 import { PartnerConsole } from '../partnerKit';
@@ -23,6 +23,7 @@ export default function Agency() {
   const [err, setErr] = useState('');
   const [add, setAdd] = useState(false);
   const [invite, setInvite] = useState(null);
+  const [tools, setTools] = useState(null); // the client whose industry tools are being set
   const load = () => api('/agency').then(setD).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
   // from the workspace switcher: /agency?open=<client id>
@@ -71,6 +72,7 @@ export default function Agency() {
                         <button className="icon-btn" title={c.report ? `Copy a new client report link (the current one, valid until ${fmtDate(c.reportExpires)}, stops working)` : 'Make a client report link (30 days)'} aria-label="Client report link" onClick={() => reportLink(c)}><Icon name="chart" size={15} /></button>
                         <button className={`icon-btn${c.reportEmail ? ' on' : ''}`} title={c.reportEmail ? `Report emailed ${c.reportEmail.every} to ${c.reportEmail.to}` : 'Email the report to the client every week or month'} aria-label="Email the report" onClick={() => reportEmail(c)}><Icon name="mail" size={15} /></button>
                         {c.report && <button className="icon-btn" title="Turn the report link off" aria-label="Turn the report link off" onClick={() => act(() => api(`/agency/clients/${c.id}/report-link`, 'DELETE'), 'Report link turned off')}><Icon name="x" size={15} /></button>}
+                        {owner && c.modules && <button className="icon-btn" title="Tools this client sees (by industry; switch others on)" aria-label="Tools this client sees" onClick={() => setTools(c)}><Icon name="layers" size={15} /></button>}
                         {owner && c.email && <button className="icon-btn" title="Hand the account over (they pay for it themselves)" aria-label="Hand the account over (they pay for it themselves)" onClick={async () => (await confirmDialog({ title: `Hand ${c.business} over?`, text: 'It leaves your Agency plan and starts its own trial; you stay on its team as an admin.', confirm: 'Hand over' })) && act(() => api(`/agency/clients/${c.id}/detach`, 'POST'), 'Handed over')}><Icon name="external" size={15} /></button>}
                         {owner && <button className="icon-btn danger" title="Delete the client account" aria-label="Delete the client account" onClick={async () => (await promptDialog({ title: `Delete ${c.business}?`, text: 'The account is paused now and deleted with all its funnels, contacts and orders after 30 days. The client is told. You can undo it until then.', confirmWord: 'DELETE', confirm: 'Delete', danger: true })) === 'DELETE' && act(() => api(`/agency/clients/${c.id}`, 'DELETE', { confirm: 'DELETE' }), 'Paused — deleted in 30 days')}><Icon name="trash" size={15} /></button>}
                       </>}
@@ -88,6 +90,13 @@ export default function Agency() {
       )}
       {add && <AddClient onClose={() => setAdd(false)} onDone={async (r) => { setAdd(false); load(); if (r.token && await confirmDialog({ title: 'Client account ready', text: 'Open it now to set it up? (2 hours, logged as “Setting up the new account”)', confirm: 'Open it', cancel: 'Later' })) enterClient(r.token); }} />}
       {invite && <InviteClient c={invite} onClose={() => setInvite(null)} onDone={() => { setInvite(null); load(); }} />}
+      {tools && (
+        <Modal title={`Tools for ${tools.business}`} onClose={() => setTools(null)} width={560}>
+          <div className="m-body">
+            <ModuleSwitches m={tools.modules} note="The client’s CRM style decides which industry tools show; tools it leaves out are hidden from their menu. Switch any on for this client." save={(pages) => act(() => api(`/agency/clients/${tools.id}/modules`, 'PUT', { pages }), 'Tools saved').then(() => setTools(null))} />
+          </div>
+        </Modal>
+      )}
     </Layout>
   );
 }
