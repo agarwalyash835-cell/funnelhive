@@ -83,6 +83,32 @@ export const IMAGE_MODELS = {
   'ideogram-3': { name: 'Ideogram 3', model: 'ideogram/v3-text-to-image', res: ['1K', '2K'], refs: 0, price: { '1K': 7, '2K': 10 }, note: 'Best with words on the picture' },
   'flux-3': { name: 'Flux 3', model: 'flux-3/klein-text-to-image', res: ['1K', '2K', '4K'], refs: 0, price: { '1K': 1.6, '2K': 2.5, '4K': 6.5 }, note: 'Very fast drafts' },
 };
+// A presenter: a person speaking the scene's voiceover to camera (testimonial, UGC, a founder), lip-synced from one picture
+// of them and the line's audio. kie.ai docs (docs.kie.ai/market/omnihuman-2-0, read 2026-11-04):
+//   model "omnihuman-2-0" · input { image_urls: [one image — JPEG/PNG/WebP…, <30 MB, width/height 0.4–2.5, 300–6000 px],
+//   audio_url (WAV or MP3, 4–300 s, <15 MB), prompt? (≤300 chars: expression, movement, camera), enable_watermark?
+//   (default TRUE — sent false) } → resultJson { resultUrls: [mp4] }; 720p only, the video lasts as long as the audio,
+//   with the audio in it (the editor drops it: the Reel's own voiceover track plays). Price (kie.ai/omnihuman-2-0): 14
+//   credits a second of output. Alternatives on the same market, not used: Kling AI Avatar Standard / Pro
+//   (kling/ai-avatar-standard|pro: image_url, audio_url, prompt required; 1080p on Pro; up to 5 min), Infinitalk
+//   (infinitalk/from-audio: image_url, audio_url, prompt, 480p|720p), neither with a published per-second price; Kling 4's
+//   reference-to-video "voices" and Veo 3.1's own dialogue make the speech themselves — they can't speak a Sarvam line in
+//   an Indian language word for word, so the voiceover and the lips would disagree.
+export const PRESENTER_MODELS = {
+  'omnihuman-2': { name: 'OmniHuman 2.0', model: 'omnihuman-2-0', res: '720p', secs: [4, 300], price: perSec({ '720p': 14 }), note: 'A person speaking your voiceover, lip-synced' },
+};
+export const PRESENTER_DEFAULT = 'omnihuman-2';
+export const presenterModel = (key) => { const k = PRESENTER_MODELS[key] ? key : PRESENTER_DEFAULT; return { key: k, ...PRESENTER_MODELS[k], model: platform().studio?.models?.presenter?.model || PRESENTER_MODELS[k].model }; };
+// a presenter clip of `seconds` (charged by the second of output, at least the model's shortest audio)
+export const presenterCost = (seconds, key) => {
+  const m = presenterModel(key), rates = { ...m.price.rates, ...(platform().studio?.prices?.presenter?.[m.key] || {}) };
+  return Math.ceil((rates[m.res] ?? Math.max(...Object.values(rates))) * Math.max(m.secs[0], Math.ceil(Number(seconds) || 5)));
+};
+// the request: the picture, the line's audio (already padded to the model's 4-second minimum) and a short direction
+export function presenterInput(model, { image, audio, prompt = '', seconds = 4 }) {
+  return { input: { image_urls: [image], audio_url: audio, ...(prompt ? { prompt: String(prompt).slice(0, 300) } : {}), enable_watermark: false }, seconds: Math.max(4, Math.round(seconds * 100) / 100), resolution: '720p', model };
+}
+
 // what each tier offers (the first is its default) and the resolutions it allows
 export const TIER_MENU = {
   quick: { video: ['seedance-2-mini', 'grok-imagine', 'wan-3'], image: ['nano-banana-2-1', 'flux-3', 'ideogram-3'], clipRes: ['480p', '720p'], clipDefault: '480p', imageRes: '1K' },
@@ -141,17 +167,23 @@ export const clipCost = (tier, seconds, res, key) => {
 // each still is animated by the editor (a zoom or pan, free) instead of an AI clip: stills and voice only.
 export const MOTIONS = ['video', 'story', 'photo'];
 export const musicCost = () => Math.ceil(platform().studio?.prices?.music ?? PRICES.music);
-export function reelCost({ tier, seconds = 30, shots = 4, lines = 4, res, motion = 'video', vmodel, imodel }) {
+// presenters: how many scenes are a person speaking to camera — each a lip-synced clip as long as its line instead of an
+// AI clip (also in a 'photo' Reel), with no closing still in a storyline; face: the seller gave the presenter's picture,
+// so those scenes need no still either
+export function reelCost({ tier, seconds = 30, shots = 4, lines = 4, res, motion = 'video', vmodel, imodel, presenters = 0, face = false }) {
   const t = tierOf(tier), v = modelKey('clip', t, vmodel), im = modelKey('image', t, imodel);
+  const p = Math.min(shots, Math.max(0, Math.round(Number(presenters) || 0))), scenes = shots - p;
   const clipSecs = Math.max(4 * shots, Math.round((Number(seconds) || 30) - 2.5)), perShot = clipSecs / Math.max(1, shots);
-  const base = shots * imageCost(t, im) + Math.ceil(lines * PRICES.voiceLine) + musicCost();
-  const stills = motion === 'story' ? shots * imageCost(t, im) : 0;
-  const total = (r) => base + stills + shots * clipCost(t, perShot, r, v);
+  const firstStills = (shots - (face ? p : 0)) * imageCost(t, im);
+  const talk = p * presenterCost(perShot);
+  const base = firstStills + Math.ceil(lines * PRICES.voiceLine) + musicCost();
+  const stills = motion === 'story' ? scenes * imageCost(t, im) : 0;
+  const total = (r) => base + stills + scenes * clipCost(t, perShot, r, v) + talk;
   const byRes = Object.fromEntries(resOf(t, v).map((r) => [r, total(r)]));
-  const credits = motion === 'photo' ? base : total(clipRes(t, res, v));
+  const credits = motion === 'photo' ? base + talk : total(clipRes(t, res, v));
   // storyboard first: the stills (and the voiceover, cheap) are paid up front; the clips and the music when it's animated
-  const storyboard = shots * imageCost(t, im) + stills + Math.ceil(lines * PRICES.voiceLine);
-  return { credits, res: clipRes(t, res, v), motion: MOTIONS.includes(motion) ? motion : 'video', vmodel: v, imodel: im, byRes, photo: base, perImage: imageCost(t, im), clipSeconds: clipSecs, storyboard, animate: credits - storyboard, animateByRes: Object.fromEntries(Object.entries(byRes).map(([r, c]) => [r, c - storyboard])) };
+  const storyboard = firstStills + stills + Math.ceil(lines * PRICES.voiceLine);
+  return { credits, res: clipRes(t, res, v), motion: MOTIONS.includes(motion) ? motion : 'video', vmodel: v, imodel: im, byRes, photo: base + talk, perImage: imageCost(t, im), clipSeconds: clipSecs, storyboard, animate: credits - storyboard, animateByRes: Object.fromEntries(Object.entries(byRes).map(([r, c]) => [r, c - storyboard])), ...(p ? { presenter: { scenes: p, credits: talk, model: presenterModel().name, perSecond: presenterCost(4) / 4 } } : {}) };
 }
 
 // ---------- request → each family's input ----------

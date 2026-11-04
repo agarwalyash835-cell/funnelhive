@@ -63,7 +63,8 @@ export function cutTimes(lens, fade = 0.3, style = 'dissolve') {
 // clips (any sizes, any lengths, with or without sound) → one silent video at w×h, each shot dissolving into the next.
 // The dissolves overlap the shots, so the result is a little shorter than the clips laid end to end; fitDuration then
 // fits it to the voiceover.
-export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3, transitions = 'dissolve', look = 'natural' } = {}) {
+// fades: the dissolve before each clip (index i: between clip i-1 and i), when the caller has placed the cuts itself
+export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3, transitions = 'dissolve', look = 'natural', fades = null } = {}) {
   if (!files?.length) throw new Error('Add at least one clip');
   if (transitions === 'cut') fade = 0;
   need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []), ...(LOOKS[look] ? ['eq', 'vignette'] : []));
@@ -81,7 +82,7 @@ export async function joinClips(files, out, { width = 1080, height = 1920, fps =
     const steps = [];
     let end = lens[0], prev = 'v0';
     for (let i = 1; i < files.length; i++) {
-      const d = xfadeFor(lens[i - 1], lens[i], fade);
+      const d = fades ? fades[i] || 0 : xfadeFor(lens[i - 1], lens[i], fade);
       const label = i === files.length - 1 ? 'v' : `x${i}`;
       steps.push(`[${prev}][v${i}]xfade=transition=${transitionFor(i, files.length, transitions)}:duration=${d.toFixed(3)}:offset=${Math.max(0, end - d).toFixed(3)}[${label}]`);
       end += lens[i] - d; prev = label;
@@ -92,15 +93,16 @@ export async function joinClips(files, out, { width = 1080, height = 1920, fps =
   return out;
 }
 
-// exactly `seconds` long: cut the end off, or hold the last frame when the picture is shorter than the voice
-export async function fitDuration(video, seconds, out, { fps = 30 } = {}) {
+// exactly `seconds` long: cut the end off, or hold the last frame when the picture is shorter than the voice.
+// hold: never slow it down (a lip-synced presenter must keep its pace), only hold the last frame
+export async function fitDuration(video, seconds, out, { fps = 30, hold = false } = {}) {
   const d = probe(video).duration;
   const args = ['-i', video];
   // short: slow it down gently first (up to 30% — still looks natural), and only then hold the last frame, so the
   // video never sits frozen for seconds at the end
   if (d < seconds - 0.02) {
     need('tpad');
-    const slow = Math.min(1.3, seconds / Math.max(d, 0.1));
+    const slow = hold ? 1 : Math.min(1.3, seconds / Math.max(d, 0.1));
     const rest = seconds - d * slow;
     args.push('-vf', [slow > 1.01 ? `setpts=${slow.toFixed(3)}*PTS` : '', rest > 0.02 ? `tpad=stop_mode=clone:stop_duration=${(rest + 0.1).toFixed(3)}` : ''].filter(Boolean).join(',') || 'null');
   }
@@ -269,7 +271,23 @@ export async function mux(video, audio, out) {
 //   endCard: { image, seconds } or null · sizes: ['9:16', '1:1', '16:9'] · short: frame's short side
 //   look: 'cinematic' (one grade over every shot) | 'natural' · transitions: 'cinematic' | 'dissolve' | 'cut' ·
 //   sfx: a soft whoosh under each cut
-export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false }) {
+//   starts: (optional) where each clip begins in the voiceover, seconds — the cuts then land exactly there, so a clip
+//   made from its own line (a lip-synced presenter) plays in step with the voice track · synced: (with starts) per clip,
+//   true when it must keep its pace (held at the end, never slowed)
+// Each clip's sound is always dropped: the voiceover (and music) is the only sound track.
+// Line-synced cuts: clip i starts at T_i (the first at 0; the others at voiceDelay + starts[i], on a frame). Each clip is
+// fitted to its slot plus the dissolve into the next one, and the dissolve into clip i starts at T_i — so clip i's first
+// frame is at T_i, and the joined picture is exactly as long as the voice.
+export function slotPlan(starts, n, body, { fps = 30, voiceDelay = 0.15, fade = 0.3, transitions = 'dissolve' } = {}) {
+  if (!Array.isArray(starts) || starts.length !== n || n < 1) return null;
+  const f = (x) => Math.round(x * fps) / fps;
+  const T = starts.map((s, i) => (i === 0 ? 0 : f(voiceDelay + Number(s))));
+  const slots = T.map((t, i) => f((i < n - 1 ? T[i + 1] : body) - t));
+  if (!slots.every((x) => Number.isFinite(x) && x >= 0.5)) return null; // overlapping or tiny: the usual fit instead
+  const fades = slots.map((x, i) => (i === 0 || transitions === 'cut' ? 0 : f(xfadeFor(slots[i - 1], x, fade))));
+  return { T, slots, fades, lens: slots.map((x, i) => f(x + (fades[i + 1] || 0))) };
+}
+export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false, starts = null, synced = [] }) {
   const temp = [];
   const t = (n, ext = 'mp4') => { const f = tmpFile(outDir, n, ext); temp.push(f); return f; };
   try {
@@ -281,8 +299,15 @@ export async function render({ clips, voice, music, words = [], captions = { sty
 
     // where the cuts land once the joined picture is fitted to the voice (fitDuration slows it up to 30% when short)
     const fade = transitions === 'cinematic' ? 0.45 : 0.3;
+    const plan = voice ? slotPlan(starts, clips.length, body, { fps, voiceDelay, fade, transitions }) : null;
     let whooshes = [];
-    if (sfx && clips.length > 1) {
+    if (plan) {
+      // each clip to its slot first (once, for every size)
+      const fitted = [];
+      for (let i = 0; i < clips.length; i++) fitted.push(await fitDuration(clips[i], plan.lens[i], t(`slot${i}`), { fps, hold: !!synced[i] }));
+      clips = fitted;
+      if (sfx) whooshes = plan.T.slice(1).map((x, i) => x + plan.fades[i + 1] / 2).filter((c) => c < body);
+    } else if (sfx && clips.length > 1) {
       const lens = clips.map((c) => probe(c).duration || 0), cuts = cutTimes(lens, fade, transitions);
       const joined = lens.reduce((a, b) => a + b, 0) - (transitions === 'cut' ? 0 : lens.slice(1).reduce((n, l, i) => n + xfadeFor(lens[i], l, fade), 0));
       const k = joined < body ? Math.min(1.3, body / Math.max(joined, 0.1)) : 1;
@@ -296,7 +321,7 @@ export async function render({ clips, voice, music, words = [], captions = { sty
     const files = {};
     for (const aspect of [...new Set(sizes)].filter((a) => ASPECTS[a])) {
       const { width, height } = dims(aspect, short);
-      let v = await joinClips(clips, t(`join-${aspect.replace(':', 'x')}`), { width, height, fps, fade, transitions, look });
+      let v = await joinClips(clips, t(`join-${aspect.replace(':', 'x')}`), { width, height, fps, fade, transitions, look, ...(plan ? { fades: plan.fades } : {}) });
       v = await fitDuration(v, body, t('fit'), { fps });
       if (captions && words.length) {
         const ass = writeAss(words, t('captions', 'ass'), { ...captions, width, height, offset: voiceDelay });

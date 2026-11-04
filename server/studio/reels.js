@@ -22,6 +22,7 @@ import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
 import { memoryOf, memoryPrompt, withPrefs, withCharacters } from './memory.js';
 import { reviewReel } from './qa.js';
+import { celebrityIn, CELEBRITY_ERROR, presenterBrief, faceStill, presenterReady, presenterClip, relip, sceneStarts, talks } from './presenter.js';
 
 export const LENGTHS = [15, 30, 45];
 export const CAPTION_IDS = Object.keys(CAPTION_STYLES);
@@ -32,13 +33,15 @@ const transcriber = () => (process.env.SARVAM_API_KEY ? sarvamTranscriber() : nu
 
 // ---------- the script ----------
 const SCRIPT_SYSTEM = `You write short video ads (Instagram Reels, YouTube Shorts, video sales letters) for Indian small businesses.
-Answer only JSON: {"title": short name, "lines": [voiceover lines], "shots": [{"image": a detailed photo prompt for the shot's opening still (subject, setting, light, camera; no text, logos or captions in the picture), "end": a detailed photo prompt for the shot's closing still — the SAME people, place, clothes and light as the opening still, with only what changed by the end of the shot (the action finished, the camera moved), "motion": what moves in the shot (camera move, action), "seconds": 4-8}], "endCard": {"headline": max 40 chars, "offer": price or offer max 40 chars, "cta": call to action max 30 chars}, "music": the background music for this ad in a few words — genre, instruments, tempo, mood (instrumental, no artist names)}.
+Answer only JSON: {"title": short name, "lines": [voiceover lines], "shots": [{"image": a detailed photo prompt for the shot's opening still (subject, setting, light, camera; no text, logos or captions in the picture), "end": a detailed photo prompt for the shot's closing still — the SAME people, place, clothes and light as the opening still, with only what changed by the end of the shot (the action finished, the camera moved), "motion": what moves in the shot (camera move, action), "seconds": 4-8, "type": "presenter" only for a scene where one person speaks the line straight to the camera (testimonials, UGC, a founder talking) — leave it out otherwise}], "endCard": {"headline": max 40 chars, "offer": price or offer max 40 chars, "cta": call to action max 30 chars}, "music": the background music for this ad in a few words — genre, instruments, tempo, mood (instrumental, no artist names)}.
 Rules: the first line is a hook that stops the scroll; 3-6 lines, each one short spoken sentence; stay within the word limit given (it's how long the video runs); one shot per line, in order; the shots tell one story from problem to result, with the same main person throughout (described the same way in every prompt — age, look, clothes); every person is Indian unless the brief says otherwise; show the real product in most shots; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
 
 export function cleanScript(s) {
   const lines = (Array.isArray(s?.lines) ? s.lines : []).map((x) => clip(typeof x === 'string' ? x : x?.text, 220)).filter(Boolean).slice(0, 8);
-  const shots = (Array.isArray(s?.shots) ? s.shots : []).slice(0, 8).map((x) => ({ image: clip(x?.image, 600), end: clip(x?.end, 600), motion: clip(x?.motion, 300), seconds: Math.min(10, Math.max(4, Math.round(Number(x?.seconds) || 5))) })).filter((x) => x.image.length >= 3);
+  const shots = (Array.isArray(s?.shots) ? s.shots : []).slice(0, 8).map((x) => ({ image: clip(x?.image, 600), end: clip(x?.end, 600), motion: clip(x?.motion, 300), seconds: Math.min(10, Math.max(4, Math.round(Number(x?.seconds) || 5))), ...(x?.type === 'presenter' ? { type: 'presenter' } : {}) })).filter((x) => x.image.length >= 3);
   if (lines.length < 1 || shots.length < 1) return { error: 'The script needs at least one line and one shot' };
+  // a person speaking to camera is never a real public figure (presenter.js)
+  if (celebrityIn(...shots.filter((x) => x.type === 'presenter').map((x) => x.image))) return { error: CELEBRITY_ERROR };
   const e = s?.endCard || {};
   return { script: { title: clip(s?.title, 80) || 'Reel', lines, shots, music: clip(s?.music, 200), endCard: { headline: clip(e.headline, 40), offer: clip(e.offer, 40), cta: clip(e.cta, 30) } } };
 }
@@ -46,9 +49,9 @@ export function cleanScript(s) {
 export const wordBudget = (seconds) => Math.max(12, Math.round((seconds - 3) * 2.4));
 export const wordCount = (script) => (script.lines || []).join(' ').split(/\s+/).filter(Boolean).length;
 const parseScript = (text) => { try { return cleanScript(JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))); } catch { return { error: 'not JSON' }; } };
-export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null }) {
+export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null, presenter = null }) {
   const budget = wordBudget(seconds);
-  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(memoryOf(userId), business) : ''}`;
+  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}${presenterBrief(presenter)}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(memoryOf(userId), business) : ''}`;
   let c = parseScript(await askAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
   // too long for the length asked (a 15-second Reel that runs 22 seconds): ask once to tighten it
@@ -64,18 +67,19 @@ export async function writeScript({ brief, lang, seconds, business, aspect = '9:
 export const REEL_ASPECTS = ['9:16', '16:9', '1:1', '4:5'];
 export function newReel(userId, o) {
   o = withPrefs(userId, o); // what the seller didn't choose: their usual (memory.js)
-  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, ...(o.presenter ? { presenter: o.presenter } : {}), by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken. Storyboard first
 // ({ storyboard: true }): only the stills are made (and the lines spoken), then it waits at storyboard_ready for scene
 // changes and the go-ahead to animate (animateReel) — the clips, the expensive part, are paid for only then
 export function approveReel(r, script, o = {}) {
-  const shots = script.shots.map((s) => ({ ...s, imageId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, prompt: withCharacters(r.userId, s.image), aspect: r.aspect, ref: r.ref, reelId: r.id, by: r.by }).id, clipId: null }));
+  // a presenter scene with the seller's chosen face: that picture is its still (presenter.js)
+  const shots = script.shots.map((s) => ({ ...s, imageId: s.type === 'presenter' && r.presenter?.image ? faceStill(r, s) : enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, prompt: withCharacters(r.userId, s.image), aspect: r.aspect, ref: r.ref, reelId: r.id, by: r.by }).id, clipId: null }));
   return T.studio.update(r.id, (x) => { x.script = script; x.shots = shots; x.lines = script.lines.map((text) => ({ text, url: null, tries: 0, check: null })); x.status = 'producing'; x.approvedAt = Date.now(); if (o.storyboard) x.storyboard = true; else delete x.storyboard; delete x.error; });
 }
 
 // ---------- the storyboard: change a scene, then animate ----------
-const stillsDone = (r) => r.shots.every((s) => done(T.studio.get(s.imageId)) && (r.motion !== 'story' || done(T.studio.get(s.endId))));
+const stillsDone = (r) => r.shots.every((s, i) => done(T.studio.get(s.imageId)) && (r.motion !== 'story' || talks(r, i) || done(T.studio.get(s.endId))));
 // a still made again with the note (the job runs it through the queue and its checks again)
 const remake = (id, note) => T.studio.update(id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [note] : y.fix ? [y.fix] : []; y.error = ''; if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
 // what remaking scene i's picture costs: one still; in a storyline the opening still also brings a new closing one
@@ -107,7 +111,7 @@ export function storyboardScene(r, b) {
     }
     if (note) shots[i] = { ...shots[i], [end ? 'end' : 'image']: `${shots[i][end ? 'end' : 'image'] || ''}\n${note}`.trim().slice(0, 600) };
   }
-  return { reel: T.studio.update(r.id, (x) => { x.shots = shots; x.lines = lines; x.script = { ...x.script, lines: lines.map((l) => l.text), shots: shots.map(({ image, end, motion, seconds }) => ({ image, end, motion, seconds })) }; }) };
+  return { reel: T.studio.update(r.id, (x) => { x.shots = shots; x.lines = lines; x.script = { ...x.script, lines: lines.map((l) => l.text), shots: shots.map(({ image, end, motion, seconds, type }) => ({ image, end, motion, seconds, ...(type ? { type } : {}) })) }; }) };
 }
 // the go-ahead to animate: the clips are made (once every line is recorded), then the edit
 export function animateReel(r) {
@@ -132,6 +136,7 @@ async function produce(r) {
     if (s.clipId) return s;
     const img = T.studio.get(s.imageId);
     if (!done(img)) return s;
+    if (talks(r, i)) return s; // a presenter: ordered below, once its words are recorded (presenter.js)
     if (story && !s.endId) { changed = true; return { ...s, endId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, prompt: `${s.end || `${s.image}. The moment the shot ends: ${s.motion}`}
 Keep the same people, faces, clothes, place and light as the reference picture — only what the action changed.`, aspect: r.aspect, ref: img.url, reelId: r.id, by: r.by }).id }; }
     const endImg = story ? T.studio.get(s.endId) : null;
@@ -146,6 +151,9 @@ Keep the same people, faces, clothes, place and light as the reference picture �
     return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, vmodel: r.vmodel, res: r.res, prompt: s.motion || s.image, aspect: r.aspect, seconds, ref: img.url, ...(endImg ? { last: endImg.url } : {}), sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
   });
   if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
+  // a presenter scene whose still and words are ready: its lip-synced clip, made from that line's audio
+  const t = r.storyboard ? -1 : r.shots.findIndex((_, k) => presenterReady(r, k, done));
+  if (t >= 0) return presenterClip(r, t, (fn) => T.studio.update(r.id, fn));
   // photo motion: the editor animates the still here (free, a few seconds) and it's kept as the shot's clip
   const p = r.shots.findIndex((s) => s.still && !s.clipId);
   if (p >= 0) return photoClip(r, p);
@@ -301,7 +309,9 @@ async function edit(r) {
       } else music = await local(r.musicUrl, 'mp3').catch(() => null);
     }
     const sizes = (r.sizes?.length ? r.sizes : ['9:16']).filter((a) => ASPECTS.includes(a) && ['9:16', '1:1', '16:9', '4:5'].includes(a));
-    const out = await render({ clips, voice: voice.file, music, musicDb: -19, words, look: 'cinematic', transitions: 'cinematic', sfx: true, captions: r.captions?.style ? { style: r.captions.style, ...(r.captions.colour ? { colour: r.captions.colour } : {}) } : null, logo: logo ? { file: logo, position: 'top-right', size: 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short: r.tier === 'cinematic' ? 1080 : 720, name: 'reel' });
+    // presenter scenes: each scene starts exactly where its line does, and a presenter keeps its pace (lips in sync)
+    const starts = sceneStarts(r.shots, voice.spans);
+    const out = await render({ ...(starts ? { starts, synced: r.shots.map((s, i) => talks(r, i)) } : {}), clips, voice: voice.file, music, musicDb: -19, words, look: 'cinematic', transitions: 'cinematic', sfx: true, captions: r.captions?.style ? { style: r.captions.style, ...(r.captions.colour ? { colour: r.captions.colour } : {}) } : null, logo: logo ? { file: logo, position: 'top-right', size: 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short: r.tier === 'cinematic' ? 1080 : 720, name: 'reel' });
     const outputs = {};
     for (const [aspect, f] of Object.entries(out.files)) { temp.push(f); outputs[aspect] = (await save(r.userId, f, 'mp4', 'video/mp4')).url; }
     const first = out.files[sizes[0]] || Object.values(out.files)[0];
@@ -359,6 +369,9 @@ export function editReel(r, b) {
     T.studio.update(c.id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [clip(note, 300)] : y.fix ? [y.fix] : []; if (note) y.prompt = `${y.prompt}\n${clip(note, 300)}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
     reproduce = true;
   }
+  // a presenter speaking a line that changed (or in another voice) gets a new lip-synced clip
+  const relipped = relip(shots, lines.length, new Set(lines.flatMap((l, i) => (!l.url && r.lines[i]?.url ? [i] : []))));
+  for (let i = 0; i < shots.length; i++) if (relipped[i] !== shots[i]) { shots[i] = relipped[i]; reproduce = true; }
   return T.studio.update(r.id, (x) => {
     if (b.captions) x.captions = { style: CAPTION_IDS.includes(b.captions.style) ? b.captions.style : x.captions?.style || 'pop', ...(/^#[0-9a-f]{6}$/i.test(b.captions.colour || '') ? { colour: b.captions.colour } : {}) };
     if (b.captions === null) x.captions = null;
