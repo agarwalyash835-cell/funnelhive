@@ -8,6 +8,7 @@ import { imageCost, clipCost, clipRes, reelCost, modelKey, presenterCost } from 
 import { sceneCost } from './studio/reels.js';
 import { CAST_TOOLS, CAST_OK } from './hive-cast.js';
 import { presenterScenes } from './studio/presenter.js';
+import * as variationTools from './hive-variations.js';
 const S = (props, required = []) => ({ type: 'object', properties: props, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
 const num = (description) => ({ type: 'number', description });
@@ -151,12 +152,14 @@ export const TOOLS = [
     run: async (ctx, a) => ({ ok: true, reel: brief(await ctx.call('POST', `/studio/reels/${encodeURIComponent(a.id)}/animate`, { ...(a.res ? { res: a.res } : {}), ...(a.vmodel ? { vmodel: a.vmodel } : {}) })) }),
     summary: () => 'Animating the storyboard',
   },
+  ...variationTools.TOOLS,
 ];
 
 // clips and Reels are the costly renders: the seller confirms
 const TIER_NAME = (t) => ({ quick: 'Quick', cinematic: 'Cinematic' })[t] || 'Standard';
 const secs = (a) => Math.min(15, Math.max(4, Math.round(a.seconds || 5)));
 export const OK = {
+  ...variationTools.OK,
   studio_make_images: (a) => { const n = Math.min(4, Math.max(1, Math.round(a.count || 1))); return `Make ${n} ${TIER_NAME(a.tier)} image${n === 1 ? '' : 's'} in Studio — about ${n * imageCost(a.tier)} credits`; },
   studio_make_clip: (a) => `Make a ${secs(a)}-second ${TIER_NAME(a.tier)} video clip at ${clipRes(a.tier, a.res)} in Studio — about ${clipCost(a.tier, secs(a), a.res)} credits`,
   studio_redo: (a) => { const x = T.studio.get(String(a.id || '')); const c = redoCost(x); return `Make it again in Studio${c ? ` — about ${c} credits` : ''}`; },

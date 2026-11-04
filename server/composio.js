@@ -52,7 +52,7 @@ const activeApps = async (u) => new Set((await connections(u)).filter((c) => c.s
 
 // tools of the seller's connected apps (cached per app for an hour): what Hive can see and run
 const toolCache = new Map();
-async function toolsOf(app) {
+export async function toolsOf(app) {
   const hit = toolCache.get(app);
   if (hit && Date.now() - hit.at < 3600000) return hit.list;
   const list = ((await call('GET', `/tools?toolkit_slug=${app}&limit=300`)).items || []).filter((t) => !t.is_deprecated)
@@ -64,7 +64,7 @@ async function toolsOf(app) {
 export const readOnlyAction = (slug) => /_(GET|LIST|SEARCH|READ|FETCH|FIND)(_|$)/.test(String(slug));
 const appOf = (slug) => Object.keys(APPS).find((a) => String(slug).toUpperCase().startsWith(`${a.toUpperCase()}_`));
 // new campaigns, ad sets and ads always start paused — turning them on is a separate, confirmed step
-function safeArgs(slug, args) {
+export function safeArgs(slug, args) {
   const a = { ...(args || {}) };
   if (/^METAADS_CREATE_(CAMPAIGN|AD_SET|AD)$/.test(slug)) a.status = 'PAUSED';
   if (/^GOOGLEADS_MUTATE_(CAMPAIGNS|AD_GROUPS|AD_GROUP_ADS)$/.test(slug)) {
