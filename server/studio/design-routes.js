@@ -3,7 +3,7 @@
 import { T } from '../db.js';
 import { TIERS, TIER_NAMES, imageCost, modelKey } from './models.js';
 import { LANGUAGES } from './voice.js';
-import { newDesign, makeBackground, editDesign, zipDesign, designView, designHash, designsTick, templateMenu, formatMenu, renderDesign, GROUPS } from './designs.js';
+import { newDesign, makeBackground, editDesign, zipDesign, designView, designHash, designsTick, templateMenu, formatMenu, renderDesign, GROUPS, regate } from './designs.js';
 import { assessDesign } from './preflight.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -75,12 +75,12 @@ export function registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownU
     if (d.assessment?.hash === hash && !req.body?.again) return res.json(designView(d));
     const a = await assessDesign({ brief: d.prompt, group: d.group, format: d.format, lang: d.lang, slides: d.slides, background: d.bgPrompt, fields: d.slides.map((s) => TEMPLATES[s.template].fields.map((f) => f.key)) });
     if (!a) return res.status(503).json({ error: 'The check isn’t available right now — you can still go ahead' });
-    res.json(designView(T.studio.update(d.id, (x) => { x.assessment = { ...a, hash }; })));
+    res.json(designView(regate(T.studio.update(d.id, (x) => { x.assessment = { ...a, hash }; })))); // the check's score feeds the gate
   }));
   // the go-ahead: the background picture is made (credits), then every slide is drawn on it. { note, tier, imodel }
   app.post('/api/studio/designs/:id/make', auth, limiter, (req, res) => {
     if (!gate(req, res)) return;
-    const d = mine(req, res, ['draft', 'ready', 'failed']); if (!d) return;
+    const d = mine(req, res, ['draft', 'ready', 'needs_review', 'failed']); if (!d) return;
     const b = req.body || {};
     if (TIERS.includes(b.tier) || b.imodel) T.studio.update(d.id, (x) => { if (TIERS.includes(b.tier)) x.tier = b.tier; if (b.imodel && !x.typography) x.imodel = modelKey('image', x.tier, b.imodel); });
     const out = makeBackground(T.studio.get(d.id), { note: clip(b.note, 300) });
@@ -89,14 +89,14 @@ export function registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownU
   });
   // any change — words, template, colours, font style, size, own photo — is a free re-draw (no new picture)
   app.put('/api/studio/designs/:id', auth, limiter, wrap(async (req, res) => {
-    const d = mine(req, res, ['draft', 'ready', 'failed']); if (!d) return;
+    const d = mine(req, res, ['draft', 'ready', 'needs_review', 'failed']); if (!d) return;
     const b = { ...(req.body || {}) };
     for (const k of ['photo', 'photo2']) if (b[k] !== undefined || b[`${k}Id`]) { const p = picture(req, b[k], b[`${k}Id`]); if (p === false) return res.status(400).json({ error: 'Pick one of your own pictures' }); b[k] = p; }
     try { res.json(designView(await editDesign(d, b))); } catch (e) { console.error('design edit failed', e.message, e.detail || ''); res.status(500).json({ error: 'The design couldn’t be drawn — try again' }); }
   }));
   // draw it again as it is (e.g. after the brand's logo changed)
   app.post('/api/studio/designs/:id/redraw', auth, limiter, wrap(async (req, res) => {
-    const d = mine(req, res, ['draft', 'ready']); if (!d) return;
+    const d = mine(req, res, ['draft', 'ready', 'needs_review']); if (!d) return;
     res.json(designView(await renderDesign(d)));
   }));
   app.get('/api/studio/designs/:id/zip', auth, wrap(async (req, res) => {

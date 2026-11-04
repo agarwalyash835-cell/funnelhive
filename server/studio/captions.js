@@ -3,6 +3,7 @@
 // few looks, kept inside the area Reels/Shorts leave clear of their own buttons and readable over any picture
 // (thick outline or a box behind the text).
 import fs from 'node:fs';
+import { SAFE, minCaption } from './standard.js';
 
 // ASS colours are &HAABBGGRR (alpha 00 = solid)
 export function assColour(hex, alpha = 0) {
@@ -11,11 +12,12 @@ export function assColour(hex, alpha = 0) {
   return `&H${a}${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toUpperCase();
 }
 
-// The safe area as fractions of the frame: Reels/Shorts cover the top ~14% (account bar), the bottom ~22% (caption,
-// music, buttons) and a strip on the right (like/share buttons). Square and landscape frames have no overlay, just a margin.
+// The safe area in pixels, from the Creative Standard's zones (standard.js SAFE): Reels/Shorts cover the top ~14%
+// (account bar), the bottom ~25% (caption, music, buttons) and a strip on the right (like/share buttons). Square and
+// landscape frames have no overlay, just a margin.
 export function safeArea(width, height) {
-  if (height / width > 1.4) return { top: Math.round(height * 0.14), bottom: Math.round(height * 0.22), left: Math.round(width * 0.07), right: Math.round(width * 0.14) };
-  return { top: Math.round(height * 0.06), bottom: Math.round(height * 0.08), left: Math.round(width * 0.06), right: Math.round(width * 0.06) };
+  const z = height / width > 1.4 ? SAFE.vertical : SAFE.flat;
+  return { top: Math.round(height * z.top), bottom: Math.round(height * z.bottom), left: Math.round(width * z.left), right: Math.round(width * z.right) };
 }
 
 // The looks. size is a fraction of the frame's shorter side; y is where the text sits (fraction of the frame height,
@@ -61,6 +63,19 @@ export function phrases(words, { maxWords = 5, maxChars = 28, gap = 0.35 } = {})
   return out;
 }
 
+// where a look's captions land in a frame — the Creative Standard's free fixes applied: never smaller than the
+// readable minimum (standard.js), and the block (two lines at most) moved inside the safe area.
+// → { size, marginV (bottom edge from the frame's bottom), top, bottom (px from the frame's top), moved, enlarged }
+export function captionPlace(look, width, height) {
+  const P = typeof look === 'string' ? PRESETS[look] || PRESETS.pop : look;
+  const short = Math.min(width, height), min = minCaption(width, height);
+  const size = Math.round(short * Math.max(P.size, min));
+  const safe = safeArea(width, height), want = Math.round(height * (1 - P.y));
+  // the line's bottom edge, bottom-aligned, kept between the safe top and bottom
+  const marginV = clamp(want, safe.bottom, height - safe.top - size * 2);
+  return { size, marginV, top: height - marginV - size * 2, bottom: height - marginV, moved: marginV !== want, enlarged: P.size < min };
+}
+
 // words [{ w, start, end }] → the text of an .ass file
 // opts: { style ('pop'|'lower'|'karaoke'|'minimal'), mode?, width, height, font, colour?, highlight?, upper?, offset (s) }
 export function buildAss(words, { style = 'pop', mode, width = 1080, height = 1920, font = 'Noto Sans', colour, highlight, upper, offset = 0 } = {}) {
@@ -70,11 +85,8 @@ export function buildAss(words, { style = 'pop', mode, width = 1080, height = 19
   if (upper != null) P.upper = !!upper;
   const m = mode || P.mode;
   const list = (words || []).map((w) => ({ w: clean(w.w), start: Number(w.start) + offset, end: Number(w.end) + offset })).filter((w) => w.w && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start);
-  const short = Math.min(width, height);
-  const size = Math.round(short * P.size);
+  const { size, marginV } = captionPlace(P, width, height);
   const safe = safeArea(width, height);
-  // the line's bottom edge, bottom-aligned, kept between the safe top and bottom
-  const marginV = clamp(Math.round(height * (1 - P.y)), safe.bottom, height - safe.top - size * 2);
   const outline = P.box ? Math.max(6, Math.round(size * P.outline)) : Math.max(2, Math.round(size * P.outline));
   const shadow = Math.round(size * P.shadow);
   // BorderStyle 3 = an opaque box behind the text (OutlineColour fills it); 1 = outline + shadow

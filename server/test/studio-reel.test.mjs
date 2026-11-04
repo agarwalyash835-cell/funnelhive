@@ -116,7 +116,11 @@ test('approved: shots and voiceover are made and checked (a misread price is red
   const a = await api(`/studio/reels/${reelId}/approve`, 'POST', {}, S);
   assert.equal(a.data.status, 'producing');
   const r = await until(['ready', 'needs_review', 'failed']);
-  assert.equal(r.status, 'ready', JSON.stringify({ status: r.status, error: r.error, issues: r.issues, lines: r.lines, shots: r.shots }));
+  // made, but held at needs_review by the Creative Standard's gate: the editor scored it 72 (the bar is 80) and the
+  // script named no hook or structure from the playbook
+  assert.equal(r.status, 'needs_review', JSON.stringify({ status: r.status, error: r.error, issues: r.issues }));
+  assert.ok(r.issues.some((x) => /scored 72; 80 is the bar/.test(x)), JSON.stringify(r.issues));
+  assert.equal(r.gate.ready, false);
   // the price line was spoken twice: the first one was heard as "four nine nine"
   assert.equal(r.lines[1].tries, 2);
   assert.ok(r.lines.every((l) => l.url && l.check?.ok));

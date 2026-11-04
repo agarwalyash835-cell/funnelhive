@@ -159,7 +159,7 @@ export function Designs({ onClose }) {
           {!d ? <div className="muted" style={{ margin: 'auto', textAlign: 'center', maxWidth: 420 }}><Icon name="image" size={28} /><p>Pick a kind and a template, say what it’s for, and Studio writes the words and draws a preview in your brand colours. Hindi, Marathi, Gujarati, Tamil and the rest are always spelled and shaped right — the words are drawn by Studio, not by the picture model.</p></div> : (
             <>
               <div className="dz-sw">
-                <span className="dz-tag">{d.status === 'producing' ? 'Making the picture…' : d.preview ? 'Free preview' : d.status === 'failed' ? 'Picture failed' : 'Ready'}</span>
+                <span className="dz-tag">{d.status === 'producing' ? 'Making the picture…' : d.preview ? 'Free preview' : d.status === 'failed' ? 'Picture failed' : d.status === 'needs_review' ? 'Needs a look' : 'Ready'}</span>
                 {d.typography && <span className="dz-tag">AI lettering</span>}
                 {d.size && <span className="muted sm">{d.size.label} · {d.size.width}×{d.size.height}</span>}
                 {d.error && <span className="sm" style={{ color: 'var(--danger,#c00)' }}>{d.error}</span>}
@@ -178,6 +178,12 @@ export function Designs({ onClose }) {
                 <button type="button" className="btn ghost" disabled={!!busy || d.status === 'producing'} onClick={check}>{busy === 'check' ? 'Checking…' : 'Check quality and reach (free)'}</button>
                 {d.outputs.length > 1 && <button type="button" className="btn ghost" disabled={!!busy} onClick={zip}><Icon name="download" size={14} /> All slides (.zip)</button>}
               </div>
+              {d.standard?.rules?.length > 0 && (
+                <div className="panel sm" style={{ padding: 12 }} aria-label="Creative Standard">
+                  <b>Standard · {d.standard.label}</b>
+                  {d.standard.rules.map((x) => <div key={x.id} title={x.fix || ''}>{x.ok === false ? '✗' : x.ok ? '✓' : '·'} {x.label}{x.detail ? <span className="muted"> — {x.detail}</span> : null}{x.ok === false && x.fix ? <span className="muted"> ({x.fix})</span> : null}</div>)}
+                </div>
+              )}
               {d.assessment && (
                 <div className="panel" style={{ padding: 12 }}>
                   <div className="dz-score"><span>Quality <b>{d.assessment.quality ?? '–'}</b></span><span>Reach <b>{d.assessment.virality ?? '–'}</b></span><span className="muted">{d.assessment.verdict}</span></div>

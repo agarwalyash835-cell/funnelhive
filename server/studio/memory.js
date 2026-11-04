@@ -12,6 +12,7 @@ import { T } from '../db.js';
 import { TIERS, VOICES, MOTIONS, modelKey } from './models.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
+import { cleanLook, lookPrompt } from './cinema.js';
 
 const CAP = { likes: 8, avoid: 10, characters: 3, wins: 5, colours: 3 };
 const LEN = { item: 100, name: 30, look: 200, title: 60, hook: 100 };
@@ -72,6 +73,7 @@ export function remember(userId, p = {}) {
     if (b.colours !== undefined) m.brand.colours = add(m.brand.colours, [].concat(b.colours).map(hex).filter(Boolean), CAP.colours);
     if (b.logo !== undefined) m.brand.logo = ownLogo(userId, b.logo);
     if (b.font !== undefined) { if (FONT_STYLES.includes(b.font)) m.brand.font = b.font; else delete m.brand.font; }
+    if (b.look !== undefined) { const l = cleanLook(b.look); if (l) m.brand.look = l; else delete m.brand.look; }
   }
   if (p.likes) m.likes = add(m.likes, items(p.likes), CAP.likes);
   if (p.avoid) m.avoid = add(m.avoid, items(p.avoid), CAP.avoid);
@@ -85,6 +87,7 @@ export function setMemory(userId, b = {}) {
   const m = memoryOf(userId);
   if (b.brand) m.brand = { name: b.brand.name !== undefined ? clip(b.brand.name, 80) : m.brand.name, colours: b.brand.colours !== undefined ? add([], [].concat(b.brand.colours).map(hex).filter(Boolean), CAP.colours) : m.brand.colours, logo: b.brand.logo !== undefined ? ownLogo(userId, b.brand.logo) : m.brand.logo };
   if (b.brand) { const font = b.brand.font !== undefined ? b.brand.font : memoryOf(userId).brand.font; if (FONT_STYLES.includes(font)) m.brand.font = font; } // only when set (sans | serif | display)
+  if (b.brand) { const look = cleanLook(b.brand.look !== undefined ? b.brand.look : memoryOf(userId).brand.look); if (look) m.brand.look = look; } // the look book
   for (const k of ['likes', 'avoid']) if (b[k] !== undefined) m[k] = add([], items(b[k]), CAP[k]);
   if (b.characters !== undefined) m.characters = add([], [].concat(b.characters).map(person).filter((c) => c.name && c.look), CAP.characters);
   if (b.wins !== undefined) m.wins = add([], [].concat(b.wins).map((w) => ({ title: clip(w?.title, LEN.title), hook: clip(w?.hook, LEN.hook) })).filter((w) => w.title), CAP.wins);
@@ -130,6 +133,8 @@ export function learn(userId, e = {}) {
       const r = e.reel;
       const p = { prefs: { tier: r.tier, vmodel: r.vmodel, imodel: r.imodel, voice: r.voice, captions: r.captions?.style, aspect: r.aspect, lang: r.lang, seconds: r.seconds, res: r.res, motion: r.motion || 'video' } };
       if (r.logo) p.brand = { logo: r.logo };
+      // the first approved video's look becomes the brand's look book (the seller can change it), so the next ones match
+      if (!memoryOf(userId).brand.look && cleanLook(e.script?.look)) p.brand = { ...(p.brand || {}), look: e.script.look };
       // approved exactly as the AI wrote it: a win to write more like
       if (!r.edited && e.script && same(e.script, r.script)) p.wins = [{ title: e.script.title, hook: e.script.lines?.[0] }];
       else if (e.script && !same(e.script, r.script)) Object.assign(p, toneOf(r.script, e.script));
@@ -154,6 +159,7 @@ export function memoryPrompt(m, business = '') {
   const b = m.brand || {};
   const brand = [b.name && b.name !== business ? b.name : '', b.colours?.length ? `brand colours ${b.colours.join(', ')} (use them in sets, props and clothes where natural)` : ''].filter(Boolean);
   if (brand.length) out.push(`Their brand: ${brand.join(' · ')}`);
+  if (b.look) out.push(lookPrompt(b.look));
   if (m.likes?.length) out.push(`What this seller likes: ${m.likes.join('; ')}`);
   if (m.avoid?.length) out.push(`Avoid (they asked for changes like these before): ${m.avoid.join('; ')}`);
   if (m.characters?.length) out.push(`Their characters (when one fits the brief, use them, call them by name in the shot prompts and describe them exactly like this): ${m.characters.map((c) => `${c.name} — ${c.look}`).join('; ')}`);

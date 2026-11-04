@@ -13,6 +13,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { FFMPEG } from './ff.js';
 import { randomUUID } from 'node:crypto';
+import { SAFE } from './standard.js';
 const uid = () => randomUUID().slice(0, 8);
 
 // ---------- formats ----------
@@ -25,7 +26,7 @@ export const FORMATS = {
 // where nothing important goes: stories lose the top (account bar) and bottom (reply box); posts and thumbnails a margin
 // (a thumbnail's bottom-right corner is covered by the video length, so it keeps a little more there)
 export function safeBox(W, H) {
-  if (H / W > 1.6) return { t: Math.round(H * 0.12), b: Math.round(H * 0.15), l: Math.round(W * 0.07), r: Math.round(W * 0.07) };
+  if (H / W > 1.6) return { t: Math.round(H * SAFE.story.top), b: Math.round(H * SAFE.story.bottom), l: Math.round(W * SAFE.story.left), r: Math.round(W * SAFE.story.right) }; // the Creative Standard's story zone
   if (W > H) return { t: Math.round(H * 0.07), b: Math.round(H * 0.1), l: Math.round(W * 0.05), r: Math.round(W * 0.05) };
   return { t: Math.round(H * 0.065), b: Math.round(H * 0.065), l: Math.round(W * 0.065), r: Math.round(W * 0.065) };
 }
