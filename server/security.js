@@ -153,7 +153,9 @@ export function securityHeaders(req, res, next) {
   // booking pages may be embedded on the seller's own website
   const embeddable = req.path.startsWith('/meet/');
   if (!embeddable) res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // the app's own pages scan barcodes (Counter, Inventory) and record voice notes (Inbox, Hive AI): allowed for this
+  // origin only, never for embedded frames from other sites
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
   // the dashboard's policy by default; live funnel pages set their own (renderFunnel), uploads a stricter one
   res.setHeader('Content-Security-Policy', csp('app', { frameAncestors: embeddable ? '*' : "'self'" }));
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups'); // Razorpay / Google sign-in popups

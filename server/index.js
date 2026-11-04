@@ -2245,7 +2245,7 @@ app.use('/api',(req, res) => res.status(404).json({ error: 'Not found' }));
 if (indexHtml) {
   // the build's files carry a content hash in their names (/assets/index-AbC123.js): cache them for a year;
   // everything else (index.html, favicon…) is revalidated so a new deploy shows up straight away
-  app.use(express.static(dist, { index: false, setHeaders: (res, file) => { if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); else if (/(learn|counter)-sw\.js$/.test(file)) res.setHeader('Cache-Control', 'no-cache'); } })); // the members-area and counter apps' service workers update at once
+  app.use(express.static(dist, { index: false, setHeaders: (res, file) => { if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); else if (/(learn|counter|app)-sw\.js$/.test(file)) res.setHeader('Cache-Control', 'no-cache'); } })); // the app's, members-area's and counter's service workers update at once
   app.get('*', (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(spaHtml(req)));
 }
 

@@ -253,9 +253,18 @@ export function registerWhiteLabel(app, { auth, rateLimit, isTest }) {
   const brandOfReq = (req) => { const wl = hostBrand(req); return { name: wl?.brand || platform().brand, color: wl?.primary || '#1c1917', logo: wl?.logo || '' }; };
   const manifest = (req, extra) => {
     const b = brandOfReq(req);
-    const icons = b.logo ? [{ src: b.logo, sizes: 'any', purpose: 'any' }] : [{ src: '/brand-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }, { src: '/brand-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }];
-    return { name: b.name, short_name: b.name.slice(0, 12), id: '/', start_url: '/', scope: '/', display: 'standalone', background_color: '#f6f5f2', theme_color: b.color, icons, ...extra(b) };
+    // the platform's own app gets PNG icons too (Android's install prompt and the Play Store app need 192 / 512 PNGs)
+    const icons = b.logo ? [{ src: b.logo, sizes: 'any', purpose: 'any' }] : [{ src: '/icons/app-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' }, { src: '/icons/app-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }, { src: '/icons/app-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }, { src: '/brand-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }];
+    return { name: b.name, short_name: b.name.slice(0, 12), description: 'Your WhatsApp inbox, leads, orders and Hive AI in one app', id: '/', start_url: '/', scope: '/', display: 'standalone', orientation: 'any', background_color: '#f6f5f2', theme_color: b.color, categories: ['business', 'productivity'], icons, ...extra(b) };
   };
+  // Digital Asset Links: lets the Android app (Play Store) open this address full screen and own its links.
+  // ANDROID_CERT_SHA256: the app's signing-key fingerprints (Play Console → App integrity), comma-separated.
+  // Only on the platform's own address, never on an agency's domain.
+  app.get('/.well-known/assetlinks.json', (req, res) => {
+    const prints = String(process.env.ANDROID_CERT_SHA256 || '').split(',').map((s) => s.trim().toUpperCase()).filter((s) => /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(s));
+    if (hostBrand(req) || !prints.length) return res.status(404).json([]);
+    res.set('Cache-Control', 'public, max-age=300').json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: process.env.ANDROID_PACKAGE || 'in.getaihive.app', sha256_cert_fingerprints: prints } }]);
+  });
   const sendManifest = (res, m) => res.set('Cache-Control', 'no-cache').type('application/manifest+json').send(JSON.stringify(m));
   app.get('/manifest.webmanifest', (req, res) => sendManifest(res, manifest(req, () => ({}))));
   app.get('/counter.webmanifest', (req, res) => sendManifest(res, manifest(req, (b) => ({ name: `${b.name} Counter`, short_name: 'Counter', description: 'Bill at the shop counter: scan, bill, print — works offline', id: '/counter', start_url: '/counter', scope: '/counter', orientation: 'portrait', ...(b.logo ? {} : { icons: [{ src: '/counter-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }, { src: '/counter-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }] }) }))));

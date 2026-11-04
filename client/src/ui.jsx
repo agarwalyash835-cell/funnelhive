@@ -25,6 +25,16 @@ export const Icon = ({ name, size = 18, stroke = 1.75, className = '' }) => {
   return <C size={size} strokeWidth={stroke === 2 ? 1.75 : stroke} className={`ic-svg ${className}`} aria-hidden="true" />;
 };
 
+// "Install the app": shown when the browser offers to install (Android Chrome, desktop Chrome / Edge) and the app
+// isn't already open as the installed app. main.jsx keeps the browser's offer in window.__ffInstall.
+function InstallApp({ brand }) {
+  const [can, setCan] = useState(() => typeof window !== 'undefined' && !!window.__ffInstall);
+  useEffect(() => { const h = () => setCan(!!window.__ffInstall); window.addEventListener('ff:app-installable', h); return () => window.removeEventListener('ff:app-installable', h); }, []);
+  if (!can || window.matchMedia?.('(display-mode: standalone)').matches) return null;
+  const install = async () => { const p = window.__ffInstall; if (!p) return; p.prompt(); try { await p.userChoice; } catch {} window.__ffInstall = null; setCan(false); };
+  return <button type="button" className="btn ghost sm side-install" onClick={install}><Icon name="mobile" size={15} />{t('Install the {brand} app', { brand })}</button>;
+}
+
 // a password box with a show / hide button (sign-in, reset, change password); the rest passes to the <input>
 export function PasswordInput({ className = '', ...props }) {
   const [show, setShow] = useState(false);
@@ -403,6 +413,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
           <WorkspaceSwitch me={me} />
           {me?.billing?.status === 'trialing' && !me.workspace && !me.billing.agencyManaged && <Link to="/billing" className="trial-chip"><Icon name="clock" size={14} />{t(me.billing.daysLeft === 1 ? '{n} day left in trial' : '{n} days left in trial', { n: me.billing.daysLeft })}<b>{t('Upgrade')}</b></Link>}
           <div className={`ai-status ${me?.aiEnabled ? 'on' : ''}`}><Icon name="sparkles" size={14} />{me?.aiEnabled ? (me.credits?.limit == null ? t('AI · unlimited') : t('AI · {n} credits left', { n: Math.max(0, me.credits.limit - me.credits.used) })) : t('Offline AI assistant')}</div>
+          <InstallApp brand={me?.brand || BRAND} />
           <ProfileMenu me={me} onGo={() => setOpen(false)} />
         </div>
       </aside>

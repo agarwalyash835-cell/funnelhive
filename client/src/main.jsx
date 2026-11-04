@@ -244,6 +244,15 @@ const reloadForNewBuild = (e) => {
 window.addEventListener('vite:preloadError', reloadForNewBuild);
 window.addEventListener('unhandledrejection', (e) => { if (/Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(String(e.reason?.message || e.reason))) reloadForNewBuild(e); });
 
+// The seller app is installable (home screen, and the Play Store app opens it full screen): only on the app's own
+// pages (the server adds the app manifest there, never on funnel pages), not inside counter mode or a members area,
+// which have their own workers
+if (typeof window !== 'undefined' && document.querySelector('link[rel="manifest"][href="/manifest.webmanifest"]') && !/^\/(counter|learn)(\/|$)/.test(location.pathname)) {
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); window.__ffInstall = e; window.dispatchEvent(new Event('ff:app-installable')); });
+  window.addEventListener('appinstalled', () => { window.__ffInstall = null; window.dispatchEvent(new Event('ff:app-installable')); });
+  if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/app-sw.js', { scope: '/' }).catch(() => {}));
+}
+
 const root = document.getElementById('root');
 if (canHydrate(root)) {
   // the page's data script has run; it isn't part of the React tree
