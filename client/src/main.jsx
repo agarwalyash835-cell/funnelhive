@@ -21,6 +21,10 @@ import './skins-more.css';
 import { bootSkin } from './skins';
 import './cod.css';
 import './dark.css'; // last: dark mode wins over the skins
+import './mobile.css'; // the phone layout (html.is-phone, set in ui.jsx); desktop untouched
+
+// opened as the installed app (Android app / home-screen app) on a phone: signed-out people go to Log in, not the website
+const inApp = () => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px) and (pointer: coarse)').matches && (window.matchMedia('(display-mode: standalone)').matches || document.referrer.startsWith('android-app://'));
 
 const named = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })));
 const Toaster = named(() => import('./ui'), 'Toaster');
@@ -154,7 +158,7 @@ const app = isSuper ? superApp : onDomain ? (
         <Route path="/reset" element={L(Reset)} />
         <Route path="/team/accept" element={L(AcceptInvite)} />
         {/* an agency’s own domain: its login page, never the platform’s landing page, prices or admin screens */}
-        <Route path="/" element={isAgencyTier ? <Navigate to={loggedIn() ? '/agency' : '/login'} replace /> : loggedIn() ? L(Dashboard) : agencyHost() ? <Navigate to="/login?mode=login" replace /> : L(Landing)} />
+        <Route path="/" element={isAgencyTier ? <Navigate to={loggedIn() ? '/agency' : '/login'} replace /> : loggedIn() ? L(Dashboard) : agencyHost() || inApp() ? <Navigate to="/login?mode=login" replace /> : L(Landing)} />
         <Route path="/pricing" element={agencyHost() || isAgencyTier ? <Navigate to="/login" replace /> : L(Landing)} />
         <Route path="/terms" element={L(Terms)} />
         <Route path="/privacy" element={L(Privacy)} />

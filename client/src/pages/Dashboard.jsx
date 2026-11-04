@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { promptsFor } from '../industryPrompts';
-import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, BriefQuestions, DesignPicker, DEFAULT_DESIGN, confirmDialog } from '../ui';
+import { Layout, Panel, Icon, Empty, CreateFunnel, RangePicker, inr, num, ago, toast, useFunnelDraft, BriefQuestions, DesignPicker, DEFAULT_DESIGN, confirmDialog, usePhone } from '../ui';
 import { PagePreview } from '../blocks';
 import { AreaChart, Sparkline, HBars } from '../charts';
 import { TalkToHive } from '../talk';
@@ -222,7 +222,81 @@ function FunnelCards({ list }) {
   );
 }
 
+// ---------- Home on a phone: numbers, what needs you now, recent orders; the charts and tables behind "See all" ----------
+const PERIODS = [[7, '7d'], [30, '30d'], [90, '90d']];
+function PhoneHome({ data, me, days, setDays, sales }) {
+  const [all, setAll] = useState(false);
+  if (!data) return <div className="skeleton" />;
+  const t = data.totals, p = data.prev;
+  const newLeads = (data.series || []).slice(-2).reduce((a, x) => a + (x.leads || 0), 0);
+  const chats = me?.nav?.chats || 0, ship = me?.nav?.ship || 0;
+  const kpis = [
+    sales && ['Revenue', inr(t.revenue), t.revenue, p.revenue, '/orders'],
+    sales && ['Orders', num(t.orders), t.orders, p.orders, '/orders'],
+    ['Leads', num(t.leads), t.leads, p.leads, '/contacts'],
+    ['Visitors', num(t.visitors), t.visitors, p.visitors, null],
+    ['Conversion', `${t.conversion}%`, t.conversion, p.conversion, null],
+  ].filter(Boolean);
+  const needs = [
+    ['/inbox', chats, 'Unread chats', chats ? 'Customers waiting for your reply' : 'You’re all caught up', 'chat', 'hot'],
+    ['/contacts', newLeads, 'New leads', 'Today and yesterday', 'users'],
+    sales && ['/orders?status=ship', ship, 'Orders to ship', ship ? 'Paid and waiting to be packed' : 'Nothing waiting', 'box'],
+  ].filter(Boolean);
+  return (
+    <>
+      <section className="ph-sec">
+        <div className="ph-periods" role="tablist" aria-label="Period">{PERIODS.map(([d, l]) => <button key={d} role="tab" aria-selected={days === d} className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{l}</button>)}</div>
+        <div className="ph-kpis">
+          {kpis.map(([label, value, n, prev, to]) => {
+            const body = <><span>{label}</span><b>{value}</b><Delta now={n} prev={prev} /></>;
+            return to ? <Link key={label} to={to} className="ph-kpi">{body}</Link> : <div key={label} className="ph-kpi">{body}</div>;
+          })}
+        </div>
+      </section>
+      <section className="ph-sec">
+        <h2 className="ph-h">Needs you now</h2>
+        {needs.map(([to, n, label, sub, ic, hot]) => (
+          <Link key={label} to={to} className={`ph-need ${hot && n ? 'hot' : ''}`}>
+            <b>{num(n)}</b><span><strong>{label}</strong><small>{sub}</small></span><Icon name={ic} size={20} />
+          </Link>
+        ))}
+      </section>
+      {sales && (
+        <section className="ph-sec">
+          <h2 className="ph-h">Recent orders<Link to="/orders">See all</Link></h2>
+          {data.recentOrders.length ? data.recentOrders.slice(0, 5).map((o) => (
+            <Link key={o.id} to="/orders" className="ph-order">
+              <span className="ph-o1"><b>{o.name || o.email || 'Customer'}</b><strong>{inr(o.total)}</strong></span>
+              <span className="ph-o2"><span>{o.items.map((i) => (i.kind === 'main' ? i.name : i.kind)).join(' + ') || o.funnel}</span><time>{ago(o.at)}</time></span>
+            </Link>
+          )) : <p className="ph-empty">No orders yet. Share a funnel link and orders show up here as they come in.</p>}
+        </section>
+      )}
+      <section className="ph-sec">
+        <button type="button" className="ph-more" onClick={() => setAll(!all)} aria-expanded={all}><span><strong>Charts, funnels and campaigns</strong><small>Performance, traffic sources, ad campaigns</small></span><b>{all ? 'Hide' : 'See all'}</b></button>
+      </section>
+      {all && (
+        <>
+          <TrendPanel data={data} sales={sales} />
+          <Panel title="Funnel results" actions={<Link className="btn ghost sm" to="/funnels">View all</Link>} pad={false}>
+            {data.funnels.slice(0, 6).map((f) => (
+              <Link key={f.id} to={`/funnels/${f.id}/analytics`} className="ph-row">
+                <span><b>{f.name}</b><small>{f.published ? 'Live' : 'Draft'} · {num(f.visitors)} visitors</small></span>
+                <strong>{sales ? inr(f.revenue) : `${num(f.leads)} leads`}</strong>
+              </Link>
+            ))}
+          </Panel>
+          <Panel title="Traffic sources" pad={false}><Sources rows={data.sources} /></Panel>
+          <Panel title="Ad campaigns" pad={false}><Campaigns rows={data.campaigns} /></Panel>
+        </>
+      )}
+      {me?.hasDemo && <div className="demo-banner"><Icon name="sparkles" size={16} /><span><b>You’re viewing demo data.</b> Remove it before you go live.</span></div>}
+    </>
+  );
+}
+
 export default function Dashboard() {
+  const phone = usePhone();
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
   const [me, setMe] = useState(null);
@@ -251,9 +325,22 @@ export default function Dashboard() {
   const doneCount = checklist?.filter((c) => c[1]).length || 0;
   const noData = data && !data.funnels.length;
 
+  if (phone) {
+    const hour = new Date().getHours();
+    const name = me?.workspace ? me.workspace.name : me?.name?.split(' ')[0];
+    return (
+      <Layout title="Home" kicker={`${hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}${name ? `, ${name}` : ''}`}
+        actions={<button type="button" className="icon-btn ph-talk" onClick={() => window.dispatchEvent(new Event('ff:talk'))} aria-label="Talk to Hive AI"><Icon name="mic" size={20} /></button>}>
+        {create && <CreateFunnel onClose={() => setCreate(false)} aiEnabled={me?.aiEnabled} />}
+        {noData && <PromptHero name={null} aiEnabled={me?.aiEnabled} onSample={seed} seeding={seeding} showSample industry={kit?.industry?.id || me?.nav?.industry} />}
+        {!noData && <PhoneHome data={data} me={me} days={days} setDays={setDays} sales={sales} />}
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
-      <TalkToHive />
+      {!phone && <TalkToHive />}
       {create && <CreateFunnel onClose={() => setCreate(false)} aiEnabled={me?.aiEnabled} />}
       <PromptHero name={me?.workspace ? me.workspace.name : me?.name?.split(' ')[0]} managedBy={me?.workspace ? me?.name?.split(' ')[0] : null} aiEnabled={me?.aiEnabled} onSample={seed} seeding={seeding} showSample={!!data && noData} industry={kit?.industry?.id || me?.nav?.industry} />
       {data && !noData && <Bento data={data} funnels={funnels} days={days} setDays={setDays} kit={kit} onKit={pickKit} />}

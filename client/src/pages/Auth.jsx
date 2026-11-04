@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, setToken } from '../api';
-import { Icon, PasswordInput } from '../ui';
+import { Icon, PasswordInput, usePhone, isPhone } from '../ui';
 import { agencyHost } from '../agencyHost';
 import { isAgencyTier, appUrl } from '../tier';
 
@@ -13,6 +13,18 @@ export function AuthShell({ children }) {
   const ag = agencyHost();
   const [wl, setWl] = useState(ag);
   useEffect(() => { fetch('/api/site').then((r) => r.json()).then((s) => { if (s.whiteLabel) { setWl(s.whiteLabel); document.title = s.whiteLabel.brand; } }).catch(() => {}); }, []);
+  const phone = usePhone();
+  // a phone (and the Android app): the brand on a dark band, the form on a sheet below — no perks list
+  if (phone) return (
+    <div className="auth-ph">
+      <header className="auth-ph-top" style={wl?.primary ? { '--ph-acc': wl.primary } : undefined}>
+        {wl?.logo ? <img className="auth-ph-logo" src={wl.logo} alt="" /> : <img className="auth-ph-logo" src="/icons/app-192.png" alt="" />}
+        <h1>{ag ? <>Welcome to<br /><span>{wl?.brand || ag.brand}</span></> : <>Your business,<br /><span>in your pocket.</span></>}</h1>
+        {!ag && <p>Chats, leads, orders and Hive AI in one app.</p>}
+      </header>
+      <div className="auth-form auth-ph-form">{children}</div>
+    </div>
+  );
   return (
     <div className="auth">
       <div className="auth-art" style={wl?.primary ? { background: `linear-gradient(160deg, ${wl.primary}, #111827)` } : undefined}>
@@ -43,7 +55,8 @@ export default function Auth({ admin = false }) {
   // on an agency's domain: log in first; signing up only where the server allows it there (/api/site signupsOpen)
   // ?mode=forgot opens the reset form (the admin address sends its admins here to reset)
   const asked = new URLSearchParams(location.search).get('mode');
-  const [mode, setMode] = useState(() => (asked === 'forgot' && !admin ? 'forgot' : admin || ag || isAgencyTier || asked === 'login' ? 'login' : 'register'));
+  // on a phone most people are coming back, so it opens on Log in
+  const [mode, setMode] = useState(() => (asked === 'forgot' && !admin ? 'forgot' : admin || ag || isAgencyTier || asked === 'login' || (isPhone() && asked !== 'register') ? 'login' : 'register'));
   const [canSignUp, setCanSignUp] = useState(!ag && !admin && !isAgencyTier);
   useEffect(() => { if (ag) fetch('/api/site').then((r) => r.json()).then((s) => setCanSignUp(!!s.signupsOpen)).catch(() => {}); }, []);
   const [f, setF] = useState({ name: '', email: new URLSearchParams(location.search).get('email') || '', password: '', code: '' });

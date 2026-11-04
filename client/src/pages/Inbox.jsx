@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Icon, Modal, toast } from '../ui';
+import { Layout, Icon, Modal, toast, usePhone } from '../ui';
 import '../chat.css';
 
 // /inbox/:id? — every WhatsApp conversation in one place: the team replies, chatbots and the AI agent work
@@ -52,11 +52,32 @@ export default function Inbox() {
   const [startOpen, setStartOpen] = useState(false);
   const loadMeta = () => api('/inbox/meta').then(setMeta).catch(() => {});
   useEffect(() => { loadMeta(); }, []);
-  const loadList = () => api(`/inbox?filter=${filter}&q=${encodeURIComponent(q.trim())}`).then(setList).catch(() => {});
+  const loadList = () => api(`/inbox?filter=${filter}&q=${encodeURIComponent(q.trim())}`).then((l) => { setList(l); window.dispatchEvent(new CustomEvent('ff:chats', { detail: l.counts?.unread || 0 })); }).catch(() => {});
   useEvery(loadList, 5000, [filter, q]);
   const toggleSide = () => { setSide(!side); if (wideScreen()) try { localStorage.setItem('ff_ib_side', side ? '0' : '1'); } catch {} };
   // a website chat works without a WhatsApp number: the inbox opens for it too ("New chat" stays WhatsApp-only)
   const connected = meta ? meta.connected || meta.web : true;
+  const phone = usePhone();
+  // on a phone: the list is its own screen, and an open chat fills the screen (no tab bar)
+  if (phone) return (
+    <Layout wide title="Inbox" immersive={!!id} actions={meta?.connected !== false && <button type="button" className="icon-btn" onClick={() => setStartOpen(true)} aria-label="New chat"><Icon name="edit" size={20} /></button>}>
+      {!connected ? <NotConnected /> : (
+        <div className={`ib ${id ? 'has-conv' : ''}`}>
+          <aside className="ib-list">
+            <div className="ib-lh">
+              <div className="ib-search"><Icon name="search" size={16} /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search chats" aria-label="Search chats" /></div>
+              <div className="ib-filters" role="tablist">
+                {FILTERS.map(([k, label]) => <button key={k} role="tab" aria-selected={filter === k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{label}{list?.counts?.[k] > 0 && <i>{list.counts[k]}</i>}</button>)}
+              </div>
+            </div>
+            <ConvList list={list} q={q} filter={filter} id={id} nav={nav} />
+          </aside>
+          {id && <Thread key={id} id={id} meta={meta} onChange={loadList} onBack={() => nav('/inbox')} side={side} toggleSide={() => setSide(!side)} phone />}
+        </div>
+      )}
+      {startOpen && <StartChat onClose={() => setStartOpen(false)} onDone={(cid) => { setStartOpen(false); loadList(); nav(`/inbox/${cid}`); }} />}
+    </Layout>
+  );
   return (
     <Layout wide title="Inbox" subtitle={meta?.web ? "Every WhatsApp and website chat in one place — your team, chatbots and the AI agent working together." : "Every WhatsApp chat in one place — your team, chatbots and the AI agent working together."} actions={<>
       {meta && meta.open === false && <span className="pill warn" title="Away replies go out until you open">Closed now</span>}
@@ -73,27 +94,7 @@ export default function Inbox() {
                 {FILTERS.map(([k, label]) => <button key={k} role="tab" aria-selected={filter === k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{label}{list?.counts?.[k] > 0 && <i>{list.counts[k]}</i>}</button>)}
               </div>
             </div>
-            <div className="ib-convs">
-              {!list ? [0, 1, 2, 3].map((i) => <div key={i} className="ib-skel" />) : !list.convs.length ? (
-                <div className="ib-empty"><Icon name="chat" size={26} /><p className="sm">{q ? 'No chats match your search.' : filter === 'all' ? 'No open chats — new WhatsApp messages land here.' : 'Nothing here right now.'}</p></div>
-              ) : list.convs.map((c) => (
-                <button key={c.id} className={`ib-conv ${c.id === id ? 'on' : ''} ${c.unread ? 'unread' : ''}`} onClick={() => nav(`/inbox/${c.id}`)}>
-                  <Avatar c={c} dot={c.window.open} />
-                  <div>
-                    <div className="t1"><b>{display(c)}</b><time>{short(c.lastAt)}</time></div>
-                    <div className="t2"><span>{c.lastDir === 'out' && `${c.lastBy === 'ai' ? '✨ ' : c.lastBy === 'bot' ? '🤖 ' : 'You: '}`}{c.lastText || '…'}</span>{c.unread > 0 && <em className="ib-n">{c.unread}</em>}</div>
-                    {(c.web || c.ai || c.bot || c.ad || c.labels.length > 0 || (c.human && c.handoff)) && <div className="t3">
-                      {c.web && <span className="ctwa-chip" title="From the chat on your website"><Icon name="globe" size={11} />Website</span>}
-                      {c.ad && <span className="ctwa-chip" title={`Started from the ad “${c.ad.headline || c.ad.id}”`}><Icon name="target" size={11} />Ad</span>}
-                      {c.ai && <span className="ai-chip"><Icon name="sparkles" size={11} />AI replying</span>}
-                      {c.bot && <span className="bot-chip"><Icon name="bot" size={11} />{c.bot.name}</span>}
-                      {c.human && c.handoff && c.status !== 'resolved' && <span className="pill warn">Needs you</span>}
-                      {c.labels.slice(0, 2).map((l) => <span key={l} className="tag">{l}</span>)}
-                    </div>}
-                  </div>
-                </button>
-              ))}
-            </div>
+            <ConvList list={list} q={q} filter={filter} id={id} nav={nav} />
           </aside>
           {id ? <Thread key={id} id={id} meta={meta} onChange={loadList} onBack={() => nav('/inbox')} side={side} toggleSide={toggleSide} /> : (
             <section className="ib-thread"><div className="ib-empty"><span className="orb"><Icon name="chat" size={38} /></span><h3>Pick a chat</h3><p className="sm">Reply yourself, hand it to the AI agent, or let a chatbot take care of it.<br />{meta?.agent?.on ? <>Your AI agent <b className="ai-txt">{meta.agent.name}</b> is answering new chats.</> : <Link to="/chatbots?tab=agent" className="ai-txt">Switch on the AI agent →</Link>}</p></div></section>
@@ -103,6 +104,38 @@ export default function Inbox() {
       {startOpen && <StartChat onClose={() => setStartOpen(false)} onDone={(cid) => { setStartOpen(false); loadList(); nav(`/inbox/${cid}`); }} />}
     </Layout>
   );
+}
+
+function ConvList({ list, q, filter, id, nav }) {
+  return (
+    <div className="ib-convs">
+      {!list ? [0, 1, 2, 3].map((i) => <div key={i} className="ib-skel" />) : !list.convs.length ? (
+        <div className="ib-empty"><Icon name="chat" size={26} /><p className="sm">{q ? 'No chats match your search.' : filter === 'all' ? 'No open chats — new WhatsApp messages land here.' : 'Nothing here right now.'}</p></div>
+      ) : list.convs.map((c) => (
+        <button key={c.id} className={`ib-conv ${c.id === id ? 'on' : ''} ${c.unread ? 'unread' : ''}`} onClick={() => nav(`/inbox/${c.id}`)}>
+          <Avatar c={c} dot={c.window.open} />
+          <div>
+            <div className="t1"><b>{display(c)}</b><time>{short(c.lastAt)}</time></div>
+            <div className="t2"><span>{c.lastDir === 'out' && `${c.lastBy === 'ai' ? '✨ ' : c.lastBy === 'bot' ? '🤖 ' : 'You: '}`}{c.lastText || '…'}</span>{c.unread > 0 && <em className="ib-n">{c.unread}</em>}</div>
+            {(c.web || c.ai || c.bot || c.ad || c.labels.length > 0 || (c.human && c.handoff)) && <div className="t3">
+              {c.web && <span className="ctwa-chip" title="From the chat on your website"><Icon name="globe" size={11} />Website</span>}
+              {c.ad && <span className="ctwa-chip" title={`Started from the ad “${c.ad.headline || c.ad.id}”`}><Icon name="target" size={11} />Ad</span>}
+              {c.ai && <span className="ai-chip"><Icon name="sparkles" size={11} />AI replying</span>}
+              {c.bot && <span className="bot-chip"><Icon name="bot" size={11} />{c.bot.name}</span>}
+              {c.human && c.handoff && c.status !== 'resolved' && <span className="pill warn">Needs you</span>}
+              {c.labels.slice(0, 2).map((l) => <span key={l} className="tag">{l}</span>)}
+            </div>}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// a pop-up menu by the composer on a computer; a bottom sheet on a phone
+function Menu({ phone, title, onClose, style, children }) {
+  if (phone) return <Modal title={title} onClose={onClose}><div className="sheet-list">{children}</div></Modal>;
+  return <div className="ib-menu" style={style}>{children}</div>;
 }
 
 // the click-to-WhatsApp ad that started this chat (and the first one, if they came back from another ad)
@@ -132,7 +165,8 @@ function NotConnected() {
 }
 
 // ---------- one conversation ----------
-function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
+function Thread({ id, meta, onChange, onBack, side, toggleSide, phone }) {
+  const [acts, setActs] = useState(false);
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const box = useRef();
@@ -169,6 +203,7 @@ function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
           <button className="icon-btn ib-back" onClick={onBack} aria-label="Back"><Icon name="chevron" className="flip" /></button>
           <Avatar c={c} sm dot={c.window.open} />
           <div className="who"><b>{display(c)}</b><small>{c.web ? `Website chat${c.web.phone ? ` · ${c.web.phone}` : ''}${c.web.page ? ` · ${c.web.page.replace(/^https?:\/\//, '').slice(0, 60)}` : ''}` : <>+{c.num}{c.window.open ? ` · window closes in ${left(c.window.closesAt)}` : ' · 24-hour window closed'}</>}</small></div>
+          {phone ? <button className="icon-btn" onClick={() => setActs(true)} aria-label="Chat actions"><Icon name="dots" size={22} /></button> : <>
           <select value={c.assignee || ''} onChange={(e) => patch({ assignee: e.target.value || null })} aria-label="Assigned to">
             <option value="">Unassigned</option>
             {(meta?.team || []).map((p) => <option key={p.id} value={p.id}>{p.id === meta.me ? `${p.name} (you)` : p.name}</option>)}
@@ -176,7 +211,9 @@ function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
           {c.status !== 'resolved' && <button className="btn ghost sm" onClick={() => setHand(true)} title="Hand this chat to a teammate or the AI agent"><Icon name="users" size={14} />Hand off</button>}
           {c.status === 'resolved' ? <button className="btn ghost sm" onClick={() => patch({ status: 'open' })}>Reopen</button> : <button className="btn live sm" onClick={() => patch({ status: 'resolved' })}><Icon name="check" size={14} />Resolve</button>}
           <button className="icon-btn" onClick={toggleSide} title={side ? 'Hide details' : 'Show details'} aria-label="Contact details"><Icon name="eye" size={17} /></button>
+          </>}
         </header>
+        {acts && <ChatActions c={c} meta={meta} patch={patch} onClose={() => setActs(false)} onHand={() => { setActs(false); setHand(true); }} onDetails={() => { setActs(false); toggleSide(); }} />}
         {c.ad && <AdChip ad={c.ad} first={c.firstAd} />}
         {hand && <HandOff c={c} meta={meta} onClose={() => setHand(false)} onDone={(conv) => { setHand(false); if (conv) setD((x) => ({ ...x, conv })); load(); onChange(); }} patch={patch} />}
         {c.ai && <div className="ib-banner bn-ai"><Icon name="sparkles" size={15} /><span><b>{meta?.agent?.name || 'The AI agent'}</b> is replying to this chat{c.intent ? ` · topic: ${c.intent}` : ''}</span><button className="btn ghost sm" onClick={() => patch({ ai: false })}>Take over</button></div>}
@@ -185,10 +222,33 @@ function Thread({ id, meta, onChange, onBack, side, toggleSide }) {
         <div className="ib-msgs" ref={box} onScroll={(e) => { const el = e.currentTarget; atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
           {items}
         </div>
-        <Composer c={c} contact={d.contact} meta={meta} onSent={() => { atBottom.current = true; load(); onChange(); }} patch={patch} />
+        <Composer c={c} contact={d.contact} meta={meta} onSent={() => { atBottom.current = true; load(); onChange(); }} patch={patch} phone={phone} />
       </section>
-      {side && <Details c={c} contact={d.contact} meta={meta} patch={patch} onClose={toggleSide} onSummary={(s) => setD((x) => ({ ...x, conv: { ...x.conv, summary: s } }))} />}
+      {side && <Details c={c} contact={d.contact} meta={meta} patch={patch} onClose={toggleSide} phone={phone} onSummary={(s) => setD((x) => ({ ...x, conv: { ...x.conv, summary: s } }))} />}
     </>
+  );
+}
+
+// a phone's "⋯" in the chat header: everything the computer shows as header buttons, in one sheet
+function ChatActions({ c, meta, patch, onClose, onHand, onDetails }) {
+  const [assign, setAssign] = useState(false);
+  const who = (meta?.team || []).find((p) => p.id === c.assignee);
+  const act = (body) => { onClose(); patch(body); };
+  return (
+    <Modal title={assign ? 'Assign to' : 'Chat actions'} onClose={onClose}>
+      <div className="sheet-list">
+        {assign ? <>
+          <button onClick={() => act({ assignee: null })} className={!c.assignee ? 'on' : ''}><Icon name="users" size={20} />Unassigned</button>
+          {(meta?.team || []).map((p) => <button key={p.id} onClick={() => act({ assignee: p.id })} className={c.assignee === p.id ? 'on' : ''}><Avatar c={{ name: p.name, num: p.id }} sm />{p.id === meta.me ? `${p.name} (you)` : p.name}</button>)}
+        </> : <>
+          <button onClick={() => setAssign(true)}><Icon name="users" size={20} />Assign to<small>{who ? who.name : 'Unassigned'}</small></button>
+          {c.status !== 'resolved' && <button onClick={onHand}><Icon name="send" size={20} />Hand off<small>To a teammate or the AI</small></button>}
+          {meta?.agent?.on && !c.ai && c.status !== 'resolved' && <button onClick={() => act({ ai: true })}><Icon name="sparkles" size={20} />Hand to {meta.agent.name || 'the AI agent'}</button>}
+          {c.status === 'resolved' ? <button onClick={() => act({ status: 'open' })}><Icon name="undo" size={20} />Reopen chat</button> : <button onClick={() => act({ status: 'resolved' })}><Icon name="done" size={20} />Resolve chat</button>}
+          <button onClick={onDetails}><Icon name="eye" size={20} />Contact details<small>Notes, labels, AI insights</small></button>
+        </>}
+      </div>
+    </Modal>
   );
 }
 
@@ -232,7 +292,7 @@ function Media({ m, convId }) {
 }
 
 // ---------- writing a reply ----------
-function Composer({ c, contact, meta, onSent, patch }) {
+function Composer({ c, contact, meta, onSent, patch, phone }) {
   const [mode, setMode] = useState('reply');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState('');
@@ -260,6 +320,7 @@ function Composer({ c, contact, meta, onSent, patch }) {
   const rewrite = async (m) => { setMenu(''); setBusy('rw'); try { setText((await api('/inbox/ai/rewrite', 'POST', { text, mode: m })).text); } catch (e) { toast(e.message); } setBusy(''); };
   const docIn = useRef();
   const audioIn = useRef();
+  const camIn = useRef();
   const [rec, setRec] = useState(false);
   const [locOpen, setLocOpen] = useState(false);
   // a photo, video, document or voice note: the file goes to WhatsApp (through Hive) and the typed text is its caption
@@ -314,19 +375,21 @@ function Composer({ c, contact, meta, onSent, patch }) {
               {mode === 'reply' && !c.web && (
                 <div style={{ position: 'relative' }}>
                   <button className="ib-attach" onClick={() => setMenu(menu === 'att' ? '' : 'att')} aria-label="Attach" title="Attach a file, photo or location"><Icon name="plus" size={20} /></button>
-                  {menu === 'att' && <div className="ib-menu" style={{ left: 0 }}>
+                  {menu === 'att' && <Menu phone={phone} title="Send" onClose={() => setMenu('')} style={{ left: 0 }}>
+                    {phone && <button onClick={() => { setMenu(''); camIn.current?.click(); }}><span className="att-ic" style={{ background: '#6E4B5E' }}><Icon name="image" size={14} /></span>Camera</button>}
                     <button onClick={() => { setMenu(''); fileIn.current?.click(); }}><span className="att-ic" style={{ background: '#7c3aed' }}><Icon name="image" size={14} /></span>Photo or video</button>
                     <button onClick={() => { setMenu(''); docIn.current?.click(); }}><span className="att-ic" style={{ background: '#2563eb' }}><Icon name="attach" size={14} /></span>Document</button>
                     <button onClick={() => { setMenu(''); audioIn.current?.click(); }}><span className="att-ic" style={{ background: '#ea580c' }}><Icon name="mic" size={14} /></span>Audio file</button>
                     <button onClick={() => { setMenu(''); setLocOpen(true); }}><span className="att-ic" style={{ background: '#16a34a' }}><Icon name="globe" size={14} /></span>Location</button>
                     <button onClick={() => { setMenu(''); setTpl(true); }}><span className="att-ic" style={{ background: '#ca8a04' }}><Icon name="mail" size={14} /></span>Template</button>
-                  </div>}
+                  </Menu>}
                 </div>
               )}
+              {phone && <input ref={camIn} type="file" accept="image/jpeg,image/png" capture="environment" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />}
               <input ref={fileIn} type="file" accept="image/png,image/jpeg,video/mp4,video/3gpp" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
               <input ref={audioIn} type="file" accept=".mp3,.m4a,.aac,.ogg,.opus,.amr,audio/mpeg,audio/mp4,audio/aac,audio/ogg,audio/amr" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
               <input ref={docIn} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" hidden onChange={(e) => { attach(e.target.files[0]); e.target.value = ''; }} />
-              <textarea ref={ta} rows={1} value={text} onChange={(e) => { setText(e.target.value); setQi(0); }} onKeyDown={key} placeholder={mode === 'note' ? 'A note only your team sees…' : 'Type a reply…  ( / for quick replies)'} disabled={busy === 'rw'} />
+              <textarea ref={ta} rows={1} value={text} onChange={(e) => { setText(e.target.value); setQi(0); }} onKeyDown={key} placeholder={mode === 'note' ? 'A note only your team sees…' : phone ? 'Message' : 'Type a reply…  ( / for quick replies)'} disabled={busy === 'rw'} />
               {mode === 'reply' && !text.trim() && !c.web
                 ? <button className="ib-send" onClick={() => setRec(true)} disabled={!!busy} aria-label="Record a voice note" title="Record a voice note">{busy === 'send' ? <span className="spin" /> : <Icon name="mic" size={18} />}</button>
                 : <button className="ib-send" onClick={submit} disabled={!text.trim() || !!busy} aria-label="Send" style={mode === 'note' ? { background: '#ca8a04' } : undefined}>{busy === 'send' ? <span className="spin" /> : <Icon name={mode === 'note' ? 'check' : 'send'} size={18} />}</button>}
@@ -337,15 +400,16 @@ function Composer({ c, contact, meta, onSent, patch }) {
             <div className="ib-tools" style={{ position: 'relative' }}>
               {meta?.ai && <button className="btn ai sm" onClick={suggest} disabled={busy === 'sug'}><Icon name="sparkles" size={14} />Suggest replies</button>}
               {meta?.ai && <button className="btn ghost sm" onClick={() => setMenu(menu === 'rw' ? '' : 'rw')} disabled={!text.trim() || busy === 'rw'}>{busy === 'rw' ? <span className="spin dark" /> : <Icon name="wand" size={14} />}Rewrite</button>}
-              <button className="icon-btn" title="Quick replies" onClick={() => setMenu(menu === 'quick' ? '' : 'quick')}><Icon name="bolt" size={16} /></button>
-              <button className="icon-btn" title="More" onClick={() => setMenu(menu === 'more' ? '' : 'more')}><Icon name="menu" size={16} /></button>
-              {menu === 'rw' && <div className="ib-menu" style={{ left: 120 }}>{REWRITE.map(([k, l]) => <button key={k} onClick={() => rewrite(k)}>{l}</button>)}</div>}
-              {menu === 'quick' && <QuickMenu quick={quick} meta={meta} onPick={(t) => { setText(t); setMenu(''); }} />}
-              {menu === 'more' && <div className="ib-menu" style={{ left: 200 }}>
+              <button className="icon-btn" title="Quick replies" onClick={() => setMenu(menu === 'quick' ? '' : 'quick')}><Icon name="bolt" size={16} />{phone && <span>Quick replies</span>}</button>
+              <button className="icon-btn" title="More" onClick={() => setMenu(menu === 'more' ? '' : 'more')}><Icon name="menu" size={16} />{phone && <span>More</span>}</button>
+              {menu === 'rw' && <Menu phone={phone} title="Rewrite my reply" onClose={() => setMenu('')} style={{ left: 120 }}>{REWRITE.map(([k, l]) => <button key={k} onClick={() => rewrite(k)}>{l}</button>)}</Menu>}
+              {menu === 'quick' && <QuickMenu quick={quick} meta={meta} phone={phone} onClose={() => setMenu('')} onPick={(t) => { setText(t); setMenu(''); }} />}
+              {menu === 'more' && <Menu phone={phone} title="More" onClose={() => setMenu('')} style={{ left: 200 }}>
+                {phone && <button onClick={() => { setMenu(''); setMode('note'); }}><Icon name="edit" size={15} />Write an internal note</button>}
                 {!c.web && <button onClick={() => { setMenu(''); setTpl(true); }}><Icon name="mail" size={15} />Send a template</button>}
                 <button onClick={runBot}><Icon name="bot" size={15} />Run a chatbot here</button>
                 {meta?.agent?.on && !c.ai && <button onClick={() => { setMenu(''); patch({ ai: true }); }}><Icon name="sparkles" size={15} />Hand this chat to the AI</button>}
-              </div>}
+              </Menu>}
             </div>
           )}
         </>
@@ -354,15 +418,15 @@ function Composer({ c, contact, meta, onSent, patch }) {
   );
 }
 
-function QuickMenu({ quick, meta, onPick }) {
+function QuickMenu({ quick, meta, onPick, phone, onClose }) {
   const [edit, setEdit] = useState(false);
   return (
-    <div className="ib-menu" style={{ left: 160, width: 320, maxHeight: 320, overflowY: 'auto' }}>
+    <Menu phone={phone} title="Quick replies" onClose={onClose} style={{ left: 160, width: 320, maxHeight: 320, overflowY: 'auto' }}>
       {quick.map((x) => <button key={x.id} onClick={() => onPick(x.text)} style={{ display: 'grid' }}><b>/{x.short}</b><small className="muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.text}</small></button>)}
       {!quick.length && <p className="hint" style={{ padding: '4px 10px' }}>Save answers you send often, then type “/” and their shortcut.</p>}
       <button onClick={() => setEdit(true)}><Icon name="edit" size={14} />Manage quick replies</button>
       {edit && <QuickEditor quick={quick} meta={meta} onClose={() => setEdit(false)} />}
-    </div>
+    </Menu>
   );
 }
 function QuickEditor({ quick, meta, onClose }) {
@@ -374,7 +438,7 @@ function QuickEditor({ quick, meta, onClose }) {
       <p className="hint top">Type “/” and the shortcut in the reply box to drop the text in. Use them for prices, addresses, payment details, timings.</p>
       <div style={{ display: 'grid', gap: 8 }}>
         {list.map((x, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '130px 1fr auto', gap: 6 }}>
+          <div key={i} className="qr-row" style={{ display: 'grid', gridTemplateColumns: '130px 1fr auto', gap: 6 }}>
             <input value={x.short} onChange={(e) => set(i, 'short', e.target.value)} placeholder="shortcut" />
             <textarea rows={2} value={x.text} onChange={(e) => set(i, 'text', e.target.value)} placeholder="The message" />
             <button className="icon-btn danger" onClick={() => setList(list.filter((_, j) => j !== i))} aria-label="Remove"><Icon name="trash" size={15} /></button>
@@ -543,7 +607,7 @@ function StartChat({ onClose, onDone }) {
 }
 
 // ---------- the right-hand panel: the contact, labels, AI insights ----------
-function Details({ c, contact, meta, patch, onClose, onSummary }) {
+function Details({ c, contact, meta, patch, onClose, onSummary, phone }) {
   const [busy, setBusy] = useState(false);
   const [lab, setLab] = useState('');
   const sum = c.summary;
@@ -552,7 +616,8 @@ function Details({ c, contact, meta, patch, onClose, onSummary }) {
   const known = useMemo(() => (meta?.labels || []).filter((l) => !c.labels.includes(l)), [meta, c.labels]);
   return (
     <aside className="ib-side">
-      <button className="icon-btn" style={{ justifySelf: 'end', marginBottom: -12 }} onClick={onClose} aria-label="Close details"><Icon name="x" size={15} /></button>
+      {phone ? <header className="ib-side-h"><button className="icon-btn" onClick={onClose} aria-label="Back to the chat"><Icon name="back" size={24} /></button><b>Contact details</b></header>
+        : <button className="icon-btn" style={{ justifySelf: 'end', marginBottom: -12 }} onClick={onClose} aria-label="Close details"><Icon name="x" size={15} /></button>}
       <div className="ib-prof">
         <Avatar c={c} />
         <b>{contact.name || display(c)}</b>

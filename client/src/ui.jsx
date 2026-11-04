@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { WorkspaceSwitch } from './pages/Team';
 import { api, meCache, logout, stopImpersonating, leaveClient, fmtDate, setToken } from './api';
 import { SKINS, applySkin, currentSkin, useDashboardMode, setMode, savedMode } from './skins';
@@ -8,7 +8,7 @@ import SkinPicker from './skinPicker';
 import { isSuper } from './tier';
 import { agencyHost } from './agencyHost';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
-import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, EyeOff, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft } from 'lucide-react';
+import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, EyeOff, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft, Ellipsis, ChevronLeft, CircleCheck } from 'lucide-react';
 
 // One icon set everywhere: Lucide (ISC licence), the same line icons as the page builder's sections and the CRM's
 // industry styles. The names are FunnelHive's own, so screens ask for "cart" or "bot" and get the Lucide drawing.
@@ -19,6 +19,7 @@ const ICONS = {
   globe: Globe, menu: Menu, chevron: ChevronRight, split: Split, layers: Layers, palette: Palette, wand: WandSparkles, wallet: Wallet, play: Play, clock: Clock,
   clip: ClipboardList, bookmark: Bookmark, shield: ShieldCheck, card: CreditCard, box: Box, refund: RotateCcw, mail: Mail, phone: Phone, receipt: Receipt,
   vault: Vault, bell: BellIcon, chat: MessageCircle, bot: Bot, image: Image, list: List, mic: Mic, attach: Paperclip, calendar: CalendarDays, panel: PanelLeft,
+  dots: Ellipsis, back: ChevronLeft, done: CircleCheck,
 };
 export const Icon = ({ name, size = 18, stroke = 1.75, className = '' }) => {
   const C = ICONS[name] || Zap;
@@ -366,8 +367,69 @@ export const sideMini = () => { try { return localStorage.getItem('ff_side_mini'
 // a screen whose data didn't load: Layout shows a banner with Reload instead of an endless skeleton
 export const loadFailed = () => window.dispatchEvent(new Event('ff:loadfail'));
 
-export function Layout({ title, subtitle, actions, children, wide }) {
+// A phone (a narrow touch screen, or the Android app): the dashboard switches to its phone layout — a bottom tab bar,
+// big titles, bottom sheets (mobile.css, all under html.is-phone). Desktop and tablets keep the usual layout.
+const PHONE_Q = '(max-width: 760px) and (pointer: coarse)';
+const phoneNow = () => typeof window !== 'undefined' && (!!window.matchMedia?.(PHONE_Q).matches || (!!window.Capacitor && window.innerWidth <= 760));
+export const isPhone = phoneNow;
+if (typeof window !== 'undefined') {
+  const set = () => {
+    const on = phoneNow();
+    document.documentElement.classList.toggle('is-phone', on);
+    // safe areas (notch, gesture bar) and the keyboard shrinking the page, so the chat composer stays above it.
+    // Set here, not in index.html, because live funnel pages share that file.
+    const vp = document.querySelector('meta[name="viewport"]');
+    if (on && vp && !vp.content.includes('viewport-fit')) vp.content += ', viewport-fit=cover, interactive-widget=resizes-content';
+  };
+  set();
+  window.matchMedia?.(PHONE_Q).addEventListener?.('change', () => { set(); window.dispatchEvent(new Event('ff:phone')); });
+}
+export function usePhone() {
+  const [p, setP] = useState(phoneNow);
+  useEffect(() => { const h = () => setP(phoneNow()); window.addEventListener('ff:phone', h); return () => window.removeEventListener('ff:phone', h); }, []);
+  return p;
+}
+
+// Talk to Hive AI (voice): on phones it lives behind the Hive tab (press and hold), so the panel is mounted with the shell
+const TalkToHive = lazy(() => import('./talk').then((m) => ({ default: m.TalkToHive })));
+
+// the phone's bottom tab bar: Home · Inbox · Hive AI · Contacts · More (the full menu, in the drawer)
+function MobileTabs({ me, onMore }) {
+  const loc = useLocation(), nav = useNavigate();
+  const [chats, setChats] = useState(me?.nav?.chats || 0);
+  useEffect(() => { if (me?.nav) setChats(me.nav.chats || 0); }, [me]);
+  useEffect(() => { const h = (e) => setChats(e.detail || 0); window.addEventListener('ff:chats', h); return () => window.removeEventListener('ff:chats', h); }, []);
+  const hold = useRef({ timer: 0, held: false });
+  const p = loc.pathname;
+  const on = (to) => (to === '/' ? p === '/' : p === to || p.startsWith(`${to}/`));
+  const holdStart = () => { hold.current.held = false; clearTimeout(hold.current.timer); hold.current.timer = setTimeout(() => { hold.current.held = true; navigator.vibrate?.(15); window.dispatchEvent(new Event('ff:talk')); }, 450); };
+  const holdEnd = () => clearTimeout(hold.current.timer);
+  const tab = (to, ic, label, badge) => allowed(to, me) && (
+    <Link key={to} to={to} className={`mt-tab ${on(to) ? 'on' : ''}`} aria-current={on(to) ? 'page' : undefined}>
+      <span className="mt-ic"><Icon name={ic} size={22} />{badge > 0 && <em className="mt-badge">{badge > 99 ? '99+' : badge}</em>}</span>{label}
+    </Link>
+  );
+  return (
+    <nav className="m-tabs" aria-label={t('Main')}>
+      {tab('/', 'home', t('Home'))}
+      {tab('/inbox', 'chat', t('Inbox'), chats)}
+      {allowed('/hive', me) && (
+        <button type="button" className={`mt-tab mt-hive ${on('/hive') ? 'on' : ''}`} aria-label={t('Hive AI — press and hold to talk')}
+          onClick={() => { if (hold.current.held) { hold.current.held = false; return; } nav('/hive'); }}
+          onPointerDown={holdStart} onPointerUp={holdEnd} onPointerLeave={holdEnd} onPointerCancel={holdEnd} onContextMenu={(e) => e.preventDefault()}>
+          <span className="mt-hex"><Icon name="sparkles" size={22} /></span>{t('Hive AI')}
+        </button>
+      )}
+      {tab('/contacts', 'users', t('Contacts'))}
+      <button type="button" className="mt-tab" onClick={onMore}><span className="mt-ic"><Icon name="menu" size={22} /></span>{t('More')}</button>
+    </nav>
+  );
+}
+
+// kicker: a small line above the big title (phones only); immersive: a full-screen view on phones (no tab bar or title)
+export function Layout({ title, subtitle, actions, children, wide, kicker, immersive }) {
   useDashboardMode(); // light / dark (dark.css), only while the dashboard is on screen
+  const phone = usePhone();
   const [me, setMe] = useState(meCache.data);
   const [loadFail, setLoadFail] = useState(false);
   useEffect(() => { const h = () => setLoadFail(true); window.addEventListener('ff:loadfail', h); return () => window.removeEventListener('ff:loadfail', h); }, []);
@@ -404,7 +466,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
     </div>
   );
   return (
-    <div className={`app ${mini || sk.layout === 'rail' ? 'mini' : ''} lay-${sk.layout}${sk.band ? ' lay-band' : ''}`}>
+    <div className={`app ${mini || sk.layout === 'rail' ? 'mini' : ''} lay-${sk.layout}${sk.band ? ' lay-band' : ''}${phone ? ` has-tabs${immersive ? ' immersive' : ''}` : ''}`}>
       <aside className={`side ${open ? 'open' : ''}`}>
         <div className="brand">{me?.whiteLabel?.logo ? <img className="logo img" src={me.whiteLabel.logo} alt="" /> : <span className="logo" style={me?.whiteLabel?.primary ? { background: me.whiteLabel.primary } : undefined}><Icon name="bolt" size={18} /></span>}<span className="brand-n">{me?.brand || BRAND}</span><button type="button" className="side-fold" onClick={fold} title={t(mini ? 'Show the menu (Ctrl+B)' : 'Fold the menu to icons (Ctrl+B)')} aria-label={t(mini ? 'Show the menu' : 'Fold the menu')}><Icon name="panel" size={16} /></button></div>
         <button type="button" className="side-jump" onClick={() => window.dispatchEvent(new Event('ff:jump'))}><Icon name="search" size={15} />{t('Jump to…')}<kbd>Ctrl K</kbd></button>
@@ -421,7 +483,7 @@ export function Layout({ title, subtitle, actions, children, wide }) {
       <main className="main">
         <header className="topbar">
           <button className="icon-btn burger" aria-label={t('Open menu')} onClick={() => setOpen(true)}><Icon name="menu" /></button>
-          <div className="tb-title">{title && <h1>{title}</h1>}{subtitle && <p>{subtitle}</p>}</div>
+          <div className="tb-title">{phone && kicker && <small className="tb-kick">{kicker}</small>}{title && <h1>{title}</h1>}{subtitle && <p>{subtitle}</p>}</div>
           <div className="tb-actions">{actions}</div>
           {me && <Bell me={me} />}
         </header>
@@ -436,7 +498,9 @@ export function Layout({ title, subtitle, actions, children, wide }) {
         <div className={`content ${wide ? 'wide' : ''}`}>{typeof children === 'function' ? children(me) : children}</div>
       </main>
       {paywall && <Paywall info={paywall} onClose={() => setPaywall(null)} />}
-      {sk.dock && <Dock me={me} />}
+      {sk.dock && !phone && <Dock me={me} />}
+      {phone && !immersive && <MobileTabs me={me} onMore={() => setOpen(true)} />}
+      {phone && allowed('/hive', me) && <Suspense fallback={null}><TalkToHive fab={false} /></Suspense>}
       {skinOpen && <Modal title={t('Dashboard skin')} onClose={() => { applySkin(skin); setSkinOpen(false); }} width={860}><SkinPicker onClose={(k) => { setSkinOpen(false); if (k) api('/settings', 'PUT', { skin: k === 'classic' ? '' : k }).then(() => { meCache.at = 0; }).catch((e) => toast(e.message)); }} /></Modal>}
       <Jump me={me} />
     </div>

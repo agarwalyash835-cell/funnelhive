@@ -532,6 +532,7 @@ app.get('/api/me', auth, (req, res) => {
       ship: q("SELECT COUNT(*) AS n FROM orders WHERE userId = ? AND json_extract(data, '$.fulfilment.status') = 'pending' AND json_extract(data, '$.status') NOT IN ('cancelled', 'refunded')").get(req.user.id).n,
       calls: T.bookings.count({ userId: req.user.id, status: 'confirmed', start: { gte: Date.now(), lte: Date.now() + 86400000 } }),
       unread: unreadCount(req.user.id), // notifications (the bell)
+      chats: q("SELECT COUNT(*) AS n FROM waconvs WHERE userId = ? AND status <> 'resolved' AND IFNULL(json_extract(data, '$.unread'), 0) > 0").get(req.user.id).n, // unread WhatsApp chats (the phone's Inbox tab)
       industry: s.crmKit?.id || null, // the menu starts from the business's industry (its CRM kit)
       studio: studioOn(req.user), // Studio (studio/routes.js): switched on per account by the platform
       tally: !!req.user.addons?.tally, // the Tally add-on (tally.js): its page joins the menu

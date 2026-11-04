@@ -12,8 +12,10 @@ const LABEL = { idle: 'Tap the orb and speak', listening: 'Listening… tap when
 const NATIVE = { 'en-IN': 'English', 'hi-IN': 'हिन्दी', 'bn-IN': 'বাংলা', 'ta-IN': 'தமிழ்', 'te-IN': 'తెలుగు', 'mr-IN': 'मराठी', 'gu-IN': 'ગુજરાતી', 'kn-IN': 'ಕನ್ನಡ', 'ml-IN': 'മലയാളം', 'pa-IN': 'ਪੰਜਾਬੀ', 'od-IN': 'ଓଡ଼ିଆ' };
 const keep = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { /* private mode */ } return null; };
 
-export function TalkToHive() {
+// fab: the floating button (desktop). On phones the shell mounts it without one; holding the Hive tab sends 'ff:talk'.
+export function TalkToHive({ fab = true }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { const h = () => setOpen(true); window.addEventListener('ff:talk', h); return () => window.removeEventListener('ff:talk', h); }, []);
   const [cfg, setCfg] = useState(null);
   const [lang, setLang] = useState(() => keep('ff_talk_lang') || 'auto');
   const [state, setState] = useState('idle');
@@ -153,7 +155,7 @@ export function TalkToHive() {
   const close = () => { stopRef.current?.(true); audio.current?.pause(); window.speechSynthesis?.cancel(); setState('idle'); setOpen(false); };
   return (
     <>
-      {!open && <button className="tk-fab" onClick={() => setOpen(true)} aria-label="Talk to Hive AI" title="Talk to Hive AI — in your language"><span className="tk-fab-orb" /><Icon name="mic" size={20} /><span className="tk-fab-l">Talk to Hive AI</span></button>}
+      {!open && fab && <button className="tk-fab" onClick={() => setOpen(true)} aria-label="Talk to Hive AI" title="Talk to Hive AI — in your language"><span className="tk-fab-orb" /><Icon name="mic" size={20} /><span className="tk-fab-l">Talk to Hive AI</span></button>}
       {open && (
         <div className="tk-panel" role="dialog" aria-label="Talk to Hive AI">
           <div className="tk-head">

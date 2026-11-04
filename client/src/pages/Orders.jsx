@@ -33,7 +33,7 @@ export default function Orders() {
   const [q, setQ] = useState('');
   const [days, setDays] = useState(0);
   const [funnel, setFunnel] = useState('');
-  const [status, setStatus] = useState('all');
+  const [status, setStatus] = useState(() => { const s = new URLSearchParams(window.location.search).get('status'); return FILTERS.some(([k]) => k === s) ? s : 'all'; }); // /orders?status=ship from the phone's Home
   const [open, setOpen] = useState(null);
   const [refund, setRefund] = useState(null);
   const [ship, setShip] = useState(null);
