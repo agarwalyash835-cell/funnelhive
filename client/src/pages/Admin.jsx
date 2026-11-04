@@ -392,6 +392,7 @@ function StoragePanel({ s, save, field = 'storage' }) {
 function ComposioPanel({ c, save }) {
   const [key, setKey] = useState('');
   const [apps, setApps] = useState(c.apps || ['metaads']);
+  const [perCall, setPerCall] = useState(String(c.creditsPerCall ?? 1));
   const [busy, setBusy] = useState(false);
   const go = async (body) => { setBusy(true); if (await save({ composio: body })) setKey(''); setBusy(false); };
   return (
@@ -400,8 +401,9 @@ function ComposioPanel({ c, save }) {
       <div className={`ai-card ${c.ready ? 'on' : ''}`}><Icon name="bolt" size={20} /><div><b>{c.ready ? `On · ${c.fromEnv ? 'from the server’s settings file' : 'Composio project key saved'}` : 'Off — sellers don’t see Apps & ads'}</b></div></div>
       {!c.fromEnv && <label>Composio project API key {c.hasKey && <small className="muted">· saved — leave empty to keep</small>}<input type="password" value={key} onChange={(e) => setKey(e.target.value.trim())} autoComplete="new-password" placeholder="From Composio → your project → Settings → API keys" /></label>}
       <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>{c.all.map((x) => <label key={x.app} className="tog"><input type="checkbox" checked={apps.includes(x.app)} onChange={(e) => setApps(e.target.checked ? [...apps, x.app] : apps.filter((y) => y !== x.app))} /><span />{x.name}</label>)}</div>
+      <label>AI credits per app action <small className="muted">· every action run in a seller’s connected app (Hive, ad-spend sync, conversions) — counted in their AI credits, not shown separately; nothing runs once their credits are used up</small><input type="number" min="0" max="100" step="1" value={perCall} onChange={(e) => setPerCall(e.target.value)} style={{ maxWidth: 120 }} /></label>
       <p className="hint">Meta Ads: in Composio, add an auth config for Meta Ads (API key) once. Google Ads uses Composio’s own Google login; add your own developer token in Composio when Google approves it. Saving checks the key with Composio.</p>
-      <div className="row"><button className="btn primary" disabled={busy || (!key && !c.hasKey && !c.fromEnv)} onClick={() => go({ ...(key ? { key } : {}), apps })}>{busy ? 'Checking…' : 'Save app connections'}</button>{c.hasKey && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Turn off app connections?', text: 'Sellers can no longer use their connected ad accounts in Hive AI.', confirm: 'Turn off', danger: true })) && save({ composio: { clear: true } })}>Turn off</button>}</div>
+      <div className="row"><button className="btn primary" disabled={busy || (!key && !c.hasKey && !c.fromEnv)} onClick={() => go({ ...(key ? { key } : {}), apps, creditsPerCall: Number(perCall) })}>{busy ? 'Checking…' : 'Save app connections'}</button>{c.hasKey && <button className="btn ghost danger" onClick={async () => (await confirmDialog({ title: 'Turn off app connections?', text: 'Sellers can no longer use their connected ad accounts in Hive AI.', confirm: 'Turn off', danger: true })) && save({ composio: { clear: true } })}>Turn off</button>}</div>
     </Panel>
   );
 }

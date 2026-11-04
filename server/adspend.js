@@ -9,7 +9,7 @@
 // Ads Manager meets ?utm_campaign=diwali-sale.
 import { T, q, tx, uid, JOBS } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
-import { composioReady, runAs, proxyAs } from './composio.js';
+import { composioReady, runAs, proxyAs, USE_META_CONNECTION, metaAccountsOf } from './composio.js';
 
 const GRAPH = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com').replace(/\/$/, '');
 const VER = 'v21.0';
@@ -18,8 +18,9 @@ export const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, 
 const ymd = (t) => new Date(t + 330 * 60000).toISOString().slice(0, 10);
 // the numbers kept per ad per day, besides spend
 export const METRICS = ['impressions', 'reach', 'clicks', 'linkClicks', 'lpv', 'metaLeads', 'metaPurchases', 'metaValue', 'chats', 'video3s', 'thruplay'];
-// the attribution window Meta counts its results in (the seller's pick; Meta's default is 7-day click + 1-day view)
-export const WINDOWS = { '7d_click_1d_view': ['7d_click', '1d_view'], '7d_click': ['7d_click'], '1d_click': ['1d_click'], '28d_click': ['28d_click'] };
+// the attribution window Meta counts its results in (the seller's pick; Meta's default is 7-day click + 1-day view).
+// No 28-day click: Meta retired it and Composio's insights action refuses it (an old pick falls back to the default)
+export const WINDOWS = { '7d_click_1d_view': ['7d_click', '1d_view'], '7d_click': ['7d_click'], '1d_click': ['1d_click'] };
 export const windowOf = (u) => (WINDOWS[u?.settings?.adWindow] ? u.settings.adWindow : '7d_click_1d_view');
 const INSIGHT_FIELDS = ['campaign_name', 'adset_name', 'ad_name', 'ad_id', 'spend', 'impressions', 'reach', 'clicks', 'inline_link_clicks', 'actions', 'action_values', 'video_thruplay_watched_actions', 'account_currency', 'date_start'];
 // Meta's action list → one number: the first type present (they overlap — omni_purchase already includes purchase)
@@ -52,22 +53,26 @@ async function graph(path, token) {
   if (!r.ok) throw new Error(d.error?.message || `Meta ${r.status}`);
   return d;
 }
-// spend through the seller's Meta connection (Settings → Apps & ads), when there's no Marketing API token
+// spend through the seller's Meta connection (Settings → Apps & ads), when there's no Marketing API token — from every
+// ad account picked there. All or nothing: the days pulled replace what was stored for them, so one account failing
+// stores nothing rather than dropping that account's spend.
 async function syncMetaApp(u, days) {
   const m = u.channels.metaApp, rows = [];
-  // per ad, so the Ads report can show spend, cost per lead and ROAS for every ad (campaign totals still add up)
-  const args = { object_id: `act_${m.account}`, level: 'ad', fields: INSIGHT_FIELDS, action_attribution_windows: WINDOWS[windowOf(u)], time_increment: 1, limit: 500, time_range: { since: ymd(Date.now() - (days - 1) * DAY), until: ymd(Date.now()) } };
   try {
-    for (let i = 0, after; i < 20; i++) {
-      let d;
-      try { d = await runAs(u.id, 'METAADS_GET_INSIGHTS', after ? { ...args, after } : args); } catch (e) {
-        // a version of the action without the window option: Meta's default window then
-        if (i || !args.action_attribution_windows) throw e;
-        delete args.action_attribution_windows; i--; continue;
+    for (const account of metaAccountsOf(m)) {
+      // per ad, so the Ads report can show spend, cost per lead and ROAS for every ad (campaign totals still add up)
+      const args = { object_id: `act_${account}`, level: 'ad', fields: INSIGHT_FIELDS, action_attribution_windows: WINDOWS[windowOf(u)], time_increment: 1, limit: 500, time_range: { since: ymd(Date.now() - (days - 1) * DAY), until: ymd(Date.now()) } };
+      for (let i = 0, after; i < 20; i++) {
+        let d;
+        try { d = await runAs(u.id, 'METAADS_GET_INSIGHTS', after ? { ...args, after } : args); } catch (e) {
+          // a version of the action without the window option: Meta's default window then
+          if (i || !args.action_attribution_windows) throw e;
+          delete args.action_attribution_windows; i--; continue;
+        }
+        for (const x of d.data || []) rows.push(insightRow(x));
+        after = d.paging?.next && d.paging?.cursors?.after;
+        if (!after) break;
       }
-      for (const x of d.data || []) rows.push(insightRow(x));
-      after = d.paging?.next && d.paging?.cursors?.after;
-      if (!after) break;
     }
   } catch (e) { T.users.update(u.id, (x) => { if (x.channels?.metaApp) x.channels.metaApp.error = e.message; }); throw e; }
   const n = store(u.id, 'meta', rows.filter((r) => r.date && r.campaign));
@@ -169,11 +174,12 @@ export function registerAdSpend(app, { auth, wrap }) {
     const m = req.user.channels?.metaAds || {};
     const last = q("SELECT json_extract(data, '$.platform') AS p, MAX(json_extract(data, '$.date')) AS d, COUNT(*) AS n FROM adspend WHERE userId = ? GROUP BY p").all(req.user.id);
     const a = appSpend(req.user) ? req.user.channels.metaApp : null;
-    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, platforms: last });
+    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, accounts: metaAccountsOf(a), syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, apps: composioReady(), platforms: last });
   });
   app.put('/api/adspend/meta', auth, wrap(async (req, res) => {
     const b = req.body || {};
     if (b.clear) { setChannel(req.user.id, 'metaAds', undefined); q("DELETE FROM adspend WHERE userId = ? AND json_extract(data, '$.platform') = 'meta'").run(req.user.id); return res.json({ ok: true }); }
+    if (composioReady()) return res.status(400).json({ error: USE_META_CONNECTION });
     const account = String(b.account || '').replace(/^act_/, '').trim();
     if (!/^\d{5,25}$/.test(account)) return res.status(400).json({ error: 'The ad account ID is the number in Ads Manager (act_…)' });
     const prev = req.user.channels?.metaAds || {};

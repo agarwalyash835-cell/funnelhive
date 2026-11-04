@@ -1,11 +1,12 @@
 // Apps through Composio (Meta Ads first; Google Ads when switched on): the platform owner adds one Composio project
 // key in Admin; each seller connects their own accounts through Composio's hosted connect page (Google login, or the
 // Meta access token typed on Composio's page — it never passes through FunnelHive), and Hive AI runs that seller's
-// tools by their own Composio user id. Reading is free to run; anything that changes or spends needs the seller's
+// tools by their own Composio user id. Reading runs without asking; anything that changes or spends needs the seller's
 // OK in Hive (hive.js → NEEDS_OK) and new campaigns, ad sets and ads are always created paused.
 import { platform, savePlatform } from './platform.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
 import { T } from './db.js';
+import { spendCredits } from './billing.js';
 
 const BASE = () => (process.env.COMPOSIO_BASE_URL || 'https://backend.composio.dev').replace(/\/$/, '') + '/api/v3.1';
 export const APPS = {
@@ -16,6 +17,21 @@ const keyOf = () => process.env.COMPOSIO_API_KEY || decrypt(platform().composio?
 export const composioReady = () => !!keyOf();
 export const enabledApps = () => (platform().composio?.apps || ['metaads']).filter((a) => APPS[a]);
 const uidOf = (u) => `fh_${u.id}`; // the seller's Composio user id
+
+// Composio bills every action run, so each one run for a seller (Hive's actions, the ad-spend sync, server-side
+// conversions, account and pixel lookups) comes out of their AI credits — part of the AI credits, never shown on its
+// own. Nothing runs once the month's credits are used up.
+export const CREDITS_PER_CALL = 1;
+// With app connections on, Meta goes only through the seller's Meta connection: no pasted Marketing API or
+// Conversions API tokens (those would skip the credits). Tokens saved earlier keep working and can be removed.
+export const USE_META_CONNECTION = 'Meta now connects in one step: Settings → Apps & ads → Connect Meta Ads, then pick your ad account and pixel — no token needed';
+export const creditsPerCall = () => { const n = platform().composio?.creditsPerCall; return Number.isInteger(n) && n >= 0 ? n : CREDITS_PER_CALL; };
+function chargeCall(userId) {
+  const n = creditsPerCall(), u = n && T.users.get(userId);
+  if (!u) return;
+  const short = spendCredits(u, n);
+  if (short) throw Object.assign(new Error(short), { status: 402, credits: true });
+}
 
 async function call(method, path, body, key = keyOf()) {
   const r = await fetch(`${BASE()}${path}`, { method, headers: { 'x-api-key': key, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(30000) });
@@ -115,16 +131,25 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
   app.put('/api/integrations/meta', auth, limiter, wrap(async (req, res) => {
     if (!ready(res)) return;
     if (req.body?.clear) { setChannel(req.user.id, 'metaApp', undefined); return res.json({ selected: null }); }
-    const account = String(req.body?.account || '').replace(/^act_/, '').trim(), pixel = String(req.body?.pixel || '').trim();
+    const actId = (x) => String(x || '').replace(/^act_/, '').trim();
+    const account = actId(req.body?.account), pixel = String(req.body?.pixel || '').trim();
+    // more ad accounts (other brands): their spend is pulled too, and their pixels can be picked for a funnel
+    const more = [...new Set((Array.isArray(req.body?.accounts) ? req.body.accounts : []).map(actId))].filter((x) => x && x !== account);
     if (!/^\d{5,25}$/.test(account)) return res.status(400).json({ error: 'Pick an ad account' });
+    if (more.length > MAX_ACCOUNTS - 1 || more.some((x) => !/^\d{5,25}$/.test(x))) return res.status(400).json({ error: `Pick up to ${MAX_ACCOUNTS} ad accounts` });
     if (!(await activeApps(req.user)).has('metaads')) return res.status(400).json({ error: 'Connect Meta Ads first' });
     let accounts, pixels;
     try { [accounts, pixels] = await Promise.all([metaAccounts(req.user), metaPixels(req.user, account)]); } catch (e) { return res.status(400).json({ error: e.message }); }
     const a = accounts.find((x) => x.id === account);
     if (!a) return res.status(400).json({ error: 'That ad account isn’t in your Meta connection' });
+    const extra = more.map((id) => accounts.find((x) => x.id === id));
+    if (extra.some((x) => !x)) return res.status(400).json({ error: 'One of those ad accounts isn’t in your Meta connection' });
     const p = pixel ? pixels.find((x) => x.id === pixel) : null;
     if (pixel && !p) return res.status(400).json({ error: 'That pixel isn’t on this ad account' });
-    let u = setChannel(req.user.id, 'metaApp', { account, accountName: a.name, pixel: p?.id || '', pixelName: p?.name || '', at: Date.now() });
+    // every pixel of the picked accounts, kept so a funnel can fire one without asking Meta each time
+    const all = new Map(pixels.map((x) => [x.id, { id: x.id, name: x.name, account }]));
+    try { for (const x of extra) for (const q of await metaPixels(req.user, x.id)) if (!all.has(q.id)) all.set(q.id, { id: q.id, name: q.name, account: x.id }); } catch (e) { return res.status(400).json({ error: e.message }); }
+    let u = setChannel(req.user.id, 'metaApp', { account, accountName: a.name, pixel: p?.id || '', pixelName: p?.name || '', accounts: [a, ...extra].map((x) => ({ account: x.id, accountName: x.name })), pixels: [...all.values()], at: Date.now() });
     // the pixel goes on the pages too, unless another one is already set up there with its own token
     const tr = u.settings?.tracking || {};
     if (p && tr.fbPixel !== p.id && (!tr.fbPixel || !u.channels?.capi?.metaTokenEnc)) u = T.users.update(u.id, (x) => { x.settings = { ...x.settings, tracking: { ...(x.settings?.tracking || {}), fbPixel: p.id } }; });
@@ -150,9 +175,10 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
     if (!(await activeApps(req.user)).has(a)) return res.status(400).json({ error: `Connect ${APPS[a].name} first — Settings → Apps & ads` });
     if (!(await toolsOf(a)).some((t) => t.slug === slug)) return res.status(400).json({ error: `Unknown action ${slug}` });
     try {
+      chargeCall(req.user.id);
       const r = await call('POST', `/tools/execute/${slug}`, { user_id: uidOf(req.user), arguments: safeArgs(slug, req.body?.arguments) });
       res.json({ ok: !!r.successful, data: r.data ?? null, error: r.successful ? null : (typeof r.error === 'string' ? r.error : r.error?.message || 'The app returned an error') });
-    } catch (e) { res.status(e.status === 429 ? 429 : 400).json({ error: e.message }); }
+    } catch (e) { res.status(e.credits ? 402 : e.status === 429 ? 429 : 400).json({ error: e.message, ...(e.credits ? { credits: true } : {}) }); }
   }));
 }
 // ---------- Meta, set up once ----------
@@ -161,6 +187,7 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
 // separate Conversions API or Marketing API tokens.
 // Runs one action as this seller for a server-side feature; throws when Composio or Meta says no.
 export async function runAs(userId, slug, args) {
+  chargeCall(userId);
   const r = await call('POST', `/tools/execute/${slug}`, { user_id: `fh_${userId}`, arguments: args });
   if (!r.successful) throw Object.assign(new Error(String(typeof r.error === 'string' ? r.error : r.error?.message || 'Meta returned an error').slice(0, 300)), { tool: true });
   return r.data || {};
@@ -170,10 +197,20 @@ export async function runAs(userId, slug, args) {
 export async function proxyAs(userId, app, endpoint) {
   const acc = (await connections({ id: userId })).find((c) => c.app === app && c.status === 'ACTIVE');
   if (!acc) throw new Error(`${APPS[app]?.name || app} isn’t connected`);
+  chargeCall(userId);
   const r = await call('POST', '/tools/execute/proxy', { endpoint, method: 'GET', connected_account_id: acc.id });
   return r.data ?? r;
 }
 export const metaLink = (u) => (composioReady() && u?.channels?.metaApp?.pixel ? u.channels.metaApp : null);
+const MAX_ACCOUNTS = 20;
+// the ad accounts whose spend is pulled (the main one first; older setups have just the one)
+export const metaAccountsOf = (m) => (m?.accounts?.length ? m.accounts.map((x) => x.account) : m?.account ? [m.account] : []);
+// the pixels server-side events can go to through the Meta connection: those of the picked ad accounts
+export function metaPixelsOf(u) {
+  const m = composioReady() && u?.channels?.metaApp;
+  if (!m) return [];
+  return m.pixels?.length ? m.pixels : m.pixel ? [{ id: m.pixel, name: m.pixelName || '', account: m.account }] : [];
+}
 async function metaAccounts(u) {
   const d = await runAs(u.id, 'METAADS_GET_AD_ACCOUNTS', { limit: 100, fields: 'id,account_id,name,currency' });
   return (d.data || []).map((a) => ({ id: String(a.account_id || a.id).replace(/^act_/, ''), name: a.name || '', currency: a.currency || '' }));
@@ -182,7 +219,7 @@ async function metaPixels(u, account) {
   const d = await runAs(u.id, 'METAADS_LIST_AD_ACCOUNT_PIXELS', { ad_account_id: account, limit: 100, sort_by: 'LAST_FIRED_TIME' });
   return (d.pixels || []).filter((p) => !p.is_unavailable).map((p) => ({ id: String(p.id), name: p.name || '', lastFired: p.last_fired_time || null }));
 }
-const metaView = (u) => { const m = u.channels?.metaApp; return m ? { account: m.account, accountName: m.accountName || '', pixel: m.pixel || '', pixelName: m.pixelName || '', syncedAt: m.syncedAt || null, error: m.error || '' } : null; };
+const metaView = (u) => { const m = u.channels?.metaApp; return m ? { account: m.account, accountName: m.accountName || '', accounts: metaAccountsOf(m), pixel: m.pixel || '', pixelName: m.pixelName || '', syncedAt: m.syncedAt || null, error: m.error || '' } : null; };
 
 // Admin → Integrations: the project key (checked, stored encrypted) and which apps sellers may connect
 export async function saveComposio(b) {
@@ -197,7 +234,12 @@ export async function saveComposio(b) {
     next.keyEnc = encrypt(key);
   }
   if (Array.isArray(b.apps)) next.apps = b.apps.filter((a) => APPS[a]);
+  if ('creditsPerCall' in b) {
+    const n = Number(b.creditsPerCall);
+    if (!Number.isInteger(n) || n < 0 || n > 100) throw new Error('Credits per app action is a whole number from 0 to 100');
+    next.creditsPerCall = n;
+  }
   savePlatform((s) => { s.composio = next; });
   configCache.clear(); toolCache.clear();
 }
-export const composioView = () => ({ ready: composioReady(), fromEnv: !!process.env.COMPOSIO_API_KEY, hasKey: !!platform().composio?.keyEnc, apps: enabledApps(), all: Object.entries(APPS).map(([app, v]) => ({ app, ...v })) });
+export const composioView = () => ({ ready: composioReady(), fromEnv: !!process.env.COMPOSIO_API_KEY, hasKey: !!platform().composio?.keyEnc, apps: enabledApps(), creditsPerCall: creditsPerCall(), all: Object.entries(APPS).map(([app, v]) => ({ app, ...v })) });

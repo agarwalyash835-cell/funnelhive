@@ -228,15 +228,17 @@ export async function launchPlan(root, members, { link = '', dailyBudget = 500, 
     ],
   };
 }
-// Meta's actions that the launch needs, found among the connection's tools by name
+// Meta's actions that the launch needs, found among the connection's tools by name (Composio's METAADS_CREATE_AD
+// takes the creative inline, so there's no separate creative step)
 const PICK = {
   campaign: (s) => s === 'METAADS_CREATE_CAMPAIGN',
   adset: (s) => s === 'METAADS_CREATE_AD_SET',
   video: (s) => /^METAADS_.*VIDEO/.test(s) && /(UPLOAD|CREATE|ADD)/.test(s),
-  creative: (s) => /^METAADS_CREATE_AD_?CREATIVE$/.test(s),
   ad: (s) => s === 'METAADS_CREATE_AD',
   pages: (s) => /^METAADS_(GET|LIST)_.*PAGES?$/.test(s),
 };
+// the ad's link with the tracking parameters on it (the inline creative has no separate URL-parameters field)
+const withParams = (link, params) => (params ? `${link}${link.includes('?') ? '&' : '?'}${params}` : link);
 // the argument names an action takes (when it says): each value goes in under the first name it knows
 const ALIAS = { ad_account_id: ['account_id', 'act_id', 'ad_account'], campaign_id: ['campaign'], adset_id: ['ad_set_id', 'adset'], file_url: ['video_url', 'url', 'source_url'], creative: ['creative_id'], page_id: ['pageId'] };
 function fit(tool, args) {
@@ -259,26 +261,30 @@ export async function launchAds(user, root, members, opts = {}) {
   let tools;
   try { tools = await toolsOf('metaads'); } catch (e) { return { launched: false, plan, reason: `Meta couldn’t be reached: ${e.message}` }; }
   const t = Object.fromEntries(Object.entries(PICK).map(([k, f]) => [k, tools.find((x) => f(x.slug))]));
-  const missing = ['campaign', 'adset', 'video', 'creative', 'ad'].filter((k) => !t[k]);
+  const missing = ['campaign', 'adset', 'video', 'ad'].filter((k) => !t[k]);
   if (missing.length) return { launched: false, plan, missing, reason: `Your Meta connection can’t ${missing.includes('video') ? 'upload a video' : `create the ${missing.join(', ')}`} from here, so nothing was created. Set the test up in Ads Manager with this plan — name each ad exactly as shown and paste the URL parameters, and the results come back to each Reel.` };
   const run = async (tool, args) => runAs(user.id, tool.slug, neverActive(safeArgs(tool.slug, fit(tool, args))));
   // the Facebook Page the ads run from: the one given, else the only one the connection has
   let page = clip(opts.pageId, 40);
-  if (!page && t.pages) { try { const d = await run(t.pages, { ad_account_id: acc, fields: 'id,name' }); const list = d.data || d.pages || []; if (list.length === 1) page = String(list[0].id); } catch { /* asked below */ } }
+  if (!page && t.pages) { try { const d = await run(t.pages, { ad_account_id: acc, fields: ['id', 'name'] }); const list = d.promotable_pages || d.data || d.pages || []; if (list.length === 1) page = String(list[0].id); } catch { /* asked below */ } }
   if (!page) return { launched: false, plan, missing: ['page'], reason: 'Pick the Facebook Page the ads run from (its id), then launch again' };
+  // a video ad needs a thumbnail image as well as the video
+  const noThumb = plan.ads.find((a) => !a.thumbnail);
+  if (noThumb) return { launched: false, plan, missing: ['thumbnail'], reason: `${noThumb.name} has no poster image for the video’s thumbnail, so nothing was created` };
+  const act = `act_${acc}`; // the create actions want the ad account with its act_ prefix
   const created = { ads: [] };
   try {
-    created.campaignId = idOf(await run(t.campaign, { ad_account_id: acc, name: plan.campaign.name, objective: plan.campaign.objective, status: 'PAUSED', special_ad_categories: [], buying_type: 'AUCTION' }), 'campaign_id');
+    created.campaignId = idOf(await run(t.campaign, { ad_account_id: act, name: plan.campaign.name, objective: plan.campaign.objective, status: 'PAUSED', special_ad_categories: [], is_adset_budget_sharing_enabled: false }), 'campaign_id');
     if (!created.campaignId) throw new Error('Meta didn’t return the campaign');
-    created.adsetId = idOf(await run(t.adset, { ad_account_id: acc, campaign_id: created.campaignId, name: plan.adset.name, daily_budget: plan.adset.dailyBudget * 100, billing_event: 'IMPRESSIONS', optimization_goal: plan.adset.optimization, bid_strategy: 'LOWEST_COST_WITHOUT_CAP', targeting: { geo_locations: { countries: [plan.adset.country] }, age_min: 18, age_max: 65 }, status: 'PAUSED' }), 'adset_id');
+    // the budget is in the ad account's currency (whole rupees), not paise
+    created.adsetId = idOf(await run(t.adset, { ad_account_id: act, campaign_id: created.campaignId, name: plan.adset.name, daily_budget: plan.adset.dailyBudget, billing_event: 'IMPRESSIONS', optimization_goal: plan.adset.optimization, bid_strategy: 'LOWEST_COST_WITHOUT_CAP', targeting: { locations: [plan.adset.country], location_type: 'countries', age_min: 18, age_max: 65 }, status: 'PAUSED' }), 'adset_id');
     if (!created.adsetId) throw new Error('Meta didn’t return the ad set');
     for (const a of plan.ads) {
       const videoId = idOf(await run(t.video, { ad_account_id: acc, file_url: a.video, name: a.name, title: a.name }), 'video_id');
       if (!videoId) throw new Error(`Meta didn’t take the video for ${a.name}`);
-      const creativeId = idOf(await run(t.creative, { ad_account_id: acc, name: a.name, object_story_spec: { page_id: page, video_data: { video_id: videoId, ...(a.thumbnail ? { image_url: a.thumbnail } : {}), message: a.primaryText, title: a.headline, call_to_action: { type: a.cta, value: { link: a.link } } } }, url_tags: plan.urlParams }), 'creative_id');
-      if (!creativeId) throw new Error(`Meta didn’t make the creative for ${a.name}`);
-      const adId = idOf(await run(t.ad, { ad_account_id: acc, adset_id: created.adsetId, name: a.name, creative: { creative_id: creativeId }, status: 'PAUSED' }), 'ad_id');
-      created.ads.push({ reelId: a.reelId, name: a.name, adId, videoId, creativeId });
+      const creative = { type: 'VIDEO', page_id: page, video_id: videoId, image_url: a.thumbnail, message: a.primaryText, website_url: withParams(a.link, plan.urlParams), call_to_action: a.cta };
+      const adId = idOf(await run(t.ad, { ad_account_id: act, adset_id: created.adsetId, name: a.name, creative, status: 'PAUSED' }), 'ad_id');
+      created.ads.push({ reelId: a.reelId, name: a.name, adId, videoId });
       T.studio.update(a.reelId, (x) => { x.ad = { name: a.name, adId, campaignId: created.campaignId, adsetId: created.adsetId, status: 'PAUSED', at: Date.now() }; });
     }
   } catch (e) {

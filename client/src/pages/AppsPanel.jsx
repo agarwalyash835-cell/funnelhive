@@ -58,11 +58,13 @@ export function AppsPanel() {
 // conversions (and the “Send to Meta” automation step) and the daily ad-spend pull, with no other tokens
 function MetaSetup() {
   const [m, setM] = useState(null);
-  const [v, setV] = useState({ account: '', pixel: '' });
+  const [v, setV] = useState({ account: '', pixel: '', accounts: [] });
   const [busy, setBusy] = useState(false);
   const load = (account) => api(`/integrations/meta${account ? `?account=${account}` : ''}`).then((x) => {
     setM(x);
-    setV({ account: x.account || x.selected?.account || '', pixel: x.selected?.account === x.account ? x.selected?.pixel || '' : x.pixels.length === 1 ? x.pixels[0].id : '' });
+    const main = x.account || x.selected?.account || '';
+    // the other ad accounts (more brands) stay ticked when the main one changes
+    setV((y) => ({ account: main, pixel: x.selected?.account === x.account ? x.selected?.pixel || '' : x.pixels.length === 1 ? x.pixels[0].id : '', accounts: (account ? y.accounts : x.selected?.accounts || []).filter((id) => id !== main) }));
   }).catch((e) => setM({ error: e.message, accounts: [], pixels: [] }));
   useEffect(() => { load(); }, []);
   if (!m) return <div className="skeleton sm" />;
@@ -72,17 +74,20 @@ function MetaSetup() {
     setBusy(false);
   };
   const sel = m.selected;
-  const done = sel && sel.account === v.account && (sel.pixel || '') === v.pixel;
+  const done = sel && sel.account === v.account && (sel.pixel || '') === v.pixel && (sel.accounts || []).filter((id) => id !== v.account).sort().join() === [...v.accounts].sort().join();
+  const others = m.accounts.filter((a) => a.id !== v.account);
   return (
     <div className="meta-setup">
       {m.error && <p className="hint warn">{m.error}</p>}
-      <label>Ad account<select value={v.account} onChange={(e) => { setV({ account: e.target.value, pixel: '' }); if (e.target.value) load(e.target.value); }}>
+      <label>Ad account<select value={v.account} onChange={(e) => { setV({ ...v, account: e.target.value, pixel: '' }); if (e.target.value) load(e.target.value); }}>
         <option value="">Choose…</option>{m.accounts.map((a) => <option key={a.id} value={a.id}>{a.name || a.id} · {a.id}</option>)}</select></label>
       {v.account && <label>Pixel (dataset)<select value={v.pixel} onChange={(e) => setV({ ...v, pixel: e.target.value })}>
         <option value="">None — ad spend only</option>{(m.pixels || []).map((p) => <option key={p.id} value={p.id}>{p.name || p.id} · {p.id}</option>)}</select></label>}
       {v.account && !m.pixels?.length && !m.error && <small className="muted">No pixel on this ad account yet — create one in Events Manager, then reload.</small>}
+      {v.account && others.length > 0 && <div className="meta-more"><small className="muted">Other brands’ ad accounts — their spend syncs daily too, and their pixels can be picked for a funnel (editor → Tracking for this funnel)</small>
+        {others.map((a) => <label key={a.id} className="tog"><input type="checkbox" checked={v.accounts.includes(a.id)} onChange={(e) => setV({ ...v, accounts: e.target.checked ? [...v.accounts, a.id] : v.accounts.filter((id) => id !== a.id) })} /><span />{a.name || a.id} · {a.id}</label>)}</div>}
       <button className="btn primary sm" disabled={busy || !v.account || done} onClick={save}>{busy ? 'Saving…' : done ? 'Saved' : 'Use these'}</button>
-      {sel?.pixel && <small className="muted">Pixel {sel.pixelName || sel.pixel} is on your pages, leads and sales go to Meta server-side, and spend syncs daily{sel.syncedAt ? ` (last ${new Date(sel.syncedAt).toLocaleDateString('en-IN')})` : ''}.</small>}
+      {sel?.pixel && <small className="muted">Pixel {sel.pixelName || sel.pixel} is on your pages, leads and sales go to Meta server-side, and spend syncs daily{sel.accounts?.length > 1 ? ` from ${sel.accounts.length} ad accounts` : ''}{sel.syncedAt ? ` (last ${new Date(sel.syncedAt).toLocaleDateString('en-IN')})` : ''}.</small>}
       {sel?.error && <small className="warn-t">{sel.error}</small>}
     </div>
   );

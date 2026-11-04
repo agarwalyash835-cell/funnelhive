@@ -450,10 +450,23 @@ function TrackingPanel({ f }) {
     <details className="stylep" open={!!own}>
       <summary><Icon name="settings" size={14} /> Tracking for this funnel (optional) {own && <span className="pill ok">own tracking</span>}</summary>
       <p className="hint">For a funnel that runs on a different ad account. Each blank field uses your account’s setting (Settings → Tracking).</p>
-      <div className="fld"><label>Meta (Facebook) Pixel ID</label><input value={t.fbPixel} maxLength={20} placeholder={using(ws.fbPixel)} onChange={(e) => setT({ ...t, fbPixel: e.target.value })} /></div>
-      {t.fbPixel && t.fbPixel !== ws.fbPixel && (
+      {/* with app connections on, the pixel is picked from the Meta connection's ad accounts (Settings → Apps & ads) */}
+      {info?.apps ? (
+        <div className="fld"><label>Meta (Facebook) Pixel</label>
+          <select value={t.fbPixel} onChange={(e) => setT({ ...t, fbPixel: e.target.value })}>
+            <option value="">{using(ws.fbPixel)}</option>
+            {(info.pixels || []).filter((p) => p.id !== ws.fbPixel).map((p) => <option key={p.id} value={p.id}>{p.name || p.id} · {p.id} (ad account {p.account})</option>)}
+            {t.fbPixel && t.fbPixel !== ws.fbPixel && !(info.pixels || []).some((p) => p.id === t.fbPixel) && <option value={t.fbPixel}>{t.fbPixel} (saved earlier)</option>}
+          </select>
+          <span className="hint">{(info.pixels || []).some((p) => p.id !== ws.fbPixel) ? 'Pixels of the ad accounts picked in Settings → Apps & ads — sales and leads go to the chosen one from the server too.' : 'To use another brand’s pixel, add its ad account in Settings → Apps & ads.'}</span>
+        </div>
+      ) : <div className="fld"><label>Meta (Facebook) Pixel ID</label><input value={t.fbPixel} maxLength={20} placeholder={using(ws.fbPixel)} onChange={(e) => setT({ ...t, fbPixel: e.target.value })} /></div>}
+      {t.fbPixel && t.fbPixel !== ws.fbPixel && info?.apps && !own?.metaToken && !(info.pixels || []).some((p) => p.id === t.fbPixel) && (
+        <span className="hint">This pixel isn’t in your Meta connection, so it gets browser events only.</span>
+      )}
+      {t.fbPixel && t.fbPixel !== ws.fbPixel && (!info?.apps || own?.metaToken) && (
         <div className="fld"><label>Conversions API token for this pixel {own?.metaToken && <small className="ok-t">· saved</small>}</label>
-          <input type="password" value={t.metaToken} disabled={!info?.canSetToken} placeholder={own?.metaToken ? '•••••••• (saved)' : 'Events Manager → this pixel → Settings → Generate access token'} onChange={(e) => setT({ ...t, metaToken: e.target.value })} />
+          <input type="password" value={t.metaToken} disabled={!info?.canSetToken || info?.apps} placeholder={own?.metaToken ? '•••••••• (saved)' : 'Events Manager → this pixel → Settings → Generate access token'} onChange={(e) => setT({ ...t, metaToken: e.target.value })} />
           <span className="hint">{info?.canSetToken ? 'Optional. Without it, this pixel gets browser events only (server-side events never go to another pixel).' : 'Only the owner or an admin can add a token.'}</span>
           {own?.metaToken && info?.canSetToken && <button className="btn ghost sm" disabled={busy} onClick={() => send({ ...ids, metaToken: '' }, 'Token removed')}>Remove token</button>}
         </div>

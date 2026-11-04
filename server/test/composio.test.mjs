@@ -9,6 +9,7 @@ import { startServer, register, enable2fa } from './helpers.mjs';
 let fake, srv, api, ADMIN, T, sellerId;
 const calls = [], sent = [];
 let connected = []; // what the stand-in Composio holds
+const twoAccounts = new Set(); // sellers whose Meta connection has a second brand's ad account
 before(async () => {
   fake = http.createServer((req, res) => {
     let b = '';
@@ -30,8 +31,9 @@ before(async () => {
         { slug: 'METAADS_CREATE_CAMPAIGN', name: 'Create campaign', description: 'Create a campaign', input_parameters: { properties: { name: {}, status: {} } } },
       ] : [{ slug: 'GOOGLEADS_SEARCH_STREAM_GAQL', name: 'Search', description: 'Google Ads report' }] });
       const slug = p.split('/').pop();
-      if (slug === 'METAADS_GET_AD_ACCOUNTS') return send(200, { successful: true, data: { data: [{ id: 'act_1111111', account_id: '1111111', name: 'Asha Studio' }] } });
-      if (slug === 'METAADS_LIST_AD_ACCOUNT_PIXELS') return send(200, { successful: true, data: { pixels: [{ id: '2222222', name: 'Main pixel' }] } });
+      if (slug === 'METAADS_GET_AD_ACCOUNTS') return send(200, { successful: true, data: { data: [{ id: 'act_1111111', account_id: '1111111', name: 'Asha Studio' }, ...(twoAccounts.has(body.user_id) ? [{ id: 'act_4444444', account_id: '4444444', name: 'Asha Kids' }] : [])] } });
+      if (slug === 'METAADS_LIST_AD_ACCOUNT_PIXELS') return send(200, { successful: true, data: { pixels: body.arguments.ad_account_id === '4444444' ? [{ id: '5555555', name: 'Kids pixel' }] : [{ id: '2222222', name: 'Main pixel' }] } });
+      if (slug === 'METAADS_GET_INSIGHTS' && body.arguments.object_id === 'act_4444444') return send(200, { successful: true, data: { data: [{ date_start: '2026-10-20', campaign_name: 'Kids Launch', adset_name: 'Parents', ad_name: 'Reel K', ad_id: '130001', spend: '700' }] } });
       if (slug === 'METAADS_SEND_CONVERSION_EVENTS') { sent.push(body); return send(200, { successful: true, data: { events_received: body.arguments.events.length } }); }
       if (slug === 'METAADS_GET_INSIGHTS' && body.arguments.level === 'ad') return send(200, { successful: true, data: { data: [{ date_start: '2026-10-20', campaign_name: 'Diwali Sale', adset_name: 'Women 25-40', ad_name: 'Reel A', ad_id: '120001', spend: '1500.50', impressions: '9000', clicks: '210' }, { date_start: '2026-10-21', campaign_name: 'Diwali Sale', adset_name: 'Women 25-40', ad_name: 'Reel A', ad_id: '120001', spend: '900' }] } });
       if (p.startsWith('/tools/execute/')) return send(200, { successful: true, data: { slug: p.split('/').pop(), args: body.arguments, user: body.user_id }, error: null });
@@ -139,4 +141,73 @@ test('one Meta connection: pick the ad account and pixel, and the pixel, convers
   assert.equal((await api('/channels/tracking', 'GET', null, T)).data.viaApps, false);
   const got = (await api('/automations', 'GET', null, T)).data.channels.meta;
   assert.equal(got, false);
+});
+
+test('every app action comes out of the seller’s AI credits (the owner sets how many); at zero nothing runs', async () => {
+  const reg = await register(api), T3 = reg.token, id3 = (await api('/me', 'GET', null, T3)).data.id;
+  await api('/integrations/metaads/connect', 'POST', {}, T3);
+  assert.equal((await api(`/admin/users/${id3}/action`, 'POST', { action: 'set_credits', limit: 2 }, ADMIN)).status, 200);
+  const runs = () => calls.filter((c) => c.path.includes('/tools/execute/') && c.body?.user_id === `fh_${id3}`).length;
+  const run = () => api('/integrations/run', 'POST', { slug: 'METAADS_GET_INSIGHTS', arguments: { object_id: 'act_1' } }, T3);
+  assert.equal((await run()).status, 200);
+  assert.equal((await run()).status, 200);
+  assert.equal((await api('/me', 'GET', null, T3)).data.credits.used, 2, 'one credit per action by default');
+  const out = await run();
+  assert.equal(out.status, 402);
+  assert.equal(out.data.credits, true);
+  assert.equal(runs(), 2, 'refused before Composio is called');
+  // background work through the connection stops too (here: reading the ad accounts)
+  assert.match((await api('/integrations/meta', 'GET', null, T3)).data.error, /AI credits/);
+  assert.equal(runs(), 2);
+  // the owner's rate: 0 makes actions free, anything else must be a whole number up to 100
+  assert.equal((await api('/admin/settings', 'PUT', { composio: { creditsPerCall: 1.5 } }, ADMIN)).status, 400);
+  const free = await api('/admin/settings', 'PUT', { composio: { creditsPerCall: 0 } }, ADMIN);
+  assert.equal(free.data.composio.creditsPerCall, 0);
+  assert.equal((await run()).status, 200);
+  assert.equal((await api('/me', 'GET', null, T3)).data.credits.used, 2);
+  await api('/admin/settings', 'PUT', { composio: { creditsPerCall: 1 } }, ADMIN);
+});
+
+test('with app connections on, Meta is connected only through Apps & ads: no pasted tokens', async () => {
+  const T4 = (await register(api)).token;
+  const token = 'EAAB'.padEnd(60, 'x');
+  assert.equal((await api('/adspend', 'GET', null, T4)).data.apps, true);
+  assert.equal((await api('/channels/tracking', 'GET', null, T4)).data.apps, true);
+  const spend = await api('/adspend/meta', 'PUT', { account: '1111111', token }, T4);
+  assert.equal(spend.status, 400);
+  assert.match(spend.data.error, /Apps & ads/);
+  assert.match((await api('/channels/tracking', 'PUT', { metaToken: token }, T4)).data.error, /Apps & ads/);
+  assert.equal((await api('/channels/tracking', 'PUT', { metaToken: '' }, T4)).status, 200, 'removing a token still works');
+  assert.equal((await api('/adspend/meta', 'PUT', { clear: true }, T4)).status, 200);
+  const f = (await api('/templates/yoga/use', 'POST', {}, T4)).data;
+  const own = await api(`/funnels/${f.id}/tracking`, 'PUT', { fbPixel: '3333333', metaToken: token }, T4);
+  assert.match(own.data.error, /Apps & ads/);
+  assert.equal((await api(`/funnels/${f.id}/tracking`, 'GET', null, T4)).data.apps, true);
+});
+
+test('more brands: spend syncs from every picked ad account, and a funnel can fire another brand’s pixel through the connection', async () => {
+  const T5 = (await register(api)).token, id5 = (await api('/me', 'GET', null, T5)).data.id;
+  twoAccounts.add(`fh_${id5}`);
+  await api('/integrations/metaads/connect', 'POST', {}, T5);
+  assert.deepEqual((await api('/integrations/meta', 'GET', null, T5)).data.accounts.map((a) => a.id), ['1111111', '4444444']);
+  assert.equal((await api('/integrations/meta', 'PUT', { account: '1111111', pixel: '2222222', accounts: ['9999999'] }, T5)).status, 400, 'an ad account from elsewhere is refused');
+  const saved = (await api('/integrations/meta', 'PUT', { account: '1111111', pixel: '2222222', accounts: ['4444444'] }, T5)).data;
+  assert.deepEqual(saved.selected.accounts, ['1111111', '4444444']);
+  // spend from both accounts, in one report
+  assert.equal((await api('/adspend/meta/sync', 'POST', { days: 30 }, T5)).data.rows, 3);
+  const rows = (await api('/ads/report?days=3650', 'GET', null, T5)).data.rows;
+  assert.deepEqual(['120001', '130001'].map((id) => rows.find((r) => r.adId === id)?.spend), [2401, 700]);
+  assert.deepEqual((await api('/adspend', 'GET', null, T5)).data.meta.accounts, ['1111111', '4444444']);
+
+  // a funnel for the second brand: its pixel is picked from the connection, and its leads go there server-side
+  const g = (await api('/templates/webinar/use', 'POST', {}, T5)).data;
+  await api(`/funnels/${g.id}`, 'PUT', { published: true }, T5);
+  const tr = (await api(`/funnels/${g.id}/tracking`, 'GET', null, T5)).data;
+  assert.ok(tr.pixels.some((p) => p.id === '5555555' && p.account === '4444444'));
+  assert.match((await api(`/funnels/${g.id}/tracking`, 'PUT', { fbPixel: '7777777' }, T5)).data.error, /Meta connection/, 'a pixel outside the connection is refused');
+  assert.equal((await api(`/funnels/${g.id}/tracking`, 'PUT', { fbPixel: '5555555' }, T5)).status, 200);
+  const mine = () => sent.filter((b) => b.user_id === `fh_${id5}`).map((b) => b.arguments.pixel_or_dataset_id);
+  await api(`/public/${g.slug}/lead`, 'POST', { stepId: g.steps[0].id, email: 'kids@example.com', name: 'Asha', eventId: 'lead-kids-123456' });
+  assert.ok(await until(() => mine().includes('5555555')), 'the funnel’s own pixel, through the connection');
+  assert.ok(!mine().includes('2222222'), 'never the main pixel instead');
 });
