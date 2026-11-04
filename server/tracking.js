@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { T, q, uid, JOBS, contactKey } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
 import { registerGads } from './gads.js';
-import { metaLink, runAs } from './composio.js';
+import { metaLink, runAs, composioReady, USE_META_CONNECTION } from './composio.js';
 
 const META = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com/v21.0').replace(/\/$/, '');
 const GA4 = () => process.env.GA4_MP_URL || 'https://www.google-analytics.com/mp/collect';
@@ -97,7 +97,7 @@ export const funnelTrackingView = (f) => {
 export function capiStatus(u) {
   const c = u?.channels?.capi || {};
   const link = metaLink(u);
-  return { metaToken: !!c.metaTokenEnc, viaApps: !!link && link.pixel === (u?.settings?.tracking?.fbPixel || ''), metaTestCode: c.metaTestCode || '', ga4Secret: !!c.ga4SecretEnc, pixel: u?.settings?.tracking?.fbPixel || '', ga4: u?.settings?.tracking?.ga4 || '' };
+  return { metaToken: !!c.metaTokenEnc, viaApps: !!link && link.pixel === (u?.settings?.tracking?.fbPixel || ''), apps: composioReady(), metaTestCode: c.metaTestCode || '', ga4Secret: !!c.ga4SecretEnc, pixel: u?.settings?.tracking?.fbPixel || '', ga4: u?.settings?.tracking?.ga4 || '' };
 }
 // Server-side events go to the same pixel / stream the funnel's pages fire in the browser — never another one.
 // A funnel with its own pixel uses its own token (or the workspace's when it is the workspace's pixel);
@@ -270,6 +270,7 @@ export function registerTracking(app, { auth, wrap }) {
     const next = { ...prev };
     if ('metaToken' in b) {
       const t = String(b.metaToken || '').trim();
+      if (t && composioReady()) return res.status(400).json({ error: USE_META_CONNECTION });
       if (t && !META_TOKEN_RE.test(t)) return res.status(400).json({ error: 'That doesn’t look like a Conversions API access token (Events Manager → your pixel → Settings → Generate access token)' });
       next.metaTokenEnc = t ? encrypt(t) : '';
     }
@@ -288,7 +289,7 @@ export function registerTracking(app, { auth, wrap }) {
   app.get('/api/funnels/:id/tracking', auth, (req, res) => {
     const f = T.funnels.get(req.params.id);
     if (!f || f.userId !== req.user.id) return res.status(404).json({ error: 'Funnel not found' });
-    res.json({ tracking: funnelTrackingView(f), workspace: trackingFor(req.user, null), capi: !!req.user.channels?.capi?.metaTokenEnc, canSetToken: canSetToken(req) });
+    res.json({ tracking: funnelTrackingView(f), workspace: trackingFor(req.user, null), capi: !!req.user.channels?.capi?.metaTokenEnc, canSetToken: canSetToken(req), apps: composioReady() });
   });
   app.put('/api/funnels/:id/tracking', auth, (req, res) => {
     const f = T.funnels.get(req.params.id);
@@ -305,6 +306,7 @@ export function registerTracking(app, { auth, wrap }) {
     let tok = f.tracking?.metaTokenEnc || '';
     if ('metaToken' in b) {
       const v = String(b.metaToken || '').trim();
+      if (v && composioReady()) return res.status(400).json({ error: USE_META_CONNECTION });
       if (v && !canSetToken(req)) return res.status(403).json({ error: 'Only the owner or an admin can add a Conversions API token' });
       if (v && !META_TOKEN_RE.test(v)) return res.status(400).json({ error: 'That doesn’t look like a Conversions API access token (Events Manager → your pixel → Settings → Generate access token)' });
       tok = v ? encrypt(v) : '';

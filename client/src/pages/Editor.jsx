@@ -451,9 +451,12 @@ function TrackingPanel({ f }) {
       <summary><Icon name="settings" size={14} /> Tracking for this funnel (optional) {own && <span className="pill ok">own tracking</span>}</summary>
       <p className="hint">For a funnel that runs on a different ad account. Each blank field uses your account’s setting (Settings → Tracking).</p>
       <div className="fld"><label>Meta (Facebook) Pixel ID</label><input value={t.fbPixel} maxLength={20} placeholder={using(ws.fbPixel)} onChange={(e) => setT({ ...t, fbPixel: e.target.value })} /></div>
-      {t.fbPixel && t.fbPixel !== ws.fbPixel && (
+      {t.fbPixel && t.fbPixel !== ws.fbPixel && info?.apps && !own?.metaToken && (
+        <span className="hint">This pixel gets browser events. Server-side events go to the pixel picked in Settings → Apps &amp; ads.</span>
+      )}
+      {t.fbPixel && t.fbPixel !== ws.fbPixel && (!info?.apps || own?.metaToken) && (
         <div className="fld"><label>Conversions API token for this pixel {own?.metaToken && <small className="ok-t">· saved</small>}</label>
-          <input type="password" value={t.metaToken} disabled={!info?.canSetToken} placeholder={own?.metaToken ? '•••••••• (saved)' : 'Events Manager → this pixel → Settings → Generate access token'} onChange={(e) => setT({ ...t, metaToken: e.target.value })} />
+          <input type="password" value={t.metaToken} disabled={!info?.canSetToken || info?.apps} placeholder={own?.metaToken ? '•••••••• (saved)' : 'Events Manager → this pixel → Settings → Generate access token'} onChange={(e) => setT({ ...t, metaToken: e.target.value })} />
           <span className="hint">{info?.canSetToken ? 'Optional. Without it, this pixel gets browser events only (server-side events never go to another pixel).' : 'Only the owner or an admin can add a token.'}</span>
           {own?.metaToken && info?.canSetToken && <button className="btn ghost sm" disabled={busy} onClick={() => send({ ...ids, metaToken: '' }, 'Token removed')}>Remove token</button>}
         </div>

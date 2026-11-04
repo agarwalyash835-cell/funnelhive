@@ -27,14 +27,15 @@ export function AdSpendPanel() {
         {d.meta.via === 'apps' && <p className="hint ok-t">Pulled through your Meta connection (Apps &amp; ads above) — ad account {d.meta.account}. Nothing else to set up.</p>}
         {d.meta.via === 'apps' && <div className="row"><button className="btn ghost" onClick={async () => { try { const r = await api('/adspend/meta/sync', 'POST', { days: 30 }); toast(`Synced ${r.rows} rows`); load(); } catch (e) { toast(e.message); } }}>Sync now</button></div>}
         {d.meta.via !== 'apps' && <>
-        <div className="form2">
+        {/* with app connections on, Meta is connected only in Apps & ads (a token saved earlier can still sync or be removed) */}
+        {!d.apps && <div className="form2">
           <label>Ad account ID<input value={v.account} onChange={(e) => setV({ ...v, account: e.target.value })} placeholder="act_1234567890" /></label>
           <label>Access token <small className="muted">· with ads_read</small><input type="password" value={v.token} onChange={(e) => setV({ ...v, token: e.target.value })} placeholder={d.meta.connected ? '•••••••• (saved)' : 'From Business Settings → System users'} autoComplete="new-password" /></label>
-        </div>
-        <div className="row"><button className="btn primary" disabled={busy || !v.account} onClick={connect}>{busy ? 'Connecting…' : d.meta.connected ? 'Save & sync' : 'Connect'}</button>
+        </div>}
+        <div className="row">{!d.apps && <button className="btn primary" disabled={busy || !v.account} onClick={connect}>{busy ? 'Connecting…' : d.meta.connected ? 'Save & sync' : 'Connect'}</button>}
           {d.meta.connected && <><button className="btn ghost" onClick={async () => { try { const r = await api('/adspend/meta/sync', 'POST', { days: 30 }); toast(`Synced ${r.rows} rows`); load(); } catch (e) { toast(e.message); } }}>Sync now</button><button className="btn ghost danger" onClick={async () => { if (await confirmDialog({ title: 'Disconnect Meta and remove its spend?', confirm: 'Disconnect', danger: true })) { await api('/adspend/meta', 'PUT', { clear: true }); load(); } }}>Disconnect</button></>}</div>
         </>}
-        <p className="hint">Synced every day (the last 7 days are refreshed, so late-arriving spend is corrected).{d.meta.via !== 'apps' && ' Easier: connect Meta Ads in Apps & ads above and pick your ad account — no token needed.'}</p>
+        <p className="hint">Synced every day (the last 7 days are refreshed, so late-arriving spend is corrected).{d.meta.via !== 'apps' && (d.apps ? ' Connect Meta Ads in Apps & ads above and pick your ad account to start — no token needed.' : ' Easier: connect Meta Ads in Apps & ads above and pick your ad account — no token needed.')}</p>
       </div>
       <div className="rzp">
         <div className="rzp-h"><b>Google Ads & others (CSV)</b></div>

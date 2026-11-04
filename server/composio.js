@@ -22,6 +22,9 @@ const uidOf = (u) => `fh_${u.id}`; // the seller's Composio user id
 // conversions, account and pixel lookups) comes out of their AI credits — part of the AI credits, never shown on its
 // own. Nothing runs once the month's credits are used up.
 export const CREDITS_PER_CALL = 1;
+// With app connections on, Meta goes only through the seller's Meta connection: no pasted Marketing API or
+// Conversions API tokens (those would skip the credits). Tokens saved earlier keep working and can be removed.
+export const USE_META_CONNECTION = 'Meta now connects in one step: Settings → Apps & ads → Connect Meta Ads, then pick your ad account and pixel — no token needed';
 export const creditsPerCall = () => { const n = platform().composio?.creditsPerCall; return Number.isInteger(n) && n >= 0 ? n : CREDITS_PER_CALL; };
 function chargeCall(userId) {
   const n = creditsPerCall(), u = n && T.users.get(userId);

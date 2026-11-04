@@ -165,3 +165,20 @@ test('every app action comes out of the seller’s AI credits (the owner sets ho
   assert.equal((await api('/me', 'GET', null, T3)).data.credits.used, 2);
   await api('/admin/settings', 'PUT', { composio: { creditsPerCall: 1 } }, ADMIN);
 });
+
+test('with app connections on, Meta is connected only through Apps & ads: no pasted tokens', async () => {
+  const T4 = (await register(api)).token;
+  const token = 'EAAB'.padEnd(60, 'x');
+  assert.equal((await api('/adspend', 'GET', null, T4)).data.apps, true);
+  assert.equal((await api('/channels/tracking', 'GET', null, T4)).data.apps, true);
+  const spend = await api('/adspend/meta', 'PUT', { account: '1111111', token }, T4);
+  assert.equal(spend.status, 400);
+  assert.match(spend.data.error, /Apps & ads/);
+  assert.match((await api('/channels/tracking', 'PUT', { metaToken: token }, T4)).data.error, /Apps & ads/);
+  assert.equal((await api('/channels/tracking', 'PUT', { metaToken: '' }, T4)).status, 200, 'removing a token still works');
+  assert.equal((await api('/adspend/meta', 'PUT', { clear: true }, T4)).status, 200);
+  const f = (await api('/templates/yoga/use', 'POST', {}, T4)).data;
+  const own = await api(`/funnels/${f.id}/tracking`, 'PUT', { fbPixel: '3333333', metaToken: token }, T4);
+  assert.match(own.data.error, /Apps & ads/);
+  assert.equal((await api(`/funnels/${f.id}/tracking`, 'GET', null, T4)).data.apps, true);
+});

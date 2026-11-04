@@ -9,7 +9,7 @@
 // Ads Manager meets ?utm_campaign=diwali-sale.
 import { T, q, tx, uid, JOBS } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
-import { composioReady, runAs, proxyAs } from './composio.js';
+import { composioReady, runAs, proxyAs, USE_META_CONNECTION } from './composio.js';
 
 const GRAPH = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com').replace(/\/$/, '');
 const VER = 'v21.0';
@@ -170,11 +170,12 @@ export function registerAdSpend(app, { auth, wrap }) {
     const m = req.user.channels?.metaAds || {};
     const last = q("SELECT json_extract(data, '$.platform') AS p, MAX(json_extract(data, '$.date')) AS d, COUNT(*) AS n FROM adspend WHERE userId = ? GROUP BY p").all(req.user.id);
     const a = appSpend(req.user) ? req.user.channels.metaApp : null;
-    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, platforms: last });
+    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, apps: composioReady(), platforms: last });
   });
   app.put('/api/adspend/meta', auth, wrap(async (req, res) => {
     const b = req.body || {};
     if (b.clear) { setChannel(req.user.id, 'metaAds', undefined); q("DELETE FROM adspend WHERE userId = ? AND json_extract(data, '$.platform') = 'meta'").run(req.user.id); return res.json({ ok: true }); }
+    if (composioReady()) return res.status(400).json({ error: USE_META_CONNECTION });
     const account = String(b.account || '').replace(/^act_/, '').trim();
     if (!/^\d{5,25}$/.test(account)) return res.status(400).json({ error: 'The ad account ID is the number in Ads Manager (act_…)' });
     const prev = req.user.channels?.metaAds || {};
