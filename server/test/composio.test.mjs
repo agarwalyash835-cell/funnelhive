@@ -140,3 +140,28 @@ test('one Meta connection: pick the ad account and pixel, and the pixel, convers
   const got = (await api('/automations', 'GET', null, T)).data.channels.meta;
   assert.equal(got, false);
 });
+
+test('every app action comes out of the seller’s AI credits (the owner sets how many); at zero nothing runs', async () => {
+  const reg = await register(api), T3 = reg.token, id3 = (await api('/me', 'GET', null, T3)).data.id;
+  await api('/integrations/metaads/connect', 'POST', {}, T3);
+  assert.equal((await api(`/admin/users/${id3}/action`, 'POST', { action: 'set_credits', limit: 2 }, ADMIN)).status, 200);
+  const runs = () => calls.filter((c) => c.path.includes('/tools/execute/') && c.body?.user_id === `fh_${id3}`).length;
+  const run = () => api('/integrations/run', 'POST', { slug: 'METAADS_GET_INSIGHTS', arguments: { object_id: 'act_1' } }, T3);
+  assert.equal((await run()).status, 200);
+  assert.equal((await run()).status, 200);
+  assert.equal((await api('/me', 'GET', null, T3)).data.credits.used, 2, 'one credit per action by default');
+  const out = await run();
+  assert.equal(out.status, 402);
+  assert.equal(out.data.credits, true);
+  assert.equal(runs(), 2, 'refused before Composio is called');
+  // background work through the connection stops too (here: reading the ad accounts)
+  assert.match((await api('/integrations/meta', 'GET', null, T3)).data.error, /AI credits/);
+  assert.equal(runs(), 2);
+  // the owner's rate: 0 makes actions free, anything else must be a whole number up to 100
+  assert.equal((await api('/admin/settings', 'PUT', { composio: { creditsPerCall: 1.5 } }, ADMIN)).status, 400);
+  const free = await api('/admin/settings', 'PUT', { composio: { creditsPerCall: 0 } }, ADMIN);
+  assert.equal(free.data.composio.creditsPerCall, 0);
+  assert.equal((await run()).status, 200);
+  assert.equal((await api('/me', 'GET', null, T3)).data.credits.used, 2);
+  await api('/admin/settings', 'PUT', { composio: { creditsPerCall: 1 } }, ADMIN);
+});

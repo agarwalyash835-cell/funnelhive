@@ -1,11 +1,12 @@
 // Apps through Composio (Meta Ads first; Google Ads when switched on): the platform owner adds one Composio project
 // key in Admin; each seller connects their own accounts through Composio's hosted connect page (Google login, or the
 // Meta access token typed on Composio's page — it never passes through FunnelHive), and Hive AI runs that seller's
-// tools by their own Composio user id. Reading is free to run; anything that changes or spends needs the seller's
+// tools by their own Composio user id. Reading runs without asking; anything that changes or spends needs the seller's
 // OK in Hive (hive.js → NEEDS_OK) and new campaigns, ad sets and ads are always created paused.
 import { platform, savePlatform } from './platform.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
 import { T } from './db.js';
+import { spendCredits } from './billing.js';
 
 const BASE = () => (process.env.COMPOSIO_BASE_URL || 'https://backend.composio.dev').replace(/\/$/, '') + '/api/v3.1';
 export const APPS = {
@@ -16,6 +17,18 @@ const keyOf = () => process.env.COMPOSIO_API_KEY || decrypt(platform().composio?
 export const composioReady = () => !!keyOf();
 export const enabledApps = () => (platform().composio?.apps || ['metaads']).filter((a) => APPS[a]);
 const uidOf = (u) => `fh_${u.id}`; // the seller's Composio user id
+
+// Composio bills every action run, so each one run for a seller (Hive's actions, the ad-spend sync, server-side
+// conversions, account and pixel lookups) comes out of their AI credits — part of the AI credits, never shown on its
+// own. Nothing runs once the month's credits are used up.
+export const CREDITS_PER_CALL = 1;
+export const creditsPerCall = () => { const n = platform().composio?.creditsPerCall; return Number.isInteger(n) && n >= 0 ? n : CREDITS_PER_CALL; };
+function chargeCall(userId) {
+  const n = creditsPerCall(), u = n && T.users.get(userId);
+  if (!u) return;
+  const short = spendCredits(u, n);
+  if (short) throw Object.assign(new Error(short), { status: 402, credits: true });
+}
 
 async function call(method, path, body, key = keyOf()) {
   const r = await fetch(`${BASE()}${path}`, { method, headers: { 'x-api-key': key, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(30000) });
@@ -150,9 +163,10 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
     if (!(await activeApps(req.user)).has(a)) return res.status(400).json({ error: `Connect ${APPS[a].name} first — Settings → Apps & ads` });
     if (!(await toolsOf(a)).some((t) => t.slug === slug)) return res.status(400).json({ error: `Unknown action ${slug}` });
     try {
+      chargeCall(req.user.id);
       const r = await call('POST', `/tools/execute/${slug}`, { user_id: uidOf(req.user), arguments: safeArgs(slug, req.body?.arguments) });
       res.json({ ok: !!r.successful, data: r.data ?? null, error: r.successful ? null : (typeof r.error === 'string' ? r.error : r.error?.message || 'The app returned an error') });
-    } catch (e) { res.status(e.status === 429 ? 429 : 400).json({ error: e.message }); }
+    } catch (e) { res.status(e.credits ? 402 : e.status === 429 ? 429 : 400).json({ error: e.message, ...(e.credits ? { credits: true } : {}) }); }
   }));
 }
 // ---------- Meta, set up once ----------
@@ -161,6 +175,7 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
 // separate Conversions API or Marketing API tokens.
 // Runs one action as this seller for a server-side feature; throws when Composio or Meta says no.
 export async function runAs(userId, slug, args) {
+  chargeCall(userId);
   const r = await call('POST', `/tools/execute/${slug}`, { user_id: `fh_${userId}`, arguments: args });
   if (!r.successful) throw Object.assign(new Error(String(typeof r.error === 'string' ? r.error : r.error?.message || 'Meta returned an error').slice(0, 300)), { tool: true });
   return r.data || {};
@@ -170,6 +185,7 @@ export async function runAs(userId, slug, args) {
 export async function proxyAs(userId, app, endpoint) {
   const acc = (await connections({ id: userId })).find((c) => c.app === app && c.status === 'ACTIVE');
   if (!acc) throw new Error(`${APPS[app]?.name || app} isn’t connected`);
+  chargeCall(userId);
   const r = await call('POST', '/tools/execute/proxy', { endpoint, method: 'GET', connected_account_id: acc.id });
   return r.data ?? r;
 }
@@ -197,7 +213,12 @@ export async function saveComposio(b) {
     next.keyEnc = encrypt(key);
   }
   if (Array.isArray(b.apps)) next.apps = b.apps.filter((a) => APPS[a]);
+  if ('creditsPerCall' in b) {
+    const n = Number(b.creditsPerCall);
+    if (!Number.isInteger(n) || n < 0 || n > 100) throw new Error('Credits per app action is a whole number from 0 to 100');
+    next.creditsPerCall = n;
+  }
   savePlatform((s) => { s.composio = next; });
   configCache.clear(); toolCache.clear();
 }
-export const composioView = () => ({ ready: composioReady(), fromEnv: !!process.env.COMPOSIO_API_KEY, hasKey: !!platform().composio?.keyEnc, apps: enabledApps(), all: Object.entries(APPS).map(([app, v]) => ({ app, ...v })) });
+export const composioView = () => ({ ready: composioReady(), fromEnv: !!process.env.COMPOSIO_API_KEY, hasKey: !!platform().composio?.keyEnc, apps: enabledApps(), creditsPerCall: creditsPerCall(), all: Object.entries(APPS).map(([app, v]) => ({ app, ...v })) });
