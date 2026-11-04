@@ -14,6 +14,7 @@
 // The built-in entries below are the mount points for features being built on the server; each reads only what the
 // server returns and does nothing else until that feature ships its own component.
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '../../ui';
 import CastBrand from './CastBrand';
 import PresenterPicker from './PresenterPicker';
@@ -31,6 +32,8 @@ export const studioExtensions = () => [...registry];
 const NEEDS = { mode: 'Stage', inspector: 'Panel', concept: 'ConceptBar' };
 export const extOf = (list, slot, d) => (list || []).filter((x) => x.slot === slot && (!NEEDS[slot] || x[NEEDS[slot]]) && (!x.when || safe(() => x.when(d))));
 const safe = (f) => { try { return !!f(); } catch { return false; } };
+// windows open at page level: inside a workspace column they'd sit under their own backdrop
+const onPage = (el) => createPortal(el, document.body);
 const feature = (d, k) => !!(d?.features?.[k] || d?.[k]?.on);
 
 // Cast & brand: the people and brand assets the server keeps for the seller, and the panel to manage them
@@ -40,7 +43,7 @@ function CastPanel({ d, load }) {
   return (
     <>
     <button type="button" className="btn ghost sm" onClick={() => setOpen(true)}><Icon name="users" size={13} /> {cast.length ? 'Manage cast & brand' : 'Add your cast & brand'}</button>
-    {open && <CastBrand onClose={() => { setOpen(false); load?.(); }} />}
+    {open && onPage(<CastBrand onClose={() => { setOpen(false); load?.(); }} />)}
     {cast.length > 0 && (
     <div className="sxi-cast">{cast.slice(0, 8).map((c) => (
       <span key={c.id || c.name} className="sxi-person" title={c.look || c.note || c.name}>{c.photo || c.url ? <img src={c.photo || c.url} alt="" /> : <i>{String(c.name || '?').slice(0, 1)}</i>}<b>{c.name}</b></span>
@@ -71,7 +74,7 @@ function DesignsStage({ load }) {
       <h3>Posts, stories, thumbnails and carousels</h3>
       <p className="sx-hint">Festive greetings, sale posters, launch posts, quotes and YouTube thumbnails — with your words typeset in English or any Indian language, on your brand. A free preview first; only the picture costs credits.</p>
       <button type="button" className="btn primary" onClick={() => setOpen(true)}><Icon name="plus" size={14} /> New design</button>
-      {open && <Designs onClose={() => { setOpen(false); load?.(); }} />}
+      {open && onPage(<Designs onClose={() => { setOpen(false); load?.(); }} />)}
     </div>
   );
 }
