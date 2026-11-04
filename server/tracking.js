@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { T, q, uid, JOBS, contactKey } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
 import { registerGads } from './gads.js';
-import { metaLink, runAs, composioReady, USE_META_CONNECTION } from './composio.js';
+import { metaLink, metaPixelsOf, runAs, composioReady, USE_META_CONNECTION } from './composio.js';
 
 const META = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com/v21.0').replace(/\/$/, '');
 const GA4 = () => process.env.GA4_MP_URL || 'https://www.google-analytics.com/mp/collect';
@@ -106,11 +106,13 @@ const creds = (u, f) => {
   const c = u?.channels?.capi || {}, w = u?.settings?.tracking || {}, t = trackingFor(u, f);
   const own = f?.tracking?.metaTokenEnc;
   const metaToken = own && f.tracking.fbPixel ? own : t.fbPixel === w.fbPixel ? c.metaTokenEnc : '';
-  // no token, but the pixel is the one picked in Settings → Apps & ads: send through the seller's Meta connection
-  const link = !metaToken && t.fbPixel ? metaLink(u) : null;
+  // no token, but the pixel is on an ad account picked in Settings → Apps & ads: send through the seller's Meta
+  // connection (a funnel with another brand's pixel too); the test code belongs to the workspace's pixel
+  const link = !metaToken && t.fbPixel && metaPixelsOf(u).some((p) => p.id === t.fbPixel);
+  const test = t.fbPixel === w.fbPixel ? c.metaTestCode || '' : '';
   return {
-    meta: t.fbPixel && metaToken ? { pixel: t.fbPixel, token: decrypt(metaToken), test: t.fbPixel === w.fbPixel ? c.metaTestCode || '' : '' }
-      : link && link.pixel === t.fbPixel ? { pixel: t.fbPixel, via: 'composio', test: c.metaTestCode || '' } : null,
+    meta: t.fbPixel && metaToken ? { pixel: t.fbPixel, token: decrypt(metaToken), test }
+      : link ? { pixel: t.fbPixel, via: 'composio', test } : null,
     ga4: t.ga4 && t.ga4 === w.ga4 && c.ga4SecretEnc ? { id: t.ga4, secret: decrypt(c.ga4SecretEnc) } : null,
   };
 };
@@ -289,7 +291,7 @@ export function registerTracking(app, { auth, wrap }) {
   app.get('/api/funnels/:id/tracking', auth, (req, res) => {
     const f = T.funnels.get(req.params.id);
     if (!f || f.userId !== req.user.id) return res.status(404).json({ error: 'Funnel not found' });
-    res.json({ tracking: funnelTrackingView(f), workspace: trackingFor(req.user, null), capi: !!req.user.channels?.capi?.metaTokenEnc, canSetToken: canSetToken(req), apps: composioReady() });
+    res.json({ tracking: funnelTrackingView(f), workspace: trackingFor(req.user, null), capi: !!req.user.channels?.capi?.metaTokenEnc, canSetToken: canSetToken(req), apps: composioReady(), pixels: metaPixelsOf(req.user) });
   });
   app.put('/api/funnels/:id/tracking', auth, (req, res) => {
     const f = T.funnels.get(req.params.id);
@@ -302,6 +304,9 @@ export function registerTracking(app, { auth, wrap }) {
     if (t.ga4) out.ga4 = t.ga4;
     if (Object.values(t.googleAds).some(Boolean)) out.googleAds = t.googleAds;
     if (out.googleAds && !out.googleAds.conversionId) return res.status(400).json({ error: 'Add the Google Ads conversion ID (AW-…) for these labels' });
+    // with app connections on, a funnel's own pixel is picked from the seller's Meta connection (one saved earlier
+    // may stay), so its sales and leads go to it from the server too
+    if (composioReady() && out.fbPixel && out.fbPixel !== f.tracking?.fbPixel && out.fbPixel !== req.user.settings?.tracking?.fbPixel && !metaPixelsOf(req.user).some((p) => p.id === out.fbPixel)) return res.status(400).json({ error: 'Pick a pixel from your Meta connection — add its ad account in Settings → Apps & ads first' });
     // its own Conversions API token: kept unless changed; setting one is for the owner and admins (like Settings)
     let tok = f.tracking?.metaTokenEnc || '';
     if ('metaToken' in b) {

@@ -131,16 +131,25 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
   app.put('/api/integrations/meta', auth, limiter, wrap(async (req, res) => {
     if (!ready(res)) return;
     if (req.body?.clear) { setChannel(req.user.id, 'metaApp', undefined); return res.json({ selected: null }); }
-    const account = String(req.body?.account || '').replace(/^act_/, '').trim(), pixel = String(req.body?.pixel || '').trim();
+    const actId = (x) => String(x || '').replace(/^act_/, '').trim();
+    const account = actId(req.body?.account), pixel = String(req.body?.pixel || '').trim();
+    // more ad accounts (other brands): their spend is pulled too, and their pixels can be picked for a funnel
+    const more = [...new Set((Array.isArray(req.body?.accounts) ? req.body.accounts : []).map(actId))].filter((x) => x && x !== account);
     if (!/^\d{5,25}$/.test(account)) return res.status(400).json({ error: 'Pick an ad account' });
+    if (more.length > MAX_ACCOUNTS - 1 || more.some((x) => !/^\d{5,25}$/.test(x))) return res.status(400).json({ error: `Pick up to ${MAX_ACCOUNTS} ad accounts` });
     if (!(await activeApps(req.user)).has('metaads')) return res.status(400).json({ error: 'Connect Meta Ads first' });
     let accounts, pixels;
     try { [accounts, pixels] = await Promise.all([metaAccounts(req.user), metaPixels(req.user, account)]); } catch (e) { return res.status(400).json({ error: e.message }); }
     const a = accounts.find((x) => x.id === account);
     if (!a) return res.status(400).json({ error: 'That ad account isn’t in your Meta connection' });
+    const extra = more.map((id) => accounts.find((x) => x.id === id));
+    if (extra.some((x) => !x)) return res.status(400).json({ error: 'One of those ad accounts isn’t in your Meta connection' });
     const p = pixel ? pixels.find((x) => x.id === pixel) : null;
     if (pixel && !p) return res.status(400).json({ error: 'That pixel isn’t on this ad account' });
-    let u = setChannel(req.user.id, 'metaApp', { account, accountName: a.name, pixel: p?.id || '', pixelName: p?.name || '', at: Date.now() });
+    // every pixel of the picked accounts, kept so a funnel can fire one without asking Meta each time
+    const all = new Map(pixels.map((x) => [x.id, { id: x.id, name: x.name, account }]));
+    try { for (const x of extra) for (const q of await metaPixels(req.user, x.id)) if (!all.has(q.id)) all.set(q.id, { id: q.id, name: q.name, account: x.id }); } catch (e) { return res.status(400).json({ error: e.message }); }
+    let u = setChannel(req.user.id, 'metaApp', { account, accountName: a.name, pixel: p?.id || '', pixelName: p?.name || '', accounts: [a, ...extra].map((x) => ({ account: x.id, accountName: x.name })), pixels: [...all.values()], at: Date.now() });
     // the pixel goes on the pages too, unless another one is already set up there with its own token
     const tr = u.settings?.tracking || {};
     if (p && tr.fbPixel !== p.id && (!tr.fbPixel || !u.channels?.capi?.metaTokenEnc)) u = T.users.update(u.id, (x) => { x.settings = { ...x.settings, tracking: { ...(x.settings?.tracking || {}), fbPixel: p.id } }; });
@@ -193,6 +202,15 @@ export async function proxyAs(userId, app, endpoint) {
   return r.data ?? r;
 }
 export const metaLink = (u) => (composioReady() && u?.channels?.metaApp?.pixel ? u.channels.metaApp : null);
+const MAX_ACCOUNTS = 20;
+// the ad accounts whose spend is pulled (the main one first; older setups have just the one)
+export const metaAccountsOf = (m) => (m?.accounts?.length ? m.accounts.map((x) => x.account) : m?.account ? [m.account] : []);
+// the pixels server-side events can go to through the Meta connection: those of the picked ad accounts
+export function metaPixelsOf(u) {
+  const m = composioReady() && u?.channels?.metaApp;
+  if (!m) return [];
+  return m.pixels?.length ? m.pixels : m.pixel ? [{ id: m.pixel, name: m.pixelName || '', account: m.account }] : [];
+}
 async function metaAccounts(u) {
   const d = await runAs(u.id, 'METAADS_GET_AD_ACCOUNTS', { limit: 100, fields: 'id,account_id,name,currency' });
   return (d.data || []).map((a) => ({ id: String(a.account_id || a.id).replace(/^act_/, ''), name: a.name || '', currency: a.currency || '' }));
@@ -201,7 +219,7 @@ async function metaPixels(u, account) {
   const d = await runAs(u.id, 'METAADS_LIST_AD_ACCOUNT_PIXELS', { ad_account_id: account, limit: 100, sort_by: 'LAST_FIRED_TIME' });
   return (d.pixels || []).filter((p) => !p.is_unavailable).map((p) => ({ id: String(p.id), name: p.name || '', lastFired: p.last_fired_time || null }));
 }
-const metaView = (u) => { const m = u.channels?.metaApp; return m ? { account: m.account, accountName: m.accountName || '', pixel: m.pixel || '', pixelName: m.pixelName || '', syncedAt: m.syncedAt || null, error: m.error || '' } : null; };
+const metaView = (u) => { const m = u.channels?.metaApp; return m ? { account: m.account, accountName: m.accountName || '', accounts: metaAccountsOf(m), pixel: m.pixel || '', pixelName: m.pixelName || '', syncedAt: m.syncedAt || null, error: m.error || '' } : null; };
 
 // Admin → Integrations: the project key (checked, stored encrypted) and which apps sellers may connect
 export async function saveComposio(b) {

@@ -9,7 +9,7 @@
 // Ads Manager meets ?utm_campaign=diwali-sale.
 import { T, q, tx, uid, JOBS } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
-import { composioReady, runAs, proxyAs, USE_META_CONNECTION } from './composio.js';
+import { composioReady, runAs, proxyAs, USE_META_CONNECTION, metaAccountsOf } from './composio.js';
 
 const GRAPH = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com').replace(/\/$/, '');
 const VER = 'v21.0';
@@ -53,22 +53,26 @@ async function graph(path, token) {
   if (!r.ok) throw new Error(d.error?.message || `Meta ${r.status}`);
   return d;
 }
-// spend through the seller's Meta connection (Settings → Apps & ads), when there's no Marketing API token
+// spend through the seller's Meta connection (Settings → Apps & ads), when there's no Marketing API token — from every
+// ad account picked there. All or nothing: the days pulled replace what was stored for them, so one account failing
+// stores nothing rather than dropping that account's spend.
 async function syncMetaApp(u, days) {
   const m = u.channels.metaApp, rows = [];
-  // per ad, so the Ads report can show spend, cost per lead and ROAS for every ad (campaign totals still add up)
-  const args = { object_id: `act_${m.account}`, level: 'ad', fields: INSIGHT_FIELDS, action_attribution_windows: WINDOWS[windowOf(u)], time_increment: 1, limit: 500, time_range: { since: ymd(Date.now() - (days - 1) * DAY), until: ymd(Date.now()) } };
   try {
-    for (let i = 0, after; i < 20; i++) {
-      let d;
-      try { d = await runAs(u.id, 'METAADS_GET_INSIGHTS', after ? { ...args, after } : args); } catch (e) {
-        // a version of the action without the window option: Meta's default window then
-        if (i || !args.action_attribution_windows) throw e;
-        delete args.action_attribution_windows; i--; continue;
+    for (const account of metaAccountsOf(m)) {
+      // per ad, so the Ads report can show spend, cost per lead and ROAS for every ad (campaign totals still add up)
+      const args = { object_id: `act_${account}`, level: 'ad', fields: INSIGHT_FIELDS, action_attribution_windows: WINDOWS[windowOf(u)], time_increment: 1, limit: 500, time_range: { since: ymd(Date.now() - (days - 1) * DAY), until: ymd(Date.now()) } };
+      for (let i = 0, after; i < 20; i++) {
+        let d;
+        try { d = await runAs(u.id, 'METAADS_GET_INSIGHTS', after ? { ...args, after } : args); } catch (e) {
+          // a version of the action without the window option: Meta's default window then
+          if (i || !args.action_attribution_windows) throw e;
+          delete args.action_attribution_windows; i--; continue;
+        }
+        for (const x of d.data || []) rows.push(insightRow(x));
+        after = d.paging?.next && d.paging?.cursors?.after;
+        if (!after) break;
       }
-      for (const x of d.data || []) rows.push(insightRow(x));
-      after = d.paging?.next && d.paging?.cursors?.after;
-      if (!after) break;
     }
   } catch (e) { T.users.update(u.id, (x) => { if (x.channels?.metaApp) x.channels.metaApp.error = e.message; }); throw e; }
   const n = store(u.id, 'meta', rows.filter((r) => r.date && r.campaign));
@@ -170,7 +174,7 @@ export function registerAdSpend(app, { auth, wrap }) {
     const m = req.user.channels?.metaAds || {};
     const last = q("SELECT json_extract(data, '$.platform') AS p, MAX(json_extract(data, '$.date')) AS d, COUNT(*) AS n FROM adspend WHERE userId = ? GROUP BY p").all(req.user.id);
     const a = appSpend(req.user) ? req.user.channels.metaApp : null;
-    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, apps: composioReady(), platforms: last });
+    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, accounts: metaAccountsOf(a), syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, apps: composioReady(), platforms: last });
   });
   app.put('/api/adspend/meta', auth, wrap(async (req, res) => {
     const b = req.body || {};

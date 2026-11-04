@@ -24,7 +24,7 @@ export function AdSpendPanel() {
       <div className="rzp">
         <div className="rzp-h"><b>Meta (Facebook & Instagram)</b>{d.meta.connected ? <span className="pill ok">Synced {d.meta.syncedAt ? ago(d.meta.syncedAt) : ''}</span> : <span className="pill">Not connected</span>}</div>
         {d.meta.error && <p className="hint warn-t">{d.meta.error}</p>}
-        {d.meta.via === 'apps' && <p className="hint ok-t">Pulled through your Meta connection (Apps &amp; ads above) — ad account {d.meta.account}. Nothing else to set up.</p>}
+        {d.meta.via === 'apps' && <p className="hint ok-t">Pulled through your Meta connection (Apps &amp; ads above) — ad account{d.meta.accounts?.length > 1 ? 's' : ''} {(d.meta.accounts || [d.meta.account]).join(', ')}. Nothing else to set up.</p>}
         {d.meta.via === 'apps' && <div className="row"><button className="btn ghost" onClick={async () => { try { const r = await api('/adspend/meta/sync', 'POST', { days: 30 }); toast(`Synced ${r.rows} rows`); load(); } catch (e) { toast(e.message); } }}>Sync now</button></div>}
         {d.meta.via !== 'apps' && <>
         {/* with app connections on, Meta is connected only in Apps & ads (a token saved earlier can still sync or be removed) */}
