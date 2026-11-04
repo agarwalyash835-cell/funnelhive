@@ -64,7 +64,7 @@ export function Designs({ onClose }) {
   const [menu, setMenu] = useState(null);
   const [images, setImages] = useState([]);
   const [kind, setKind] = useState('post');
-  const [v, setV] = useState({ template: '', format: 'square', lang: 'en', brief: '', slides: 5, bg: 'ai', photo: '', typography: false, tier: 'standard' });
+  const [v, setV] = useState({ template: '', format: 'square', lang: 'en', brief: '', slides: 5, bg: 'ai', photo: '', typography: false, tier: 'cinematic' });
   const [d, setD] = useState(null); // the design open on the right
   const [edit, setEdit] = useState(null); // its words / colours / lettering, being edited
   const [busy, setBusy] = useState('');

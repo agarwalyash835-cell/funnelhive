@@ -9,7 +9,7 @@
 // Changes after that (edit): new caption style or sizes → editing again; a reworded line or a redone shot → producing.
 import fs from 'node:fs';
 import { T, q, JOBS } from '../db.js';
-import { askAI } from '../ai.js';
+import { studioAI } from '../ai.js';
 import { studioModels, TIERS, ASPECTS, voiceId, sarvamFor, clipRes, modelKey, clipLength, imageCost } from './models.js';
 import { speak, TTS_MODEL } from '../sarvam.js';
 import { runTask, studioReady } from './kie.js';
@@ -53,12 +53,12 @@ const parseScript = (text) => { try { return cleanScript(JSON.parse(String(text)
 export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null, cast = [], presenter = null }) {
   const budget = wordBudget(seconds);
   const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}${presenterBrief(presenter)}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(memoryOf(userId), business) + castPrompt(userId, cast) : ''}`;
-  let c = parseScript(await askAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
+  let c = parseScript(await studioAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
   // too long for the length asked (a 15-second Reel that runs 22 seconds): ask once to tighten it
   const n = wordCount(c.script);
   if (n > budget * 1.15) {
-    const again = parseScript(await askAI(SCRIPT_SYSTEM, `${user}\n\nYour last script had ${n} words — too long. Rewrite it with at most ${budget} words in total: fewer or shorter lines, the same hook and offer.\nLast script: ${JSON.stringify(c.script)}`, { json: true, timeoutMs: 90000 }).catch(() => ''));
+    const again = parseScript(await studioAI(SCRIPT_SYSTEM, `${user}\n\nYour last script had ${n} words — too long. Rewrite it with at most ${budget} words in total: fewer or shorter lines, the same hook and offer.\nLast script: ${JSON.stringify(c.script)}`, { json: true, timeoutMs: 90000 }).catch(() => ''));
     if (!again.error && wordCount(again.script) < n) c = again;
   }
   return c.script;
@@ -68,7 +68,7 @@ export async function writeScript({ brief, lang, seconds, business, aspect = '9:
 export const REEL_ASPECTS = ['9:16', '16:9', '1:1', '4:5'];
 export function newReel(userId, o) {
   o = withPrefs(userId, o); // what the seller didn't choose: their usual (memory.js)
-  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], cast: resolveCast(userId, o.cast).map((c) => c.id), script: o.script, ...(o.presenter ? { presenter: o.presenter } : {}), by: o.by || null });
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), ...(['video', 'story', 'photo'].includes(o.motion) ? { motion: o.motion } : {}), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], cast: resolveCast(userId, o.cast).map((c) => c.id), script: o.script, ...(o.presenter ? { presenter: o.presenter } : {}), by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken. Storyboard first
 // ({ storyboard: true }): only the stills are made (and the lines spoken), then it waits at storyboard_ready for scene

@@ -52,7 +52,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
     setBusy(true);
     try {
       if (mode === 'reel') {
-        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || undefined, captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
+        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || undefined, captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.motion ? { motion: v.motion } : {}), ...(v.presenter ? { presenter: { style: v.presenter } } : {}), ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
         set({ prompt: '' }); await load(); onOpenReel(r.id);
       } else {
         // before spending: the words checked for quality and virality, and a stronger version offered (free)
@@ -175,6 +175,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
 
       <aside className="sxw-inspect" aria-label="Settings">
         <div className="sxi-head"><b>{mode === 'image' ? 'Image' : mode === 'clip' ? 'Video clip' : 'Reel · full ad'}</b><small>{USUALLY[mode]?.split(' — ')[0]}</small></div>
+        {mode === 'reel' && <Recommend brief={v.prompt} v={v} set={set} />}
         <Section id="make-quality" title="Quality" icon="sparkles">
           <div className="sxi-tiers">{d.tiers.map((t) => <button key={t.id} type="button" className={v.tier === t.id ? 'on' : ''} aria-pressed={v.tier === t.id} onClick={() => set({ tier: t.id })}><b>{t.name}</b><small>{TIER_HINT[t.id]}</small></button>)}</div>
           {mode !== 'image' && vms.length > 0 && <Field label="Video model" hint={vm?.note}><select value={vm?.id} onChange={(e) => set({ vmodel: e.target.value })}>{vms.map((m) => <option key={m.id} value={m.id}>{m.name} · from {Math.min(...Object.values(m.per5s))} credits / 5s</option>)}</select></Field>}
@@ -219,5 +220,39 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
       </aside>
       {view != null && viewable[view] && <Viewer items={viewable.map((a) => ({ ...a, tierName: d.tiers.find((t) => t.id === a.tier)?.name }))} index={view} onIndex={setView} onClose={() => setView(null)} actions={actionsFor} />}
     </>
+  );
+}
+
+// what the video is for → what to make it with (server studio/recommend.js): the recommendation, why, what it costs,
+// and a cheaper and a more premium choice — one click applies it, and every setting below can still be changed
+const MOTION_NAME = { story: 'storyline', video: 'AI video', photo: 'photo motion' };
+function Recommend({ brief, v, set }) {
+  const [purpose, setPurpose] = useState('');
+  const [rec, setRec] = useState(null);
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => api('/studio/recommend', 'POST', { brief, purpose: purpose || undefined, seconds: v.length }).then((x) => live && setRec(x)).catch(() => {}), purpose ? 0 : 600);
+    return () => { live = false; clearTimeout(t); };
+  }, [brief, purpose, v.length]);
+  if (!rec?.settings) return null;
+  const s = rec.settings;
+  const applied = v.tier === s.tier && v.vmodel === s.vmodel && v.imodel === s.imodel && (v.res || '') === s.res && v.motion === s.motion && v.sizes?.[0] === s.aspect;
+  const apply = (x) => set({ tier: x.tier, vmodel: x.vmodel, imodel: x.imodel, res: x.res, motion: x.motion, sizes: [x.aspect], length: x.seconds, presenter: x.presenter || '' });
+  const Choice = ({ c, label }) => (c ? <button type="button" className="btn ghost sm" onClick={() => apply(c.settings)} title={`${c.settings.vmodel} · ${c.settings.res} · ${MOTION_NAME[c.settings.motion]}`}>{label} · {c.credits} cr</button> : null);
+  return (
+    <Section id="make-recommend" title="Recommended for this video" icon="wand">
+      <Field label="What is it for?" hint={rec.guessed && !purpose ? 'Guessed from your brief — change it if it’s something else' : ''}>
+        <select value={purpose || rec.purpose} onChange={(e) => setPurpose(e.target.value)}>{rec.purposes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select>
+      </Field>
+      <div className="sxi-rec">
+        <b>{s.tier[0].toUpperCase() + s.tier.slice(1)} · {s.res} · {s.aspect} · {MOTION_NAME[s.motion]}{s.presenter ? ' · talking presenter' : ''}</b>
+        <small>{rec.why}</small>
+        <span className="sxi-rec-c">About {rec.credits} credits for {s.seconds}s</span>
+      </div>
+      <div className="row">
+        <button type="button" className="btn primary sm" disabled={applied} onClick={() => apply(s)}><Icon name="check" size={13} /> {applied ? 'Using the recommendation' : 'Use the recommendation'}</button>
+        <Choice c={rec.cheaper} label="Cheaper" /><Choice c={rec.premium} label="More premium" />
+      </div>
+    </Section>
   );
 }

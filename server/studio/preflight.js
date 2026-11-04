@@ -4,7 +4,7 @@
 // It costs no Studio credits (a text model reads the plan; nothing is rendered), and it never blocks: without an
 // answer the seller just goes ahead.
 import crypto from 'node:crypto';
-import { askAI } from '../ai.js';
+import { studioAI } from '../ai.js';
 
 const s = (x, n) => String(x ?? '').trim().slice(0, n);
 const pct = (x) => { const n = Number(x); return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : null; };
@@ -51,12 +51,12 @@ export function cleanPlan(v, script) {
 // → the check, or null when no answer came (the seller goes ahead without it)
 export async function assessReel({ brief, script, seconds, aspect, motion, lang }) {
   const user = `Brief: ${s(brief, 1500)}\nLength: ${seconds || 30} seconds · frame ${aspect || '9:16'} · ${motion === 'story' ? 'each scene animates from an opening to a closing picture' : motion === 'photo' ? 'each scene is a still with a slow zoom or pan' : 'each scene animates from its opening picture'} · voiceover language ${lang || 'en'}\nPlan: ${JSON.stringify({ title: script.title, scenes: script.shots.map((x, i) => ({ scene: i + 1, line: script.lines[i] || '', image: x.image, end: x.end || '', motion: x.motion })), extraLines: script.lines.slice(script.shots.length), endCard: script.endCard, music: script.music || '' })}`;
-  try { return cleanPlan(parse(await askAI(DIRECTOR, user, { json: true, timeoutMs: 90000 })), script); } catch (e) { console.error('studio plan check failed', e.message); return null; }
+  try { return cleanPlan(parse(await studioAI(DIRECTOR, user, { json: true, timeoutMs: 90000 })), script); } catch (e) { console.error('studio plan check failed', e.message); return null; }
 }
 export async function assessPrompt({ kind, prompt, aspect, seconds, product }) {
   const user = `Request: ${s(prompt, 1500)}\nFrame: ${aspect || '1:1'}${kind === 'clip' ? ` · ${seconds || 5} seconds` : ''}${product ? ' · the seller’s real product photo goes in as the reference' : ''}`;
   try {
-    const v = parse(await askAI(PROMPT_DIRECTOR(kind), user, { json: true, timeoutMs: 60000 }));
+    const v = parse(await studioAI(PROMPT_DIRECTOR(kind), user, { json: true, timeoutMs: 60000 }));
     if (!v) return null;
     return { quality: pct(v.quality), virality: pct(v.virality), verdict: s(v.verdict, 240), problems: (Array.isArray(v.problems) ? v.problems : []).map((x) => s(x, 200)).filter(Boolean).slice(0, 4), prompt: s(v.prompt, 1500) };
   } catch (e) { console.error('studio prompt check failed', e.message); return null; }
@@ -72,7 +72,7 @@ Only suggest a change when it clearly helps. Never mention AI, models or tools.`
 export async function assessDesign({ brief, group, format, lang, slides, background, fields }) {
   const user = `Brief: ${s(brief, 1200)}\nKind: ${group || 'post'} · frame ${format || 'square'} · language ${lang || 'en'}\nSlides: ${JSON.stringify(slides.map((x, i) => ({ slide: i + 1, template: x.template, text: x.text })))}\nPicture prompt: ${s(background, 1200)}`;
   try {
-    const v = parse(await askAI(DESIGN_DIRECTOR, user, { json: true, timeoutMs: 60000 }));
+    const v = parse(await studioAI(DESIGN_DIRECTOR, user, { json: true, timeoutMs: 60000 }));
     if (!v || typeof v !== 'object') return null;
     const changes = (Array.isArray(v.slides) ? v.slides : []).map((x) => {
       const i = Math.round(Number(x?.slide)) - 1, keys = fields[i] || [];

@@ -14,7 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { T, q, JOBS, dir as DATA_DIR } from '../db.js';
-import { askAI } from '../ai.js';
+import { studioAI } from '../ai.js';
 import { studioReady } from './kie.js';
 import { enqueue, view } from './jobs.js';
 import { imageCost, modelKey, TIER_MENU, TIERS } from './models.js';
@@ -65,7 +65,7 @@ export async function writeCopy({ brief, group = 'post', template, slides = 5, l
   if (group === 'carousel') {
     const n = Math.min(10, Math.max(3, Math.round(Number(slides) || 5)));
     const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage: ${language}\nSlides: ${n} in total — the cover, ${n - 2} content slides, the end slide\nBackground (shared by every slide, darkened behind the words): ${TEMPLATES[CAROUSEL.cover].space}; frame ${F.aspect}`;
-    const v = parse(await askAI(CAROUSEL_SYSTEM, user, { json: true, timeoutMs: 90000 }));
+    const v = parse(await studioAI(CAROUSEL_SYSTEM, user, { json: true, timeoutMs: 90000 }));
     if (!v?.cover) throw new Error('The AI wrote something that wasn’t a carousel — please try again');
     const content = (Array.isArray(v.slides) ? v.slides : []).slice(0, n - 2);
     if (!content.length) throw new Error('The AI wrote something that wasn’t a carousel — please try again');
@@ -74,7 +74,7 @@ export async function writeCopy({ brief, group = 'post', template, slides = 5, l
   const ids = TEMPLATES[template] ? [template] : TEMPLATE_IDS.filter((id) => TEMPLATES[id].group === group);
   const fields = ids.map((id) => `${id}: ${fieldList(id)}; picture: ${TEMPLATES[id].space}`).join('\n');
   const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage: ${language}\nFrame: ${F.label} (${F.aspect})\nTemplate fields and how the picture is composed:\n${fields}${typography ? '\nThe headline will be painted INTO the picture as stylised lettering: keep it in English, at most 5 words, no stars.' : ''}`;
-  const v = parse(await askAI(SINGLE(ids), user, { json: true, timeoutMs: 90000 }));
+  const v = parse(await studioAI(SINGLE(ids), user, { json: true, timeoutMs: 90000 }));
   if (!v?.text) throw new Error('The AI wrote something that wasn’t a design — please try again');
   const id = ids.includes(v.template) ? v.template : ids[0];
   return { template: id, background: clip(v.background, 1200), slides: [{ template: id, text: cleanText(id, v.text) }] };
@@ -136,7 +136,8 @@ export async function newDesign(user, o) {
   const lang = LANGUAGES[langBase(o.lang)] ? langBase(o.lang) : mem.prefs?.lang || 'en';
   const typography = !!o.typography && lang === 'en' && group !== 'carousel' && o.bg !== 'photo' && o.bg !== 'none';
   const business = mem.brand?.name || user.settings?.businessName || user.name || '';
-  const tier = TIERS.includes(o.tier) ? o.tier : mem.prefs?.tier || 'standard';
+  // designs are premium by default: the background is what makes a post look made by an agency (it's one picture)
+  const tier = TIERS.includes(o.tier) ? o.tier : 'cinematic';
   let copy;
   if (o.text && TEMPLATES[o.template] && group !== 'carousel') copy = { template: o.template, background: clip(o.background || o.brief, 1200), slides: [{ template: o.template, text: cleanText(o.template, o.text) }] };
   else copy = await writeCopy({ brief: o.brief, group, template: o.template, slides: o.slides, lang, business, format, typography });

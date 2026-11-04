@@ -16,7 +16,7 @@
 // Nothing here is ever set ACTIVE: turning ads on stays the seller's own step in Ads Manager.
 import crypto from 'node:crypto';
 import { T, q } from '../db.js';
-import { askAI } from '../ai.js';
+import { studioAI } from '../ai.js';
 import { enqueue } from './jobs.js';
 import { imageCost, clipCost, PRICES } from './models.js';
 import { memoryOf, memoryPrompt, remember, withCharacters } from './memory.js';
@@ -104,7 +104,7 @@ Change: ${k === 2 ? 'the first TWO scenes (line and picture of each)' : 'the fir
 Write ${n} variants, in this order of angles: ${plan.join(', ')}
 Angles: ${plan.filter((a, i) => plan.indexOf(a) === i).map((a) => `${a} — ${ANGLES[a].what}`).join('; ')}
 Openings already made (don't repeat them): ${fam.map(hookOf).filter(Boolean).map((h) => `“${h}”`).join('; ')}${seed ? `\nThe opening that WON in real ads: “${seed.hook}” (${ANGLES[seed.angle]?.name || 'its own'} angle${seed.why ? `, ${seed.why}` : ''}). Write new openings in the same angle and spirit — fresh words, not copies.` : ''}${losers.length ? `\nOpenings that lost in real ads (don't write like these): ${losers.map((h) => `“${h}”`).join('; ')}` : ''}${memoryPrompt(memoryOf(r.userId), business)}`;
-  const v = parse(await askAI(HOOKS_SYSTEM, user, { json: true, timeoutMs: 90000 }));
+  const v = parse(await studioAI(HOOKS_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   const list = (Array.isArray(v?.variants) ? v.variants : []).slice(0, n).map((x, i) => ({
     key: crypto.randomBytes(4).toString('hex'), angle: ANGLES[x?.angle] ? x.angle : plan[i] || 'benefit',
     hook: clip(x?.hook, 220), image: clip(x?.image, 600), motion: clip(x?.motion, 300),

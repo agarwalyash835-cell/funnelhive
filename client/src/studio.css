@@ -423,3 +423,8 @@
 .sx-empty-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; min-height: 360px; padding: 32px 24px; color: var(--c-text); }
 .sx-empty-stage h3 { margin: 4px 0 0; font-size: 20px; }
 .sx-empty-stage .sx-hint { max-width: 460px; }
+
+/* the recommendation for a Reel: what it is, why, what it costs */
+.sxi-rec { display: grid; gap: 4px; padding: 10px 12px; margin: 8px 0; border-radius: 10px; background: color-mix(in srgb, var(--c-accent, #6d28d9) 8%, transparent); border: 1px solid color-mix(in srgb, var(--c-accent, #6d28d9) 22%, transparent); }
+.sxi-rec small { color: var(--c-muted); line-height: 1.45; }
+.sxi-rec-c { font-size: 12px; font-weight: 600; }

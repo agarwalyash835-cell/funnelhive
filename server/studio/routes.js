@@ -19,6 +19,7 @@ import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
 import { memoryOf, setMemory, remember, forget, learn, withPrefs } from './memory.js';
 import { assessReel, assessPrompt, planHash } from './preflight.js';
+import { recommend } from './recommend.js';
 import { registerCast } from './cast-routes.js';
 import { clipRefs } from './cast.js';
 import { PRESENTER_STYLES, celebrityIn, CELEBRITY_ERROR, pickFace, setPresenter, presenterScenes } from './presenter.js';
@@ -97,6 +98,8 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     res.status(201).json({ asset: view(a), credits: clipCost(tier, seconds, a.res, vmodel) });
   });
   // what something would cost, before making it: { kind: image|clip|reel, tier, model, count, seconds, res, shots, lines, vmodel, imodel }
+  // what a video should be made with, for what it's for (recommend.js): free, the seller can change any of it
+  app.post('/api/studio/recommend', auth, (req, res) => { const b = req.body || {}; res.json(recommend({ brief: clip(b.brief, 1500), purpose: b.purpose, seconds: b.seconds, shots: Math.min(8, Math.max(1, Number(b.shots) || 4)), lines: Math.min(8, Math.max(1, Number(b.lines) || 4)) })); });
   app.post('/api/studio/estimate', auth, (req, res) => {
     const b = req.body || {}, tier = tierOk(b.tier) ? b.tier : 'standard';
     if (b.kind === 'image') return res.json({ credits: Math.min(4, Math.max(1, Math.round(Number(b.count) || 1))) * imageCost(tier, b.model), model: modelKey('image', tier, b.model) });
@@ -137,7 +140,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     let script;
     try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect, userId: req.user.id, cast: b.characters, presenter: presenter?.style }); } catch (e) { return res.status(502).json({ error: e.message }); }
     const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.aspect || '9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
-    const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], cast: b.characters, script, presenter, by: who(req) });
+    const r = newReel(req.user.id, { brief, motion: b.motion, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], cast: b.characters, script, presenter, by: who(req) });
     res.status(201).json(reelView(r));
   }));
   const myReel = (req, res, statuses) => {

@@ -193,3 +193,24 @@ test('what it costs, before anything is made: per image, per clip and per Reel, 
   // nonsense falls back to the tier's own
   assert.equal((await api('/studio/estimate', 'POST', { kind: 'clip', tier: 'standard', res: '4k' }, S)).data.res, '720p');
 });
+
+test('what a video is for → what to make it with: guessed from the brief, priced, between a cheaper and a more premium choice', async () => {
+  const g = (await api('/studio', 'GET', null, S)).data, menu = Object.fromEntries(g.tiers.map((t) => [t.id, t.models]));
+  const ask = async (b) => (await api('/studio/recommend', 'POST', b, S)).data;
+  for (const [brief, want] of [['Customer testimonial, a mother talking to camera about our ghee', 'testimonial'], ['VSL for our landing page', 'vsl'], ['Instagram ad for the Diwali sale', 'ad'], ['Cinematic brand film for our launch', 'brand'], ['Our new mango pickle', 'social']]) {
+    assert.equal((await ask({ brief })).purpose, want, brief);
+  }
+  for (const p of (await ask({ brief: 'x' })).purposes.map((x) => x.id)) {
+    const r = await ask({ brief: 'x', purpose: p });
+    assert.equal(r.guessed, false);
+    for (const c of [r, r.cheaper, r.premium].filter(Boolean)) {
+      assert.ok(c.credits > 0);
+      assert.ok(menu[c.settings.tier].video.some((m) => m.id === c.settings.vmodel), `${p}: ${c.settings.vmodel} on ${c.settings.tier}`);
+      assert.ok(menu[c.settings.tier].image.some((m) => m.id === c.settings.imodel), `${p}: ${c.settings.imodel} on ${c.settings.tier}`);
+    }
+    if (r.cheaper) assert.ok(r.cheaper.credits <= r.credits, `${p}: the cheaper choice costs less`);
+  }
+  const t = await ask({ brief: 'A founder speaks to camera about the farm' });
+  assert.equal(t.settings.presenter, 'testimonial');
+  assert.equal((await ask({ purpose: 'vsl' })).settings.aspect, '16:9');
+});
