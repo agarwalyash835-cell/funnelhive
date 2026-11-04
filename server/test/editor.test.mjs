@@ -47,6 +47,34 @@ test('optimistic concurrency: stale saves get 409 with the latest copy', async (
   assert.equal((await api(`/funnels/${f.id}`, 'PUT', { published: true }, T)).status, 200);
 });
 
+test('page addresses stay unique: a clashing slug is saved as -2, -3 (no unreachable pages)', async () => {
+  const f = (await api('/templates/yoga/use', 'POST', {}, T)).data;
+  const first = f.steps[0];
+  const copy = (id, name) => ({ ...structuredClone(first), id, name, blocks: first.blocks.map((b) => ({ ...b, id: `${id}-${b.id}` })) });
+  const r = await api(`/funnels/${f.id}`, 'PUT', { steps: [...f.steps, copy('dupA', 'Copy A'), copy('dupB', 'Copy B')], baseVersion: f.version || 1 }, T);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const slugs = r.data.steps.map((s) => s.slug);
+  assert.equal(new Set(slugs).size, slugs.length, 'every page has its own address');
+  assert.deepEqual(slugs.slice(-2), [`${first.slug}-2`, `${first.slug}-3`]);
+  assert.equal(slugs[0], first.slug, 'the first page keeps its address');
+});
+
+test('a duplicated funnel gives its pop-ups and A/B sections new ids (a pop-up seen once stays per funnel)', async () => {
+  const f = (await api('/templates/yoga/use', 'POST', {}, T)).data;
+  const steps = structuredClone(f.steps);
+  steps[0].popups = [{ id: 'pop-orig', name: 'Offer', size: 'center', trigger: { type: 'exit' }, frequency: 'visitor', blocks: [{ id: 'pb1', type: 'text', props: { text: 'Wait!' } }] }];
+  steps[0].ab = { enabled: true, split: 50, blocks: steps[0].blocks.map((b) => ({ ...b, id: `ab-${b.id}` })) };
+  const saved = await api(`/funnels/${f.id}`, 'PUT', { steps, baseVersion: f.version || 1 }, T);
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+  assert.equal(saved.data.steps[0].popups?.[0]?.id, 'pop-orig');
+  const dup = (await api(`/funnels/${f.id}/duplicate`, 'POST', {}, T)).data;
+  const d0 = dup.steps[0];
+  assert.notEqual(d0.popups[0].id, 'pop-orig');
+  assert.ok(d0.popups[0].blocks.every((b) => b.id !== 'pb1'));
+  const orig = new Set(saved.data.steps[0].ab.blocks.map((b) => b.id));
+  assert.ok(d0.ab.blocks.every((b) => !orig.has(b.id)), 'A/B sections get new ids');
+});
+
 test('version history: restore points survive reloads and can be restored', async () => {
   const f = (await api('/templates/yoga/use', 'POST', {}, T)).data;
   const original = f.steps[0].blocks.length;

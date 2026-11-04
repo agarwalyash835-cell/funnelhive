@@ -132,3 +132,19 @@ test('nothing to charge (100% coupon) → order without opening Razorpay', async
   assert.equal(r.total, 0);
   assert.ok(r.orderId);
 });
+
+test('a price left empty while editing is never sold as free', async () => {
+  const cur = (await api(`/funnels/${f.id}`, 'GET', null, T)).data;
+  const steps = structuredClone(cur.steps);
+  const p = steps.find((s) => s.id === co.id).blocks.find((b) => b.type === 'checkout').props;
+  const price = p.price;
+  p.price = '';
+  assert.equal((await api(`/funnels/${f.id}`, 'PUT', { steps, baseVersion: cur.version }, T)).status, 200);
+  const r = await pay({ stepId: co.id, email: 'emptyprice@x.dev' });
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /price isn’t set/);
+  assert.equal((await api('/orders', 'GET', null, T)).data.orders.filter((o) => o.email === 'emptyprice@x.dev').length, 0, 'no order recorded');
+  p.price = price;
+  const back = (await api(`/funnels/${f.id}`, 'GET', null, T)).data;
+  assert.equal((await api(`/funnels/${f.id}`, 'PUT', { steps, baseVersion: back.version }, T)).status, 200);
+});

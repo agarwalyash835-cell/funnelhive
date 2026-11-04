@@ -83,12 +83,23 @@ const appOf = (slug) => Object.keys(APPS).find((a) => String(slug).toUpperCase()
 export function safeArgs(slug, args) {
   const a = { ...(args || {}) };
   if (/^METAADS_CREATE_(CAMPAIGN|AD_SET|AD)$/.test(slug)) a.status = 'PAUSED';
-  if (/^GOOGLEADS_MUTATE_(CAMPAIGNS|AD_GROUPS|AD_GROUP_ADS)$/.test(slug)) {
-    const ops = Array.isArray(a.operations) ? a.operations : [];
-    for (const op of ops) if (op?.create && typeof op.create === 'object') op.create.status = 'PAUSED';
+  // Google: each Composio action spells "paused" its own way (the campaigns action takes lowercase)
+  const pausedAs = GOOGLE_PAUSED[slug];
+  if (pausedAs && Array.isArray(a.operations)) a.operations = a.operations.map((op) => (op?.create && typeof op.create === 'object' ? { ...op, create: { ...op.create, status: pausedAs } } : op));
+  // the batch action creates campaigns, ad groups and ads in Google's own format — paused there too
+  if (slug === 'GOOGLEADS_BATCH_MUTATE' && Array.isArray(a.mutate_operations)) {
+    a.mutate_operations = a.mutate_operations.map((op) => {
+      if (!op || typeof op !== 'object') return op;
+      const out = { ...op };
+      for (const k of ['campaign_operation', 'ad_group_operation', 'ad_group_ad_operation']) {
+        if (out[k]?.create && typeof out[k].create === 'object') out[k] = { ...out[k], create: { ...out[k].create, status: 'PAUSED' } };
+      }
+      return out;
+    });
   }
   return a;
 }
+const GOOGLE_PAUSED = { GOOGLEADS_MUTATE_CAMPAIGNS: 'paused', GOOGLEADS_MUTATE_AD_GROUPS: 'PAUSED', GOOGLEADS_MUTATE_AD_GROUP_ADS: 'PAUSED' };
 
 export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl }) {
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 60, key: (req) => req.user.id });

@@ -831,6 +831,17 @@ app.put('/api/funnels/:id', auth, (req, res) => {
   // a step's "hide from search engines" is stored as a plain true, or not at all
   if ('steps' in b) for (const s of b.steps) if (s.seo && typeof s.seo === 'object') { if (s.seo.noindex) s.seo.noindex = true; else delete s.seo.noindex; }
   if ('steps' in b) for (const s of b.steps) cleanPopups(s);
+  // every page's address is unique — two pages on one address would leave one unreachable: a clash gets -2, -3…
+  if ('steps' in b) {
+    const seen = new Set();
+    for (const s of b.steps) {
+      const base = String(s.slug || s.name || 'step').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'step';
+      let slug = base;
+      for (let n = 2; seen.has(slug); n++) slug = `${base}-${n}`;
+      s.slug = slug;
+      seen.add(slug);
+    }
+  }
   // a step kept open without a purchase / sign-up (lockOf): a plain true, or not at all
   if ('steps' in b) for (const s of b.steps) if (s && typeof s === 'object') { if (s.open) s.open = true; else delete s.open; }
   // a thank-you page shown in full to Cash on Delivery buyers too (unpaidView): a plain true, or not at all
@@ -970,7 +981,12 @@ app.post('/api/funnels/:id/duplicate', auth, funnelCap, (req, res) => {
   const f = owned(req, res);
   if (!f) return;
   const copy = structuredClone(f);
-  copy.steps.forEach((s) => { s.id = uid(); s.blocks.forEach((b) => { b.id = uid(); }); });
+  // fresh ids for every page, section, A/B variant section and pop-up (a pop-up's "seen once" is remembered by its id)
+  copy.steps.forEach((s) => {
+    s.id = uid();
+    for (const b of [...s.blocks, ...(s.ab?.blocks || [])]) b.id = uid();
+    for (const p of s.popups || []) { p.id = uid(); for (const b of p.blocks || []) b.id = uid(); }
+  });
   res.json(createFunnel(req.user.id, { name: `${f.name} (copy)`, theme: copy.theme, steps: copy.steps }));
 });
 
@@ -1197,11 +1213,15 @@ Write every word of the page copy in Hindi (Devanagari script) — natural, conv
   if (opts.primary) gen.theme = { ...gen.theme, primary: opts.primary };
   if (hindi) gen.theme = { ...gen.theme, lang: 'hi', headingFont: gen.theme?.headingFont || 'Mukta', bodyFont: gen.theme?.bodyFont || 'Hind' };
   const usedAI = aiEnabled() && !gen.fallback;
+  // the AI couldn't write it (timeout, bad answer, AI unavailable): the seller starts from the closest template,
+  // is told so, and no credits are taken
+  const fellBack = aiEnabled() && !!gen.fallback;
+  if (fellBack) res.locals.aiFailed = true;
   const { model, ...quality } = gen.quality || {}; // the AI vendor/model never reaches sellers
   delete gen.fallback; delete gen.quality;
   const f = createFunnel(req.user.id, gen);
   if (Object.keys(quality).length) { f.aiQuality = { ...quality, at: Date.now() }; T.funnels.put(f); }
-  res.json({ ...f, usedAI, quality: Object.keys(quality).length ? quality : undefined });
+  res.json({ ...f, usedAI, ...(fellBack ? { fallback: true } : {}), quality: Object.keys(quality).length ? quality : undefined });
 }));
 
 app.post('/api/ai/edit', auth, aiLimiter, credits('edit'), wrap(async (req, res) => {
@@ -1696,6 +1716,8 @@ function buildCharge(f, body) {
     const b = blocks.find((x) => x.type === 'checkout' || x.type === 'offer');
     if (!b) return { status: 400, error: 'Nothing to buy on this step' };
     const p = b.props;
+    // a price left empty (cleared while editing) is never sold as free — only an explicit 0 is free
+    if (p.price === '' || p.price == null || !Number.isFinite(Number(p.price))) return { status: 400, error: 'This product’s price isn’t set yet — please try again later' };
     if (b.type === 'checkout') {
       const price = Number(p.price) || 0;
       // instalments / membership (Razorpay Subscriptions) — see plans.js

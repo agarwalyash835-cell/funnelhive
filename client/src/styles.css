@@ -1050,6 +1050,24 @@ body:has(#root > .page:is(.s-aurora, .s-fresh, .s-clean)) { background: color-mi
   .tile small { font-size: 10px; letter-spacing: .06em; }
 }
 @container canvas (max-width: 900px) { .offer-grid { grid-template-columns: 1fr; gap: 32px; } }
+/* the editor's phone preview gets the live page's phone rules too (its canvas is a container, not the window) */
+@container canvas (max-width: 760px) {
+  .navbar .nav-burger { display: block; }
+  .navbar .nav-in { padding: 0 16px; position: relative; }
+  .navbar .nav-links { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; align-items: stretch; gap: 2px; padding: 10px 16px 16px; background: var(--pbg); border-bottom: 1px solid var(--line); box-shadow: 0 18px 30px -20px rgb(0 0 0 / .35); }
+  .navbar.open .nav-links { display: flex; }
+  .navbar.open .nav-burger span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  .navbar.open .nav-burger span:nth-child(2) { opacity: 0; }
+  .navbar.open .nav-burger span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+  .navbar .nav-links a.nav-cta { margin: 6px 0 0; text-align: center; }
+}
+@container canvas (max-width: 520px) {
+  .steps { grid-template-columns: 1fr; } .two { grid-template-columns: 1fr; } .sec-hero h1 { font-size: 36px; }
+  .tiles { gap: 8px; }
+  .tile { min-width: 0; flex: 1 1 0; max-width: 96px; padding: 12px 4px 10px; }
+  .tile b { font-size: clamp(24px, 8vw, 34px); }
+  .tile small { font-size: 10px; letter-spacing: .06em; }
+}
 
 /* isolate funnel-page buttons & bars from app chrome styles */
 .page .btn { height: auto; white-space: normal; text-align: center; line-height: 1.3; }
@@ -1145,16 +1163,16 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 .sx.al-center > .sec > .in, .sx.al-center .sh { text-align: center; margin-left: auto; margin-right: auto; }
 .sx.al-center .hero-ctas, .sx.al-center .trust, .sx.al-center .el-btn { justify-content: center; }
 .sx.al-left .sh.c { text-align: left; margin-left: 0; }
-@media (max-width: 760px) { .sx.hide-m { display: none; } }
-@media (min-width: 761px) { .sx.hide-d { display: none; } }
+@media (max-width: 760px) { .sx.sx-hide-m { display: none; } }
+@media (min-width: 761px) { .sx.sx-hide-d { display: none; } }
 /* in the editor hidden sections stay visible (dimmed) so they can still be selected */
-.wrap .sx.hide-m, .wrap .sx.hide-d { display: block !important; }
-@container canvas (max-width: 760px) { .wrap .sx.hide-m { opacity: .35; } }
-@container canvas (min-width: 761px) { .wrap .sx.hide-d { opacity: .35; } }
-.wrap .sx.hide-m::before, .wrap .sx.hide-d::before { position: absolute; left: 8px; top: 8px; z-index: 25; font: 600 11px Inter, sans-serif; background: #111827; color: #fff; padding: 3px 8px; border-radius: 6px; opacity: .9; }
-.wrap .sx.hide-m::before { content: 'Hidden on phones'; }
-.wrap .sx.hide-d::before { content: 'Hidden on desktop'; }
-.wrap .sx.hide-m.hide-d::before { content: 'Hidden everywhere'; }
+.wrap .sx.sx-hide-m, .wrap .sx.sx-hide-d { display: block !important; }
+@container canvas (max-width: 760px) { .wrap .sx.sx-hide-m { opacity: .35; } }
+@container canvas (min-width: 761px) { .wrap .sx.sx-hide-d { opacity: .35; } }
+.wrap .sx.sx-hide-m::before, .wrap .sx.sx-hide-d::before { position: absolute; left: 8px; top: 8px; z-index: 25; font: 600 11px Inter, sans-serif; background: #111827; color: #fff; padding: 3px 8px; border-radius: 6px; opacity: .9; }
+.wrap .sx.sx-hide-m::before { content: 'Hidden on phones'; }
+.wrap .sx.sx-hide-d::before { content: 'Hidden on desktop'; }
+.wrap .sx.sx-hide-m.sx-hide-d::before { content: 'Hidden everywhere'; }
 .wrap .sx { position: relative; }
 
 /* editor: style panel */

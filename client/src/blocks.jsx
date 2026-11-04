@@ -30,7 +30,7 @@ const safely = (fn) => Promise.resolve().then(fn).catch((x) => ({ error: x?.mess
 const T = 'text', LONG = 'long', NUM = 'number', B = 'bool', L = 'list';
 const HL = 'Wrap words in *stars* to highlight them';
 // What a built-in button does; "Open a pop-up" opens one of this step's pop-ups (Step → Pop-ups)
-const BTN_ACTIONS = [['next', 'Go to the next step'], ['page', 'Open a page of this funnel (its web name in the link field)'], ['url', 'Open a link'], ['scroll', 'Scroll to a section'], ['popup', 'Open a pop-up']];
+const BTN_ACTIONS = [['next', 'Go to the next step'], ['page', 'Open a page of this funnel'], ['url', 'Open a link'], ['scroll', 'Scroll to a section'], ['popup', 'Open a pop-up']];
 
 // Field schema drives the editor's inspector: [key, kind, listSubKeys, hint]
 export const BLOCK_TYPES = {
@@ -1583,7 +1583,7 @@ function QuizBlock({ p, ctx, block }) {
           <small className="quiz-n">{tr(ctx.lang, 'Your result')}{result.score != null ? ` · ${result.score}` : ''}</small>
           <h2>{result.title}</h2>
           {result.body && <p className="sub quiz-body">{result.body}</p>}
-          {result.buttonText && (result.url ? <Btn big ctx={ctx} link={{ href: result.url }}>{result.buttonText}</Btn> : <Btn big onClick={() => ctx.onFormNext?.()}>{result.buttonText}</Btn>)}
+          {result.buttonText && (safeHref(result.url) ? <Btn big ctx={ctx} link={{ href: safeHref(result.url) }}>{result.buttonText}</Btn> : <Btn big onClick={() => ctx.onFormNext?.()}>{result.buttonText}</Btn>)}
         </div>}
       </div>
     </Sec>
@@ -1651,6 +1651,7 @@ function ElementContent({ el, ctx }) {
       if (ctx.editable) inner = <div className={cls} role="button"><span>{label}</span><span className="arr" aria-hidden="true">→</span></div>;
       else if (p.action === 'url' && safeHref(p.url)) inner = <a className={cls} href={safeHref(p.url)} {...(/^https?:/.test(p.url) ? { target: '_blank', rel: 'noopener' } : {})}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></a>;
       else if (p.action === 'popup' && p.url) inner = <button type="button" className={cls} aria-haspopup="dialog" onClick={() => ctx.live && openPopup(p.url)}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></button>;
+      else if (p.action === 'page') { const pg = buttonLink('page', p.url).page; inner = <a className={cls} href={ctx.pageHref ? ctx.pageHref(pg) : '#'} onClick={(e) => { if (!ctx.live) return e.preventDefault(); if (ctx.goPage) { e.preventDefault(); ctx.goPage(pg); } }}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></a>; }
       else if (p.action === 'scroll' && p.url) inner = <a className={cls} href={`#${cleanAnchor(String(p.url).replace(/^#/, ''))}`} onClick={(e) => { e.preventDefault(); smoothTo(cleanAnchor(String(p.url).replace(/^#/, ''))); }}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></a>;
       else inner = <button type="button" className={cls} onClick={() => ctx.live && ctx.onNext?.()}><span>{p.label}</span><span className="arr" aria-hidden="true">→</span></button>;
       return <div className={`el-btn al-${p.align || 'left'}`}>{inner}</div>;
@@ -1741,8 +1742,9 @@ export function Block({ block, ctx }) {
   if (st.padBottom) cls.push(`pb-${st.padBottom}`);
   if (st.width) cls.push(`w-${st.width}`);
   if (st.align) cls.push(`al-${st.align}`);
-  if (st.hideMobile) cls.push('hide-m');
-  if (st.hideDesktop) cls.push('hide-d');
+  // own class names: the app's .hide-m (editor chrome, hidden below 1000px) would also hide these sections on tablets
+  if (st.hideMobile) cls.push('sx-hide-m');
+  if (st.hideDesktop) cls.push('sx-hide-d');
   if (cls.length === 1 && !st.anchor) return content;
   return <div className={cls.join(' ')} style={vars} id={cleanAnchor(st.anchor) || undefined}>{content}</div>;
 }

@@ -3,6 +3,7 @@ import { uid } from './db.js';
 import { shiftHue } from './template-kit.js';
 
 import { PAGE_STYLES as STYLES, VARIANTS } from './page-styles.js';
+import { isBlockType } from './block-types.js';
 const COLORS = { red: '#ef4444', orange: '#f97316', amber: '#f59e0b', yellow: '#eab308', green: '#16a34a', emerald: '#10b981', teal: '#14b8a6', cyan: '#06b6d4', blue: '#2563eb', indigo: '#6366f1', violet: '#7c3aed', purple: '#9333ea', pink: '#ec4899', rose: '#e11d48', maroon: '#9f1239', gold: '#a16207', brown: '#78350f', black: '#111827', saffron: '#ff9933' };
 const STYLE_ALIASES = { dark: 'midnight', premium: 'luxe', luxury: 'luxe', elegant: 'luxe', minimal: 'clean', simple: 'clean', playful: 'playful', fun: 'playful', kids: 'playful', friendly: 'fresh', magazine: 'editorial', editorial: 'editorial', earthy: 'organic', handmade: 'organic', organic: 'organic', techy: 'tech', neon: 'tech', tech: 'tech', royal: 'royal', gold: 'royal', golden: 'royal', noir: 'noir', monochrome: 'noir', glass: 'glass', glassy: 'glass', frosted: 'glass', swiss: 'swiss', pastel: 'pastel', dreamy: 'pastel', studio: 'studio', startup: 'studio', modern: 'studio', loud: 'bold', brutal: 'bold', light: 'aurora', gradient: 'aurora' };
 
@@ -79,17 +80,24 @@ const insertAfterType = (f, step, types) => {
   f.steps.splice(at, 0, step);
 };
 const uniqueSlug = (f, slug) => { let s = slug; while (f.steps.some((x) => x.slug === s)) s += '-2'; return s; };
-const normBlocks = (blocks = []) => blocks.map((b) => ({ id: b.id || uid(), type: b.type, props: b.props || {} }));
+// only real section types (a made-up one would show as "Unknown block" with nothing to edit)
+const normBlocks = (blocks = []) => (Array.isArray(blocks) ? blocks : []).filter((b) => b && isBlockType(b.type)).map((b) => ({ id: b.id || uid(), type: b.type, props: b.props && typeof b.props === 'object' ? b.props : {} }));
+const HEX = /^#[0-9a-f]{6}$/i;
+// actions that change one page: a page id that isn't in this funnel skips the action instead of editing another page
+const ON_A_PAGE = new Set(['set_blocks', 'add_block', 'remove_block', 'update_block']);
 
 export function applyActions(f, actions = [], currentStepId) {
   const done = [];
   for (const a of actions) {
     try {
+      if (a.stepId && ON_A_PAGE.has(a.type) && !findStep(f, a.stepId)) { done.push('Skipped a change: that page isn’t in this funnel'); continue; }
       const step = findStep(f, a.stepId || currentStepId) || f.steps[0];
       switch (a.type) {
-        case 'set_theme':
-          f.theme = { ...f.theme, ...(a.style && STYLES.includes(a.style) ? { style: a.style } : {}), ...(a.primary ? { primary: a.primary, secondary: a.secondary || shiftHue(a.primary, 38) } : {}), ...(a.secondary ? { secondary: a.secondary } : {}) };
+        case 'set_theme': {
+          const primary = HEX.test(a.primary || '') ? a.primary : null, secondary = HEX.test(a.secondary || '') ? a.secondary : null;
+          f.theme = { ...f.theme, ...(a.style && STYLES.includes(a.style) ? { style: a.style } : {}), ...(primary ? { primary, secondary: secondary || shiftHue(primary, 38) } : {}), ...(secondary ? { secondary } : {}) };
           done.push('Updated the look'); break;
+        }
         case 'rename': f.name = a.name; done.push(`Renamed funnel to “${a.name}”`); break;
         case 'add_step': {
           let s;
@@ -120,6 +128,7 @@ export function applyActions(f, actions = [], currentStepId) {
             done.push(add.length ? `Added ${add.length} question${add.length === 1 ? '' : 's'} to the FAQ on “${step.name}”` : `The FAQ on “${step.name}” already covers that`);
             break;
           }
+          if (!isBlockType(a.blockType)) { done.push(`Skipped “${a.blockType}”: not a section type`); break; }
           const b = blk(a.blockType, a.props || DEFAULT_BLOCKS[a.blockType] || {});
           const floating = ['proof', 'exitpopup', 'stickybar', 'whatsapp'];
           let at = typeof a.index === 'number' ? a.index : step.blocks.findIndex((x) => floating.includes(x.type) || x.type === 'cta');
@@ -129,7 +138,8 @@ export function applyActions(f, actions = [], currentStepId) {
         }
         case 'remove_block': {
           const before = step.blocks.length;
-          step.blocks = step.blocks.filter((b) => b.id !== a.blockId && b.type !== a.blockType);
+          // by id when given (one section); by type only when no id is given
+          step.blocks = step.blocks.filter((b) => (a.blockId ? b.id !== a.blockId : b.type !== a.blockType));
           if (step.blocks.length < before) done.push(`Removed ${a.blockType || 'block'} from “${step.name}”`);
           break;
         }

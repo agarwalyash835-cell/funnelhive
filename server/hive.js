@@ -14,6 +14,7 @@ import { readOnlyAction } from './composio.js';
 import { PAGE_STYLES } from './page-styles.js';
 import { TRIGGERS, VARIABLES } from './automations.js';
 import { offerStep } from './actions.js';
+import { BLOCK_TYPE_NAMES, isBlockType, knownBlocks } from './block-types.js';
 import { EVENTS } from './api.js';
 import { websiteSteps } from './website.js';
 import * as insightTools from './hive-tally-insights.js';
@@ -133,6 +134,7 @@ export const TOOLS = [
     name: 'add_section', description: `Add a section to a page. Section types and props:\n${BLOCK_SPEC}`,
     schema: S({ funnelId: str('Funnel id'), stepId: str('Step id'), type: str('Section type'), props: obj('Section props'), position: num('Index to insert at (0 = top). Omit to add before the final call-to-action / at the end') }, ['funnelId', 'stepId', 'type', 'props']), touches: 'funnelId',
     run: (ctx, a) => editStep(ctx, a.funnelId, a.stepId, (st) => {
+      if (!isBlockType(a.type)) throw new Error(`“${a.type}” isn’t a section type — use one of: ${[...BLOCK_TYPE_NAMES].join(', ')}`);
       const b = { id: uid(), type: a.type, props: a.props || {} };
       let at = Number.isInteger(a.position) ? Math.max(0, Math.min(st.blocks.length, a.position)) : st.blocks.findIndex((x) => ['cta', 'proof', 'exitpopup', 'stickybar', 'whatsapp'].includes(x.type));
       if (at < 0) at = st.blocks.length;
@@ -156,7 +158,14 @@ export const TOOLS = [
   {
     name: 'replace_page', description: 'Replace ALL sections of a page in one go (for complete rewrites/redesigns). Each section: {type, props}.',
     schema: S({ funnelId: str('Funnel id'), stepId: str('Step id'), sections: arr('Complete list of sections, top to bottom') }, ['funnelId', 'stepId', 'sections']), touches: 'funnelId',
-    run: (ctx, a) => editStep(ctx, a.funnelId, a.stepId, (st) => { st.blocks = (a.sections || []).filter((b) => b?.type).map((b) => ({ id: b.id || uid(), type: b.type, props: b.props || {} })); return { count: st.blocks.length }; }).then((r) => ({ ok: true, sections: r.count })),
+    run: (ctx, a) => editStep(ctx, a.funnelId, a.stepId, (st) => {
+      // a made-up section type is refused (the model retries with a real one) rather than saved as "Unknown block"
+      const { blocks, dropped } = knownBlocks(a.sections);
+      if (dropped.length) throw new Error(`Not section types: ${dropped.join(', ')} — use only: ${[...BLOCK_TYPE_NAMES].join(', ')}`);
+      if (!blocks.length) throw new Error('Give the page at least one section');
+      st.blocks = blocks.map((b) => ({ id: b.id || uid(), type: b.type, props: b.props || {} }));
+      return { count: st.blocks.length };
+    }).then((r) => ({ ok: true, sections: r.count })),
     summary: (r) => `Rebuilt the page (${r.sections} sections)`,
   },
   {
@@ -164,6 +173,7 @@ export const TOOLS = [
     schema: S({ funnelId: str('Funnel id'), type: str(`One of ${STEP_TYPES.join(', ')}`), name: str('Page name'), position: num('Index in the funnel (0 = first). Omit to add before the thank-you page'), sections: arr('Optional sections [{type, props}]') }, ['funnelId', 'type', 'name']), touches: 'funnelId',
     run: async (ctx, a) => {
       if (!STEP_TYPES.includes(a.type)) throw new Error(`Step type must be one of ${STEP_TYPES.join(', ')}`);
+      if (a.sections?.length) { const { dropped } = knownBlocks(a.sections); if (dropped.length) throw new Error(`Not section types: ${dropped.join(', ')} — use only: ${[...BLOCK_TYPE_NAMES].join(', ')}`); }
       const f = await ctx.call('GET', `/funnels/${a.funnelId}`);
       let slug = slugify(a.name); while (f.steps.some((s) => s.slug === slug)) slug += '-2';
       const st = { id: uid(), name: a.name, type: a.type, slug, blocks: (a.sections?.length ? a.sections : STEP_SECTIONS[a.type]).map((b) => ({ id: uid(), type: b.type, props: b.props || {} })) };
@@ -259,7 +269,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => (r.connected?.length ? `Looked at your ${r.connected.join(' & ')} actions` : 'No apps connected yet'),
   },
   {
-    name: 'run_app_action', description: 'Run one action in a connected app with arguments matching its input fields (from find_app_actions). Typical Meta flow: METAADS_GET_AD_ACCOUNTS → METAADS_CREATE_CAMPAIGN → METAADS_CREATE_AD_SET (targeting from METAADS_LIST_TARGETING_SEARCH) → creative + ad; read results with METAADS_GET_INSIGHTS. New campaigns, ad sets and ads are always created PAUSED; budgets (daily_budget, lifetime_budget) are in the ad account’s currency in whole units — ₹500 a day is 500, not 50000; ad account ids for the create actions start with act_ (act_123456789). Anything that changes or spends waits for the seller’s OK. If no app is connected, tell them: Settings → Apps & ads → Connect.',
+    name: 'run_app_action', description: 'Run one action in a connected app with arguments matching its input fields (from find_app_actions). Typical Meta flow: METAADS_GET_AD_ACCOUNTS → METAADS_CREATE_CAMPAIGN → METAADS_CREATE_AD_SET (targeting from METAADS_LIST_TARGETING_SEARCH) → creative + ad; read results with METAADS_GET_INSIGHTS. New campaigns, ad sets and ads are always created PAUSED; Meta budgets (daily_budget, lifetime_budget) are in the ad account’s currency in whole units — ₹500 a day is 500, not 50000; Meta ad account ids for the create actions start with act_ (act_123456789). Google Ads amounts are in micros — ₹500 is amount_micros 500000000 — and a campaign needs its budget created first (GOOGLEADS_MUTATE_CAMPAIGN_BUDGETS), then the campaign with that budget’s resource name; pass the customer_id (10 digits) from GOOGLEADS_LIST_ACCESSIBLE_CUSTOMERS. Anything that changes or spends waits for the seller’s OK. If no app is connected, tell them: Settings → Apps & ads → Connect.',
     schema: S({ slug: str('Action slug, e.g. METAADS_GET_INSIGHTS'), arguments: obj('Inputs for the action') }, ['slug']),
     run: async (ctx, a) => ctx.call('POST', '/integrations/run', { slug: a.slug, arguments: a.arguments || {} }),
     summary: (r) => (r.ok ? 'Done in your connected app' : `The app said: ${String(r.error || '').slice(0, 120)}`),

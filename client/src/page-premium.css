@@ -373,6 +373,10 @@ body:has(#root > .page.s-studio) { background: #f6f4ef; }
   .pop-corner { right: 8px; left: 8px; bottom: 8px; width: auto; }
   .pop-full .cgrid { grid-template-columns: minmax(0, 1fr) !important; }
 }
+@container canvas (max-width: 600px) {
+  .pop-corner { right: 8px; left: 8px; bottom: 8px; width: auto; }
+  .pop-full .cgrid { grid-template-columns: minmax(0, 1fr) !important; }
+}
 @media (prefers-reduced-motion: reduce) { .pop, .pop-overlay { animation: none !important; } }
 /* editor: a pop-up's sections on the canvas, sized like the real thing; its preview */
 .frame.frame-pop { margin-left: auto; margin-right: auto; outline: 2px dashed color-mix(in srgb, var(--accent, #6366f1) 45%, transparent); outline-offset: 6px; border-radius: 12px; }

@@ -12,6 +12,8 @@ import { FONT_CHOICES } from '../fonts';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'step';
+// a page address no other page of the funnel uses (the server makes them unique the same way)
+const uniqueSlug = (base, steps, selfId) => { let s = base; for (let n = 2; steps.some((x) => x.id !== selfId && x.slug === s); n++) s = `${base}-${n}`; return s; };
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const mk = (type, over = {}) => (type === 'section'
   ? { id: uid(), type, props: { ...defaultSection(), ...over } }
@@ -39,8 +41,22 @@ const linkFieldShown = (key, props = {}) => {
   const m = /^(cta|button)(Url|NewTab)$/.exec(key);
   if (!m) return true;
   const action = props[`${m[1]}Action`];
-  return m[2] === 'Url' ? action === 'url' || action === 'scroll' || action === 'popup' : action === 'url';
+  return m[2] === 'Url' ? action === 'url' || action === 'scroll' || action === 'popup' || action === 'page' : action === 'url';
 };
+// a button set to "Open a page of this funnel": its link field becomes a choice of the funnel's pages (by web name)
+const isPageLink = (key, props = {}) => (key === 'url' ? props.action : /^(cta|button)Url$/.test(key) ? props[`${key.slice(0, -3)}Action`] : null) === 'page';
+function PagePick({ steps = [], value, onChange }) {
+  const known = steps.some((s) => s.slug === value);
+  return (
+    <div className="fld"><label>page to open</label>
+      <select value={known ? value : ''} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Choose a page…</option>
+        {steps.map((s) => <option key={s.id} value={s.slug}>{s.name} (/{s.slug})</option>)}
+      </select>
+      {value && !known && <span className="hint">The page “{value}” no longer exists — choose another.</span>}
+    </div>
+  );
+}
 // a button set to "Open a pop-up": its link field becomes a choice of this step's pop-ups
 const isPopupLink = (key, props = {}) => (key === 'url' ? props.action : /^(cta|button)Url$/.test(key) ? props[`${key.slice(0, -3)}Action`] : null) === 'popup';
 function PopupPick({ popups = [], value, onChange }) {
@@ -359,7 +375,7 @@ function Field({ def, value, onChange, props }) {
     <div className="fld"><label>{label}</label>
       {kind === 'long'
         ? <textarea rows={3} value={value || ''} onChange={(e) => onChange(e.target.value)} />
-        : <input type={kind === 'number' ? 'number' : 'text'} value={value ?? ''} onChange={(e) => onChange(kind === 'number' ? Number(e.target.value) : e.target.value)} />}
+        : <input type={kind === 'number' ? 'number' : 'text'} value={value ?? ''} onChange={(e) => onChange(kind === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />}
       {hint && <span className="hint">{hint}</span>}
     </div>
   );
@@ -659,7 +675,7 @@ export default function Editor() {
     if (!f) return;
     if (!loaded.current) { loaded.current = true; return; }
     if (skipSave.current) { skipSave.current = false; setStatus('Saved'); return; }
-    if (conflict) return;
+    if (conflict) { dirty.current = true; return; } // not saved while the conflict is open — closing the tab still warns
     setStatus('Unsaved');
     dirty.current = true;
     const t = setTimeout(() => save(f), 700);
@@ -712,8 +728,9 @@ export default function Editor() {
     fRef.current = nf;
     setF(nf);
   };
-  const undo = () => { const h = hist.current; if (!h.past.length) return; h.future.push(fRef.current); fRef.current = h.past.pop(); setF(fRef.current); };
-  const redo = () => { const h = hist.current; if (!h.future.length) return; h.past.push(fRef.current); fRef.current = h.future.pop(); setF(fRef.current); };
+  // undo / redo bring back content, never the live / offline switch (undoing an old typo must not unpublish a funnel)
+  const undo = () => { const h = hist.current; if (!h.past.length) return; h.future.push(fRef.current); fRef.current = { ...h.past.pop(), published: fRef.current.published }; setF(fRef.current); };
+  const redo = () => { const h = hist.current; if (!h.future.length) return; h.past.push(fRef.current); fRef.current = { ...h.future.pop(), published: fRef.current.published }; setF(fRef.current); };
   const step = f.steps.find((s) => s.id === stepId) || f.steps[0];
   const abOn = !!step.ab?.enabled;
   const isB = abOn && variant === 'B';
@@ -859,7 +876,14 @@ export default function Editor() {
     patch({ steps });
     selectStep(s.id); setStepMenu(false);
   };
-  const dupStep = () => { const s = { ...clone(step), id: uid(), name: `${step.name} copy`, slug: `${step.slug}-copy` }; s.blocks = s.blocks.map(freshIds); const steps = [...f.steps]; steps.splice(f.steps.indexOf(step) + 1, 0, s); patch({ steps }); selectStep(s.id); };
+  const dupStep = () => {
+    const s = { ...clone(step), id: uid(), name: `${step.name} copy` };
+    s.slug = uniqueSlug(`${step.slug}-copy`, f.steps, s.id);
+    // fresh ids everywhere in the copy: its sections, its A/B variant and its pop-ups (a pop-up's "seen once" is kept by id)
+    s.blocks = s.blocks.map(freshIds);
+    if (s.ab?.blocks) s.ab = { ...s.ab, blocks: s.ab.blocks.map(freshIds) };
+    if (s.popups) s.popups = s.popups.map((p) => ({ ...p, id: uid(), blocks: (p.blocks || []).map(freshIds) }));
+    const steps = [...f.steps]; steps.splice(f.steps.indexOf(step) + 1, 0, s); patch({ steps }); selectStep(s.id); };
   const delStep = async () => { if (f.steps.length < 2 || !await confirmDialog({ title: `Delete the “${step.name}” step?`, confirm: 'Delete', danger: true })) return; const steps = f.steps.filter((s) => s.id !== step.id); patch({ steps }); selectStep(steps[0].id); };
 
   // ---------- drop handling ----------
@@ -875,6 +899,8 @@ export default function Editor() {
       if (payload.kind === 'move-block') { const from = blocks.findIndex((b) => b.id === payload.id); if (from >= 0 && d.index !== from && d.index !== from + 1) moveBlock(from, d.index); return; }
       // an element dropped between sections gets a section of its own
       let nb = blocks, el;
+      // a full pop-up takes no new section (setBlocks would cut the list and silently drop its last section)
+      if (popup && blocks.length >= POPUP_MAX_BLOCKS) return toast(`A pop-up holds up to ${POPUP_MAX_BLOCKS} sections`);
       if (payload.kind === 'move-el') [nb, el] = takeEl(blocks, payload.blockId, payload.elId); else el = newElement(payload.type);
       if (!el) return;
       const s = sectionWith(el); nb = [...nb]; nb.splice(d.index, 0, s); setBlocks(nb);
@@ -1238,7 +1264,7 @@ export default function Editor() {
                     <button className="icon-btn" title="Duplicate" aria-label="Duplicate" onClick={() => elAction('dup', selBlock.id, selEl)}><Icon name="copy" size={15} /></button>
                     <button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => elAction('del', selBlock.id, selEl)}><Icon name="trash" size={15} /></button>
                   </div>
-                  {ELEMENT_TYPES[selElLoc.el.type]?.fields.map((d) => { const ch = (v) => updateEl(selBlock.id, selEl, (e) => ({ ...e, props: { ...e.props, [d[0]]: v } }), true); return isPopupLink(d[0], selElLoc.el.props) ? <PopupPick key={selEl + d[0]} popups={step.popups} value={selElLoc.el.props[d[0]]} onChange={ch} /> : <Field key={selEl + d[0]} def={d} value={selElLoc.el.props[d[0]]} onChange={ch} />; })}
+                  {ELEMENT_TYPES[selElLoc.el.type]?.fields.map((d) => { const ch = (v) => updateEl(selBlock.id, selEl, (e) => ({ ...e, props: { ...e.props, [d[0]]: v } }), true); return isPopupLink(d[0], selElLoc.el.props) ? <PopupPick key={selEl + d[0]} popups={step.popups} value={selElLoc.el.props[d[0]]} onChange={ch} /> : isPageLink(d[0], selElLoc.el.props) ? <PagePick key={selEl + d[0]} steps={f.steps} value={selElLoc.el.props[d[0]]} onChange={ch} /> : <Field key={selEl + d[0]} def={d} value={selElLoc.el.props[d[0]]} onChange={ch} />; })}
                 </>
               ) : selBlock ? (
                 <>
@@ -1249,6 +1275,7 @@ export default function Editor() {
                   {REAL_ONLY.includes(selBlock.type) && <p className="hint">Shows only real numbers — fake urgency is not allowed under Indian e-commerce rules.</p>}
                   {BLOCK_TYPES[selBlock.type]?.fields.filter((d) => linkFieldShown(d[0], selBlock.props) && !(popup && selBlock.type === 'countdown' && d[0] === 'mode')).map((d) => (isPopupLink(d[0], selBlock.props)
                     ? <PopupPick key={selBlock.id + d[0]} popups={step.popups} value={selBlock.props[d[0]]} onChange={(v) => setProp(d[0], v)} />
+                    : isPageLink(d[0], selBlock.props) ? <PagePick key={selBlock.id + d[0]} steps={f.steps} value={selBlock.props[d[0]]} onChange={(v) => setProp(d[0], v)} />
                     : <Field key={selBlock.id + d[0]} def={d} value={withCopy(selBlock.type, selBlock.props)[d[0]]} onChange={(v) => setProp(d[0], v)} props={selBlock.props} />))}
                   {popup && selBlock.type === 'optin' && <p className="hint">After someone signs up here, the pop-up {popup.after === 'next' ? 'closes and they go to the next step' : 'closes and thanks them'} — change it in Pop-up settings.</p>}
                   {!FLOATING.includes(selBlock.type) && <StylePanel key={`st-${selBlock.id}`} value={selBlock.props._style} onChange={(v) => updateBlock(selBlock.id, (b) => { const props = { ...b.props }; if (v) props._style = v; else delete props._style; return { ...b, props }; }, true)} />}
@@ -1281,7 +1308,7 @@ export default function Editor() {
             <div className="ed-scroll insp">
               <div className="fld"><label>Step name</label><input value={step.name} onChange={(e) => patchStep({ name: e.target.value }, true)} /></div>
               <div className="fld"><label>Step type</label><select value={step.type} onChange={(e) => patchStep({ type: e.target.value })}>{Object.entries(STEP_TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}</select></div>
-              <div className="fld"><label>URL</label><div className="urlrow"><span>/f/{f.slug}/</span><input value={step.slug} onChange={(e) => patchStep({ slug: slugify(e.target.value) }, true)} /></div></div>
+              <div className="fld"><label>URL</label><div className="urlrow"><span>/f/{f.slug}/</span><input value={step.slug} onChange={(e) => patchStep({ slug: slugify(e.target.value) }, true)} onBlur={() => { const u = uniqueSlug(step.slug, f.steps, step.id); if (u !== step.slug) { patchStep({ slug: u }); toast(`Another page already uses that address — this one is /${u}`); } }} /></div></div>
               <h5>SEO</h5>
               <div className="fld"><label>Page title</label><input value={step.seo?.title || ''} placeholder={`${step.name} · ${f.name}`} onChange={(e) => patchStep({ seo: { ...step.seo, title: e.target.value } }, true)} /></div>
               <div className="fld"><label>Meta description</label><textarea rows={3} value={step.seo?.description || ''} onChange={(e) => patchStep({ seo: { ...step.seo, description: e.target.value } }, true)} /></div>

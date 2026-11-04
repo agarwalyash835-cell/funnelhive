@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { similarTemplates, allTemplates, matchTemplate, parsePrompt } from './templates.js';
 import { audit, enforce, barText, blueprintOf, qualityBar, trimTemplate } from './quality.js';
 import { uid } from './db.js';
+import { knownBlocks } from './block-types.js';
 import { isOutOfCredit, outOfCredit, PAUSED } from './kie-credit.js';
 import { PAGE_STYLES, STYLE_HINTS, variantsText } from './page-styles.js';
 
@@ -16,8 +17,8 @@ export const aiEnabled = () => !!(KIE_KEY || client);
 export const aiProvider = () => (KIE_KEY ? `kie.ai · ${KIE_MODEL}` : client ? `Anthropic · ${MODEL}` : null);
 
 // One call to whichever model is configured → the model's text
-async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODEL) {
-  const m = model;
+async function kie(system, messages, json, timeoutMs = TIMEOUT) {
+  const m = KIE_MODEL;
   let url, body, pick;
   if (m.startsWith('claude-')) {
     url = `${KIE_BASE}/claude/v1/messages`;
@@ -122,22 +123,8 @@ export async function generateImage(prompt, { aspect = '16:9', format = 'png', t
 
 // one question to whichever model is set up → its text (Studio writes Reel scripts with it)
 export const askAI = (system, user, opts) => complete(system, [{ role: 'user', content: user }], opts);
-// Studio's creative work — scripts, shot lists, the words on designs, the checks before spending — goes to a frontier
-// model: that thinking is where an agency's quality comes from, and it costs little next to a render. The everyday
-// model takes over when it's unavailable (never when the AI is paused for credit). STUDIO_AI_MODEL='' turns it off.
-const STUDIO_MODEL = () => process.env.STUDIO_AI_MODEL ?? (process.env.NODE_ENV === 'test' ? '' : 'claude-opus-5-5');
-export async function studioAI(system, user, opts = {}) {
-  const m = STUDIO_MODEL();
-  if (KIE_KEY && m && m !== KIE_MODEL) {
-    try { return await complete(system, [{ role: 'user', content: user }], { ...opts, model: m, timeoutMs: Math.max(opts.timeoutMs || 0, 180000) }); } catch (e) {
-      if (e.message === PAUSED) throw e;
-      console.error('studio model unavailable, using the everyday one:', e.message);
-    }
-  }
-  return askAI(system, user, opts);
-}
-async function complete(system, messages, { json = true, timeoutMs, model } = {}) {
-  if (KIE_KEY) return kie(system, messages, json, timeoutMs, model || KIE_MODEL);
+async function complete(system, messages, { json = true, timeoutMs } = {}) {
+  if (KIE_KEY) return kie(system, messages, json, timeoutMs);
   const res = await client.messages.create({ model: MODEL, max_tokens: 8000, system, messages });
   return res.content.map((c) => c.text || '').join('');
 }
@@ -384,7 +371,10 @@ export async function editBlocks(step, theme, instruction) {
   const system = `You edit funnel pages. You get the current page JSON and an instruction. Return ONLY JSON: {"blocks":[{"type":string,"props":{...}}]} containing the full updated block list (keep unchanged blocks as-is, preserve their "id" if present). Keep copy high-converting.
 ${BLOCK_SPEC}${knowledge()}`;
   const out = await ask(system, `Page "${step.name}" (${step.type}) blocks:\n${JSON.stringify(step.blocks)}\n\nInstruction: ${instruction}`);
-  return (out.blocks || []).map((b) => ({ id: b.id || uid(), type: b.type, props: b.props || {} }));
+  // only real section types; an answer with none left would wipe the page, so it's refused instead
+  const { blocks } = knownBlocks(out.blocks);
+  if (!blocks.length) throw new Error('The AI’s answer had no usable sections — nothing was changed, please try again');
+  return blocks.map((b) => ({ id: b.id || uid(), type: b.type, props: b.props || {} }));
 }
 
 // Offline fallback so the app works without an API key.
