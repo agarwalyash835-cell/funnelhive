@@ -21,15 +21,16 @@ import { memoryOf, setMemory, remember, forget, learn, withPrefs } from './memor
 import { assessReel, assessPrompt, planHash } from './preflight.js';
 import { registerCast } from './cast-routes.js';
 import { clipRefs } from './cast.js';
+import { PRESENTER_STYLES, celebrityIn, CELEBRITY_ERROR, pickFace, setPresenter, presenterScenes } from './presenter.js';
 
 // a Reel as the seller sees it: the script, each shot's still and clip, each voiceover line and its check, the result
 const brief = (a) => (a ? view(a) : null);
 export function reelView(r) {
   // what it costs (shown before approving: each resolution the tier offers)
-  const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion, vmodel: r.vmodel, imodel: r.imodel }) : null;
+  const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion, vmodel: r.vmodel, imodel: r.imodel, presenters: presenterScenes(r.script), face: !!r.presenter?.image }) : null;
   // the check before spending, while it still matches the plan
   const assessment = r.script && r.assessment?.hash === planOf(r) ? r.assessment : null;
-  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r), assessment, cast: r.cast || [] };
+  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds, type: x.type || 'scene' })), presenter: r.presenter || null, lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r), assessment, cast: r.cast || [] };
 }
 // the editor's notes on the finished video (studio/qa.js reviewReel), each fix applied through PUT /reels/:id; "reviewing"
 // only for a few minutes (a restart mid-review leaves no notes, not a spinner forever)
@@ -97,7 +98,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const b = req.body || {}, tier = tierOk(b.tier) ? b.tier : 'standard';
     if (b.kind === 'image') return res.json({ credits: Math.min(4, Math.max(1, Math.round(Number(b.count) || 1))) * imageCost(tier, b.model), model: modelKey('image', tier, b.model) });
     if (b.kind === 'clip') { const secs = Math.min(15, Math.max(4, Math.round(Number(b.seconds) || 5))); const k = modelKey('clip', tier, b.model); return res.json({ credits: clipCost(tier, secs, b.res, k), res: clipRes(tier, b.res, k), model: k, byRes: Object.fromEntries(tierMenu(tier).video.find((x) => x.id === k).res.map((r) => [r, clipCost(tier, secs, r, k)])) }); }
-    res.json(reelCost({ tier, seconds: LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30, shots: Math.min(8, Math.max(1, Number(b.shots) || 4)), lines: Math.min(8, Math.max(1, Number(b.lines) || 4)), res: b.res, motion: b.motion, vmodel: b.vmodel, imodel: b.imodel }));
+    res.json(reelCost({ tier, seconds: LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30, shots: Math.min(8, Math.max(1, Number(b.shots) || 4)), lines: Math.min(8, Math.max(1, Number(b.lines) || 4)), res: b.res, motion: b.motion, vmodel: b.vmodel, imodel: b.imodel, presenters: Number(b.presenters) || 0, face: !!b.face }));
   });
   const mine = (req, res) => { const a = T.studio.get(req.params.id); if (!a || a.userId !== req.user.id) { res.status(404).json({ error: 'Not found' }); return null; } return a; };
   // a voice's sample, to hear it before choosing: made once per Sarvam voice and kept (no seller data in it, so it's
@@ -122,10 +123,18 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     for (const k of ['ref', 'logo']) if (b[k] && !ownUpload(req.user.id, b[k])) return res.status(400).json({ error: 'Pick one of your own pictures' });
     const seconds = LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30;
     const business = req.user.settings?.businessName || req.user.name;
+    // a presenter / UGC-style Reel: { presenter: { style: ugc|testimonial|founder, image?|imageId? } } — never a real public figure
+    let presenter = null;
+    if (b.presenter) {
+      if (celebrityIn(brief, b.presenter.note)) return res.status(400).json({ error: CELEBRITY_ERROR });
+      const f = pickFace(req.user.id, b.presenter, ownUpload);
+      if (f.error) return res.status(400).json({ error: f.error });
+      presenter = { style: PRESENTER_STYLES.includes(b.presenter.style) ? b.presenter.style : 'ugc', ...(f.face || {}) };
+    }
     let script;
-    try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect, userId: req.user.id, cast: b.characters }); } catch (e) { return res.status(502).json({ error: e.message }); }
+    try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect, userId: req.user.id, cast: b.characters, presenter: presenter?.style }); } catch (e) { return res.status(502).json({ error: e.message }); }
     const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.aspect || '9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
-    const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], cast: b.characters, script, by: who(req) });
+    const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], cast: b.characters, script, presenter, by: who(req) });
     res.status(201).json(reelView(r));
   }));
   const myReel = (req, res, statuses) => {
@@ -167,6 +176,16 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
       if (sizes?.length) x.sizes = sizes;
       if (b.res) x.res = clipRes(x.tier, b.res);
     })));
+  });
+  // the presenter: { face: { image } (their own photo) | { imageId } (a Studio image) | null, scenes: [i…] the scenes a
+  // person speaks to camera (the others become ordinary scenes), style } — before anything of those scenes is made
+  app.post('/api/studio/reels/:id/presenter', auth, limiter, (req, res) => {
+    const r = myReel(req, res, ['script_ready', 'storyboard_ready']); if (!r) return;
+    const out = setPresenter(r, req.body || {}, ownUpload);
+    if (out.error) return res.status(400).json(out);
+    // in a storyboard the scenes' pictures are already drawn: a switched scene keeps its picture as the presenter's (a new
+    // face applies to scenes drawn after it)
+    res.json(reelView(T.studio.update(r.id, (x) => { x.presenter = out.presenter; if (out.script) x.script = out.script; if (out.shots) x.shots = out.shots; })));
   });
   // the go-ahead: shots and voiceover start (this is where rendering costs begin)
   app.post('/api/studio/reels/:id/approve', auth, limiter, (req, res) => {
