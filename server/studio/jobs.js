@@ -22,10 +22,11 @@ const ACTIVE = ['queued', 'rendering', 'checking'];
 
 const KEEP_PRODUCT = 'Keep the product exactly as in the reference photo: same shape, colour, label and packaging. Photorealistic. No added text, words, logos or watermarks.';
 const KEEP_CLIP = 'Keep the product and any people exactly as in the first frame for the whole clip; smooth, natural camera movement; no text, captions or logos.';
+const KEEP_PEOPLE = 'Keep every person exactly as in their reference pictures: the same face, age, skin tone, hair, body and outfit.';
 // the request as sent: the seller's words, the house rules, and what earlier attempts got wrong
 function promptFor(a) {
   const notes = (a.notes || []).filter(Boolean).slice(-3);
-  return [a.prompt, a.kind === 'clip' ? KEEP_CLIP : a.ref ? KEEP_PRODUCT : 'Photorealistic. No added text, words, logos or watermarks.', notes.length ? `Avoid this time: ${notes.join(' ')}` : ''].filter(Boolean).join('\n').slice(0, 4000);
+  return [a.prompt, a.kind === 'clip' ? KEEP_CLIP : a.ref ? KEEP_PRODUCT : 'Photorealistic. No added text, words, logos or watermarks.', a.refs?.length ? KEEP_PEOPLE : '', notes.length ? `Avoid this time: ${notes.join(' ')}` : ''].filter(Boolean).join('\n').slice(0, 4000);
 }
 
 export const view = (a) => ({ id: a.id, kind: a.kind, tier: a.tier, prompt: a.prompt, aspect: a.aspect, seconds: a.seconds || null, status: a.status, url: a.url || null, poster: a.poster || null, ref: a.ref || null, sourceId: a.sourceId || null, issues: a.qa?.issues || [], score: a.qa?.score ?? null, enhanced: !!a.enhanced, measured: a.qa?.measured ? { width: a.qa.measured.width, height: a.qa.measured.height, seconds: a.qa.measured.seconds ?? null } : null, reviewed: !!a.qa?.reviewed, fix: a.fix || '', res: a.kind === 'clip' ? clipRes(a.tier, a.res, a.vmodel) : null, photo: !!a.photo, model: a.kind === 'image' || a.kind === 'clip' ? pick(a.kind, a.tier, a.kind === 'clip' ? a.vmodel : a.imodel).name : null, redoCredits: a.kind === 'image' || a.photo ? imageCost(a.tier, a.imodel) : a.kind === 'clip' ? clipCost(a.tier, a.seconds, a.res, a.vmodel) : null, attempts: a.attempts || 0, error: a.error || '', at: a.at, doneAt: a.doneAt || null, by: a.by || null });
@@ -40,11 +41,13 @@ const lastUsage = (x, patch) => { const u = x.usage?.at(-1); if (u) Object.assig
 // ---------- one step for one row ----------
 async function startRender(a) {
   let m = pick(a.kind, a.tier, a.kind === 'clip' ? a.vmodel : a.imodel);
-  // a model that can't take a product photo: the tier's default makes the stills that must keep the product
-  if (a.kind === 'image' && a.ref && m.entry?.refs === 0) m = pick('image', a.tier);
+  // the product photo first, then the cast's reference pictures (cast.js — already within the model's limit)
+  const refs = [a.ref, ...(a.refs || [])].filter(Boolean).map(publicUrl);
+  // a model that can't take a reference picture: the tier's default makes the stills that must keep the product or a face
+  if (a.kind === 'image' && refs.length && m.entry?.refs === 0) m = pick('image', a.tier);
   let req, model = m.model;
-  if (a.kind === 'image') { const q = imageRequest(m.model, { prompt: promptFor(a), refs: a.ref ? [publicUrl(a.ref)] : [], aspect: a.aspect, resolution: m.resolution }); model = q.model; req = { input: q.input, resolution: m.resolution, seconds: 0 }; }
-  else req = clipInput(m.model, { prompt: promptFor(a), image: a.ref ? publicUrl(a.ref) : null, last: a.last ? publicUrl(a.last) : null, aspect: a.aspect, seconds: a.seconds || 5, resolution: clipRes(a.tier, a.res, m.key), variant: m.entry?.variant || '' });
+  if (a.kind === 'image') { const q = imageRequest(m.model, { prompt: promptFor(a), refs, aspect: a.aspect, resolution: m.resolution }); model = q.model; req = { input: q.input, resolution: m.resolution, seconds: 0 }; }
+  else req = clipInput(m.model, { prompt: promptFor(a), image: a.ref ? publicUrl(a.ref) : null, last: a.last ? publicUrl(a.last) : null, aspect: a.aspect, seconds: a.seconds || 5, resolution: clipRes(a.tier, a.res, m.key), variant: m.entry?.variant || '', refs: (a.refs || []).map(publicUrl) });
   const taskId = await startTask({ model, input: req.input });
   set(a.id, (x) => {
     x.status = 'rendering'; x.taskId = taskId; x.attempts = (x.attempts || 0) + 1; x.startedAt = Date.now(); x.model = model; x.resolution = req.resolution;

@@ -19,6 +19,8 @@ import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
 import { memoryOf, setMemory, remember, forget, learn, withPrefs } from './memory.js';
 import { assessReel, assessPrompt, planHash } from './preflight.js';
+import { registerCast } from './cast-routes.js';
+import { clipRefs } from './cast.js';
 
 // a Reel as the seller sees it: the script, each shot's still and clip, each voiceover line and its check, the result
 const brief = (a) => (a ? view(a) : null);
@@ -27,7 +29,7 @@ export function reelView(r) {
   const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion, vmodel: r.vmodel, imodel: r.imodel }) : null;
   // the check before spending, while it still matches the plan
   const assessment = r.script && r.assessment?.hash === planOf(r) ? r.assessment : null;
-  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r), assessment };
+  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds })), lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r), assessment, cast: r.cast || [] };
 }
 // the editor's notes on the finished video (studio/qa.js reviewReel), each fix applied through PUT /reels/:id; "reviewing"
 // only for a few minutes (a restart mid-review leaves no notes, not a spinner forever)
@@ -55,7 +57,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
 
   app.get('/api/studio', auth, (req, res) => {
     // a Reel's own shots are shown inside the Reel, not again in the gallery
-    const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId).slice(0, 200);
+    const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId && !a.castId).slice(0, 200); // a cast's reference pictures live with the cast
     res.json({ on: studioOn(req.user) && studioReady(), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], clipRes: CLIP_RES[id], imageCredits: imageCost(id), clipCreditsPer5s: Object.fromEntries(CLIP_RES[id].map((r) => [r, clipCost(id, 5, r)])), models: tierMenu(id) })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), assets: rows.map(anyView) });
   });
   // images: 1–4 at a time, from words, optionally keeping the seller's real product (their photo as the reference)
@@ -86,7 +88,8 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const seconds = Math.min(15, Math.max(4, Math.round(Number(b.seconds) || 5)));
     const tier = tierOk(b.tier) ? b.tier : 'standard';
     const vmodel = b.model ? modelKey('clip', tier, b.model) : undefined;
-    const a = enqueue(req.user.id, { kind: 'clip', tier, vmodel, res: clipRes(tier, b.res, vmodel), prompt, aspect: ASPECTS.includes(b.aspect) ? b.aspect : '9:16', seconds, ref, sourceId, enhance: b.enhance !== false, by: who(req), notifyDone: true });
+    const refs = !ref && Array.isArray(b.characters) ? clipRefs(req.user.id, b.characters) : []; // from words alone: the cast's faces as references
+    const a = enqueue(req.user.id, { kind: 'clip', tier, vmodel, res: clipRes(tier, b.res, vmodel), prompt, aspect: ASPECTS.includes(b.aspect) ? b.aspect : '9:16', seconds, ref, ...(refs.length ? { refs } : {}), sourceId, enhance: b.enhance !== false, by: who(req), notifyDone: true });
     res.status(201).json({ asset: view(a), credits: clipCost(tier, seconds, a.res, vmodel) });
   });
   // what something would cost, before making it: { kind: image|clip|reel, tier, model, count, seconds, res, shots, lines, vmodel, imodel }
@@ -120,9 +123,9 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const seconds = LENGTHS.includes(Number(b.seconds)) ? Number(b.seconds) : 30;
     const business = req.user.settings?.businessName || req.user.name;
     let script;
-    try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect, userId: req.user.id }); } catch (e) { return res.status(502).json({ error: e.message }); }
+    try { script = await writeScript({ brief, lang: b.lang, seconds, business, aspect: b.aspect, userId: req.user.id, cast: b.characters }); } catch (e) { return res.status(502).json({ error: e.message }); }
     const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.aspect || '9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
-    const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], script, by: who(req) });
+    const r = newReel(req.user.id, { brief, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: b.logo, brands: business ? [business] : [], cast: b.characters, script, by: who(req) });
     res.status(201).json(reelView(r));
   }));
   const myReel = (req, res, statuses) => {
@@ -240,6 +243,8 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     res.json(Object.keys(rest).length ? remember(req.user.id, rest) : memoryOf(req.user.id));
   });
   app.delete('/api/studio/memory', auth, (req, res) => { forget(req.user.id); res.json({ ok: true }); });
+  // the cast and brand kit (cast.js)
+  registerCast(app, { auth, limiter, gate, ownUpload, who, reelView });
 
   // ---------- the platform admin ----------
   const A = [auth, adminMiddleware];

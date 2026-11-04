@@ -6,6 +6,7 @@
 import { T } from './db.js';
 import { imageCost, clipCost, clipRes, reelCost, modelKey } from './studio/models.js';
 import { sceneCost } from './studio/reels.js';
+import { CAST_TOOLS, CAST_OK } from './hive-cast.js';
 const S = (props, required = []) => ({ type: 'object', properties: props, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
 const num = (description) => ({ type: 'number', description });
@@ -162,3 +163,6 @@ export const OK = {
   studio_animate: (a) => { const r = T.studio.get(String(a.id || '')); const c = r?.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.shots?.length || r.script.shots.length, lines: r.lines?.length || r.script.lines.length, res: a.res || r.res, motion: r.motion, vmodel: a.vmodel ? modelKey('clip', r.tier, a.vmodel) : r.vmodel, imodel: r.imodel }) : null; return `Animate the storyboard: ${c ? `${r.shots?.length || ''} ${c.motion === 'photo' ? 'pictures with a zoom or pan' : `clips at ${c.res}`}, then the edit with music — about ${c.animate} credits` : 'its clips, then the edit'}`; },
   studio_edit_reel: (a) => { if (!a.shots?.length) return null; const r = T.studio.get(String(a.id || '')); const c = (a.shots || []).reduce((t, { i }) => { const x = r?.shots?.[i] && T.studio.get(r.shots[i].clipId); return t + (x ? clipCost(x.tier, x.seconds, x.res) : 0); }, 0); return `Redo ${a.shots.length} shot${a.shots.length === 1 ? '' : 's'} of the Reel and edit it again${c ? ` — about ${c} credits` : ''}`; },
 };
+// the cast and brand kit (hive-cast.js)
+TOOLS.push(...CAST_TOOLS);
+Object.assign(OK, CAST_OK);

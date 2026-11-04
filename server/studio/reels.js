@@ -20,8 +20,9 @@ import { render, dims, stillMotion, moveFor, cardLayout } from './assemble.js';
 import { makeMusic, MUSIC_MODEL } from './music.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
-import { memoryOf, memoryPrompt, withPrefs, withCharacters } from './memory.js';
+import { memoryOf, memoryPrompt, withPrefs } from './memory.js';
 import { reviewReel } from './qa.js';
+import { castShot, castPrompt, resolveCast, brandFont, brandKit } from './cast.js';
 
 export const LENGTHS = [15, 30, 45];
 export const CAPTION_IDS = Object.keys(CAPTION_STYLES);
@@ -46,9 +47,9 @@ export function cleanScript(s) {
 export const wordBudget = (seconds) => Math.max(12, Math.round((seconds - 3) * 2.4));
 export const wordCount = (script) => (script.lines || []).join(' ').split(/\s+/).filter(Boolean).length;
 const parseScript = (text) => { try { return cleanScript(JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))); } catch { return { error: 'not JSON' }; } };
-export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null }) {
+export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null, cast = [] }) {
   const budget = wordBudget(seconds);
-  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(memoryOf(userId), business) : ''}`;
+  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(memoryOf(userId), business) + castPrompt(userId, cast) : ''}`;
   let c = parseScript(await askAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
   // too long for the length asked (a 15-second Reel that runs 22 seconds): ask once to tighten it
@@ -64,13 +65,13 @@ export async function writeScript({ brief, lang, seconds, business, aspect = '9:
 export const REEL_ASPECTS = ['9:16', '16:9', '1:1', '4:5'];
 export function newReel(userId, o) {
   o = withPrefs(userId, o); // what the seller didn't choose: their usual (memory.js)
-  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], script: o.script, by: o.by || null });
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], cast: resolveCast(userId, o.cast).map((c) => c.id), script: o.script, by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken. Storyboard first
 // ({ storyboard: true }): only the stills are made (and the lines spoken), then it waits at storyboard_ready for scene
 // changes and the go-ahead to animate (animateReel) — the clips, the expensive part, are paid for only then
 export function approveReel(r, script, o = {}) {
-  const shots = script.shots.map((s) => ({ ...s, imageId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, prompt: withCharacters(r.userId, s.image), aspect: r.aspect, ref: r.ref, reelId: r.id, by: r.by }).id, clipId: null }));
+  const shots = script.shots.map((s) => ({ ...s, imageId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, ...castShot(r, s.image), aspect: r.aspect, reelId: r.id, by: r.by }).id, clipId: null }));
   return T.studio.update(r.id, (x) => { x.script = script; x.shots = shots; x.lines = script.lines.map((text) => ({ text, url: null, tries: 0, check: null })); x.status = 'producing'; x.approvedAt = Date.now(); if (o.storyboard) x.storyboard = true; else delete x.storyboard; delete x.error; });
 }
 
@@ -132,8 +133,9 @@ async function produce(r) {
     if (s.clipId) return s;
     const img = T.studio.get(s.imageId);
     if (!done(img)) return s;
-    if (story && !s.endId) { changed = true; return { ...s, endId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, prompt: `${s.end || `${s.image}. The moment the shot ends: ${s.motion}`}
-Keep the same people, faces, clothes, place and light as the reference picture — only what the action changed.`, aspect: r.aspect, ref: img.url, reelId: r.id, by: r.by }).id }; }
+    if (story && !s.endId) { changed = true; return { ...s, endId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, ...castShot(r, `${s.image}
+${s.end}`, { primary: img.url, prompt: `${s.end || `${s.image}. The moment the shot ends: ${s.motion}`}
+Keep the same people, faces, clothes, place and light as the reference picture — only what the action changed.` }), aspect: r.aspect, reelId: r.id, by: r.by }).id }; }
     const endImg = story ? T.studio.get(s.endId) : null;
     if (story && !done(endImg)) return s;
     if (r.storyboard) return s; // the storyboard: stills only, until the seller animates it
@@ -289,7 +291,7 @@ async function edit(r) {
     // the closing card shows the product: the first scene's still
     const firstStill = T.studio.get(r.shots?.[0]?.imageId)?.url;
     const still = firstStill ? await local(firstStill, 'png').catch(() => null) : null;
-    const card = await makeCard(r.script.endCard, owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary, r.aspect, still);
+    const card = await makeCard(r.script.endCard, owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary || brandKit(r.userId).colours[0], r.aspect, still);
     if (card) temp.push(card);
     const logo = r.logo ? await local(r.logo, 'png').catch(() => null) : null;
     // the music bed: made once for the Reel (in the script's mood, as long as the voiceover) and kept, so re-edits reuse it
@@ -301,7 +303,7 @@ async function edit(r) {
       } else music = await local(r.musicUrl, 'mp3').catch(() => null);
     }
     const sizes = (r.sizes?.length ? r.sizes : ['9:16']).filter((a) => ASPECTS.includes(a) && ['9:16', '1:1', '16:9', '4:5'].includes(a));
-    const out = await render({ clips, voice: voice.file, music, musicDb: -19, words, look: 'cinematic', transitions: 'cinematic', sfx: true, captions: r.captions?.style ? { style: r.captions.style, ...(r.captions.colour ? { colour: r.captions.colour } : {}) } : null, logo: logo ? { file: logo, position: 'top-right', size: 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short: r.tier === 'cinematic' ? 1080 : 720, name: 'reel' });
+    const out = await render({ clips, voice: voice.file, music, musicDb: -19, words, look: 'cinematic', transitions: 'cinematic', sfx: true, captions: r.captions?.style ? { style: r.captions.style, font: brandFont(r.userId), ...(r.captions.colour ? { colour: r.captions.colour } : {}) } : null, logo: logo ? { file: logo, position: 'top-right', size: 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short: r.tier === 'cinematic' ? 1080 : 720, name: 'reel' });
     const outputs = {};
     for (const [aspect, f] of Object.entries(out.files)) { temp.push(f); outputs[aspect] = (await save(r.userId, f, 'mp4', 'video/mp4')).url; }
     const first = out.files[sizes[0]] || Object.values(out.files)[0];

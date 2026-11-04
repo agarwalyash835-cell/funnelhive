@@ -179,12 +179,16 @@ export function imageInput(model, { prompt, refs = [], aspect = '1:1', resolutio
 // → { input, seconds, resolution } — seconds and resolution as the model will actually render them (for the usage log).
 // Clips are made without sound where the model allows it (Studio adds its own voiceover, music and effects; the editor
 // drops any sound a model adds anyway).
-export function clipInput(model, { prompt, image, last = null, aspect = '9:16', seconds = 5, resolution = '720p', variant = '' }) {
+// reference pictures a video model takes when there is NO first frame (they can't be combined with frames): the cast's
+// faces and the product, for a clip made from words alone. 0 = the model takes none (veo3 Quality, Kling keyframes, Grok).
+export const clipRefLimit = (model, variant = '') => (model.startsWith('bytedance/seedance') ? (/2-5/.test(model) ? 30 : 9) : model.startsWith('wan/') ? 10 : model.includes('gemini-omni') ? 7 : model.startsWith('veo') && variant !== 'veo3' ? 3 : 0);
+export function clipInput(model, { prompt, image, last = null, aspect = '9:16', seconds = 5, resolution = '720p', variant = '', refs = [] }) {
   const frames = (first = 'first_frame_url', end = 'last_frame_url') => ({ ...(image ? { [first]: image } : {}), ...(image && last ? { [end]: last } : {}) });
+  const r = image ? [] : refs.filter(Boolean).slice(0, clipRefLimit(model, variant)); // never with frames
   if (model.startsWith('bytedance/seedance')) {
     const max = /2-5/.test(model) ? 30 : 15, res = /mini|fast/.test(model) && !['480p', '720p'].includes(resolution) ? '720p' : resolution;
     const s = Math.min(max, Math.max(4, Math.round(seconds)));
-    return { input: { prompt, ...frames(), resolution: res, aspect_ratio: aspect, duration: s, generate_audio: false }, seconds: s, resolution: res };
+    return { input: { prompt, ...frames(), ...(r.length ? { reference_image_urls: r } : {}), resolution: res, aspect_ratio: aspect, duration: s, generate_audio: false }, seconds: s, resolution: res };
   }
   if (model === 'kling-4.0/keyframe-to-video') {
     const s = Math.min(30, Math.max(3, Math.round(seconds))), res = resolution === '1080p' ? '1080p' : '720p';
@@ -199,8 +203,9 @@ export function clipInput(model, { prompt, image, last = null, aspect = '9:16', 
     return { input: { prompt, ...(image ? { image_urls: [image] } : {}), duration: String(s), mode, sound: false, multi_shots: false, aspect_ratio: ['16:9', '9:16', '1:1'].includes(aspect) ? aspect : '9:16' }, seconds: s, resolution: mode === 'pro' ? '1080p' : '720p' };
   }
   if (model.startsWith('veo')) {
-    const s = [4, 6, 8].find((l) => l >= Math.round(seconds)) ?? 8, res = ['720p', '1080p', '4k'].includes(resolution) ? resolution : '720p';
-    return { input: { model: variant || 'veo3_fast', prompt, ...(image ? { image_urls: last ? [image, last] : [image], generation_type: 'FIRST_AND_LAST_FRAMES_2_VIDEO' } : {}), aspect_ratio: pickAspect(aspect, ['16:9', '9:16'], '16:9'), resolution: res, duration: s }, seconds: s, resolution: res };
+    // reference mode (the cast's faces, no frame) only makes 8-second clips
+    const s = r.length ? 8 : [4, 6, 8].find((l) => l >= Math.round(seconds)) ?? 8, res = ['720p', '1080p', '4k'].includes(resolution) ? resolution : '720p';
+    return { input: { model: variant || 'veo3_fast', prompt, ...(image ? { image_urls: last ? [image, last] : [image], generation_type: 'FIRST_AND_LAST_FRAMES_2_VIDEO' } : r.length ? { image_urls: r, generation_type: 'REFERENCE_2_VIDEO' } : {}), aspect_ratio: pickAspect(aspect, ['16:9', '9:16'], '16:9'), resolution: res, duration: s }, seconds: s, resolution: res };
   }
   if (model.startsWith('grok-imagine-video')) {
     const s = Math.min(15, Math.max(1, Math.round(seconds))), res = ['480p', '720p', '1080p'].includes(resolution) ? resolution : '720p';
@@ -208,11 +213,11 @@ export function clipInput(model, { prompt, image, last = null, aspect = '9:16', 
   }
   if (model.includes('gemini-omni')) {
     const s = [4, 6, 8, 10].find((l) => l >= Math.round(seconds)) ?? 10, res = ['720p', '1080p', '4k'].includes(resolution) ? resolution : '720p';
-    return { input: { prompt, ...frames(), duration: String(s), aspect_ratio: pickAspect(aspect, ['16:9', '9:16'], '16:9'), resolution: res }, seconds: s, resolution: res };
+    return { input: { prompt, ...frames(), ...(r.length ? { image_urls: r } : {}), duration: String(s), aspect_ratio: pickAspect(aspect, ['16:9', '9:16'], '16:9'), resolution: res }, seconds: s, resolution: res };
   }
   if (model.startsWith('wan/')) {
     const s = Math.min(30, Math.max(2, Math.round(seconds))), res = ['480p', '720p', '1080p'].includes(resolution) ? resolution : '720p';
-    return { input: { prompt, ...frames(), resolution: res.toUpperCase(), aspect_ratio: pickAspect(aspect, ['16:9', '4:3', '1:1', '3:4', '9:16'], 'adaptive'), duration: s, audio: false }, seconds: s, resolution: res };
+    return { input: { prompt, ...frames(), ...(r.length ? { reference_image_urls: r } : {}), resolution: res.toUpperCase(), aspect_ratio: pickAspect(aspect, ['16:9', '4:3', '1:1', '3:4', '9:16'], 'adaptive'), duration: s, audio: false }, seconds: s, resolution: res };
   }
   // an unknown family: the common shape, and the admin is warned in the log on failure
   return { input: { prompt, ...(image ? { image_url: image } : {}), aspect_ratio: aspect, duration: Math.round(seconds), resolution }, seconds: Math.round(seconds), resolution };

@@ -104,6 +104,7 @@ const SCHEMA = {
   members: { cols: { ownerId: 0, userId: 0, email: (m) => lower(m.email), status: 0, at: 0 }, unique: [['ownerId', 'email']], index: [['userId', 'status']] },
   studio: { cols: { userId: 0, status: 0, at: 0 }, index: [['userId', 'at'], ['status', 'at']] }, // Studio's images and clips, and their queue (studio/jobs.js)
   studiomem: { cols: { userId: 0 }, index: [['userId']] }, // what Studio has learned about each seller (studio/memory.js), id = userId
+  studiocast: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // each seller's cast (characters + reference sheets) and brand kit (studio/cast.js)
   datarequests: { cols: { userId: 0, status: 0, tokenHash: 0, at: 0 }, index: [['userId', 'at'], ['tokenHash']] }, // buyers' DPDP requests to a seller (data-requests.js)
   roles: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // custom team roles an owner made (a permission per area, team.js)
   adspend: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // ad spend per campaign per day (Meta sync, CSV)
