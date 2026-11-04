@@ -17,7 +17,8 @@ import { startServer, register, enable2fa } from './helpers.mjs';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'variations-test-'));
 const ff = (...a) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
 const LINES = ['Pure desi ghee for your whole family', 'Only ₹499 for one litre jar', 'Order today on WhatsApp now'];
-const SCRIPT = { title: 'Ghee Reel', lines: LINES, shots: [{ image: 'A jar of ghee on a kitchen counter', motion: 'Slow push-in', seconds: 4 }, { image: 'Ghee poured over hot rice', motion: 'Pour in slow motion', seconds: 4 }], endCard: { headline: 'Shuddh Ghee Co', offer: '₹499 / litre', cta: 'Order on WhatsApp' } };
+// a script that meets the Creative Standard (standard.js): a playbook hook and structure, beats, a camera plan
+const SCRIPT = { title: 'Ghee Reel', hook: 'pattern_interrupt', structure: 'demo', lines: LINES, shots: [{ image: 'A jar of ghee on a kitchen counter', motion: 'Slow push-in', seconds: 4, beat: 'demo', product: true, cam: { size: 'close', move: 'push in' } }, { image: 'Ghee poured over hot rice', motion: 'Pour in slow motion', seconds: 4, beat: 'result', product: true, cam: { size: 'medium', move: 'tilt' } }], endCard: { headline: 'Shuddh Ghee Co', offer: '₹499 / litre', cta: 'Order on WhatsApp' } };
 const PLAN_CHECK = { quality: 74, virality: 66, verdict: 'Strong opening.', hook: { score: 81, problem: '', line: '', image: '' }, scenes: [], voice: { score: 80, problem: '' }, endCard: null, music: '' };
 const HOOKS = { variants: [
   { angle: 'pain', hook: 'Tired of ghee that smells of nothing?', image: 'A mother frowning at a plain jar of ghee in her kitchen', motion: 'Slow push-in on her face' },

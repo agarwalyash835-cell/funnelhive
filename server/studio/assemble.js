@@ -60,21 +60,32 @@ export function cutTimes(lens, fade = 0.3, style = 'dissolve') {
   for (let i = 1; i < lens.length; i++) { const d = style === 'cut' ? 0 : xfadeFor(lens[i - 1], lens[i], fade); out.push(Math.max(0, end - d / 2)); end += lens[i] - d; }
   return out;
 }
+// punch-ins: how many parts a shot `len` seconds long is cut into so no picture holds longer than `every` (the Creative
+// Standard's pace, standard.js cutEvery); 1 = left whole
+export const punchCount = (len, every) => (every > 0 && len > every * 1.25 ? Math.ceil(len / every) : 1);
+const PUNCH = 1.15; // every other part this much tighter — an editor's cut within one take
 // clips (any sizes, any lengths, with or without sound) → one silent video at w×h, each shot dissolving into the next.
 // The dissolves overlap the shots, so the result is a little shorter than the clips laid end to end; fitDuration then
 // fits it to the voiceover.
 // fades: the dissolve before each clip (index i: between clip i-1 and i), when the caller has placed the cuts itself
-export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3, transitions = 'dissolve', look = 'natural', fades = null } = {}) {
+// punch: cut long shots every this many seconds (0: never)
+export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3, transitions = 'dissolve', look = 'natural', fades = null, punch = 0 } = {}) {
   if (!files?.length) throw new Error('Add at least one clip');
   if (transitions === 'cut') fade = 0;
-  need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []), ...(LOOKS[look] ? ['eq', 'vignette'] : []));
+  need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []), ...(LOOKS[look] ? ['eq', 'vignette'] : []), ...(punch ? ['split', 'trim', 'setpts'] : []));
   const grade = LOOKS[look] ? `,${LOOKS[look]}` : '';
   const lens = [];
+  const even = (n) => Math.round(n / 2) * 2;
   const parts = files.map((f, i) => {
     const p = probe(f);
     if (!p.hasVideo) throw new Error(`Clip ${i + 1} has no picture`);
     lens.push(p.duration || 0);
-    return `${fitGraph(`${i}:v`, `f${i}`, width, height, fitMode(p.width, p.height, width, height, mode))};[f${i}]fps=${fps}${grade},format=yuv420p,settb=AVTB[v${i}]`;
+    const base = `${fitGraph(`${i}:v`, `f${i}`, width, height, fitMode(p.width, p.height, width, height, mode))};[f${i}]fps=${fps}${grade},format=yuv420p`;
+    const k = punchCount(lens[i], punch);
+    if (k < 2) return `${base},settb=AVTB[v${i}]`;
+    const seg = lens[i] / k;
+    const pieces = Array.from({ length: k }, (_, j) => `[p${i}_${j}]trim=start=${(j * seg).toFixed(3)}${j < k - 1 ? `:end=${((j + 1) * seg).toFixed(3)}` : ''},setpts=PTS-STARTPTS${j % 2 ? `,scale=${even(width * PUNCH)}:${even(height * PUNCH)}:flags=lanczos,crop=${width}:${height}:(iw-${width})/2:(ih-${height})*0.4,setsar=1` : ''}[q${i}_${j}]`);
+    return `${base},split=${k}${pieces.map((_, j) => `[p${i}_${j}]`).join('')};${pieces.join(';')};${pieces.map((_, j) => `[q${i}_${j}]`).join('')}concat=n=${k}:v=1:a=0,settb=AVTB[v${i}]`;
   });
   let tail;
   if (files.length > 1 && fade > 0 && lens.every((l) => l > 0)) {
@@ -292,7 +303,8 @@ export function slotPlan(starts, n, body, { fps = 30, voiceDelay = 0.15, fade = 
   const fades = slots.map((x, i) => (i === 0 || transitions === 'cut' ? 0 : f(xfadeFor(slots[i - 1], x, fade))));
   return { T, slots, fades, lens: slots.map((x, i) => f(x + (fades[i + 1] || 0))) };
 }
-export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false, starts = null, synced = [] }) {
+// punch: cut long shots every this many seconds (standard.js cutEvery) → also { segments: the picture's cuts in all }
+export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false, starts = null, synced = [], punch = 0 }) {
   const temp = [];
   const t = (n, ext = 'mp4') => { const f = tmpFile(outDir, n, ext); temp.push(f); return f; };
   try {
@@ -324,9 +336,10 @@ export async function render({ clips, voice, music, words = [], captions = { sty
       audio = await normaliseLoudness(mixed, t('norm', 'wav'));
     }
     const files = {};
+    const segments = clips.reduce((n, c) => n + punchCount(probe(c).duration || 0, punch), 0);
     for (const aspect of [...new Set(sizes)].filter((a) => ASPECTS[a])) {
       const { width, height } = dims(aspect, short);
-      let v = await joinClips(clips, t(`join-${aspect.replace(':', 'x')}`), { width, height, fps, fade, transitions, look, ...(plan ? { fades: plan.fades } : {}) });
+      let v = await joinClips(clips, t(`join-${aspect.replace(':', 'x')}`), { width, height, fps, fade, transitions, look, punch, ...(plan ? { fades: plan.fades } : {}) });
       v = await fitDuration(v, body, t('fit'), { fps });
       if (captions && words.length) {
         const ass = writeAss(words, t('captions', 'ass'), { ...captions, width, height, offset: voiceDelay });
@@ -338,7 +351,7 @@ export async function render({ clips, voice, music, words = [], captions = { sty
       files[aspect] = await mux(v, audio, final);
     }
     const lufs = audio ? (await loudness(files[Object.keys(files)[0]])).lufs : null;
-    return { files, duration, lufs };
+    return { files, duration, lufs, segments };
   } finally {
     for (const f of temp) fs.rm(f, { force: true }, () => {});
   }

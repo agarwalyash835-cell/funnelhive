@@ -22,8 +22,11 @@ import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
 import { memoryOf, memoryPrompt, withPrefs } from './memory.js';
 import { reviewReel } from './qa.js';
+import { planHash } from './preflight.js';
 import { castShot, castPrompt, resolveCast, brandFont, brandKit } from './cast.js';
 import { celebrityIn, CELEBRITY_ERROR, presenterBrief, faceStill, presenterReady, presenterClip, relip, sceneStarts, talks } from './presenter.js';
+import { cleanCam, cleanLook, enforceTreatment, filmPrompt, movePrompt } from './cinema.js';
+import { HOOKS, STRUCTURES, BEATS, playbookPrompt, checkVideo, reelFormat, cutEvery, gateOf, HOOK_MAX_WORDS } from './standard.js';
 
 export const LENGTHS = [15, 30, 45];
 export const CAPTION_IDS = Object.keys(CAPTION_STYLES);
@@ -34,17 +37,23 @@ const transcriber = () => (process.env.SARVAM_API_KEY ? sarvamTranscriber() : nu
 
 // ---------- the script ----------
 const SCRIPT_SYSTEM = `You write short video ads (Instagram Reels, YouTube Shorts, video sales letters) for Indian small businesses.
-Answer only JSON: {"title": short name, "lines": [voiceover lines], "shots": [{"image": a detailed photo prompt for the shot's opening still (subject, setting, light, camera; no text, logos or captions in the picture), "end": a detailed photo prompt for the shot's closing still — the SAME people, place, clothes and light as the opening still, with only what changed by the end of the shot (the action finished, the camera moved), "motion": what moves in the shot (camera move, action), "seconds": 4-8, "type": "presenter" only for a scene where one person speaks the line straight to the camera (testimonials, UGC, a founder talking) — leave it out otherwise}], "endCard": {"headline": max 40 chars, "offer": price or offer max 40 chars, "cta": call to action max 30 chars}, "music": the background music for this ad in a few words — genre, instruments, tempo, mood (instrumental, no artist names)}.
-Rules: the first line is a hook that stops the scroll; 3-6 lines, each one short spoken sentence; stay within the word limit given (it's how long the video runs); one shot per line, in order; the shots tell one story from problem to result, with the same main person throughout (described the same way in every prompt — age, look, clothes); every person is Indian unless the brief says otherwise; show the real product in most shots; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
+You are also the director of photography: you write the treatment with the script — one look for the whole video and a camera plan for every shot — so every still is a planned, filmable frame.
+Answer only JSON: {"title": short name, "hook": the hook's id from the playbook below, "structure": the structure's id from the playbook, "look": {"palette": 3-4 colours (hex or names), "mood": a few words, "lighting": the lighting setup (key, fill, practicals, time of day), "lens": the lenses / focal lengths, "film": the film look and grade}, "lines": [voiceover lines], "shots": [{"image": a detailed photo prompt for the shot's opening still (subject, setting, light, camera; no text, logos or captions in the picture), "end": a detailed photo prompt for the shot's closing still — the SAME people, place, clothes and light as the opening still, with only what changed by the end of the shot (the action finished, the camera moved), "motion": what moves in the shot (camera move, action), "seconds": 4-8, "beat": this shot's beat from the playbook, "product": true when the product (or the result it gives) is clearly on screen, else false, "cam": {"size": wide|full|medium|close|macro, "angle": eye level|low|high|overhead|dutch|over the shoulder|pov, "lens": focal length like 35mm, "light": this shot's light, "composition": the framing (thirds, symmetry, negative space, foreground), "blocking": where the people and product are and what they do, "move": static|push in|pull out|pan|tilt|dolly|tracking|orbit|handheld|crane}, "type": "presenter" only for a scene where one person speaks the line straight to the camera (testimonials, UGC, a founder talking) — leave it out otherwise}], "endCard": {"headline": max 40 chars, "offer": price or offer max 40 chars, "cta": call to action max 30 chars}, "music": the background music for this ad in a few words — genre, instruments, tempo, mood (instrumental, no artist names)}.
+${playbookPrompt()}
+Rules: the first line is the hook — at most ${HOOK_MAX_WORDS} words, doing exactly what the chosen hook says, and it stops the scroll in under 2 seconds; the first shot is a striking frame (close or macro on a face, hands or the product, or a moving camera); the product (or its result) is on screen by the second shot; never two shots of the same size back to back — mix wide, medium, close and macro like an agency edit; every image prompt carries the look (palette, light, lens) so the stills match; 3-6 lines, each one short spoken sentence; stay within the word limit given (it's how long the video runs); one shot per line, in order; the shots follow the chosen structure's beats, with the same main person throughout (described the same way in every prompt — age, look, clothes); every person is Indian unless the brief says otherwise; show the real product in most shots; the closing card always has a call to action; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
 
 export function cleanScript(s) {
   const lines = (Array.isArray(s?.lines) ? s.lines : []).map((x) => clip(typeof x === 'string' ? x : x?.text, 220)).filter(Boolean).slice(0, 8);
-  const shots = (Array.isArray(s?.shots) ? s.shots : []).slice(0, 8).map((x) => ({ image: clip(x?.image, 600), end: clip(x?.end, 600), motion: clip(x?.motion, 300), seconds: Math.min(10, Math.max(4, Math.round(Number(x?.seconds) || 5))), ...(x?.type === 'presenter' ? { type: 'presenter' } : {}) })).filter((x) => x.image.length >= 3);
-  if (lines.length < 1 || shots.length < 1) return { error: 'The script needs at least one line and one shot' };
+  // the treatment (cinema.js) rides along on each shot: its beat, whether the product is on screen, its camera plan
+  const bool = (v) => (v === true || v === 'true' ? true : v === false || v === 'false' ? false : null);
+  const shots0 = (Array.isArray(s?.shots) ? s.shots : []).slice(0, 8).map((x) => { const cam = cleanCam(x?.cam), product = bool(x?.product); return { image: clip(x?.image, 600), end: clip(x?.end, 600), motion: clip(x?.motion, 300), seconds: Math.min(10, Math.max(4, Math.round(Number(x?.seconds) || 5))), ...(x?.type === 'presenter' ? { type: 'presenter' } : {}), ...(BEATS.includes(x?.beat) ? { beat: x.beat } : {}), ...(product !== null ? { product } : {}), ...(cam ? { cam } : {}) }; }).filter((x) => x.image.length >= 3);
+  if (lines.length < 1 || shots0.length < 1) return { error: 'The script needs at least one line and one shot' };
   // a person speaking to camera is never a real public figure (presenter.js)
-  if (celebrityIn(...shots.filter((x) => x.type === 'presenter').map((x) => x.image))) return { error: CELEBRITY_ERROR };
-  const e = s?.endCard || {};
-  return { script: { title: clip(s?.title, 80) || 'Reel', lines, shots, music: clip(s?.music, 200), endCard: { headline: clip(e.headline, 40), offer: clip(e.offer, 40), cta: clip(e.cta, 30) } } };
+  if (celebrityIn(...shots0.filter((x) => x.type === 'presenter').map((x) => x.image))) return { error: CELEBRITY_ERROR };
+  // the cinematography rules (varied sizes, a striking first frame), applied whatever was sent
+  const { shots } = enforceTreatment(shots0);
+  const e = s?.endCard || {}, look = cleanLook(s?.look);
+  return { script: { title: clip(s?.title, 80) || 'Reel', ...(HOOKS[s?.hook] ? { hook: s.hook } : {}), ...(STRUCTURES[s?.structure] ? { structure: s.structure } : {}), ...(look ? { look } : {}), lines, shots, music: clip(s?.music, 200), endCard: { headline: clip(e.headline, 40), offer: clip(e.offer, 40), cta: clip(e.cta, 30) } } };
 }
 // the words a Reel of this length has room for: ~2.4 spoken words a second, after the 2.5-second closing card and a breath
 export const wordBudget = (seconds) => Math.max(12, Math.round((seconds - 3) * 2.4));
@@ -55,14 +64,21 @@ export async function writeScript({ brief, lang, seconds, business, aspect = '9:
   const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}${presenterBrief(presenter)}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(memoryOf(userId), business) + castPrompt(userId, cast) : ''}`;
   let c = parseScript(await studioAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
-  // too long for the length asked (a 15-second Reel that runs 22 seconds): ask once to tighten it
-  const n = wordCount(c.script);
-  if (n > budget * 1.15) {
-    const again = parseScript(await studioAI(SCRIPT_SYSTEM, `${user}\n\nYour last script had ${n} words — too long. Rewrite it with at most ${budget} words in total: fewer or shorter lines, the same hook and offer.\nLast script: ${JSON.stringify(c.script)}`, { json: true, timeoutMs: 90000 }).catch(() => ''));
-    if (!again.error && wordCount(again.script) < n) c = again;
+  // too long for the length asked (a 15-second Reel that runs 22 seconds), or breaking the Creative Standard's script
+  // rules (standard.js): ask once to fix it, and keep whichever breaks fewer
+  const misses = (sc) => { const n = wordCount(sc); return [...(n > budget * 1.15 ? [`${n} words — too long: at most ${budget} words in total, fewer or shorter lines, the same hook and offer`] : []), ...scriptMisses(sc, { aspect, seconds })]; };
+  const was = misses(c.script);
+  if (was.length) {
+    const again = parseScript(await studioAI(SCRIPT_SYSTEM, `${user}\n\nYour last script breaks these rules — rewrite it to meet every one:\n- ${was.join('\n- ')}\nLast script: ${JSON.stringify(c.script)}`, { json: true, timeoutMs: 90000 }).catch(() => ''));
+    if (!again.error && misses(again.script).length < was.length) c = again;
   }
   return c.script;
 }
+// the Creative Standard's rules a script can fix by itself (the playbook, the hook, the first frame, the product early, the
+// call to action) → what's wrong, in words for the writer
+const SCRIPT_RULES = ['hook_named', 'structure_named', 'hook_done', 'structure_done', 'hook_short', 'hook_frame', 'shot_variety', 'product_early', 'cta'];
+export const scriptMisses = (script, { aspect, seconds } = {}) => checkVideo(script, { format: reelFormat({ aspect }), seconds, aspect, captions: { style: 'pop' } }).rules
+  .filter((x) => x.ok === false && SCRIPT_RULES.includes(x.id)).map((x) => `${x.label}: ${x.detail}${x.fix ? ` — ${x.fix}` : ''}`);
 
 // ---------- start, approve ----------
 export const REEL_ASPECTS = ['9:16', '16:9', '1:1', '4:5'];
@@ -75,7 +91,7 @@ export function newReel(userId, o) {
 // changes and the go-ahead to animate (animateReel) — the clips, the expensive part, are paid for only then
 export function approveReel(r, script, o = {}) {
   // a presenter scene with the seller's chosen face: that picture is its still (presenter.js)
-  const shots = script.shots.map((s) => ({ ...s, imageId: s.type === 'presenter' && r.presenter?.image ? faceStill(r, s) : enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, ...castShot(r, s.image), aspect: r.aspect, reelId: r.id, by: r.by }).id, clipId: null }));
+  const shots = script.shots.map((s) => ({ ...s, imageId: s.type === 'presenter' && r.presenter?.image ? faceStill(r, s) : enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, ...castShot(r, s.image, { prompt: filmPrompt(s, script.look) }), aspect: r.aspect, reelId: r.id, by: r.by }).id, clipId: null }));
   return T.studio.update(r.id, (x) => { x.script = script; x.shots = shots; x.lines = script.lines.map((text) => ({ text, url: null, tries: 0, check: null })); x.status = 'producing'; x.approvedAt = Date.now(); if (o.storyboard) x.storyboard = true; else delete x.storyboard; delete x.error; });
 }
 
@@ -112,7 +128,7 @@ export function storyboardScene(r, b) {
     }
     if (note) shots[i] = { ...shots[i], [end ? 'end' : 'image']: `${shots[i][end ? 'end' : 'image'] || ''}\n${note}`.trim().slice(0, 600) };
   }
-  return { reel: T.studio.update(r.id, (x) => { x.shots = shots; x.lines = lines; x.script = { ...x.script, lines: lines.map((l) => l.text), shots: shots.map(({ image, end, motion, seconds, type }) => ({ image, end, motion, seconds, ...(type ? { type } : {}) })) }; }) };
+  return { reel: T.studio.update(r.id, (x) => { x.shots = shots; x.lines = lines; x.script = { ...x.script, lines: lines.map((l) => l.text), shots: shots.map(({ image, end, motion, seconds, type, beat, product, cam }) => ({ image, end, motion, seconds, ...(type ? { type } : {}), ...(beat ? { beat } : {}), ...(typeof product === 'boolean' ? { product } : {}), ...(cam ? { cam } : {}) })) }; }) };
 }
 // the go-ahead to animate: the clips are made (once every line is recorded), then the edit
 export function animateReel(r) {
@@ -139,7 +155,7 @@ async function produce(r) {
     if (!done(img)) return s;
     if (talks(r, i)) return s; // a presenter: ordered below, once its words are recorded (presenter.js)
     if (story && !s.endId) { changed = true; return { ...s, endId: enqueue(r.userId, { kind: 'image', tier: r.tier, imodel: r.imodel, ...castShot(r, `${s.image}
-${s.end}`, { primary: img.url, prompt: `${s.end || `${s.image}. The moment the shot ends: ${s.motion}`}
+${s.end}`, { primary: img.url, prompt: `${s.end ? filmPrompt(s, r.script?.look, 'end') : `${s.image}. The moment the shot ends: ${s.motion}`}
 Keep the same people, faces, clothes, place and light as the reference picture — only what the action changed.` }), aspect: r.aspect, reelId: r.id, by: r.by }).id }; }
     const endImg = story ? T.studio.get(s.endId) : null;
     if (story && !done(endImg)) return s;
@@ -150,7 +166,7 @@ Keep the same people, faces, clothes, place and light as the reference picture �
     const seconds = clipLength(modelKey('clip', r.tier, r.vmodel), Math.min(story ? 15 : 10, words ? Math.max(4, Math.ceil(words)) : s.seconds)); // fixed-length models round up
     changed = true;
     if (r.motion === 'photo') return { ...s, seconds, still: img.url };
-    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, vmodel: r.vmodel, res: r.res, prompt: s.motion || s.image, aspect: r.aspect, seconds, ref: img.url, ...(endImg ? { last: endImg.url } : {}), sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
+    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, vmodel: r.vmodel, res: r.res, prompt: movePrompt(s), aspect: r.aspect, seconds, ref: img.url, ...(endImg ? { last: endImg.url } : {}), sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
   });
   if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
   // a presenter scene whose still and words are ready: its lip-synced clip, made from that line's audio
@@ -181,7 +197,7 @@ async function photoClip(r, i) {
   let src;
   try {
     src = await localCopy(s.still, 'png');
-    await stillMotion(src.file, out, { seconds: s.seconds, aspect: r.aspect, move: moveFor(s.motion || '', i) });
+    await stillMotion(src.file, out, { seconds: s.seconds, aspect: r.aspect, move: moveFor(s.cam?.move ? movePrompt(s) : s.motion || '', i) });
     const saved = await save(r.userId, out, 'mp4', 'video/mp4');
     const c = enqueue(r.userId, { kind: 'clip', status: 'ready', tier: r.tier, prompt: s.motion || s.image, aspect: r.aspect, seconds: s.seconds, ref: s.still, sourceId: s.imageId, reelId: r.id, url: saved.url, poster: s.still, photo: true, doneAt: Date.now(), by: r.by });
     T.studio.update(r.id, (x) => { x.shots = x.shots.map((y, j) => (j === i ? { ...y, clipId: c.id } : y)); });
@@ -313,7 +329,9 @@ async function edit(r) {
     const sizes = (r.sizes?.length ? r.sizes : ['9:16']).filter((a) => ASPECTS.includes(a) && ['9:16', '1:1', '16:9', '4:5'].includes(a));
     // presenter scenes: each scene starts exactly where its line does, and a presenter keeps its pace (lips in sync)
     const starts = sceneStarts(r.shots, voice.spans);
-    const out = await render({ ...(starts ? { starts, synced: r.shots.map((s, i) => talks(r, i)) } : {}), clips, voice: voice.file, music, musicDb: -19, words, look: 'cinematic', transitions: 'cinematic', sfx: true, captions: r.captions?.style ? { style: r.captions.style, font: brandFont(r.userId), ...(r.captions.colour ? { colour: r.captions.colour } : {}) } : null, logo: logo ? { file: logo, position: 'top-right', size: 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short: r.tier === 'cinematic' ? 1080 : 720, name: 'reel' });
+    // the Creative Standard's pace for this format: long shots get punch-in cuts (free, in the edit)
+    const format = reelFormat(r);
+    const out = await render({ ...(starts ? { starts, synced: r.shots.map((s, i) => talks(r, i)) } : {}), clips, voice: voice.file, music, musicDb: -19, words, look: 'cinematic', transitions: 'cinematic', sfx: true, punch: cutEvery(format), captions: r.captions?.style ? { style: r.captions.style, font: brandFont(r.userId), ...(r.captions.colour ? { colour: r.captions.colour } : {}) } : null, logo: logo ? { file: logo, position: 'top-right', size: 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short: r.tier === 'cinematic' ? 1080 : 720, name: 'reel' });
     const outputs = {};
     for (const [aspect, f] of Object.entries(out.files)) { temp.push(f); outputs[aspect] = (await save(r.userId, f, 'mp4', 'video/mp4')).url; }
     const first = out.files[sizes[0]] || Object.values(out.files)[0];
@@ -323,11 +341,27 @@ async function edit(r) {
     // anything kept for review along the way: the Reel is made, but the seller should look
     const flagged = [...r.shots.flatMap((s, i) => (T.studio.get(s.clipId)?.status === 'needs_review' ? [`Shot ${i + 1}: ${(T.studio.get(s.clipId).qa?.issues || []).join('; ')}`] : [])), ...r.lines.flatMap((l, i) => (l.check && !l.check.ok ? [`Line ${i + 1}: ${l.check.issues.join('; ')}`] : []))];
     const url = outputs[sizes[0]] || Object.values(outputs)[0];
-    T.studio.update(r.id, (x) => { x.outputs = outputs; x.url = url; x.poster = poster; x.duration = Math.round(out.duration * 10) / 10; x.lufs = out.lufs; x.status = flagged.length ? 'needs_review' : 'ready'; x.qa = { issues: flagged.slice(0, 8) }; x.doneAt = Date.now(); x.reviewing = true; delete x.review; delete x.error; });
-    notify(r.userId, { kind: 'support', title: 'Your Reel is ready', body: r.script.title, link: '/studio' });
-    // the editor's notes on the finished video (free; the Reel is already ready, so a reviewer that fails costs nothing)
+    T.studio.update(r.id, (x) => { x.outputs = outputs; x.url = url; x.poster = poster; x.duration = Math.round(out.duration * 10) / 10; x.lufs = out.lufs; x.doneAt = Date.now(); x.reviewing = true; delete x.review; delete x.error; });
+    // the editor's notes on the finished video (free; a reviewer that fails costs nothing — the Reel then waits for a look)
     const review = await reviewReel({ file: first, script: r.script, lines: r.lines.map((l) => l.text), words, spans: voice.spans, captions: r.captions?.style || null }).catch((e) => { console.error('reel review failed', r.id, e.message); return null; });
-    T.studio.update(r.id, (x) => { if (x.url === url && x.doneAt) { x.review = review; delete x.reviewing; } }); // unless it's been changed since
+    // the gate (standard.js): ready only when every rule of its format passes, measured on the render, AND the review
+    // scored at least the bar; otherwise needs_review with the failing rules and their fixes
+    const measured = { duration: out.duration, segments: out.segments, firstWord: words[0] ? Number(words[0].start) + 0.15 : null };
+    const assessment = r.assessment?.hash === planHash({ script: r.script, aspect: r.aspect, seconds: r.seconds }) ? r.assessment : null;
+    const standard = checkVideo(r.script, { format, seconds: r.seconds, aspect: r.aspect, captions: r.captions, secs: r.lines.map((l) => l.secs), assessment, measured });
+    const gate = gateOf(standard, review?.score);
+    // a free fix the standard makes without asking: captions back on (most feeds play muted) — once, then re-edited and
+    // re-checked (the seller can turn them off again). Nothing paid is ever redone here.
+    const fixCaptions = standard.rules.some((x) => x.id === 'captions_on' && x.ok === false) && !(r.autoFixed || []).includes('captions');
+    let status = null;
+    T.studio.update(r.id, (x) => {
+      if (x.url !== url || !x.doneAt) return; // changed since
+      x.review = review; delete x.reviewing; x.standard = standard; x.gate = gate;
+      if (fixCaptions) { x.captions = { style: 'pop' }; x.autoFixed = [...(x.autoFixed || []), 'captions']; x.status = 'editing'; x.editTries = 0; delete x.doneAt; return; }
+      status = x.status = flagged.length || !gate.ready ? 'needs_review' : 'ready';
+      x.qa = { issues: [...flagged, ...gate.issues].slice(0, 10) };
+    });
+    if (status) notify(r.userId, { kind: 'support', title: status === 'ready' ? 'Your Reel is ready' : 'Your Reel is made — have a look before posting', body: r.script.title, link: '/studio' });
   } catch (e) {
     console.error('reel edit failed', r.id, e.message, e.detail || '');
     T.studio.update(r.id, (x) => { x.editTries = (x.editTries || 0) + 1; if (x.editTries >= 2) { x.status = 'failed'; x.error = 'The video couldn’t be put together — try again'; x.doneAt = Date.now(); } });

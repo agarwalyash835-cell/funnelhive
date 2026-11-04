@@ -336,6 +336,7 @@ function ReelInspector({ ed, extensions, openMemory }) {
               : <><span className="sxi-lbl">Cost</span><b className="sxi-big">{r.cost?.credits ?? '…'}<small> credits</small></b><small>{made ? 'Changes below only redo what changed.' : working ? 'Being made — it carries on if you leave.' : ''}</small></>}
       </div>
       {(editing || boarding) && <PlanCheck r={r} s={s} edit={ed.edit} dirty={ed.dirty} onChange={ed.onChange} />}
+      {r.standard && <StandardCheck r={r} edit={editing ? ed.edit : null} />}
       {made && (r.reviewing || r.review) && <Section id="reel-notes" title="Editor’s notes" icon="eye">
         {r.reviewing && !r.review && <p className="sxi-say"><span className="spin dark" /> Watching the finished video…</p>}
         {r.review && <>
@@ -391,6 +392,22 @@ function ReelInspector({ ed, extensions, openMemory }) {
 // the check before spending: the plan read for quality and virality — the hook, every scene's pictures and movement,
 // every line, the closing card, the music — with each suggested change one click away (applied to the script here, so
 // it's in what gets approved). Free: nothing is made.
+// the Creative Standard (server/studio/standard.js): the format's rules, each ✓ / ✗ with its fix, the playbook picks, the
+// gate; the free script fixes (a shorter hook, the product moved up) in one click before anything is made
+function StandardCheck({ r, edit }) {
+  const st = r.standard, mark = (ok) => (ok === false ? '✗' : ok ? '✓' : '·');
+  return (
+    <Section id="reel-standard" title="Standard" icon="check" extra={<small className="muted">{st.label}</small>}>
+      {(r.hook || r.structure) && <p className="sxi-hint">{[r.hook && `Hook: ${r.hook.label}`, r.structure && `Structure: ${r.structure.label}`].filter(Boolean).join(' · ')}</p>}
+      {r.gate && <p className="sxi-say">{r.gate.ready ? `Meets the standard — score ${r.gate.score} (bar ${r.gate.bar})` : `Not ready to post yet — ${r.gate.score != null ? `score ${r.gate.score}, the bar is ${r.gate.bar}` : 'not reviewed'}`}</p>}
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {st.rules.map((x) => <li key={x.id} title={x.fix || ''} style={{ margin: '4px 0' }}><b style={{ color: x.ok === false ? 'var(--danger,#c00)' : 'inherit' }}>{mark(x.ok)}</b> {x.label}{x.detail && <small className="muted"> — {x.detail}</small>}{x.auto && <small className="muted"> · fixed for free</small>}{x.ok === false && x.fix && <small> · {x.fix}</small>}</li>)}
+      </ul>
+      {edit && st.script && <button type="button" className="btn ghost sm" onClick={() => edit({ lines: st.script.lines, shots: st.script.shots })}><Icon name="check" size={13} /> Apply the free fixes{st.changes?.length ? ` (${st.changes.length})` : ''}</button>}
+    </Section>
+  );
+}
+
 function PlanCheck({ r, s, edit, dirty, onChange }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');

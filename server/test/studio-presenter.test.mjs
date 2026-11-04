@@ -56,7 +56,8 @@ test('render with starts: clip i is on screen from its line, the synced one is h
 
 // ---------- a presenter Reel end to end ----------
 const LINES = ['I tried every ghee before this one', 'Now my whole family loves it'];
-const SCRIPT = { title: 'Ghee Testimonial', lines: LINES, shots: [{ image: 'An Indian woman in her 30s in her kitchen, facing the camera, holding a jar of ghee', motion: 'Steady handheld', seconds: 4, type: 'presenter' }, { image: 'Ghee poured over hot rice', motion: 'Pour in slow motion', seconds: 4 }], endCard: { headline: 'Shuddh Ghee Co', offer: '₹499 / litre', cta: 'Order on WhatsApp' } };
+// a script that meets the Creative Standard (standard.js): a playbook hook and structure, beats, a camera plan
+const SCRIPT = { title: 'Ghee Testimonial', hook: 'pattern_interrupt', structure: 'ugc', lines: LINES, shots: [{ image: 'An Indian woman in her 30s in her kitchen, facing the camera, holding a jar of ghee', motion: 'Steady handheld', seconds: 4, type: 'presenter', beat: 'experience', product: true, cam: { size: 'medium', move: 'handheld' } }, { image: 'Ghee poured over hot rice', motion: 'Pour in slow motion', seconds: 4, beat: 'result', product: true, cam: { size: 'close', move: 'tilt' } }], endCard: { headline: 'Shuddh Ghee Co', offer: '₹499 / litre', cta: 'Order on WhatsApp' } };
 const created = [], heard = [], prompts = [];
 const timed = (text) => { const ws = text.split(' '); return { transcript: text, language_code: 'en-IN', timestamps: { words: ws, start_time_seconds: ws.map((_, i) => i * 0.4), end_time_seconds: ws.map((_, i) => i * 0.4 + 0.35) } }; };
 let fake, srv, api, ADMIN, S, sid, reelId, faceId;

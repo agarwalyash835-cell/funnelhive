@@ -21,7 +21,8 @@ import { imageCost, modelKey, TIER_MENU, TIERS } from './models.js';
 import { localCopy, save, rm, tmpFile } from './media.js';
 import { memoryOf } from './memory.js';
 import { LANGUAGES, langBase } from './voice.js';
-import { FORMATS, FAMILIES, hexOk } from './typeset.js';
+import { FORMATS, FAMILIES, hexOk, safeBox } from './typeset.js';
+import { checkDesign, gateOf, QUALITY_BAR } from './standard.js';
 import { TEMPLATES, TEMPLATE_IDS, CAROUSEL, draw } from './design-templates.js';
 import { s3Enabled, deleteObject } from '../storage.js';
 import { planHash } from './preflight.js';
@@ -122,7 +123,7 @@ export async function renderDesign(d) {
     }
   } finally { rm(...made); }
   const old = T.studio.get(d.id)?.outputs || [];
-  const x = T.studio.update(d.id, (y) => { y.outputs = outputs; y.version = (y.version || 0) + 1; y.drawnAt = Date.now(); if (y.status !== 'producing') y.status = y.bg === 'ai' && !y.bgUrl ? 'draft' : 'ready'; delete y.error; });
+  const x = T.studio.update(d.id, (y) => { y.outputs = outputs; y.version = (y.version || 0) + 1; y.drawnAt = Date.now(); if (y.status !== 'producing') y.status = y.bg === 'ai' && !y.bgUrl ? 'draft' : finalStatus(y); delete y.error; });
   await dropOutputs(d.userId, old);
   return x;
 }
@@ -197,6 +198,20 @@ export async function zipDesign(d) {
   return Buffer.from(zipSync(files, { level: 0 }));
 }
 
+// ---------- the Creative Standard (standard.js) ----------
+// the design's rules for its format (headline length, call to action, slides, safe zone, the real picture)
+export function designStandard(d) {
+  const F = FORMATS[d.format] || FORMATS.square;
+  return checkDesign(d, { fields: (t) => (TEMPLATES[t]?.fields || []).map((f) => f.key), safe: safeBox(F.w, F.h), size: { w: F.w, h: F.h } });
+}
+// the creative director's check, while it still matches the words
+const scoreOf = (d) => (d.assessment?.hash === designHash(d) ? d.assessment.quality : null);
+// a drawn design: needs_review when a rule fails or the director's check scored it under the bar. The check is free but
+// optional (every re-draw is free and instant, so it isn't run on each one): unchecked, the rules decide, and the gate
+// says it wasn't reviewed
+const finalStatus = (d) => { const s = designStandard(d), q = scoreOf(d); return s.passed && (q == null || q >= QUALITY_BAR) ? 'ready' : 'needs_review'; };
+export const regate = (d) => (['ready', 'needs_review'].includes(d.status) ? T.studio.update(d.id, (x) => { x.status = finalStatus(x); }) : d);
+
 // a design as the seller sees it (the provider and model never appear)
 export function designView(d) {
   const bgRow = d.bgId ? T.studio.get(d.bgId) : null;
@@ -207,6 +222,7 @@ export function designView(d) {
     brand: d.brand, photo: d.photo, photo2: d.photo2, slides: d.slides.map((s, i) => ({ template: s.template, name: TEMPLATES[s.template]?.name || s.template, text: s.text, url: d.outputs?.[i]?.url || null })),
     url: d.outputs?.[0]?.url || null, outputs: (d.outputs || []).map((o) => o.url), version: d.version || 0, picture: bgRow ? view(bgRow) : null, pictureReady: !!d.bgUrl,
     credits: d.bg === 'ai' ? designCost(d) : 0, preview: d.bg === 'ai' && !d.bgUrl, error: d.error || '', assessment: d.assessment?.hash === hash ? d.assessment : null, at: d.at, by: d.by || null,
+    ...(() => { const standard = designStandard(d); return { standard, gate: gateOf(standard, scoreOf(d)) }; })(),
   };
 }
 export const designHash = (d) => planHash({ slides: d.slides, bg: d.bgPrompt });

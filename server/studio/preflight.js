@@ -5,6 +5,7 @@
 // answer the seller just goes ahead.
 import crypto from 'node:crypto';
 import { studioAI } from '../ai.js';
+import { HOOKS, STRUCTURES } from './standard.js';
 
 const s = (x, n) => String(x ?? '').trim().slice(0, n);
 const pct = (x) => { const n = Number(x); return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : null; };
@@ -20,8 +21,11 @@ Check:
 - story: problem → turn → result → offer, clear in one watch
 - end card: brand, offer and call to action, readable at a glance
 - virality: emotion, relatability for Indian viewers, a payoff, rewatch value
+- playbook: the plan names a hook and a structure (and each scene's beat). Did the first line and first scene really do that hook? Do the scenes really follow that structure?
+- cinematography: does each scene's camera plan (size, angle, lens, light, move) make a filmable, varied, agency-grade sequence in one look?
 Never invent prices, offers or claims the brief doesn't give. Answer only JSON:
 {"quality": 0-100, "virality": 0-100, "verdict": "one plain sentence",
+ "playbook": {"hook": true or false (the named hook was executed), "structure": true or false (the named structure was followed), "problem": "or empty"},
  "hook": {"score": 0-100, "problem": "or empty", "line": "a better first line or empty", "image": "a better first picture prompt or empty"},
  "scenes": [{"scene": n from 1, "score": 0-100, "problem": "plain words, or empty when it's good", "image": "a better opening picture prompt or empty", "end": "a better closing picture prompt or empty", "motion": "better movement or empty", "line": "a better voiceover line or empty"}],
  "voice": {"score": 0-100, "problem": "or empty"},
@@ -42,6 +46,7 @@ export function cleanPlan(v, script) {
   const e = v.endCard || {}, card = { headline: s(e.headline, 40), offer: s(e.offer, 40), cta: s(e.cta, 30) };
   return {
     quality: pct(v.quality), virality: pct(v.virality), verdict: s(v.verdict, 240),
+    ...(v.playbook && typeof v.playbook === 'object' ? { playbook: { ...(typeof v.playbook.hook === 'boolean' ? { hook: v.playbook.hook } : {}), ...(typeof v.playbook.structure === 'boolean' ? { structure: v.playbook.structure } : {}), problem: s(v.playbook.problem, 200) } } : {}),
     hook: { score: pct(v.hook?.score), problem: s(v.hook?.problem, 200), line: s(v.hook?.line, 220), image: s(v.hook?.image, 600) },
     scenes, voice: { score: pct(v.voice?.score), problem: s(v.voice?.problem, 200) },
     endCard: card.headline || card.offer || card.cta ? card : null, music: s(v.music, 200), at: Date.now(),
@@ -50,7 +55,7 @@ export function cleanPlan(v, script) {
 
 // → the check, or null when no answer came (the seller goes ahead without it)
 export async function assessReel({ brief, script, seconds, aspect, motion, lang }) {
-  const user = `Brief: ${s(brief, 1500)}\nLength: ${seconds || 30} seconds · frame ${aspect || '9:16'} · ${motion === 'story' ? 'each scene animates from an opening to a closing picture' : motion === 'photo' ? 'each scene is a still with a slow zoom or pan' : 'each scene animates from its opening picture'} · voiceover language ${lang || 'en'}\nPlan: ${JSON.stringify({ title: script.title, scenes: script.shots.map((x, i) => ({ scene: i + 1, line: script.lines[i] || '', image: x.image, end: x.end || '', motion: x.motion })), extraLines: script.lines.slice(script.shots.length), endCard: script.endCard, music: script.music || '' })}`;
+  const user = `Brief: ${s(brief, 1500)}\nLength: ${seconds || 30} seconds · frame ${aspect || '9:16'} · ${motion === 'story' ? 'each scene animates from an opening to a closing picture' : motion === 'photo' ? 'each scene is a still with a slow zoom or pan' : 'each scene animates from its opening picture'} · voiceover language ${lang || 'en'}\nPlan: ${JSON.stringify({ title: script.title, hook: script.hook ? `${script.hook} (${HOOKS[script.hook]?.how || ''})` : 'none named', structure: script.structure ? `${script.structure} (${STRUCTURES[script.structure]?.label || ''})` : 'none named', look: script.look || null, scenes: script.shots.map((x, i) => ({ scene: i + 1, line: script.lines[i] || '', image: x.image, end: x.end || '', motion: x.motion, ...(x.beat ? { beat: x.beat } : {}), ...(x.cam ? { camera: x.cam } : {}), ...(typeof x.product === 'boolean' ? { product: x.product } : {}) })), extraLines: script.lines.slice(script.shots.length), endCard: script.endCard, music: script.music || '' })}`;
   try { return cleanPlan(parse(await studioAI(DIRECTOR, user, { json: true, timeoutMs: 90000 })), script); } catch (e) { console.error('studio plan check failed', e.message); return null; }
 }
 export async function assessPrompt({ kind, prompt, aspect, seconds, product }) {

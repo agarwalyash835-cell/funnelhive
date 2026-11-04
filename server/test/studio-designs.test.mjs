@@ -98,8 +98,11 @@ test('the go-ahead makes one background picture without words, then every slide 
   const r = await api(`/studio/designs/${did}/make`, 'POST', {}, S);
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.status, 'producing');
-  const d = await until(did, ['ready', 'failed']);
-  assert.equal(d.status, 'ready', d.error);
+  // drawn, but held at needs_review by the Creative Standard's gate: the director's check scored it 74 (the bar is 80)
+  const d = await until(did, ['ready', 'needs_review', 'failed']);
+  assert.equal(d.status, 'needs_review', d.error);
+  assert.equal(d.standard.passed, true, JSON.stringify(d.standard.rules));
+  assert.ok(d.gate.issues.some((x) => /scored 74; 80 is the bar/.test(x)));
   assert.equal(created.length, 1);
   assert.match(created[0].input.prompt, /No text, letters/);
   assert.equal(created[0].input.aspect_ratio, '4:5');
