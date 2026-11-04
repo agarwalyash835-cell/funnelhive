@@ -1,5 +1,5 @@
 // Hive AI — chat on the left, the funnel being built on the right ("Lovable for funnels")
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Sparkles, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow, ThumbsUp, ThumbsDown, Undo2 } from 'lucide-react';
 import { api } from '../api';
@@ -14,7 +14,8 @@ const SUGGESTIONS = [
 ];
 
 // minimal, safe formatting for replies: **bold**, `code`, bullet lists, links
-function Rich({ text }) {
+// memoised: a long chat re-rendered (and re-parsed) every message on each progress event of a running reply
+const Rich = memo(function Rich({ text }) {
   const lines = String(text || '').split('\n');
   const inline = (s, k) => s.split(/(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s)]+)/g).map((p, i) => (
     /^\*\*.+\*\*$/.test(p) ? <b key={`${k}-${i}`}>{p.slice(2, -2)}</b>
@@ -29,7 +30,7 @@ function Rich({ text }) {
   });
   flush();
   return <div className="rich">{out}</div>;
-}
+});
 
 // what Hive is doing right now, in plain words (the step names stay the same; only the live line is friendlier)
 const DOING = {
@@ -46,14 +47,17 @@ const DOING = {
 };
 const LONG = new Set(['create_funnel', 'create_website', 'create_course', 'generate_image']);
 const MAGIC = ['Working the magic ✨', 'Genie under way 🧞', 'Brewing something good ☕', 'Polishing the pixels', 'Teaching your page to sell', 'Lining up the details', 'Sprinkling some conversion dust', 'Almost there…'];
-function LiveStatus({ tools }) {
-  const [n, setN] = useState(0);
-  useEffect(() => { const t = setInterval(() => setN((x) => x + 1), 3200); return () => clearInterval(t); }, []);
+function LiveStatus({ tools, since }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const secs = Math.max(0, Math.floor((now - since) / 1000));
+  const n = Math.floor(secs / 3.2);
   const run = [...tools].reverse().find((t) => t.status === 'running');
   const doing = run ? DOING[run.name] || 'Working on it' : tools.length ? 'Putting it all together' : 'Thinking it through';
   return (
     <span className="hv-typing" aria-live="polite">
       <i /><i /><i /> <b>{doing}…</b> <span className="hv-magic" key={n}>{MAGIC[n % MAGIC.length]}</span>
+      <small className="hv-long">{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')} · Stop any time</small>
       {run && LONG.has(run.name) && <small className="hv-long">Big job — usually about a minute</small>}
     </span>
   );
@@ -88,11 +92,21 @@ function SceneStrip({ images }) {
 
 // an action Hive proposed that waits for the seller (sending, publishing, deleting…): Confirm / Cancel
 const waiting = (t) => t.pending && !t.resolved;
+// the same step with the same outcome shows once, with a count ("Google Ads said: … ×3"), not as a growing list
+const stateOf = (t) => (t.status === 'running' ? `run:${t.id}` : t.ok === false || t.status === 'error' ? 'error' : 'done');
+function squash(tools = []) {
+  const out = [];
+  for (const t of tools) {
+    const same = !t.pending && !t.images?.length && stateOf(t) !== `run:${t.id}` && out.find((x) => !x.pending && !x.images?.length && x.name === t.name && stateOf(x) === stateOf(t) && (x.summary || '') === (t.summary || ''));
+    if (same) same.n = (same.n || 1) + 1; else out.push({ ...t });
+  }
+  return out;
+}
 const ToolChips = ({ tools, onDecide, deciding }) => (tools?.length ? (
-  <ul className="hv-tools">{tools.map((t, i) => (
+  <ul className="hv-tools">{squash(tools).map((t, i) => (
     <li key={t.id || i} className={`${waiting(t) ? 'confirm' : t.resolved === 'cancelled' ? 'cancelled' : t.status === 'confirm' ? 'confirm' : t.status || (t.ok === false ? 'error' : 'done')}${t.images?.length ? ' has-pics' : ''}`}>
       {t.status === 'running' ? <Loader2 size={13} className="spin-i" /> : t.ok === false || t.status === 'error' || t.resolved === 'cancelled' ? <X size={13} /> : waiting(t) ? <Square size={13} /> : <Check size={13} />}
-      <span>{t.summary || (t.status === 'running' && DOING[t.name] ? `${DOING[t.name]}…` : t.label || t.name)}</span>
+      <span>{t.summary || (t.status === 'running' && DOING[t.name] ? `${DOING[t.name]}…` : t.label || t.name)}{t.n > 1 && <b className="hv-times"> ×{t.n}</b>}</span>
       {waiting(t) && onDecide && (
         <span className="hv-ok">
           <button className="btn sm primary" disabled={deciding === t.pending} onClick={() => onDecide(t.pending, true)}>Confirm</button>
@@ -129,7 +143,22 @@ export default function Hive() {
 
   const loadThreads = () => api('/hive/threads').then(setThreads).catch(() => {});
   useEffect(() => { api('/hive/status').then(setStatus).catch(loadFailed); loadThreads(); }, []);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [msgs, live]);
+  // follow the newest message only while the seller is at the bottom (scrolling up to read stays put), and jump
+  // rather than animate: a smooth scroll per progress event piled up and fought the reader
+  const stick = useRef(true);
+  const onScroll = (e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140; };
+  useEffect(() => { if (stick.current) endRef.current?.scrollIntoView({ block: 'end' }); }, [msgs, live]);
+  // leaving the page stops the reply (it used to keep running — and spending — with nothing on screen)
+  useEffect(() => () => abort.current?.abort(), []);
+  // a chat whose reply is still running (from before the page was left): say so, and show the reply when it lands
+  const [elsewhere, setElsewhere] = useState(false);
+  useEffect(() => {
+    if (!elsewhere || !tid) return undefined;
+    const t = setInterval(async () => {
+      try { const th = await api(`/hive/threads/${tid}`); if (!th.running) { setElsewhere(false); setMsgs(th.messages); } } catch { setElsewhere(false); }
+    }, 4000);
+    return () => clearInterval(t);
+  }, [elsewhere, tid]);
   const loadFunnel = async (id) => {
     if (!id) { setFunnel(null); return; }
     try { const f = await api(`/funnels/${id}`); setFunnel(f); setStepId((s) => (f.steps.some((x) => x.id === s) ? s : f.steps[0]?.id)); } catch { setFunnel(null); }
@@ -138,10 +167,10 @@ export default function Hive() {
 
   const openThread = async (id) => {
     if (busy) return;
-    setTid(id); setLive(null); setMob('chat');
+    setTid(id); setLive(null); setMob('chat'); setElsewhere(false); stick.current = true;
     if (!id) { setMsgs([]); setFunnelId(null); return; }
     const t = await api(`/hive/threads/${id}`);
-    setMsgs(t.messages); setFunnelId(t.funnelId);
+    setMsgs(t.messages); setFunnelId(t.funnelId); setElsewhere(!!t.running);
   };
   // the seller confirms (or cancels) an action Hive proposed
   const decide = async (pendingId, ok) => {
@@ -179,9 +208,9 @@ export default function Hive() {
   const send = async (text = input) => {
     const message = text.trim();
     if (!message || busy) return;
-    setInput(''); setBusy(true);
+    setInput(''); setBusy(true); stick.current = true;
     setMsgs((m) => [...m, { role: 'user', text: message, at: Date.now() }]);
-    setLive({ tools: [], thinking: '' });
+    setLive({ tools: [], thinking: '', since: Date.now() });
     const ac = new AbortController(); abort.current = ac;
     let finalFunnel = funnelId, threadId = tid;
     try {
@@ -198,7 +227,8 @@ export default function Hive() {
         while ((i = buf.indexOf('\n\n')) >= 0) {
           const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
           if (!chunk.startsWith('data: ')) continue;
-          const ev = JSON.parse(chunk.slice(6));
+          let ev;
+          try { ev = JSON.parse(chunk.slice(6)); } catch { continue; } // one garbled event shouldn't end the reply
           if (ev.type === 'thread') { setTid(ev.threadId); threadId = ev.threadId; }
           else if (ev.type === 'thinking') setLive((l) => ({ ...l, thinking: ev.text }));
           else if (ev.type === 'tool') {
@@ -270,7 +300,7 @@ export default function Hive() {
             {status?.provider && <span className="hv-prov" title="Only you (the platform owner) see this">{status.provider}</span>}
             <span className={`hv-state ${ready ? 'on' : ''}`}><i />{ready ? 'Hive AI' : 'Offline'}</span>
           </div>
-          <div className="hv-msgs">
+          <div className="hv-msgs" onScroll={onScroll}>
             {empty && (
               <div className="hv-empty">
                 <span className="hv-orb" aria-hidden="true"><Sparkles size={28} /></span>
@@ -288,7 +318,7 @@ export default function Hive() {
               </div>
             )}
             {msgs.map((m, i) => (
-              <div key={i} className={`hv-msg ${m.role} ${m.error ? 'err' : ''}`}>
+              <div key={`${m.at || ''}-${i}`} className={`hv-msg ${m.role} ${m.error ? 'err' : ''}`}>
                 {m.role === 'assistant' && <span className="hv-av"><Sparkles size={14} /></span>}
                 <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} />{tid && <ReplyActions m={m} canUndo={!!m.undoId && m.undoId === lastUndo} onRate={rate} onUndo={undo} busy={busy || acting} />}</> : m.text}</div>
               </div>
@@ -299,8 +329,14 @@ export default function Hive() {
                 <div className="hv-bub">
                   {live.thinking && <Rich text={live.thinking} />}
                   <ToolChips tools={live.tools} />
-                  <LiveStatus tools={live.tools} />
+                  <LiveStatus tools={live.tools} since={live.since || Date.now()} />
                 </div>
+              </div>
+            )}
+            {elsewhere && !live && (
+              <div className="hv-msg assistant live">
+                <span className="hv-av"><Sparkles size={14} /></span>
+                <div className="hv-bub"><span className="hv-typing"><i /><i /><i /> <b>Hive is still finishing a reply in this chat…</b> <small className="hv-long">It shows here when it’s done.</small></span></div>
               </div>
             )}
             <div ref={endRef} />

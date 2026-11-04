@@ -164,3 +164,42 @@ test('undo restores exactly the fields a reply changed, and lists what it can’
   assert.equal(T.users.get(owner.id).settings.timezone, 'Asia/Kolkata');
   assert.deepEqual([report.restored, report.kept], [2, ['the broadcast that was sent']]);
 });
+
+// Google Ads that can't work yet (no developer token): the app's "no" is a failure, the app is dropped after one
+// permanent error, and the reply ends by saying what went wrong — not a loop of retries ending in "Let me try…"
+// (small token counts, so the turn's token budget isn't what stops these)
+const small = (...output) => ({ output, usage: { input_tokens: 10, output_tokens: 5 } });
+test('an ads app that keeps saying no stops quickly and the reply explains it', async () => {
+  await load();
+  const log = [];
+  const call = async (method, p, body) => { log.push(`${method} ${p} ${body?.slug || ''}`); return p === '/integrations/run' ? { ok: false, data: null, error: 'The caller does not have permission: developer token is not approved' } : { connected: ['Google Ads'], tools: [] }; };
+  const ctx = { call, origin: 'http://t', pending: [] };
+  let n = 0;
+  const model = async ({ tools }) => {
+    n++;
+    if (!tools.length) return small(text('Google Ads isn’t ready yet: the developer token isn’t approved. Add it in Composio, then ask me again.'));
+    return small(text('Let me try another way…'), fc('run_app_action', { slug: 'GOOGLEADS_LIST_ACCESSIBLE_CUSTOMERS', arguments: { n } }));
+  };
+  const out = await turn(model, ctx, 'run a google search campaign');
+  const runs = log.filter((x) => x.startsWith('POST /integrations/run'));
+  assert.equal(runs.length, 1, 'a permanent error: the app is not tried again in this reply');
+  assert.equal(out.tools.filter((t) => t.name === 'run_app_action').length, 1);
+  assert.equal(out.tools[0].ok, false, 'shown as failed, not a green done');
+  assert.match(out.tools[0].summary, /Google Ads said: .*developer token/);
+  assert.match(out.text, /developer token/, 'the reply says what went wrong (wrap-up with no tools)');
+  assert.ok(n <= 17);
+});
+
+test('a reply that runs out of rounds wraps up instead of ending on an interim line', async () => {
+  await load();
+  const r = ctxWith();
+  let calls = 0;
+  const model = async ({ tools }) => (tools.length ? small(text('Checking one more thing…'), fc('list_products', { page: calls++ })) : small(text('Here is where I got to: products checked.')));
+  const out = await turn(model, r.ctx);
+  assert.equal(out.text, 'Here is where I got to: products checked.');
+  // and when even the wrap-up fails, a plain summary of what was done
+  const model2 = async ({ tools }) => { if (!tools.length) throw new Error('busy'); return small(text('Still going…'), fc('list_products', { page: calls++ })); };
+  const out2 = await turn(model2, r.ctx);
+  assert.match(out2.text, /^I stopped here/);
+  assert.doesNotMatch(out2.text, /Still going/);
+});

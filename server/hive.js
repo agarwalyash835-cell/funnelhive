@@ -271,8 +271,13 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
   {
     name: 'run_app_action', description: 'Run one action in a connected app with arguments matching its input fields (from find_app_actions). Typical Meta flow: METAADS_GET_AD_ACCOUNTS → METAADS_CREATE_CAMPAIGN → METAADS_CREATE_AD_SET (targeting from METAADS_LIST_TARGETING_SEARCH) → creative + ad; read results with METAADS_GET_INSIGHTS. New campaigns, ad sets and ads are always created PAUSED; Meta budgets (daily_budget, lifetime_budget) are in the ad account’s currency in whole units — ₹500 a day is 500, not 50000; Meta ad account ids for the create actions start with act_ (act_123456789). Google Ads amounts are in micros — ₹500 is amount_micros 500000000 — and a campaign needs its budget created first (GOOGLEADS_MUTATE_CAMPAIGN_BUDGETS), then the campaign with that budget’s resource name; pass the customer_id (10 digits) from GOOGLEADS_LIST_ACCESSIBLE_CUSTOMERS. Anything that changes or spends waits for the seller’s OK. If no app is connected, tell them: Settings → Apps & ads → Connect.',
     schema: S({ slug: str('Action slug, e.g. METAADS_GET_INSIGHTS'), arguments: obj('Inputs for the action') }, ['slug']),
-    run: async (ctx, a) => ctx.call('POST', '/integrations/run', { slug: a.slug, arguments: a.arguments || {} }),
-    summary: (r) => (r.ok ? 'Done in your connected app' : `The app said: ${String(r.error || '').slice(0, 120)}`),
+    // the app saying no is a failure (it was shown as a green "done" and the model kept trying other ways)
+    run: async (ctx, a) => {
+      const r = await ctx.call('POST', '/integrations/run', { slug: a.slug, arguments: a.arguments || {} });
+      if (r?.ok === false) throw new Error(`${String(a.slug || '').split('_')[0] === 'GOOGLEADS' ? 'Google Ads' : String(a.slug || '').startsWith('METAADS') ? 'Meta Ads' : 'The app'} said: ${String(r.error || 'it returned an error').slice(0, 300)}`);
+      return r;
+    },
+    summary: () => 'Done in your connected app',
   },
   {
     name: 'ads_report', description: 'Which ads make money: per ad (campaign / ad set / ad) the spend, leads, booked calls, sales, revenue, lifetime value, won deals, cost per lead, ROAS and lifetime ROAS. model "last" = credit the ad clicked last before each event, "first" = the ad that first brought the person. Use it for “which ads should I kill / scale?” — kill ads with spend and no sales (or a lifetime ROAS well under 1), scale ads with the best lifetime ROAS. setup.urlParams is the URL-parameter line every Meta ad needs for ad-level tracking.',
@@ -972,6 +977,14 @@ const estTokens = (v) => Math.ceil(JSON.stringify(v).length / 3.8);
 // a reply that turns the user down ("I can't…", "there's no way to…"): checked again with every tool before it's shown
 const REFUSAL = /\b(can(?:no|['’])?t|unable to|not able to|isn['’]t (?:possible|supported)|not (?:possible|supported)|don['’]t have (?:a |the |any )?(?:tool|way|ability|access)|no (?:tool|way) to|outside (?:of )?what i can)\b/i;
 const GROUP_COUNT = Object.keys(TOOL_GROUPS).length;
+// a whole reply gets this long (then it stops and says where it got to), and a tool that keeps failing is dropped
+const TURN_MS = Number(process.env.HIVE_TURN_MS || 240000);
+const FAIL_LIMIT = 2;
+// errors trying again won't fix within this reply (setup, access, a missing connection or developer token)
+const PERMANENT = /developer[ _-]?token|PERMISSION_DENIED|UNAUTHENTICATED|NOT_ADS_USER|CUSTOMER_NOT_ENABLED|USER_PERMISSION|not connected|connect\b.{1,40}\bfirst|isn['’]t available|not authori[sz]ed|invalid[_ ]grant|access token|expired|HTTP 40[13]/i;
+// failures are counted per app (every Google Ads action is one "app"), otherwise per tool
+const failKey = (name, args) => (name === 'run_app_action' ? `app:${String(args?.slug || '').split('_')[0].toUpperCase()}` : name);
+const WRAP_UP = '[Note from the app: stop here — no more tools in this reply. In a few short lines tell the user what got done, what didn’t work and why (say the error plainly), and exactly what they need to do next. Don’t promise to keep trying.]';
 
 // ---------- the turn ----------
 export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses }) {
@@ -979,9 +992,10 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
   if (focusFunnelId) { try { context = `\n\n[The user is looking at funnel ${focusFunnelId}: ${clip(outline(await ctx.call('GET', `/funnels/${focusFunnelId}`), ctx.origin)).slice(0, 3000)}]`; } catch {} }
   const input = [...history.slice(-12).map((m) => ({ role: m.role, content: m.text })), { role: 'user', content: message + context }];
   const groups = startGroups(message, history, !!focusFunnelId);
-  const done = [], rounds = new Map(), seen = new Map();
+  const done = [], rounds = new Map(), seen = new Map(), fails = new Map(), blocked = new Map();
   const usage = { rounds: 0, tokensIn: 0, tokensOut: 0 };
-  let text = '', focus = focusFunnelId || null, stoppedForBudget = false, rechecked = false;
+  const turnEnd = Date.now() + TURN_MS;
+  let text = '', focus = focusFunnelId || null, stoppedForBudget = false, rechecked = false, finished = false;
 
   // one tool call → { out, ok, summary } (emits its progress)
   const exec = async (c) => {
@@ -996,6 +1010,10 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     if (t && groupOf[c.name]) groups.add(groupOf[c.name]); // a tool it knew anyway: keep its group loaded
     // the same call again in one turn: a change isn't repeated; a read can be, twice
     const sig = `${c.name}:${JSON.stringify(args)}`, prev = seen.get(sig);
+    // an app or tool that keeps failing in this reply isn't tried again: the model reports it instead
+    const key = failKey(c.name, args);
+    if (blocked.has(key)) return { out: { error: blocked.get(key), note: 'This keeps failing in this reply, so it was not run again. Don’t call it (or another action of the same app) again — tell the user what failed and what they need to do.' }, ok: false, summary: null };
+    if (prev && !prev.ok) return { out: { error: prev.summary, note: 'This exact call already failed in this reply — don’t repeat it. Try something different or tell the user what failed.' }, ok: false, summary: null };
     if (prev && (!readsOnly(c.name) || prev.n >= 2) && prev.ok) {
       prev.n++;
       return { out: { note: 'Already done earlier in this reply with the same details — don’t repeat it. Continue with the next step or answer the user.', earlier: prev.summary }, ok: true, summary: null };
@@ -1018,7 +1036,13 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
       images = t.images?.(out); // pictures the chat shows under the step (a Studio storyboard)
       const fid = t.touchesResult ? out?.id : t.touches ? args[t.touches] : null;
       if (fid) focus = fid;
-    } catch (e) { ok = false; out = { error: e.message }; summary = `${c.name.replace(/_/g, ' ')} failed: ${e.message}`; }
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      ok = false; out = { error: e.message }; summary = c.name === 'run_app_action' ? e.message : `${c.name.replace(/_/g, ' ')} failed: ${e.message}`;
+      const n = (fails.get(key) || 0) + 1;
+      fails.set(key, n);
+      if (n >= FAIL_LIMIT || PERMANENT.test(e.message)) blocked.set(key, e.message);
+    }
     seen.set(sig, { n: (prev?.n || 0) + 1, ok, summary });
     const pics = images?.length ? { images } : {};
     done.push({ name: c.name, ok, summary, ...pics });
@@ -1029,11 +1053,12 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
   for (let i = 0; i < MAX_MODEL_CALLS; i++) {
     if (signal?.aborted) break;
     if (usage.tokensIn >= TURN_TOKENS) { stoppedForBudget = true; break; }
+    if (Date.now() > turnEnd - 20000) break; // out of time: wrapped up below
     compact(input, rounds, i);
     const tools = toolDefsFor(groups);
     await slot(signal);
     let d;
-    try { d = await model({ instructions: SYSTEM, input, tools, signal, timeoutMs: CALL_MS }); } finally { freeSlot(); }
+    try { d = await model({ instructions: SYSTEM, input, tools, signal, timeoutMs: Math.max(15000, Math.min(CALL_MS, turnEnd - Date.now())) }); } finally { freeSlot(); }
     usage.rounds++;
     usage.tokensIn += d.usage?.input_tokens || estTokens([SYSTEM, input, tools]);
     usage.tokensOut += d.usage?.output_tokens || estTokens(d.output);
@@ -1048,7 +1073,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
       continue;
     }
     if (say) { text = say; if (calls.length) emit({ type: 'thinking', text: say }); }
-    if (!calls.length) break;
+    if (!calls.length) { finished = true; break; }
     input.push(...calls);
     // reads next to each other run together; anything that changes something runs on its own, in order
     const results = [];
@@ -1060,6 +1085,24 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     calls.forEach((c, n) => { rounds.set(c.call_id, i); input.push({ type: 'function_call_output', call_id: c.call_id, output: clip(results[n].out) }); });
   }
   if (stoppedForBudget) text = `${text ? `${text}\n\n` : ''}That was a big job, so I’ve paused here to keep things quick. Say “continue” and I’ll pick up where I left off.`;
+  else if (!finished && !signal?.aborted) {
+    // out of rounds or time while still calling tools: the last line was an interim one ("let me try another way…"),
+    // so the model sums up what worked, what failed and what the seller has to do — with no tools, so it can't go on
+    text = '';
+    try {
+      input.push({ role: 'user', content: WRAP_UP });
+      await slot(signal);
+      let d;
+      try { d = await model({ instructions: SYSTEM, input, tools: [], signal, timeoutMs: 45000 }); } finally { freeSlot(); }
+      usage.rounds++;
+      text = d.output.filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('').trim();
+    } catch (e) { if (signal?.aborted) throw e; }
+    if (!text) {
+      const ok = done.filter((x) => x.ok && x.summary).map((x) => `- ${x.summary}`);
+      const bad = [...new Set(done.filter((x) => !x.ok).map((x) => `- ${x.summary}`))];
+      text = ['I stopped here so this doesn’t run on.', ok.length && `Done:\n${ok.join('\n')}`, bad.length && `Didn’t work:\n${bad.join('\n')}`].filter(Boolean).join('\n\n');
+    }
+  }
   if (!text) text = done.length ? 'Done.' : 'Sorry — I couldn’t work that out. Could you say it another way?';
   return { text, tools: done, funnelId: focus, usage };
 }
@@ -1165,16 +1208,18 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 12, key: (req) => req.user.id, message: 'Hive AI is busy with your earlier messages — wait a moment.' });
   // a tool context that calls our own API as this user
   // a team member's Hive acts with their own role in the workspace (never with the owner's full rights)
-  const ctxFor = (user, origin, actor = null) => ({
+  // `stop` (the reply's abort signal): pressing Stop or leaving the page also cuts off a tool call that's running
+  const ctxFor = (user, origin, actor = null, stop = null) => ({
     origin,
     call: async (method, path, body) => {
-      const r = await fetch(`http://127.0.0.1:${port}/api${path}`, { method, headers: { Authorization: `Bearer ${actor ? sign(actor, user.id) : sign(user)}`, 'Content-Type': 'application/json', 'X-Hive': '1' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(300000) });
+      const r = await fetch(`http://127.0.0.1:${port}/api${path}`, { method, headers: { Authorization: `Bearer ${actor ? sign(actor, user.id) : sign(user)}`, 'Content-Type': 'application/json', 'X-Hive': '1' }, body: body ? JSON.stringify(body) : undefined, signal: stop ? AbortSignal.any([stop, AbortSignal.timeout(300000)]) : AbortSignal.timeout(300000) });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { const e = new Error(data.error || `HTTP ${r.status}`); e.status = r.status; throw e; }
       return data;
     },
   });
-  const threadView = ({ userId, ...t }) => t;
+  const running = new Set(); // chats with a reply under way
+  const threadView = ({ userId, ...t }) => ({ ...t, running: running.has(t.id) });
 
   app.get('/api/hive/status', auth, (req, res) => res.json({ ready: hiveReady(), ...(!req.actor && isAdmin(req.user) ? { provider: aiProvider() } : {}) })); // the AI vendor: the platform owner only
   const ownThread = (req, id) => { const t = id && T.hive.get(id); return t && t.userId === req.user.id ? t : null; };
@@ -1188,7 +1233,10 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     if (!message) return res.status(400).json({ error: 'Type a message' });
     if (!hiveReady()) { console.error('Hive AI is off: KIE_API_KEY with a tool-capable KIE_MODEL (deepseek / gpt / kimi) is needed'); return res.status(503).json({ error: 'Hive AI isn’t switched on yet — please try again later' }); }
     let t = ownThread(req, req.body.threadId);
+    // one reply at a time per chat: two at once each saved their own copy of the chat, and the last save won
+    if (t && running.has(t.id)) return res.status(409).json({ error: 'Hive is still working on this chat — wait for it to finish, or press Stop.' });
     if (!t) t = T.hive.insert({ id: uid(), userId: req.user.id, title: message.slice(0, 60), funnelId: req.body.funnelId || null, messages: [], at: Date.now(), updatedAt: Date.now() });
+    running.add(t.id);
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     const emit = (ev) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(ev)}\n\n`); };
     emit({ type: 'thread', threadId: t.id });
@@ -1198,7 +1246,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     const history = t.messages.map((m) => ({ role: m.role, text: m.text, tools: (m.tools || []).map((x) => x.name) }));
     t.messages.push({ role: 'user', text: message, at: Date.now() });
     T.hive.put(t);
-    const jr = journaled(ctxFor(req.user, appUrl(req), req.actor), req.user.id);
+    const jr = journaled(ctxFor(req.user, appUrl(req), req.actor, ac.signal), req.user.id);
     const saveUndo = () => {
       if (!jr.changed()) return null;
       T.hiveUndo.delWhere({ userId: req.user.id, at: { lt: Date.now() - 30 * 86400000 } }); // undo reaches back 30 days
@@ -1223,6 +1271,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       emit({ type: 'error', error: msg, undoId });
     } finally {
       clearInterval(ping);
+      running.delete(t.id);
       t.updatedAt = Date.now();
       if (t.messages.length > 200) t.messages.splice(0, t.messages.length - 200);
       if (T.hive.get(t.id)) T.hive.put(t); // unless the chat was deleted meanwhile
