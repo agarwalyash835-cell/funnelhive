@@ -46,6 +46,27 @@
 .vsl-inside { margin-top: 18px; padding: 16px 22px 10px; background: var(--surface); border: var(--card-border); border-radius: var(--radius); box-shadow: var(--card-shadow); }
 .vsl-inside small { display: block; text-transform: uppercase; letter-spacing: .14em; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 2px; }
 
+/* hero: full-screen video — the video covers the section, copy sits bottom-left over a soft shade */
+.page .sec-hero.v-bgvideo { position: relative; overflow: hidden; color: #fff; min-height: min(92vh, 900px); display: flex; align-items: flex-end; padding: 120px 0 84px;
+  background: var(--hero-img, none) center / cover no-repeat, linear-gradient(160deg, color-mix(in srgb, var(--accent) 30%, #141412), #0e0e0d); }
+.page .sec-hero.v-bgvideo::before { display: none; }
+.bgv-media { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.bgv-media video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* an iframe can't "cover", so it's sized to the larger of the two 16:9 fits and centred */
+.bgv-media iframe { position: absolute; top: 50%; left: 50%; width: max(100%, 177.78vh); height: max(100%, 56.25vw); transform: translate(-50%, -50%); border: 0; }
+.bgv-shade { position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(10,10,9,.15) 0%, rgba(10,10,9,.35) 45%, rgba(10,10,9,.82) 100%), linear-gradient(90deg, rgba(10,10,9,.55), transparent 65%); }
+.bgv-copy { position: relative; z-index: 2; width: 100%; text-align: left; }
+.bgv-copy > * { max-width: 760px; }
+.sec-hero.v-bgvideo h1 { color: #fff; font-size: clamp(38px, 6.2vw, 84px); line-height: 1.02; letter-spacing: -.03em; margin: 14px 0 18px; }
+.sec-hero.v-bgvideo h1 .hl { color: color-mix(in srgb, var(--accent) 45%, #fff); background: none; padding: 0; text-decoration: none; }
+.sec-hero.v-bgvideo .lead { color: rgba(255,255,255,.8); font-size: calc(19px * var(--ts, 1)); }
+.sec-hero.v-bgvideo .hero-ctas { justify-content: flex-start; }
+.sec-hero.v-bgvideo .badge { background: rgba(255,255,255,.1); color: #fff; box-shadow: none; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.sec-hero.v-bgvideo .trust, .sec-hero.v-bgvideo .trust .muted { color: rgba(255,255,255,.78); }
+.bgv-hint { margin-top: 18px; font-size: 14px; color: rgba(255,255,255,.75); }
+@media (max-width: 760px) { .page .sec-hero.v-bgvideo { min-height: 86vh; padding: 96px 0 56px; } }
+@media (prefers-reduced-motion: reduce) { .bgv-media video, .bgv-media iframe { display: none; } }
+
 /* hero: cinema — always a dark screen, whatever the style */
 .page .sec-hero.v-cinema { color: #fff; padding-bottom: 96px;
   background:

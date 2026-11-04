@@ -26,7 +26,8 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const PLACEHOLDER = /lorem|ipsum|\byour product\b|\bproduct name\b|\bbenefit (one|two|three|1|2|3)\b|\bproblem (one|two|three)\b|\bbonus (one|two)\b|\bquestion\?|\btbd\b|\bxxx+\b|\[(link|name|city|product|price|insert)[^\]]*\]|\{(link|name)\}|example\.com|placeholder|expert name/i;
 // names that are obviously stand-ins
 const FAKE_NAME = /^(happy |satisfied |verified )?(customer|client|student|user)s?(\b|,|$)|^name$|^full name$|^expert name$|^john doe/i;
-const IMAGE_OK = new Set(['image']); // optional in every template
+// optional in every template: an image, and a "was" price (only a real one — never made up to look like a discount)
+const IMAGE_OK = new Set(['image', 'mrp', 'cardMrp']);
 
 const empty = (v) => v == null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
 const priceLike = (v) => /^\s*(₹|rs\.?|inr)?\s*\d[\d,]*(\.\d+)?\s*(\/-)?\s*$/i.test(String(v ?? ''));
@@ -85,18 +86,29 @@ export function barText(blueprint) {
   const { mins } = qualityBar();
   const lists = Object.entries(mins).filter(([k]) => blueprint.some((s) => s.blocks.includes(k.split('.')[0]))).map(([k, n]) => `${k} ≥ ${n}`).join(', ');
   return `QUALITY BAR — the funnel is rejected unless ALL of these hold:
-1. Steps, in this exact order, each with exactly these blocks in this order:
+1. At least these steps, in this order, each with at least these blocks in this order (you may add other pages and sections between them when the business or the seller's request calls for it — e.g. a quiz, a countdown, a custom section — but never repeat a section's job):
 ${blueprint.map((s, i) => `   ${i + 1}. ${s.type}: ${s.blocks.join(', ')}`).join('\n')}
 2. Every block has all its fields filled with specific copy (as in the example). Minimum list sizes: ${lists}.
 3. No placeholders anywhere ("Your Product", "Benefit one", "[link]", "lorem", "Expert Name"…). Be specific about the offer itself, but never invent facts about the seller: no customer / attendee counts, ratings, review counts, "only N left" or "price goes up tonight" lines. stats values stay "[Add your real number]" for the seller to fill in. Sample testimonials use realistic Indian names with cities.
-4. One price everywhere: checkout.price = pricing.price, and any hero.cardPrice / stickybar.price that shows a price shows that same amount (e.g. "₹1,999"). A free registration page (webinar, lead magnet) says "FREE" instead; an application funnel says "By application". Every mrp is higher than its price. Upsell and downsell offers have their own lower prices.
-5. Hero headline has one *highlighted phrase* in stars. Testimonials use "Name, City" style Indian names. stock.label contains {n}. proof.intervalSec ≥ 9.
+4. One price everywhere: checkout.price = pricing.price, and any hero.cardPrice / stickybar.price that shows a price shows that same amount (e.g. "₹1,999"). A free registration page (webinar, lead magnet) says "FREE" instead; an application funnel says "By application". An mrp ("was" price) only when the seller gave a real one, and then higher than the price — otherwise leave mrp "". Upsell and downsell offers have their own lower prices.
+5. Hero headline has one *highlighted phrase* in stars (the words that carry the promise). Testimonials use "Name, City" style Indian names. stock.label contains {n}. proof.intervalSec ≥ 9.
 6. theme.style is one of ${STYLES.join('|')}; primary and secondary are #rrggbb colours.`;
 }
 
 // ---------- the audit ----------
 
 const strings = (v, out = []) => { if (typeof v === 'string') out.push(v); else if (Array.isArray(v)) v.forEach((x) => strings(x, out)); else if (v && typeof v === 'object') Object.values(v).forEach((x) => strings(x, out)); return out; };
+
+// the funnel's step for each blueprint step, in order (extra pages in between are fine) → [index | -1]
+export function alignSteps(steps, blueprint) {
+  const at = [];
+  let j = 0;
+  for (const bp of blueprint) {
+    while (j < steps.length && steps[j]?.type !== bp.type) j++;
+    at.push(j < steps.length ? j++ : -1);
+  }
+  return at;
+}
 
 // → [{ s: stepIndex, b: blockIndex | null, type, msg }]
 export function audit(f, blueprint) {
@@ -106,10 +118,12 @@ export function audit(f, blueprint) {
   if (!f || !Array.isArray(f.steps)) return [{ s: null, b: null, type: 'funnel', msg: 'no steps' }];
   if (!STYLES.includes(f.theme?.style)) add(null, null, 'theme', `theme.style must be one of ${STYLES.join(', ')}`);
   if (!HEX.test(f.theme?.primary || '') || !HEX.test(f.theme?.secondary || '')) add(null, null, 'theme', 'theme colours must be #rrggbb');
-  if (f.steps.length !== blueprint.length || f.steps.some((s, i) => s.type !== blueprint[i].type)) add(null, null, 'steps', `steps must be: ${blueprint.map((s) => s.type).join(' → ')}`);
+  const at = alignSteps(f.steps, blueprint);
+  if (at.includes(-1)) add(null, null, 'steps', `steps must include, in this order: ${blueprint.map((s) => s.type).join(' → ')} (extra pages in between are fine)`);
   const all = f.steps.flatMap((s, si) => (s.blocks || []).map((b, bi) => ({ ...b, si, bi })));
   const first = (type) => all.find((b) => b.type === type);
-  blueprint.forEach((bp, si) => {
+  blueprint.forEach((bp, i) => {
+    const si = at[i];
     const st = f.steps[si];
     if (!st || st.type !== bp.type) return;
     const types = (st.blocks || []).map((b) => b.type);
@@ -123,10 +137,9 @@ export function audit(f, blueprint) {
     for (const [k, v] of Object.entries(p)) if (Array.isArray(v) && !OWN_LISTS.has(`${b.type}.${k}`) && mins[`${b.type}.${k}`] && v.length < mins[`${b.type}.${k}`]) add(b.si, b.bi, b.type, `${k} needs at least ${mins[`${b.type}.${k}`]} items (has ${v.length})`);
     const bad = strings(Object.fromEntries(Object.entries(p).filter(([k]) => !OWN_LISTS.has(`${b.type}.${k}`)))).find((x) => PLACEHOLDER.test(x));
     if (bad) add(b.si, b.bi, b.type, `placeholder text: "${bad.slice(0, 60)}"`);
-    if ('mrp' in p && 'price' in p && !(num(p.mrp) > num(p.price))) add(b.si, b.bi, b.type, 'mrp must be higher than price');
+    if (!empty(p.mrp) && 'price' in p && !(num(p.mrp) > num(p.price))) add(b.si, b.bi, b.type, 'mrp must be higher than price (or "" when there is no real "was" price)');
     if (['checkout', 'pricing', 'offer'].includes(b.type) && !(num(p.price) > 0)) add(b.si, b.bi, b.type, 'price must be a positive number');
     if ((b.type === 'testimonials' || b.type === 'proof') && (p.items || []).some((x) => FAKE_NAME.test(String(x?.name || '').trim()))) add(b.si, b.bi, b.type, 'use realistic Indian names, not stand-ins like "Happy Customer"');
-    if (b.type === 'hero' && !/\*[^*]+\*/.test(p.headline || '')) add(b.si, b.bi, b.type, 'headline needs one *highlighted phrase*');
     if (b.type === 'hero' && (String(p.headline || '').length < 25 || String(p.headline || '').length > 160)) add(b.si, b.bi, b.type, 'headline should be 25–160 characters');
     if (b.type === 'stock' && !String(p.label || '').includes('{n}')) add(b.si, b.bi, b.type, 'label must contain {n}');
     if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) add(b.si, b.bi, b.type, `variant must be one of ${(VARIANTS[b.type] || ['(none)']).join(', ')}`);
@@ -154,7 +167,9 @@ export function audit(f, blueprint) {
 export function enforce(f, tpl, blueprint) {
   const filled = [];
   const { keys, mins } = qualityBar();
-  f.theme = { ...tpl.theme, ...(STYLES.includes(f.theme?.style) ? { style: f.theme.style } : {}), ...(HEX.test(f.theme?.primary || '') ? { primary: f.theme.primary } : {}), ...(HEX.test(f.theme?.secondary || '') ? { secondary: f.theme.secondary } : {}) };
+  f.theme = { ...tpl.theme, ...(STYLES.includes(f.theme?.style) ? { style: f.theme.style } : {}), ...(HEX.test(f.theme?.primary || '') ? { primary: f.theme.primary } : {}), ...(HEX.test(f.theme?.secondary || '') ? { secondary: f.theme.secondary } : {}),
+    // the fonts, corners and text size the AI picked (already checked against what the renderer knows)
+    ...Object.fromEntries(['headingFont', 'bodyFont', 'radius', 'textSize', 'lang'].filter((k) => f.theme?.[k]).map((k) => [k, f.theme[k]])) };
   // steps: keep the AI's step when its type matches the blueprint, otherwise take the template's
   const phase = (list, i) => list.slice(0, i).filter((s) => s.type === 'checkout').length;
   const bpPhase = blueprint.map((_, i) => phase(blueprint, i));
@@ -165,7 +180,10 @@ export function enforce(f, tpl, blueprint) {
     filled.push(`${bp.type} page`);
     return refStep(tpl, i, bp.type);
   });
+  // pages the AI added beyond the template's (a quiz's result pages, an extra offer…) are kept, before the thank-you page
+  const extraSteps = f.steps.filter((s) => !s._used);
   steps.forEach((s) => delete s._used);
+  f.steps.forEach((s) => delete s._used);
   steps.forEach((st, si) => {
     const bp = blueprint[si];
     const byType = new Map();
@@ -190,6 +208,15 @@ export function enforce(f, tpl, blueprint) {
     // keep valid extra sections the AI added (before the closing call to action)
     if (extras.length) { const at = st.blocks.findIndex((b) => b.type === 'cta'); st.blocks.splice(at < 0 ? st.blocks.length : at, 0, ...extras); }
   });
+  if (extraSteps.length) {
+    const main = [...steps];
+    const place = (list) => { const out = [...main]; const ty = out.findIndex((s) => s.type === 'thankyou'); out.splice(ty < 0 ? out.length : ty, 0, ...list); return out; };
+    // an extra page must never be mistaken for one of the blueprint's pages (that one would then look incomplete)
+    const fits = (out) => alignSteps(out, blueprint).every((at, i) => out[at] === main[i]);
+    let out = place(extraSteps);
+    if (!fits(out)) out = place(extraSteps.filter((s) => !blueprint.some((bp) => bp.type === s.type)));
+    if (fits(out)) { steps.length = 0; steps.push(...out); }
+  }
   f.steps = steps;
   fixups(f, filled);
   // anything still below the bar: that section is replaced by the template's (which always passes), prices re-synced
@@ -223,8 +250,8 @@ function fixups(f, filled) {
   }
   for (const b of all) {
     const p = b.props;
-    if ('mrp' in p && 'price' in p && !(num(p.mrp) > num(p.price))) { const m = Math.round((num(p.price) * 2.2) / 100) * 100 - 1; p.mrp = typeof p.mrp === 'string' ? `₹${m.toLocaleString('en-IN')}` : m; filled.push(`${b.type}.mrp`); }
-    if (b.type === 'hero' && !/\*[^*]+\*/.test(p.headline || '')) { const w = String(p.headline || '').split(' — '); p.headline = w.length > 1 ? `${w[0]} — *${w.slice(1).join(' — ')}*` : String(p.headline || '').replace(/(\S+\s+\S+)$/, '*$1*'); filled.push('hero.headline highlight'); }
+    // a "was" price that isn't higher is dropped — never replaced by a made-up one to look like a discount
+    if (!empty(p.mrp) && 'price' in p && !(num(p.mrp) > num(p.price))) { p.mrp = ''; filled.push(`${b.type}.mrp`); }
     if (b.type === 'stock' && !String(p.label || '').includes('{n}')) { p.label = 'Only {n} left in stock'; filled.push('stock.label'); }
     if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) { if (VARIANTS[b.type]) p.variant = VARIANTS[b.type][0]; else delete p.variant; filled.push(`${b.type}.variant`); }
     if (b.type === 'proof' && num(p.intervalSec) < 9) { p.intervalSec = 9; filled.push('proof.intervalSec'); }

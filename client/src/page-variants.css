@@ -88,6 +88,12 @@
 .v-timeline .step { display: grid; grid-template-columns: 60px 1fr; column-gap: 24px; text-align: left; padding-bottom: 34px; }
 .v-timeline .step .num { grid-row: span 2; margin: 0; }
 .v-timeline .step h3 { align-self: end; font-size: calc(21px * var(--ts, 1)); }
+/* horizontal timeline: the stages sit on one line the visitor swipes through (snaps to each stage) */
+.sec-steps.v-scroll .steps { display: grid; grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(250px, 30%); gap: 32px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 4px 22px; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 45%, transparent) transparent; -webkit-overflow-scrolling: touch; }
+.sec-steps.v-scroll .steps::before { left: 34px; right: auto; width: calc(var(--n) * (100% / 3)); min-width: 100%; }
+.sec-steps.v-scroll .step { scroll-snap-align: start; text-align: left; }
+.sec-steps.v-scroll .step .num { margin-left: 0; }
+@media (max-width: 760px) { .sec-steps.v-scroll .steps { grid-auto-columns: 78%; gap: 20px; } }
 .sec-steps.v-cards .steps { gap: 18px; }
 .sec-steps.v-cards .steps::before { display: none; }
 .sec-steps.v-cards .step { text-align: left; background: var(--surface); border: var(--card-border); border-radius: var(--radius); box-shadow: var(--card-shadow); padding: 30px 26px; overflow: hidden; }

@@ -82,6 +82,22 @@ test('broken JSON is retried; failures fall back to the closest template (never 
   mode = 'good';
 });
 
+test('what the seller asks for is required: in the prompt, checked, and put in place when the AI misses it', async () => {
+  mode = 'good';
+  const n = seen.length;
+  const r = (await api('/ai/generate', 'POST', { prompt: 'Dark luxury launch page for my perfume brand with a full-screen video background https://youtu.be/abcdefghijk and a countdown to our launch on 15 December 2030' }, T)).data;
+  const call = seen.slice(n).find((x) => /funnel strategist and copywriter/.test(x.body.instructions));
+  assert.match(call.body.instructions, /WHAT THE SELLER ASKED FOR/);
+  assert.match(call.body.instructions, /theme\.style must be "noir"/, 'the look the seller described is the design');
+  assert.match(call.body.instructions, /reshape it/, 'the template is a starting point, not a cage');
+  const blocks = r.steps.flatMap((s) => s.blocks);
+  const hero = blocks.find((b) => b.type === 'hero').props;
+  assert.deepEqual([hero.variant, hero.videoUrl], ['bgvideo', 'https://youtu.be/abcdefghijk']);
+  const cd = blocks.find((b) => b.type === 'countdown')?.props;
+  assert.deepEqual([cd?.mode, cd?.endsAt], ['fixed', Date.UTC(2030, 11, 15) - 330 * 60000]);
+  assert.equal(r.quality.finalIssues, 0, JSON.stringify(r.quality.remaining));
+});
+
 test('quality gate: a weak first draft is repaired, and whatever is still missing comes from the template', async () => {
   mode = 'good';
   const r = (await api('/ai/generate', 'POST', { prompt: 'Home bakery in Pune selling custom birthday cakes, ₹899' }, T)).data;

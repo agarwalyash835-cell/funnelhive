@@ -23,11 +23,11 @@ export const STYLE_HINTS = {
 
 // section type → layouts (first = default)
 export const VARIANTS = {
-  hero: ['split', 'center', 'banner', 'editorial', 'bento', 'video', 'videosplit', 'cinema', 'event', 'stage', 'poster'],
+  hero: ['split', 'center', 'banner', 'editorial', 'bento', 'video', 'videosplit', 'cinema', 'event', 'stage', 'poster', 'bgvideo'],
   stats: ['strip', 'cards', 'band'],
   problem: ['cards', 'list', 'split'],
   features: ['cards', 'grid', 'list', 'zigzag'],
-  steps: ['columns', 'timeline', 'cards'],
+  steps: ['columns', 'timeline', 'cards', 'scroll'],
   compare: ['columns', 'table'],
   testimonials: ['cards', 'spotlight', 'wall', 'chat'],
   mentor: ['split', 'story', 'card'],
@@ -37,4 +37,8 @@ export const VARIANTS = {
   faq: ['accordion', 'two'],
   cta: ['banner', 'plain'],
 };
+// site-wide fonts a theme may name (the same list as client/src/fonts.js FONT_CHOICES), corner and text sizes
+export const FONT_NAMES = ['Plus Jakarta Sans', 'Inter', 'Poppins', 'Mukta', 'Hind', 'Noto Sans', 'DM Sans', 'Montserrat', 'Outfit', 'Sora', 'Playfair Display', 'Lora'];
+export const RADII = ['sharp', 'soft', 'round', 'pill'];
+export const TEXT_SIZES = ['sm', 'md', 'lg'];
 export const variantsText = () => Object.entries(VARIANTS).map(([t, v]) => `${t}: ${v.join('|')}`).join('; ');

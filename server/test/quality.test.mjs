@@ -78,13 +78,46 @@ test('content the AI got right is kept, not overwritten by the template', () => 
   assert.equal(f.steps[0].blocks.find((b) => b.type === 'hero').props.headline, 'Custom birthday cakes baked fresh in Pune — *delivered in 3 hours*');
 });
 
+test('the AI may go beyond the template: extra pages and sections are kept, and pass', () => {
+  const t = M.allTemplates().find((x) => x.id === 'sweets');
+  const bp = Q.blueprintOf(t);
+  const f = M.getTemplate('sweets'); f.theme = { ...t.theme, headingFont: 'Playfair Display', radius: 'sharp' };
+  const quiz = { id: 'q1', type: 'landing', name: 'Find your cake', slug: 'quiz', blocks: [{ id: 'x', type: 'html', props: { code: '<div>Cake finder</div>' } }] };
+  f.steps.splice(1, 0, quiz);
+  f.steps[0].blocks.splice(2, 0, { id: 'y', type: 'html', props: { code: '<div>Flavour slider</div>' } });
+  assert.deepEqual(Q.alignSteps(f.steps, bp).includes(-1), false);
+  assert.deepEqual(Q.audit(f, bp), [], 'an extra page and a custom section are not problems');
+  f.steps[0].blocks = f.steps[0].blocks.filter((b) => b.type !== 'faq');
+  Q.enforce(f, M.matchTemplate('Home bakery in Pune, ₹899'), bp);
+  assert.ok(f.steps.some((s) => s.slug === 'quiz'), 'the extra page survives the top-up');
+  assert.ok(f.steps[0].blocks.some((b) => b.id === 'y'), 'the custom section survives the top-up');
+  assert.deepEqual([f.theme.headingFont, f.theme.radius], ['Playfair Display', 'sharp'], 'the AI’s fonts survive the top-up');
+  assert.deepEqual(Q.audit(f, bp), []);
+});
+
+test('no made-up "was" prices: a missing or lower mrp is left blank, never invented', () => {
+  const t = M.allTemplates().find((x) => x.id === 'sweets');
+  const bp = Q.blueprintOf(t);
+  const f = M.getTemplate('sweets'); f.theme = t.theme;
+  const withMrp = f.steps.flatMap((s) => s.blocks).filter((b) => 'mrp' in b.props);
+  assert.ok(withMrp.length);
+  for (const b of withMrp) b.props.mrp = '';
+  assert.deepEqual(Q.audit(f, bp), [], 'no "was" price is fine');
+  withMrp[0].props.mrp = 1;
+  Q.enforce(f, M.matchTemplate('Home bakery in Pune, ₹899'), bp);
+  const after = f.steps.flatMap((s) => s.blocks).filter((b) => 'mrp' in b.props).map((b) => b.props.mrp);
+  assert.deepEqual(after, after.map(() => ''), 'the bad one is cleared and none is made up');
+  assert.deepEqual(Q.audit(f, bp), []);
+});
+
 test('templates are genuinely different: own page plan, layouts and style', async () => {
   const L = M.allTemplates();
   const plan = (t) => t.steps[0].blocks.map((b) => `${b.type}:${b.props.variant || ''}`).join(',');
   assert.equal(new Set(L.map(plan)).size, L.length, 'no two landing pages share the same sections, order and layouts');
   assert.ok(new Set(L.map((t) => t.style)).size >= 10, 'at least 10 visual styles in use');
   const { VARIANTS, PAGE_STYLES } = await import('../page-styles.js');
-  assert.equal(new Set(L.map((t) => t.hero.props.variant)).size, VARIANTS.hero.length, 'every hero design in use');
+  // the full-screen video hero needs the seller's own footage, so no template starts with it
+  assert.equal(new Set(L.map((t) => t.hero.props.variant)).size, VARIANTS.hero.filter((v) => v !== 'bgvideo').length, 'every hero design in use');
   assert.equal(new Set(L.map((t) => t.style)).size, PAGE_STYLES.length, 'every page style in use');
   const looks = L.map((t) => `${t.style}/${t.hero.props.variant}`);
   assert.deepEqual(looks.filter((x, i) => looks.indexOf(x) !== i), [], 'no two templates share a style + hero design');

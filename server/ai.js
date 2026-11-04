@@ -1,10 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { similarTemplates, allTemplates, matchTemplate, parsePrompt } from './templates.js';
-import { audit, enforce, barText, blueprintOf, qualityBar, trimTemplate } from './quality.js';
+import { audit, enforce, barText, blueprintOf, qualityBar, trimTemplate, alignSteps } from './quality.js';
 import { uid } from './db.js';
 import { knownBlocks } from './block-types.js';
 import { isOutOfCredit, outOfCredit, PAUSED } from './kie-credit.js';
-import { PAGE_STYLES, STYLE_HINTS, variantsText } from './page-styles.js';
+import { PAGE_STYLES, STYLE_HINTS, variantsText, FONT_NAMES, RADII, TEXT_SIZES } from './page-styles.js';
+import { briefNeeds, needsText, unmet, applyNeeds } from './brief.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
@@ -22,7 +23,7 @@ async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODE
   let url, body, pick;
   if (m.startsWith('claude-')) {
     url = `${KIE_BASE}/claude/v1/messages`;
-    body = { model: m, system, messages, max_tokens: 16000, stream: false };
+    body = { model: m, system, messages, max_tokens: 32000, stream: false };
     pick = (d) => (d.content || []).map((c) => c.text || '').join('');
   } else if (m.startsWith('gemini-')) {
     url = `${KIE_BASE}/gemini/v1/models/${m}:streamGenerateContent`;
@@ -139,7 +140,7 @@ export async function studioAI(system, user, opts = {}) {
 }
 async function complete(system, messages, { json = true, timeoutMs, model } = {}) {
   if (KIE_KEY) return kie(system, messages, json, timeoutMs, model || KIE_MODEL);
-  const res = await client.messages.create({ model: MODEL, max_tokens: 8000, system, messages });
+  const res = await client.messages.create({ model: MODEL, max_tokens: 32000, system, messages });
   return res.content.map((c) => c.text || '').join('');
 }
 
@@ -167,6 +168,7 @@ export const BLOCK_SPEC = `Block types and their props (all strings unless noted
 - testimonials: title, items: [{name, quote}]
 - video: url
 - text: title, body
+- html (a custom section — for anything no other block does: a calculator, an interactive tool, a comparison slider, an animated showcase, a unique layout the seller describes): code (a complete, self-contained HTML snippet with its own <style> and <script>; no external scripts except from cdn.jsdelivr.net or cdnjs.cloudflare.com), height (number, px, 0 = fit the content). The page's look is available as CSS variables: var(--accent) (primary colour), var(--accent2) (secondary), var(--ink) (text), var(--bg) (background), var(--hf) (heading font), var(--bf) (body font) — use them so the section matches the page. A button inside it can move the visitor on: parent.postMessage({type:'fh:next'}, '*'). Make it polished and mobile-first (works at 360px wide), left-aligned text, no placeholder text, every number and label written for this business.
 - countdown: label, mode ("session" on webinar pages: counts down to the next live session; "fixed" + endsAt (ms timestamp) only for a real deadline the seller gave you). Never invent a deadline or a timer that restarts — no countdown on sales or checkout pages without a real date
 - optin: eyebrow, title, subtitle, buttonText, askPhone (boolean), points: [{text}], productId (leave "" — the seller picks a free product to send on sign-up). On a webinar registration page add webinarId: "" — sign-ups then get a seat in the next live session, a personal joining link and reminders.
 - form (applications, surveys): title, subtitle, fields: [{label, type 'text'|'email'|'tel'|'number'|'select'|'textarea'|'checkbox', required (bool), options "A, B, C" (select only), reject "A" (select only: answers that mean "not a fit")}], buttonText, after 'message'|'next', successMessage, rejectMessage (kind words for applicants who aren't a fit), note. Always include Full name, Email and WhatsApp fields, then 3–4 qualifying select questions with reject rules on budget/readiness.
@@ -196,16 +198,18 @@ Landing-page block types (use them for rich 12+ section pages):
 - stats: items: [{value, label}]
 - problem: eyebrow, title, subtitle, items: [{text}], closing
 - features items may include icon (emoji)
-- steps: eyebrow, title, items: [{title, text}]
+- steps: eyebrow, title, items: [{title, text}]   (variant "scroll" = a horizontal timeline the visitor swipes through — good for 5+ stages, a roadmap or a journey)
 - compare: eyebrow, title, leftTitle, rightTitle, rows: [{left, right}]
 - mentor: eyebrow, name, role, bio, points: [{text}]
 - bonuses: eyebrow, title, items: [{icon, title, value}], totalText
 - guarantee: title, body, days (number)
 - cta also accepts subheadline, note. hero also accepts secondaryText, socialText, rating, reviews, cardEmoji, cardTitle, cardPrice, cardMrp, cardPoints [{text}], chip1, chip2, cardTag. Wrap words in *stars* in headlines to highlight.
-- hero variants video | videosplit | cinema (video sales letters) also take: videoUrl (leave ""), videoNote ("Watch the free 14-minute breakdown"), videoLength ("14:32"); cardPoints become chapters written "01:10 · Chapter title"; cardPrice "By application".
+- hero variant bgvideo: a full-screen video plays silently behind the headline (fashion, perfume, travel, real estate, events, launches). Takes videoUrl (the seller's YouTube / Vimeo / .mp4 link, or "" for them to add) and image (shown until the video loads, or ""). Keep the headline short and punchy.
+- hero variants video | videosplit | cinema (video sales letters) also take: videoUrl (the seller's video link if they gave one, else ""), videoNote ("Watch the free 14-minute breakdown"), videoLength ("14:32"); cardPoints become chapters written "01:10 · Chapter title"; cardPrice "By application".
 - hero variants event | stage | poster (webinars, live events) also take: eventDate ("This Sunday" — never a calendar date), eventTime ("7:00 PM IST"), eventLength ("90 min · Live on Zoom"), hostName, hostRole, cardTag ("Live masterclass"); cardTitle is the session name; cardPrice "FREE"; cardPoints are "this is for you if…" bullets.
 Section layouts: most sections take props.variant to pick their design — ${variantsText()}. Mix layouts so the page has rhythm (e.g. a centred hero, a numbered zigzag of features, a WhatsApp-chat testimonial wall) and fit them to the business; follow the example's choices unless the brief suggests better.
-Theme: {"style": one of ${PAGE_STYLES.join('|')}, "primary": "#hex", "secondary": "#hex"}. Styles: ${Object.entries(STYLE_HINTS).map(([k, v]) => `${k} (${v})`).join('; ')}.
+Theme: {"style": one of ${PAGE_STYLES.join('|')}, "primary": "#hex", "secondary": "#hex", optional "headingFont" / "bodyFont" (one of ${FONT_NAMES.join(', ')} — e.g. Playfair Display headings for luxury, Sora or Outfit for tech, Mukta / Hind for Hindi), "radius" (${RADII.join('|')}), "textSize" (${TEXT_SIZES.join('|')})}. Styles: ${Object.entries(STYLE_HINTS).map(([k, v]) => `${k} (${v})`).join('; ')}.
+Design like a top studio, not a template: pick the style, colours and fonts for THIS brand (refined, slightly muted colours that suit the category — never default purple/pink unless the brand is), vary section layouts for rhythm, and give the page one memorable moment (a striking hero, a custom html section, a bold comparison).
 Audience defaults to India: use ₹ prices, Indian names/cities, UPI/COD mentions. hero also accepts badge.
 Step types: landing, optin, sales, checkout, upsell, downsell, thankyou.
 Funnel shapes (follow the example's): sales funnel = sales → checkout → upsell → downsell → thankyou (with cross-sells). Video sales letter + application (high-ticket, "apply for a call") = sales (video hero, no price) → optin (form with qualifying questions, after "next") → thankyou ("call booked"). Webinar = optin (registration: event hero, FREE) → thankyou (you're registered) → sales (replay: video hero + pricing for the paid programme) → checkout → upsell → thankyou (welcome).`;
@@ -222,8 +226,8 @@ function extractJson(text) {
 export const aiText = (system, user, history = []) => complete(system, [...history, { role: 'user', content: user }], { json: false });
 export const aiJson = (system, user) => ask(system, user);
 // deadline (ms timestamp, optional): each call gets only the time that's left
-async function ask(system, user, history = [], { deadline } = {}) {
-  const within = () => ({ timeoutMs: deadline ? Math.max(5000, deadline - Date.now()) : TIMEOUT });
+async function ask(system, user, history = [], { deadline, model } = {}) {
+  const within = () => ({ timeoutMs: deadline ? Math.max(5000, deadline - Date.now()) : TIMEOUT, model });
   const messages = [...history, { role: 'user', content: user }];
   const text = await complete(system, messages, within());
   try { return extractJson(text); } catch {
@@ -235,11 +239,20 @@ async function ask(system, user, history = [], { deadline } = {}) {
 const withIds = (blocks = []) => blocks.map((b) => ({ id: uid(), type: b.type, props: b.props || {} }));
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'step';
 
+// only theme values the renderer understands are kept (a made-up font or radius would silently do nothing)
+export function cleanTheme(t = {}) {
+  const out = { ...t };
+  for (const k of ['headingFont', 'bodyFont']) if (out[k] != null && !FONT_NAMES.includes(out[k])) delete out[k];
+  if (out.radius != null && !RADII.includes(out.radius)) delete out.radius;
+  if (out.textSize != null && !TEXT_SIZES.includes(out.textSize)) delete out.textSize;
+  return out;
+}
+
 function normalizeFunnel(f) {
   const used = new Set();
   return {
     name: f.name || 'New funnel',
-    theme: { style: 'aurora', primary: '#6366f1', secondary: '#ec4899', ...(f.theme || {}) },
+    theme: cleanTheme({ style: 'aurora', primary: '#6366f1', secondary: '#ec4899', ...(f.theme || {}) }),
     steps: (f.steps || []).map((s, i) => {
       let slug = slugify(s.slug || s.name || `step-${i + 1}`);
       while (used.has(slug)) slug += '-2';
@@ -258,6 +271,12 @@ const MAX_REPAIRS = Number(process.env.AI_REPAIR_PASSES ?? 2);
 // the whole funnel (draft + repairs) within ~3 minutes: a slow model never leaves the seller waiting 10+ minutes —
 // a second draft or a repair starts only with time left for it, and the template tops up whatever is still missing
 const FUNNEL_BUDGET_MS = Number(process.env.AI_FUNNEL_BUDGET_MS || 200000);
+// The first draft — where the design and the seller's unusual asks are worked out — goes to the frontier model, like
+// Studio; the everyday model takes over when it's unavailable or slow. FUNNEL_AI_MODEL='' turns it off.
+const FUNNEL_MODEL = () => process.env.FUNNEL_AI_MODEL ?? (process.env.NODE_ENV === 'test' ? '' : 'claude-opus-5-5');
+const FRONTIER_BUDGET_MS = Number(process.env.AI_FRONTIER_BUDGET_MS || 300000);
+// on shorter pages the model may still add what the seller asked for, plus up to two custom sections of its own
+const EXTRA_OK = new Set(['section', 'html']);
 const summarise = (issues) => issues.map((i) => `- ${i.s == null ? 'funnel' : `step ${i.s + 1}${i.b == null ? '' : ` block ${i.b + 1}`}`} (${i.type}): ${i.msg}`).join('\n');
 
 async function repair(system, f, issues, deadline) {
@@ -281,35 +300,57 @@ export async function generateFunnel(prompt, { length = 'standard', style, prima
   if (!aiEnabled()) return normalizeFunnel(templateFunnel(prompt));
   const closest = trimTemplate(similarTemplates(prompt, 1)[0], length);
   const blueprint = blueprintOf(closest);
+  // what the seller asked for in their own words: must-haves the gate checks (brief.js)
+  const needs = briefNeeds(prompt);
+  if (!style && needs.style) style = needs.style;
+  const asks = needsText(needs);
   const design = [style && `theme.style must be "${style}"`, primary && `theme.primary must be "${primary}" (pick a secondary that goes with it)`].filter(Boolean).join('; ');
   const system = `You are an expert direct-response funnel strategist and copywriter for Indian businesses. Design a complete, high-converting funnel from the user's business description. Respond with ONLY valid JSON:
 {"name": string, "theme": {"style": string, "primary": "#hex", "secondary": "#hex"}, "steps": [{"name": string, "type": string, "slug": string, "blocks": [{"type": string, "props": {...}}]}]}
 Write persuasive, specific copy for THIS business (never generic), realistic Indian prices, Indian names and cities.
 ${BLOCK_SPEC}
 
-EXAMPLE — a complete funnel from our template library for a similar business ("${closest.name}"). Match its structure, section order, depth and quality exactly, but write completely new copy, names, prices and offers for the user's business:
+EXAMPLE — a complete funnel from our template library for a similar business ("${closest.name}"). It shows the quality bar: the depth, specificity and tone to match. Use its structure as the starting point, but write completely new copy, names, prices and offers for the user's business — and reshape it (add pages, add sections, pick other layouts, build custom html sections) wherever the seller's brief asks for something it doesn't have. The seller's request always wins over the example:
 ${exampleFunnel(closest)}
 
 ${barText(blueprint)}
-Every section has its own job — never repeat a point, benefit, list or claim another section already makes; a reader should never feel they've read it before.${design ? `
+Every section has its own job — never repeat a point, benefit, list or claim another section already makes; a reader should never feel they've read it before.${asks ? `\n\n${asks}` : ''}${design ? `
 The seller chose their design: ${design}.` : ''}`;
   const report = { model: aiProvider(), template: closest.id, firstDraftIssues: null, repairPasses: 0, filledFromTemplate: [], finalIssues: null };
-  const deadline = Date.now() + FUNNEL_BUDGET_MS, left = () => deadline - Date.now();
+  const frontier = KIE_KEY && FUNNEL_MODEL() && FUNNEL_MODEL() !== KIE_MODEL ? FUNNEL_MODEL() : null;
+  const deadline = Date.now() + (frontier ? Math.max(FUNNEL_BUDGET_MS, FRONTIER_BUDGET_MS) : FUNNEL_BUDGET_MS), left = () => deadline - Date.now();
+  const check = (f) => [...audit(f, blueprint), ...unmet(f, needs)];
   let best = null, bestIssues = null;
   const consider = (f) => {
     if (!f || !Array.isArray(f.steps)) return;
     const known = KNOWN_TYPES();
+    const at = alignSteps(f.steps, blueprint);
     f.steps.forEach((st, si) => {
       st.blocks = (st.blocks || []).filter((x) => x && known.has(x.type) && x.props && typeof x.props === 'object');
-      // a shorter page means only the blueprint's sections, once each (the model likes to add more)
-      const bp = blueprint[si];
-      if (length !== 'detailed' && bp?.type === st.type) { const seen = new Set(); st.blocks = st.blocks.filter((x) => bp.blocks.includes(x.type) && !seen.has(x.type) && seen.add(x.type)); }
+      // a shorter page keeps the blueprint's sections once each, what the seller asked for, and at most two custom
+      // sections the model added (it likes to add more)
+      const bp = blueprint[at.indexOf(si)];
+      if (length !== 'detailed' && bp) {
+        const seen = new Set();
+        let extra = 0;
+        st.blocks = st.blocks.filter((x) => {
+          if (bp.blocks.includes(x.type) || needs.blocks.includes(x.type)) return !seen.has(x.type) && seen.add(x.type);
+          return EXTRA_OK.has(x.type) && extra++ < 2;
+        });
+      }
     });
-    const iss = audit(f, blueprint);
+    if (f.theme) f.theme = cleanTheme(f.theme);
+    const iss = check(f);
     if (!best || iss.length < bestIssues.length) { best = f; bestIssues = iss; }
   };
+  // the first draft: the frontier model when there is one, then the everyday model if that fails or there's time left
+  let model = frontier || undefined;
   for (let attempt = 0; attempt < 2 && !best && (attempt === 0 || left() > 60000); attempt++) {
-    try { consider(await ask(system, prompt, [], { deadline })); } catch (e) { console.warn('AI funnel generation failed:', e.message); if (/not authorized|401|API key/i.test(e.message)) break; }
+    try { consider(await ask(system, prompt, [], { deadline: model ? deadline - 100000 : deadline, model })); } catch (e) {
+      console.warn('AI funnel generation failed:', e.message);
+      if (e.message === PAUSED || /not authorized|401|API key/i.test(e.message)) break;
+      if (model) { report.frontierFailed = true; model = undefined; }
+    }
   }
   if (!best) return Object.assign(normalizeFunnel(trimTemplate(matchTemplate(prompt), length)), { fallback: true, quality: { ...report, fallback: true } });
   report.firstDraftIssues = bestIssues.length;
@@ -319,8 +360,8 @@ The seller chose their design: ${design}.` : ''}`;
   }
   // guarantee: never below the template bar
   const f = structuredClone(best);
-  if (bestIssues.length) report.filledFromTemplate = enforce(f, trimTemplate(matchTemplate(prompt), length), blueprint);
-  const final = audit(f, blueprint);
+  if (bestIssues.length) report.filledFromTemplate = [...enforce(f, trimTemplate(matchTemplate(prompt), length), blueprint), ...applyNeeds(f, needs, uid)];
+  const final = check(f);
   report.finalIssues = final.length;
   report.remaining = final.map((i) => `${i.type}: ${i.msg}`);
   if (final.length) console.warn('AI funnel still below the bar after top-up:', summarise(final));

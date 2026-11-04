@@ -91,11 +91,11 @@ export const BLOCK_TYPES = {
 
 // Every main section has several designs. The first one is the original look (also used when unset).
 export const VARIANTS = {
-  hero: [['split', 'Split — copy and product card'], ['center', 'Centred — big headline'], ['banner', 'Banner — full colour or photo'], ['editorial', 'Editorial — magazine style'], ['bento', 'Bento — tiles with price, rating & benefits'], ['video', 'Video — centred video sales letter (VSL)'], ['videosplit', 'Video beside the copy, with chapters'], ['cinema', 'Cinema — dark screen for a VSL'], ['event', 'Event ticket — for webinars & events'], ['stage', 'Stage — centred, with an event bar'], ['poster', 'Poster — big date card for webinars']],
+  hero: [['split', 'Split — copy and product card'], ['center', 'Centred — big headline'], ['banner', 'Banner — full colour or photo'], ['editorial', 'Editorial — magazine style'], ['bento', 'Bento — tiles with price, rating & benefits'], ['video', 'Video — centred video sales letter (VSL)'], ['videosplit', 'Video beside the copy, with chapters'], ['cinema', 'Cinema — dark screen for a VSL'], ['event', 'Event ticket — for webinars & events'], ['stage', 'Stage — centred, with an event bar'], ['poster', 'Poster — big date card for webinars'], ['bgvideo', 'Full-screen video — plays behind the headline']],
   stats: [['strip', 'Strip'], ['cards', 'Tiles'], ['band', 'Colour band']],
   problem: [['cards', 'Cards'], ['list', 'Crossed-out list'], ['split', 'Title beside the list']],
   features: [['cards', 'Cards, 2 columns'], ['grid', 'Icon grid, 3 columns'], ['list', 'Checklist beside the title'], ['zigzag', 'Big numbered rows']],
-  steps: [['columns', 'Columns'], ['timeline', 'Timeline'], ['cards', 'Numbered cards']],
+  steps: [['columns', 'Columns'], ['timeline', 'Timeline'], ['cards', 'Numbered cards'], ['scroll', 'Horizontal timeline — swipe through']],
   compare: [['columns', 'Two columns'], ['table', 'Table']],
   testimonials: [['cards', 'Cards'], ['spotlight', 'Spotlight — one big quote'], ['wall', 'Wall of love'], ['chat', 'WhatsApp chats']],
   mentor: [['split', 'Photo and bio'], ['story', 'Founder story'], ['card', 'Centred card']],
@@ -284,6 +284,7 @@ function Hero({ p, ctx }) {
   if (['video', 'videosplit', 'cinema'].includes(v)) return <HeroVideo p={p} ctx={ctx} v={v} />;
   if (['event', 'stage', 'poster'].includes(v)) return <HeroEvent p={p} ctx={ctx} v={v} />;
   if (v === 'bento') return <HeroBento p={p} ctx={ctx} />;
+  if (v === 'bgvideo') return <HeroBgVideo p={p} ctx={ctx} link={link} />;
   const banner = v === 'banner' && p.image;
   const solo = !((p.image && !banner) || p.showCard !== false || p.chip1 || p.chip2);
   return (
@@ -322,6 +323,40 @@ function Hero({ p, ctx }) {
           {p.chip1 && <E ctx={ctx} k="chip1" v={p.chip1} as="div" className="chip c1" />}
           {p.chip2 && <E ctx={ctx} k="chip2" v={p.chip2} as="div" className="chip c2" />}
         </div>}
+      </div>
+    </section>
+  );
+}
+
+// A video link as a silent, looping background: YouTube / Vimeo in their background modes, or an .mp4 / .webm file
+export function bgVideoSource(url = '') {
+  const u = String(url).trim();
+  let m;
+  if ((m = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/.exec(u))) return { kind: 'iframe', src: `https://www.youtube-nocookie.com/embed/${m[1]}?autoplay=1&mute=1&loop=1&playlist=${m[1]}&controls=0&playsinline=1&rel=0&modestbranding=1&disablekb=1&iv_load_policy=3` };
+  if ((m = /vimeo\.com\/(?:video\/)?(\d+)/.exec(u))) return { kind: 'iframe', src: `https://player.vimeo.com/video/${m[1]}?background=1&autoplay=1&muted=1&loop=1` };
+  if (/^https?:\/\/.+\.(mp4|webm)(\?.*)?$/i.test(u) || /^\/uploads\/.+\.(mp4|webm)$/i.test(u)) return { kind: 'video', src: u };
+  return null;
+}
+// Full-screen hero: the video plays behind the headline (the photo shows until it loads, or when there's no video)
+function HeroBgVideo({ p, ctx, link }) {
+  const v = bgVideoSource(p.videoUrl);
+  const poster = p.image ? String(mediaUrl(p.image)) : undefined;
+  return (
+    <section className="sec sec-hero v-bgvideo" style={poster ? { '--hero-img': `url("${poster.replace(/"/g, '%22')}")` } : undefined}>
+      <div className="bgv-media" aria-hidden="true">
+        {v?.kind === 'video' && <video src={v.src} poster={poster} autoPlay muted loop playsInline preload="metadata" />}
+        {v?.kind === 'iframe' && <iframe src={v.src} title="" tabIndex={-1} allow="autoplay; encrypted-media" loading="eager" />}
+      </div>
+      <div className="bgv-shade" aria-hidden="true" />
+      <div className="in bgv-copy">
+        {p.badge && <E ctx={ctx} k="badge" v={p.badge} className="badge" />}
+        <E ctx={ctx} k="headline" v={p.headline} as="h1" isRich />
+        <E ctx={ctx} k="subheadline" v={p.subheadline} as="p" className="lead" multiline />
+        <div className="hero-ctas">
+          {p.ctaText && <Btn big onClick={go(ctx)} ctx={ctx} k="ctaText" link={link}>{p.ctaText}</Btn>}
+        </div>
+        <Trust p={p} ctx={ctx} />
+        {ctx.editable && !v && <p className="bgv-hint">🎬 Paste a YouTube, Vimeo or .mp4 link in the video field on the panel — it plays silently behind this headline.</p>}
       </div>
     </section>
   );
@@ -1398,10 +1433,28 @@ function Gallery({ p, ctx }) {
 // Custom HTML runs in a sandboxed iframe WITHOUT same-origin access, so embedded code can never
 // read the app's cookies, storage or logins. It reports its height so it sizes itself.
 const EMBED_SIZER = '<script>(function(){function s(){parent.postMessage({ffEmbedH:Math.ceil(document.documentElement.scrollHeight)},"*")}if(window.ResizeObserver)new ResizeObserver(s).observe(document.documentElement);addEventListener("load",s);setTimeout(s,50);setTimeout(s,1000)})()</' + 'script>';
+// the page's look handed to custom code as CSS variables (--accent, --accent2, --ink, --muted, --bg, --surface,
+// --line, --radius, --hf, --bf) with its fonts loaded, so a section the AI or seller writes matches the page
+const EMBED_VARS = { accent: '--accent', accent2: '--accent2', ink: '--ink', muted: '--muted', bg: '--pbg', surface: '--surface', line: '--line', radius: '--radius', hf: '--hf', bf: '--bf' };
+const cssSafe = (v) => String(v || '').replace(/[<>{};]/g, '').trim().slice(0, 200);
+export function embedHead(look) {
+  if (!look) return '';
+  const vars = Object.keys(EMBED_VARS).filter((k) => cssSafe(look[k])).map((k) => `--${k}:${cssSafe(look[k])}`).join(';');
+  const fams = [...new Set(['hf', 'bf'].map((k) => cssSafe(look[k]).split(',')[0].replace(/['"]/g, '').trim()).filter((n) => /^[A-Za-z][A-Za-z0-9 ]{1,40}$/.test(n) && !/^(system-ui|sans-serif|serif|Georgia|Inter var)$/i.test(n)))];
+  const fonts = fams.length ? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?${fams.map((n) => `family=${n.replace(/ /g, '+')}:wght@400;500;600;700;800`).join('&')}&display=swap">` : '';
+  return `${fonts}<style>:root{${vars}}html,body{color:var(--ink);font-family:var(--bf,system-ui,sans-serif)}h1,h2,h3,h4{font-family:var(--hf,var(--bf))}</style>`;
+}
 function HtmlEmbed({ p, ctx }) {
   const ref = useRef();
   const [h, setH] = useState(Number(p.height) || 120);
-  const doc = p.code?.trim() ? `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>html,body{margin:0;font-family:system-ui,sans-serif}img,iframe,video{max-width:100%}</style></head><body>${p.code}${EMBED_SIZER}</body></html>` : '';
+  const [look, setLook] = useState(null);
+  useEffect(() => {
+    const el = ref.current?.closest('.page');
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    setLook(Object.fromEntries(Object.entries(EMBED_VARS).map(([k, v]) => [k, cs.getPropertyValue(v)])));
+  }, [!!p.code?.trim()]);
+  const doc = p.code?.trim() ? `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>html,body{margin:0;font-family:system-ui,sans-serif}img,iframe,video{max-width:100%}</style>${embedHead(look)}</head><body>${p.code}${EMBED_SIZER}</body></html>` : '';
   // the editor and dashboard previews run under the dashboard's strict policy, which a srcdoc frame inherits (no
   // inline scripts): there the frame loads a sandboxed shell with the live pages' embed policy and we post the HTML in
   const framed = !ctx.live || !!ctx.editable;
@@ -1410,11 +1463,13 @@ function HtmlEmbed({ p, ctx }) {
     const onMsg = (e) => {
       if (e.source !== ref.current?.contentWindow) return;
       if (framed && e.data?.ffEmbedReady) e.source.postMessage({ ffEmbedDoc: doc }, '*');
+      // a button in the custom section moves the visitor on, like any other button on the page
+      else if (e.data?.type === 'fh:next') { if (ctx.live && !ctx.editable) ctx.onNext?.(); }
       else if (!Number(p.height) && typeof e.data?.ffEmbedH === 'number') setH(Math.min(4000, Math.max(20, e.data.ffEmbedH)));
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, [p.height, doc, framed]);
+  }, [p.height, doc, framed, ctx.live, ctx.editable, ctx.onNext]);
   if (!doc) return ctx.editable ? <Sec type="embed"><div className="el-img-ph">🧩 <span>Paste HTML or an embed code (Calendly, Typeform, Google Maps…) in the panel</span></div></Sec> : null;
   return (
     <Sec type="embed" className={p.fullWidth ? 'embed-full' : ''}>
