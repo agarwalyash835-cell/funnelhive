@@ -18,8 +18,9 @@ export const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, 
 const ymd = (t) => new Date(t + 330 * 60000).toISOString().slice(0, 10);
 // the numbers kept per ad per day, besides spend
 export const METRICS = ['impressions', 'reach', 'clicks', 'linkClicks', 'lpv', 'metaLeads', 'metaPurchases', 'metaValue', 'chats', 'video3s', 'thruplay'];
-// the attribution window Meta counts its results in (the seller's pick; Meta's default is 7-day click + 1-day view)
-export const WINDOWS = { '7d_click_1d_view': ['7d_click', '1d_view'], '7d_click': ['7d_click'], '1d_click': ['1d_click'], '28d_click': ['28d_click'] };
+// the attribution window Meta counts its results in (the seller's pick; Meta's default is 7-day click + 1-day view).
+// No 28-day click: Meta retired it and Composio's insights action refuses it (an old pick falls back to the default)
+export const WINDOWS = { '7d_click_1d_view': ['7d_click', '1d_view'], '7d_click': ['7d_click'], '1d_click': ['1d_click'] };
 export const windowOf = (u) => (WINDOWS[u?.settings?.adWindow] ? u.settings.adWindow : '7d_click_1d_view');
 const INSIGHT_FIELDS = ['campaign_name', 'adset_name', 'ad_name', 'ad_id', 'spend', 'impressions', 'reach', 'clicks', 'inline_link_clicks', 'actions', 'action_values', 'video_thruplay_watched_actions', 'account_currency', 'date_start'];
 // Meta's action list → one number: the first type present (they overlap — omni_purchase already includes purchase)

@@ -131,7 +131,7 @@ export function registerAds(app, { auth }) {
   // the window Meta counts its results in; the last 30 days are pulled again in the new window
   app.put('/api/ads/window', auth, async (req, res) => {
     const w = String(req.body?.window || '');
-    if (!WINDOWS[w]) return res.status(400).json({ error: 'Pick one of: 7-day click + 1-day view, 7-day click, 1-day click, 28-day click' });
+    if (!WINDOWS[w]) return res.status(400).json({ error: 'Pick one of: 7-day click + 1-day view, 7-day click, 1-day click' });
     const u = T.users.update(req.user.id, (x) => { x.settings = { ...(x.settings || {}), adWindow: w }; });
     let rows = 0, error = '';
     try { rows = await syncMeta(u, 30); } catch (e) { error = e.message; }

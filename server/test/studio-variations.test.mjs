@@ -31,7 +31,7 @@ let fake, srv, api, ADMIN, S, sid, reelId, ideas, variants = [];
 const timed = (text) => { const ws = text.split(' '); return { transcript: text, language_code: 'en-IN', timestamps: { words: ws, start_time_seconds: ws.map((_, i) => i * 0.4), end_time_seconds: ws.map((_, i) => i * 0.4 + 0.35) } }; };
 const TOOLS = {
   partial: ['METAADS_CREATE_CAMPAIGN', 'METAADS_CREATE_AD_SET', 'METAADS_CREATE_AD', 'METAADS_GET_INSIGHTS'],
-  full: ['METAADS_CREATE_CAMPAIGN', 'METAADS_CREATE_AD_SET', 'METAADS_UPLOAD_AD_VIDEO', 'METAADS_CREATE_AD_CREATIVE', 'METAADS_CREATE_AD', 'METAADS_GET_PAGES', 'METAADS_GET_INSIGHTS'],
+  full: ['METAADS_CREATE_CAMPAIGN', 'METAADS_CREATE_AD_SET', 'METAADS_CREATE_AD_VIDEO', 'METAADS_CREATE_AD', 'METAADS_LIST_PROMOTABLE_PAGES', 'METAADS_GET_INSIGHTS'],
 };
 before(async () => {
   ff('-f', 'lavfi', '-i', 'testsrc2=size=768x1344', '-frames:v', '1', path.join(tmp, 'image.png'));
@@ -51,7 +51,7 @@ before(async () => {
         if (slug === 'METAADS_GET_AD_ACCOUNTS') return send({ successful: true, data: { data: [{ account_id: '1111111', name: 'Ghee Ads' }] } });
         if (slug === 'METAADS_LIST_AD_ACCOUNT_PIXELS') return send({ successful: true, data: { pixels: [{ id: '2222222', name: 'Pixel' }] } });
         if (slug === 'METAADS_GET_INSIGHTS') return send({ successful: true, data: { data: [] } });
-        if (slug === 'METAADS_GET_PAGES') return send({ successful: true, data: { data: [{ id: '3333', name: 'Shuddh Ghee Co' }] } });
+        if (slug === 'METAADS_LIST_PROMOTABLE_PAGES') return send({ successful: true, data: { promotable_pages: [{ id: '3333', name: 'Shuddh Ghee Co' }], has_more: false } });
         executed.push({ slug, args: body.arguments });
         return send({ successful: true, data: { id: `${slug.toLowerCase()}_${executed.length}` } });
       }
@@ -220,13 +220,23 @@ test('launch with every action: a paused campaign, ad set and one paused ad per 
   assert.equal(l.created.ads.length, 3);
   assert.ok(executed.every((e) => !JSON.stringify(e.args).includes('ACTIVE')), 'nothing is ever switched on');
   for (const e of executed.filter((x) => /^METAADS_CREATE_(CAMPAIGN|AD_SET|AD)$/.test(x.slug))) assert.equal(e.args.status, 'PAUSED', e.slug);
-  assert.equal(executed.find((e) => e.slug === 'METAADS_CREATE_AD_SET').args.daily_budget, 70000);
+  // shaped as Composio's actions take them: budget in whole rupees, act_ account ids, targeting.locations
+  const adset = executed.find((e) => e.slug === 'METAADS_CREATE_AD_SET').args;
+  assert.equal(adset.daily_budget, 700, 'rupees, not paise');
+  assert.equal(adset.ad_account_id, 'act_1111111');
+  assert.deepEqual(adset.targeting.locations, ['IN']);
+  assert.equal(executed.find((e) => e.slug === 'METAADS_CREATE_CAMPAIGN').args.ad_account_id, 'act_1111111');
   const ads = executed.filter((e) => e.slug === 'METAADS_CREATE_AD');
   assert.deepEqual(ads.map((e) => e.args.name).sort(), l.plan.ads.map((a) => a.name).sort());
-  const cr = executed.find((e) => e.slug === 'METAADS_CREATE_AD_CREATIVE').args;
-  assert.match(cr.url_tags, /ad_id=\{\{ad\.id\}\}/);
-  assert.equal(cr.object_story_spec.page_id, '3333');
-  assert.match(executed.find((e) => e.slug === 'METAADS_UPLOAD_AD_VIDEO').args.file_url, /^https:\/\/app\.var\.test\/uploads\//);
+  for (const { args } of ads) {
+    assert.equal(args.ad_account_id, 'act_1111111');
+    assert.equal(args.creative.type, 'VIDEO');
+    assert.equal(args.creative.page_id, '3333');
+    assert.ok(args.creative.video_id && args.creative.image_url, 'video plus thumbnail');
+    assert.match(args.creative.website_url, /^https:\/\/ghee\.example\.in\?utm_source=facebook&.*ad_id=\{\{ad\.id\}\}/, 'the tracking parameters ride on the link');
+  }
+  assert.ok(!executed.some((e) => e.slug === 'METAADS_CREATE_AD_CREATIVE'), 'no separate creative step');
+  assert.match(executed.find((e) => e.slug === 'METAADS_CREATE_AD_VIDEO').args.file_url, /^https:\/\/app\.var\.test\/uploads\//);
   const v = (await api(`/studio/reels/${variants[0].id}/results`, 'GET', null, S)).data;
   assert.equal(v.launch.status, 'PAUSED');
   assert.ok(v.variants.every((x) => x.ad?.status === 'PAUSED' && x.ad.adId));

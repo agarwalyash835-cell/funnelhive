@@ -11,7 +11,7 @@ const p = (v) => (v == null ? '—' : `${v}%`);
 const n0 = (v) => (v ? num(v) : '—');
 // the table's two views: what each ad earned, and how it delivered (what Ads Manager shows, side by side with results)
 const VIEWS = [['results', 'Results'], ['delivery', 'Delivery & creative']];
-const WINDOWS = [['7d_click_1d_view', '7-day click + 1-day view (Meta default)'], ['7d_click', '7-day click'], ['1d_click', '1-day click'], ['28d_click', '28-day click']];
+const WINDOWS = [['7d_click_1d_view', '7-day click + 1-day view (Meta default)'], ['7d_click', '7-day click'], ['1d_click', '1-day click']];
 const verdict = (r) => {
   if (!r.spend) return null;
   if (r.ltvRoas >= 2) return ['ok', 'Scale'];
