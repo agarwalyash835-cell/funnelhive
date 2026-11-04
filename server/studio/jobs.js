@@ -25,7 +25,9 @@ const KEEP_CLIP = 'Keep the product and any people exactly as in the first frame
 // the request as sent: the seller's words, the house rules, and what earlier attempts got wrong
 function promptFor(a) {
   const notes = (a.notes || []).filter(Boolean).slice(-3);
-  return [a.prompt, a.kind === 'clip' ? KEEP_CLIP : a.ref ? KEEP_PRODUCT : 'Photorealistic. No added text, words, logos or watermarks.', notes.length ? `Avoid this time: ${notes.join(' ')}` : ''].filter(Boolean).join('\n').slice(0, 4000);
+  // a design's background with AI typography (designs.js) carries its quoted headline: only other words are ruled out
+  const rule = a.textArt ? 'No other text, logos or watermarks.' : 'Photorealistic. No added text, words, logos or watermarks.';
+  return [a.prompt, a.kind === 'clip' ? KEEP_CLIP : a.ref ? KEEP_PRODUCT : rule, notes.length ? `Avoid this time: ${notes.join(' ')}` : ''].filter(Boolean).join('\n').slice(0, 4000);
 }
 
 export const view = (a) => ({ id: a.id, kind: a.kind, tier: a.tier, prompt: a.prompt, aspect: a.aspect, seconds: a.seconds || null, status: a.status, url: a.url || null, poster: a.poster || null, ref: a.ref || null, sourceId: a.sourceId || null, issues: a.qa?.issues || [], score: a.qa?.score ?? null, enhanced: !!a.enhanced, measured: a.qa?.measured ? { width: a.qa.measured.width, height: a.qa.measured.height, seconds: a.qa.measured.seconds ?? null } : null, reviewed: !!a.qa?.reviewed, fix: a.fix || '', res: a.kind === 'clip' ? clipRes(a.tier, a.res, a.vmodel) : null, photo: !!a.photo, model: a.kind === 'image' || a.kind === 'clip' ? pick(a.kind, a.tier, a.kind === 'clip' ? a.vmodel : a.imodel).name : null, redoCredits: a.kind === 'image' || a.photo ? imageCost(a.tier, a.imodel) : a.kind === 'clip' ? clipCost(a.tier, a.seconds, a.res, a.vmodel) : null, attempts: a.attempts || 0, error: a.error || '', at: a.at, doneAt: a.doneAt || null, by: a.by || null });

@@ -1,6 +1,6 @@
 // Studio's memory of each seller: what it has learned about how they like their ads, so the next script starts closer
 // to what they'd approve. One small record per seller (≤ 4 KB, every list capped, newest first):
-//   brand       their business name, brand colours, logo
+//   brand       their business name, brand colours, logo, lettering style (Designs)
 //   likes       look and tone they like (from script edits, feedback, or told directly)
 //   avoid       what not to do again (from redo notes, quality-check fixes they used, feedback)
 //   characters  the recurring people in their ads ({ name, look }), so faces and clothes stay the same across videos
@@ -16,6 +16,8 @@ import { LANGUAGES } from './voice.js';
 const CAP = { likes: 8, avoid: 10, characters: 3, wins: 5, colours: 3 };
 const LEN = { item: 100, name: 30, look: 200, title: 60, hook: 100 };
 const MAX_BYTES = 4096;
+// the brand's lettering in Designs (designs.js): sans (clean), serif (classic), display (heavy)
+const FONT_STYLES = ['sans', 'serif', 'display'];
 const FRAMES = ['9:16', '16:9', '1:1', '4:5'];
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : '');
@@ -69,6 +71,7 @@ export function remember(userId, p = {}) {
     if (b.name !== undefined) m.brand.name = clip(b.name, 80);
     if (b.colours !== undefined) m.brand.colours = add(m.brand.colours, [].concat(b.colours).map(hex).filter(Boolean), CAP.colours);
     if (b.logo !== undefined) m.brand.logo = ownLogo(userId, b.logo);
+    if (b.font !== undefined) { if (FONT_STYLES.includes(b.font)) m.brand.font = b.font; else delete m.brand.font; }
   }
   if (p.likes) m.likes = add(m.likes, items(p.likes), CAP.likes);
   if (p.avoid) m.avoid = add(m.avoid, items(p.avoid), CAP.avoid);
@@ -81,6 +84,7 @@ export function remember(userId, p = {}) {
 export function setMemory(userId, b = {}) {
   const m = memoryOf(userId);
   if (b.brand) m.brand = { name: b.brand.name !== undefined ? clip(b.brand.name, 80) : m.brand.name, colours: b.brand.colours !== undefined ? add([], [].concat(b.brand.colours).map(hex).filter(Boolean), CAP.colours) : m.brand.colours, logo: b.brand.logo !== undefined ? ownLogo(userId, b.brand.logo) : m.brand.logo };
+  if (b.brand) { const font = b.brand.font !== undefined ? b.brand.font : memoryOf(userId).brand.font; if (FONT_STYLES.includes(font)) m.brand.font = font; } // only when set (sans | serif | display)
   for (const k of ['likes', 'avoid']) if (b[k] !== undefined) m[k] = add([], items(b[k]), CAP[k]);
   if (b.characters !== undefined) m.characters = add([], [].concat(b.characters).map(person).filter((c) => c.name && c.look), CAP.characters);
   if (b.wins !== undefined) m.wins = add([], [].concat(b.wins).map((w) => ({ title: clip(w?.title, LEN.title), hook: clip(w?.hook, LEN.hook) })).filter((w) => w.title), CAP.wins);

@@ -19,6 +19,8 @@ import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
 import { memoryOf, setMemory, remember, forget, learn, withPrefs } from './memory.js';
 import { assessReel, assessPrompt, planHash } from './preflight.js';
+import { registerDesigns } from './design-routes.js';
+import { designView, designsTick } from './designs.js';
 
 // a Reel as the seller sees it: the script, each shot's still and clip, each voiceover line and its check, the result
 const brief = (a) => (a ? view(a) : null);
@@ -33,7 +35,7 @@ export function reelView(r) {
 // only for a few minutes (a restart mid-review leaves no notes, not a spinner forever)
 const editorNotes = (r) => ({ review: r.review || null, reviewing: !!r.reviewing && !r.review && Date.now() - (r.doneAt || 0) < 300000 });
 const planOf = (r) => planHash({ script: r.script, aspect: r.aspect, seconds: r.seconds });
-const anyView = (a) => (a.kind === 'reel' ? reelView(a) : view(a));
+const anyView = (a) => (a.kind === 'reel' ? reelView(a) : a.kind === 'design' ? designView(a) : view(a));
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 export const studioOn = (u) => !!u?.studio?.on;
@@ -55,7 +57,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
 
   app.get('/api/studio', auth, (req, res) => {
     // a Reel's own shots are shown inside the Reel, not again in the gallery
-    const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId).slice(0, 200);
+    const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId && !a.designId).slice(0, 200);
     res.json({ on: studioOn(req.user) && studioReady(), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], clipRes: CLIP_RES[id], imageCredits: imageCost(id), clipCreditsPer5s: Object.fromEntries(CLIP_RES[id].map((r) => [r, clipCost(id, 5, r)])), models: tierMenu(id) })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), assets: rows.map(anyView) });
   });
   // images: 1–4 at a time, from words, optionally keeping the seller's real product (their photo as the reference)
@@ -241,6 +243,9 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   });
   app.delete('/api/studio/memory', auth, (req, res) => { forget(req.user.id); res.json({ ok: true }); });
 
+  // ---------- Designs: words on pictures (design-routes.js) ----------
+  registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownUpload, who });
+
   // ---------- the platform admin ----------
   const A = [auth, adminMiddleware];
   app.get('/api/admin/studio', ...A, (req, res) => {
@@ -274,5 +279,5 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     audit(req, u.id, on ? 'studio_on' : 'studio_off');
     res.json({ on });
   });
-  if (isTest) app.post('/api/__test/studio-tick', async (req, res) => { const n = Number(req.body?.times) || 1; for (let i = 0; i < n; i++) { await tick(); await reelsTick(); } res.json({ ok: true }); });
+  if (isTest) app.post('/api/__test/studio-tick', async (req, res) => { const n = Number(req.body?.times) || 1; for (let i = 0; i < n; i++) { await tick(); await reelsTick(); await designsTick(); } res.json({ ok: true }); });
 }
