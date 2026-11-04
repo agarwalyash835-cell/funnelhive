@@ -90,7 +90,7 @@ export function backgroundPrompt(d) {
 // ---------- drawing ----------
 const UPLOADS = path.join(DATA_DIR, 'uploads');
 // the files behind a design's previous slides: removed when it's re-drawn (only the latest version is kept)
-async function dropOutputs(userId, outputs = []) {
+export async function dropOutputs(userId, outputs = []) {
   const { addStorage } = await import('../limits.js');
   for (const o of outputs) {
     const m = /\/uploads\/([\w-]+)\/(studio-[\w.-]+\.png)$/.exec(o?.url || '');

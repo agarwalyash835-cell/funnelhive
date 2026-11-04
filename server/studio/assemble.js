@@ -114,20 +114,25 @@ export async function fitDuration(video, seconds, out, { fps = 30, hold = false 
 // about 0.58 of the font size per character), so a long headline pushes the offer down instead of running into it.
 // A text that would take more than two lines is set smaller. With a picture they sit under it (it ends at 49% of the
 // height); without one, the block is centred. → [{ style, text, fs, top }]
+// A wide frame (16:9) with a picture puts the picture on the left and the words in a column on the right, larger —
+// the tall layout would leave them small under a short picture. → also each block's x (its centre).
+export const wideCard = (W, H, still) => !!still && W > H * 1.2;
 export function cardLayout(card, W, H, still) {
-  const usable = W - 120, gap = Math.round(H * 0.022), pad = Math.round(H * 0.018);
-  const lines = (text, fs) => Math.max(1, Math.ceil((String(text).length * fs * 0.58) / usable));
-  const blocks = [['Card', 0.046, card.headline], ['Card', 0.062, card.offer], ['Cta', 0.034, card.cta]].filter((b) => b[2]).map(([style, size, text]) => {
+  const wide = wideCard(W, H, still), k = wide ? 1.45 : 1, x = Math.round(wide ? W * 0.72 : W / 2);
+  const usable = wide ? Math.round(W * 0.4) : W - 120, gap = Math.round(H * 0.022 * k), pad = Math.round(H * 0.018 * k);
+  // each block broken into lines here, word by word to the column's width (the renderer would wrap to the whole frame);
+  // Noto Sans bold runs about 0.55 of the font size per character
+  const wrap = (text, fs) => { const max = Math.max(8, Math.floor(usable / (fs * 0.55))), out = []; for (const w of String(text).split(/\s+/)) { const l = out.at(-1); if (l && (l + ' ' + w).length <= max) out[out.length - 1] = `${l} ${w}`; else out.push(w); } return out; };
+  const blocks = [['Card', 0.046 * k, card.headline], ['Card', 0.062 * k, card.offer], ['Cta', 0.034 * k, card.cta]].filter((b) => b[2]).map(([style, size, text]) => {
     let fs = Math.round(H * size);
-    while (lines(text, fs) > 2 && fs > H * 0.022) fs = Math.round(fs * 0.9);
-    const n = lines(text, fs), box = style === 'Cta' ? pad * 2 : 0;
-    return { style, text, fs, h: Math.round(n * fs * 1.2) + box, box };
+    while (wrap(text, fs).length > 2 && fs > H * 0.022) fs = Math.round(fs * 0.9);
+    const lines = wrap(text, fs), box = style === 'Cta' ? pad * 2 : 0;
+    return { style, text, lines, fs, h: Math.round(lines.length * fs * 1.2) + box, box };
   });
   const total = blocks.reduce((t, b) => t + b.h, 0) + gap * Math.max(0, blocks.length - 1);
-  let top = still ? Math.round(Math.max(H * 0.53, Math.min(H * 0.58, H * 0.96 - total))) : Math.round((H - total) / 2);
-  return blocks.map((b) => { const at = top + b.box / 2; top += b.h + gap; return { style: b.style, text: b.text, fs: b.fs, top: Math.round(at) }; });
+  let top = still && !wide ? Math.round(Math.max(H * 0.53, Math.min(H * 0.58, H * 0.96 - total))) : Math.round((H - total) / 2);
+  return blocks.map((b) => { const at = top + b.box / 2; top += b.h + gap; return { style: b.style, text: b.text, lines: b.lines, fs: b.fs, top: Math.round(at), x }; });
 }
-// a still brought to life without an AI clip ("photo motion", free): a slow, eased zoom or pan over the picture, the
 // way an editor animates a photo. The picture is scaled to twice the frame first so the move stays smooth (zoompan
 // steps in whole pixels). move: in | out | left | right
 export const MOVES = ['in', 'right', 'out', 'left'];

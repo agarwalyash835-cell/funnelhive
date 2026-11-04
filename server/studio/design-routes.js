@@ -5,7 +5,14 @@ import { TIERS, TIER_NAMES, imageCost, modelKey } from './models.js';
 import { LANGUAGES } from './voice.js';
 import { newDesign, makeBackground, editDesign, zipDesign, designView, designHash, designsTick, templateMenu, formatMenu, renderDesign, GROUPS } from './designs.js';
 import { assessDesign } from './preflight.js';
-import { TEMPLATES } from './design-templates.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { TEMPLATES, draw } from './design-templates.js';
+import { FORMATS, FAMILIES, hexOk, tmpDir } from './typeset.js';
+import { memoryOf } from './memory.js';
+
+const SAMPLE_V = 1; // bump when the templates change, so their samples are drawn again
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 
@@ -29,6 +36,23 @@ export function registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownU
     const designs = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 400 }).filter((a) => a.kind === 'design').slice(0, 60);
     res.json({ templates: templateMenu(), formats: formatMenu(), groups: GROUPS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], credits: imageCost(id) })), designs: designs.map(designView) });
   });
+  // a template's look before anything is written: its sample words drawn in the seller's brand colours and lettering,
+  // on a colour field where the picture will go (free; kept on disk per template, size and look, so it's drawn once)
+  app.get('/api/studio/designs/templates/:tid/sample', auth, wrap(async (req, res) => {
+    const t = TEMPLATES[req.params.tid];
+    if (!t) return res.status(404).end();
+    const format = FORMATS[req.query.format] ? req.query.format : t.group === 'thumbnail' ? 'thumbnail' : 'square';
+    const brand = memoryOf(req.user.id)?.brand || {};
+    const colours = (brand.colours || []).filter(hexOk).slice(0, 3);
+    const family = FAMILIES.includes(brand.font) ? brand.font : undefined;
+    const file = path.join(tmpDir(), `sample-${createHash('sha1').update(JSON.stringify([req.params.tid, format, colours, family, SAMPLE_V])).digest('hex').slice(0, 16)}.png`);
+    if (!fs.existsSync(file)) {
+      const tmp = `${file}.${process.pid}.tmp.png`;
+      await draw({ format, template: req.params.tid, text: { ...t.sample, brand: brand.name || '' }, colours, family, slide: 0, slides: t.group === 'carousel' ? 5 : 1, out: tmp });
+      fs.renameSync(tmp, file);
+    }
+    res.set('Cache-Control', 'private, max-age=3600').type('png').sendFile(file);
+  }));
   app.get('/api/studio/designs/:id', auth, (req, res) => { const d = mine(req, res); if (d) res.json(designView(d)); });
 
   // a brief → the words (in the language asked) and a free preview; nothing is paid for yet

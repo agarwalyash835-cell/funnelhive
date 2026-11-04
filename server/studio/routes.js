@@ -24,7 +24,7 @@ import { clipRefs } from './cast.js';
 import { PRESENTER_STYLES, celebrityIn, CELEBRITY_ERROR, pickFace, setPresenter, presenterScenes } from './presenter.js';
 import { registerVariations } from './variations.js';
 import { registerDesigns } from './design-routes.js';
-import { designView, designsTick } from './designs.js';
+import { designView, designsTick, dropOutputs } from './designs.js';
 
 // a Reel as the seller sees it: the script, each shot's still and clip, each voiceover line and its check, the result
 const brief = (a) => (a ? view(a) : null);
@@ -251,6 +251,11 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.delete('/api/studio/assets/:id', auth, (req, res) => {
     const a = mine(req, res); if (!a) return;
     if (a.status === 'rendering') return res.status(409).json({ error: 'Wait for it to finish, then delete it' });
+    // a design takes its slide files and its background picture with it (the storage is given back)
+    if (a.kind === 'design') {
+      dropOutputs(a.userId, a.outputs).catch((e) => console.error('design files not removed', a.id, e.message));
+      for (const x of T.studio.all({ userId: a.userId })) if (x.designId === a.id && x.status !== 'rendering') T.studio.del(x.id);
+    }
     T.studio.del(a.id);
     res.json({ ok: true });
   });

@@ -17,14 +17,18 @@ const IDEAS = {
 };
 const toDataUrl = (f) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
 const CSS = `
-.dz{display:grid;grid-template-columns:minmax(260px,340px) 1fr;gap:18px;min-height:520px}
+.dz{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:18px;min-height:520px}
 .dz-col{display:flex;flex-direction:column;gap:12px;min-width:0}
 .dz label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600}
 .dz textarea,.dz input[type=text],.dz select{width:100%}
 .dz-kinds{display:flex;gap:6px;flex-wrap:wrap}
-.dz-tpls{display:grid;grid-template-columns:1fr 1fr;gap:6px;max-height:220px;overflow:auto}
+.dz-tpls{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:420px;overflow:auto;padding:2px}
 .dz-tpl{text-align:left;border:1px solid var(--border,#ddd);border-radius:10px;padding:8px;background:var(--card,#fff);cursor:pointer;font-size:12px;line-height:1.3}
-.dz-tpl b{display:block;font-size:13px}
+.dz-tpl b{display:block;font-size:12.5px;margin-top:6px}
+.dz-thumb{display:grid;place-items:center;width:100%;aspect-ratio:1/1;border-radius:7px;overflow:hidden;background:var(--c-surface-2,#f3f3f3)}
+.dz-thumb.portrait{aspect-ratio:4/5}.dz-thumb.story{aspect-ratio:9/16}.dz-thumb.thumbnail{aspect-ratio:16/9}
+.dz-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .25s}
+.dz-tpl:hover .dz-thumb img{transform:scale(1.04)}
 .dz-tpl.on{border-color:var(--accent,#6d28d9);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#6d28d9) 25%,transparent)}
 .dz-slides{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}
 .dz-slide{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
@@ -40,6 +44,21 @@ const CSS = `
 .dz-sw{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 @media (max-width:760px){.dz{grid-template-columns:1fr}}
 `;
+
+// a template's look, drawn by the server with its sample words in the seller's brand (signed in, so fetched, not linked)
+const sampleCache = new Map();
+function Sample({ id, format }) {
+  const key = `${id}|${format}`;
+  const [url, setUrl] = useState(sampleCache.get(key) || '');
+  useEffect(() => {
+    if (sampleCache.has(key)) { setUrl(sampleCache.get(key)); return undefined; }
+    let live = true;
+    fetch(`/api/studio/designs/templates/${id}/sample?format=${format}`, { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token') || ''}` } })
+      .then((r) => (r.ok ? r.blob() : null)).then((b) => { if (!b) return; const u = URL.createObjectURL(b); sampleCache.set(key, u); if (live) setUrl(u); }).catch(() => {});
+    return () => { live = false; };
+  }, [key]);
+  return <span className={`dz-thumb ${format}`}>{url ? <img src={url} alt="" loading="lazy" /> : <i className="spin dark" />}</span>;
+}
 
 export function Designs({ onClose }) {
   const [menu, setMenu] = useState(null);
@@ -108,7 +127,7 @@ export function Designs({ onClose }) {
           {kind !== 'carousel' && (
             <div className="dz-tpls" role="listbox" aria-label="Template">
               <button type="button" className={`dz-tpl ${!v.template ? 'on' : ''}`} onClick={() => set({ template: '' })}><b>Let Studio pick</b>The best layout for your brief</button>
-              {templates.map((t) => <button key={t.id} type="button" className={`dz-tpl ${v.template === t.id ? 'on' : ''}`} onClick={() => set({ template: t.id })}><b>{t.name}</b>{t.note}</button>)}
+              {templates.map((t) => <button key={t.id} type="button" className={`dz-tpl ${v.template === t.id ? 'on' : ''}`} title={t.note} onClick={() => set({ template: t.id })}><Sample id={t.id} format={kind === 'thumbnail' ? 'thumbnail' : v.format === 'story' ? 'story' : v.format === 'portrait' ? 'portrait' : 'square'} /><b>{t.name}</b></button>)}
             </div>
           )}
           <label>What is it for?<textarea rows={3} maxLength={1500} value={v.brief} placeholder={IDEAS[kind][0]} onChange={(e) => set({ brief: e.target.value })} /></label>

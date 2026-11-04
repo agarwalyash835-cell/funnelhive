@@ -226,7 +226,8 @@ test('the closing card: a long headline wraps and pushes the offer down — noth
     assert.equal(b.length, 3);
     for (let i = 1; i < b.length; i++) assert.ok(b[i].top > b[i - 1].top + b[i - 1].fs * 1.1, `${W}x${H} block ${i} starts below the one above`);
     assert.ok(b.at(-1).top < H * 0.97, `${W}x${H} fits`);
-    if (still) assert.ok(b[0].top >= H * 0.5, 'under the picture');
+    if (still && W > H * 1.2) assert.ok(b.every((x) => x.x > W / 2 && x.lines.every((l) => l.length * x.fs * 0.55 <= W * 0.42)), 'wide: beside the picture, inside its column');
+    else if (still) assert.ok(b[0].top >= H * 0.5, 'under the picture');
   }
 });
 

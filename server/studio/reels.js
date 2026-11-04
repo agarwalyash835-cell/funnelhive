@@ -16,7 +16,7 @@ import { runTask, studioReady } from './kie.js';
 import { enqueue } from './jobs.js';
 import { localCopy, save, rm, ffmpeg, tmpFile, probe } from './media.js';
 import { makeLine, checkLine, sarvamTranscriber, applyPronunciations, LANGUAGES, langBase } from './voice.js';
-import { render, dims, stillMotion, moveFor, cardLayout } from './assemble.js';
+import { render, dims, stillMotion, moveFor, cardLayout, wideCard } from './assemble.js';
 import { makeMusic, MUSIC_MODEL } from './music.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
@@ -268,13 +268,13 @@ export async function makeCard(card, colour, aspect, still = null) {
     // the call to action as a button: dark text on an opaque box in the brand colour (yellow without one)
     `Style: Cta,Noto Sans,60,${/^#(ffd|fff|fe|fd|fc)/i.test(button) ? '&H00111111' : '&H00FFFFFF'},&H00FFFFFF,${assHex(button)},&H00000000,-1,0,0,0,100,100,0,0,3,${Math.round(H * 0.018)},0,5,60,60,60,1`,
   ];
-  const events = cardLayout(card, W, H, !!still).map((b) => `Dialogue: 0,0:00:00.00,0:00:05.00,${b.style},,0,0,0,,{\\an8\\pos(${W / 2},${b.top})\\fs${b.fs}}${assEsc(b.text)}`);
+  const events = cardLayout(card, W, H, !!still).map((b) => `Dialogue: 0,0:00:00.00,0:00:05.00,${b.style},,0,0,0,,{\\an8\\pos(${b.x},${b.top})\\fs${b.fs}}${b.lines.map(assEsc).join('\\N')}`);
   fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`);
   const fileArg = ass.replace(/\\/g, '/').replace(/^([A-Za-z]):/, '$1\\:');
   if (still) {
-    // the sharp copy: as big as fits in the top part, whatever its shape
-    const fw = Math.round(W * 0.72), fh = Math.round(H * 0.44);
-    await ffmpeg(['-i', still, '-frames:v', '1', '-filter_complex', `[0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:2,eq=brightness=-0.3:saturation=1.15[bg];[0]scale=${fw}:${fh}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:${Math.round(H * 0.27)}-h/2,ass='${fileArg}'`, png], { timeoutMs: 60000 });
+    // the sharp copy: as big as fits in the top part, whatever its shape (in a wide frame: the left side)
+    const wide = wideCard(W, H, still), fw = Math.round(W * (wide ? 0.46 : 0.72)), fh = Math.round(H * (wide ? 0.8 : 0.44));
+    await ffmpeg(['-i', still, '-frames:v', '1', '-filter_complex', `[0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:2,eq=brightness=-0.3:saturation=1.15[bg];[0]scale=${fw}:${fh}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=${wide ? `${Math.round(W * 0.27)}-w/2:(H-h)/2` : `(W-w)/2:${Math.round(H * 0.27)}-h/2`},ass='${fileArg}'`, png], { timeoutMs: 60000 });
   }
   if (!fs.existsSync(png)) await ffmpeg(['-f', 'lavfi', '-i', `color=c=${hex}:s=${W}x${H}:d=1`, '-frames:v', '1', '-vf', `ass='${fileArg}'`, png], { timeoutMs: 60000 });
   rm(ass);

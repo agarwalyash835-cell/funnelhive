@@ -185,3 +185,13 @@ test('only the seller’s own pictures, and only their own designs', async () =>
   assert.equal((await api(`/studio/designs/${did}`, 'GET', null, other)).status, 404);
   assert.equal((await api(`/studio/designs/${did}`, 'PUT', { text: { headline: 'x' } }, other)).status, 404);
 });
+
+test('deleting a design removes its slide files and its background picture', async () => {
+  const d = (await api('/studio/designs', 'POST', { brief: 'Diwali greeting from our store', group: 'post', template: 'festive-greeting', format: 'square', lang: 'en', bg: 'none' }, S)).data;
+  const files = (d.slides || []).map((s) => s.url).filter(Boolean);
+  assert.ok(files.length, JSON.stringify(d).slice(0, 300));
+  assert.equal((await api(`/studio/assets/${d.id}`, 'DELETE', null, S)).status, 200);
+  await new Promise((r) => setTimeout(r, 300));
+  for (const u of files) assert.equal(fs.existsSync(path.join(srv.dataDir, 'uploads', ...u.split('/').slice(2))), false, `${u} removed`);
+  assert.equal((await api(`/studio/designs/${d.id}`, 'GET', null, S)).status, 404);
+});
