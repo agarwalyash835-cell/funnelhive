@@ -124,6 +124,7 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
     if (!(await connections(req.user)).some((c) => c.id === req.params.id)) return res.status(404).json({ error: 'Connection not found' });
     const gone = (await connections(req.user)).find((c) => c.id === req.params.id);
     if (gone?.app === 'metaads') setChannel(req.user.id, 'metaApp', undefined); // no more pixel / spend through it
+    if (gone?.app === 'googleads') setChannel(req.user.id, 'googleApp', undefined);
     await call('DELETE', `/connected_accounts/${encodeURIComponent(req.params.id)}?revoke_on_delete=true`).catch(() => call('DELETE', `/connected_accounts/${encodeURIComponent(req.params.id)}`));
     res.json({ ok: true });
   }));
@@ -167,6 +168,31 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
     import('./adspend.js').then((m) => m.syncMeta(u)).catch(() => {}); // first spend pull in the background
     res.json({ selected: metaView(u), pixelOnPages: u.settings?.tracking?.fbPixel === p?.id });
   }));
+  // Google Ads setup: the ad accounts this Google login can run ads in, and which are picked
+  app.get('/api/integrations/google', auth, limiter, wrap(async (req, res) => {
+    if (!ready(res)) return;
+    if (!(await activeApps(req.user)).has('googleads')) return res.json({ connected: false, selected: null, accounts: [] });
+    const out = { connected: true, selected: googleView(req.user), accounts: [] };
+    try { out.accounts = await googleAccounts(req.user); } catch (e) { out.error = e.message; }
+    res.json(out);
+  }));
+  app.put('/api/integrations/google', auth, limiter, wrap(async (req, res) => {
+    if (!ready(res)) return;
+    if (req.body?.clear) { setChannel(req.user.id, 'googleApp', undefined); return res.json({ selected: null }); }
+    const account = gId(req.body?.account);
+    const more = [...new Set((Array.isArray(req.body?.accounts) ? req.body.accounts : []).map(gId))].filter((x) => x && x !== account);
+    if (!/^\d{6,12}$/.test(account)) return res.status(400).json({ error: 'Pick an ad account' });
+    if (more.length > MAX_ACCOUNTS - 1 || more.some((x) => !/^\d{6,12}$/.test(x))) return res.status(400).json({ error: `Pick up to ${MAX_ACCOUNTS} ad accounts` });
+    if (!(await activeApps(req.user)).has('googleads')) return res.status(400).json({ error: 'Connect Google Ads first' });
+    let accounts;
+    try { accounts = await googleAccounts(req.user); } catch (e) { return res.status(400).json({ error: e.message }); }
+    const picked = [account, ...more].map((id) => accounts.find((x) => x.id === id));
+    if (picked.some((x) => !x)) return res.status(400).json({ error: 'That ad account isn’t in your Google Ads connection' });
+    const [a] = picked;
+    const u = setChannel(req.user.id, 'googleApp', { account, accountName: a.name, currency: a.currency, accounts: picked.map((x) => ({ account: x.id, accountName: x.name, ...(x.manager ? { manager: x.manager } : {}) })), at: Date.now() });
+    import('./adspend.js').then((m) => m.syncGoogle(u)).catch(() => {}); // first spend pull in the background
+    res.json({ selected: googleView(u) });
+  }));
   // Hive: the tools of the seller's connected apps, best matches for what it's looking for first
   app.get('/api/integrations/tools', auth, limiter, wrap(async (req, res) => {
     if (!ready(res)) return;
@@ -176,7 +202,8 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
     const all = (await Promise.all(on.map(toolsOf))).flat();
     const score = (t) => words.reduce((n, w) => n + (`${t.slug} ${t.name} ${t.description}`.toLowerCase().includes(w) ? 1 : 0), 0);
     const pick = words.length ? all.map((t) => [score(t), t]).filter(([s]) => s > 0).sort((x, y) => y[0] - x[0]).map(([, t]) => t) : all;
-    res.json({ connected: on.map((a) => APPS[a].name), tools: pick.slice(0, Number(req.query.limit) || 12).map((t) => ({ slug: t.slug, description: t.description, readOnly: readOnlyAction(t.slug), ...(req.query.schemas === '1' ? { input: t.input } : {}) })) });
+    const g = on.includes('googleads') && googleView(req.user);
+    res.json({ connected: on.map((a) => APPS[a].name), ...(g ? { googleAdsAccount: { id: g.account, name: g.accountName, currency: g.currency, others: g.accounts.slice(1), note: 'Google Ads actions use this account when customer_id is left out' } } : {}), tools: pick.slice(0, Number(req.query.limit) || 12).map((t) => ({ slug: t.slug, description: t.description, readOnly: readOnlyAction(t.slug), ...(req.query.schemas === '1' ? { input: t.input } : {}) })) });
   }));
   app.post('/api/integrations/run', auth, limiter, wrap(async (req, res) => {
     if (!ready(res)) return;
@@ -184,10 +211,15 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
     const a = appOf(slug);
     if (!a || !enabledApps().includes(a)) return res.status(400).json({ error: 'That action isn’t available' });
     if (!(await activeApps(req.user)).has(a)) return res.status(400).json({ error: `Connect ${APPS[a].name} first — Settings → Apps & ads` });
-    if (!(await toolsOf(a)).some((t) => t.slug === slug)) return res.status(400).json({ error: `Unknown action ${slug}` });
+    const tool = (await toolsOf(a)).find((t) => t.slug === slug);
+    if (!tool) return res.status(400).json({ error: `Unknown action ${slug}` });
+    const args = safeArgs(slug, req.body?.arguments);
+    // Google Ads: the account the seller picked, unless the action names another
+    const g = a === 'googleads' && req.user.channels?.googleApp?.account;
+    if (g && tool.input?.properties?.customer_id && !gId(args.customer_id)) args.customer_id = g;
     try {
       chargeCall(req.user.id);
-      const r = await call('POST', `/tools/execute/${slug}`, { user_id: uidOf(req.user), arguments: safeArgs(slug, req.body?.arguments) });
+      const r = await call('POST', `/tools/execute/${slug}`, { user_id: uidOf(req.user), arguments: args });
       res.json({ ok: !!r.successful, data: r.data ?? null, error: r.successful ? null : (typeof r.error === 'string' ? r.error : r.error?.message || 'The app returned an error') });
     } catch (e) { res.status(e.credits ? 402 : e.status === 429 ? 429 : 400).json({ error: e.message, ...(e.credits ? { credits: true } : {}) }); }
   }));
@@ -200,9 +232,47 @@ export function registerComposio(app, { auth, wrap, rateLimit, isTest, appUrl })
 export async function runAs(userId, slug, args) {
   chargeCall(userId);
   const r = await call('POST', `/tools/execute/${slug}`, { user_id: `fh_${userId}`, arguments: args });
-  if (!r.successful) throw Object.assign(new Error(String(typeof r.error === 'string' ? r.error : r.error?.message || 'Meta returned an error').slice(0, 300)), { tool: true });
+  if (!r.successful) throw Object.assign(new Error(String(typeof r.error === 'string' ? r.error : r.error?.message || `${slug.startsWith('GOOGLEADS') ? 'Google Ads' : 'Meta'} returned an error`).slice(0, 300)), { tool: true });
   return r.data || {};
 }
+
+// ---------- Google Ads, set up once ----------
+// After connecting Google Ads the seller picks the ad account(s) (u.channels.googleApp): Hive works in the main one
+// unless asked otherwise, and spend from every picked account is pulled daily for ROAS (adspend.js).
+const gId = (x) => String(x ?? '').replace(/\D/g, '');
+// GAQL answers come as { results } or as streamed batches [{ results }], with camelCase (REST) or snake_case names
+export function gaqlRows(d) {
+  const data = d?.results ? d : (d?.data ?? d);
+  if (Array.isArray(data)) return data.flatMap((b) => b?.results || []);
+  return data?.results || [];
+}
+export const gaql = (userId, customerId, query) => runAs(userId, 'GOOGLEADS_SEARCH_STREAM_GAQL', { customer_id: customerId, query }).then(gaqlRows);
+const MAX_GOOGLE_LOOKUPS = 10;
+// the ad accounts this Google login can run ads in: its own accounts, and the client accounts under a manager (MCC)
+export async function googleAccounts(u) {
+  const d = await runAs(u.id, 'GOOGLEADS_LIST_ACCESSIBLE_CUSTOMERS', {});
+  const names = d.resourceNames || d.resource_names || d.customers || d.results || [];
+  const ids = [...new Set(names.map((x) => gId(typeof x === 'string' ? x : x?.resourceName || x?.resource_name || x?.id)))].filter((x) => /^\d{6,12}$/.test(x)).slice(0, MAX_GOOGLE_LOOKUPS);
+  const out = new Map();
+  for (const id of ids) {
+    let c;
+    try { c = (await gaql(u.id, id, 'SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.manager FROM customer LIMIT 1'))[0]?.customer; } catch { continue; } // listed but not openable with this login
+    if (!c) continue;
+    if (!c.manager) { if (!out.has(id)) out.set(id, { id, name: c.descriptiveName || c.descriptive_name || '', currency: c.currencyCode || c.currency_code || '' }); continue; }
+    try {
+      for (const r of await gaql(u.id, id, "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager FROM customer_client WHERE customer_client.level <= 1 AND customer_client.status = 'ENABLED'")) {
+        const cc = r.customerClient || r.customer_client || {};
+        const cid = gId(cc.id);
+        if (cid && !cc.manager && !out.has(cid)) out.set(cid, { id: cid, name: cc.descriptiveName || cc.descriptive_name || '', currency: cc.currencyCode || cc.currency_code || '', manager: id });
+      }
+    } catch {}
+  }
+  // nothing could be opened (e.g. the developer token only has test access): the ids still show, so one can be picked
+  return out.size ? [...out.values()] : ids.map((id) => ({ id, name: '', currency: '' }));
+}
+// the picked accounts (the main one first)
+export const googleAccountsOf = (g) => (g?.accounts?.length ? g.accounts.map((x) => x.account) : g?.account ? [g.account] : []);
+export const googleView = (u) => { const g = u.channels?.googleApp; return g ? { account: g.account, accountName: g.accountName || '', currency: g.currency || '', accounts: googleAccountsOf(g), syncedAt: g.syncedAt || null, error: g.error || '' } : null; };
 // a plain GET to the app's own API through the seller's connection (Composio's proxy), for what no action covers
 // (Meta: ad creatives' thumbnails)
 export async function proxyAs(userId, app, endpoint) {

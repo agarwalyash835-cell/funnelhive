@@ -9,7 +9,7 @@
 // Ads Manager meets ?utm_campaign=diwali-sale.
 import { T, q, tx, uid, JOBS } from './db.js';
 import { encrypt, decrypt, setChannel } from './messaging.js';
-import { composioReady, runAs, proxyAs, USE_META_CONNECTION, metaAccountsOf } from './composio.js';
+import { composioReady, runAs, proxyAs, USE_META_CONNECTION, metaAccountsOf, gaql, googleAccountsOf } from './composio.js';
 
 const GRAPH = () => (process.env.META_GRAPH_URL || 'https://graph.facebook.com').replace(/\/$/, '');
 const VER = 'v21.0';
@@ -99,6 +99,29 @@ export async function syncMeta(u, days = 30) {
   return n;
 }
 
+// ---------- Google Ads (through the seller's Google Ads connection) ----------
+// spend per campaign per day from every picked account. Google reports cost in micros (₹1 = 1,000,000). All or
+// nothing, like Meta: one account failing stores nothing rather than dropping that account's spend.
+export const googleRow = (r) => ({
+  date: r.segments?.date, campaign: r.campaign?.name || '',
+  spend: (Number(r.metrics?.costMicros ?? r.metrics?.cost_micros) || 0) / 1e6,
+  currency: r.customer?.currencyCode || r.customer?.currency_code || 'INR',
+});
+const googleOn = (u) => composioReady() && !!u.channels?.googleApp?.account;
+export async function syncGoogle(u, days = 30) {
+  if (!googleOn(u)) return 0;
+  const since = ymd(Date.now() - (days - 1) * DAY), until = ymd(Date.now()), rows = [];
+  try {
+    for (const account of googleAccountsOf(u.channels.googleApp)) {
+      const res = await gaql(u.id, account, `SELECT segments.date, campaign.name, customer.currency_code, metrics.cost_micros FROM campaign WHERE segments.date BETWEEN '${since}' AND '${until}' AND metrics.cost_micros > 0`);
+      for (const r of res) rows.push(googleRow(r));
+    }
+  } catch (e) { T.users.update(u.id, (x) => { if (x.channels?.googleApp) x.channels.googleApp.error = e.message; }); throw e; }
+  const n = store(u.id, 'google', rows.filter((r) => r.date && r.campaign));
+  T.users.update(u.id, (x) => { if (x.channels?.googleApp) x.channels.googleApp = { ...x.channels.googleApp, syncedAt: Date.now(), error: '' }; });
+  return n;
+}
+
 // each ad's creative (thumbnail, headline, text), fetched 50 ads at a time and kept in adcreatives (one row per ad,
 // refreshed weekly — Meta's thumbnail links expire)
 async function saveThumbs(userId, rows, fetchIds) {
@@ -174,8 +197,13 @@ export function registerAdSpend(app, { auth, wrap }) {
     const m = req.user.channels?.metaAds || {};
     const last = q("SELECT json_extract(data, '$.platform') AS p, MAX(json_extract(data, '$.date')) AS d, COUNT(*) AS n FROM adspend WHERE userId = ? GROUP BY p").all(req.user.id);
     const a = appSpend(req.user) ? req.user.channels.metaApp : null;
-    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, accounts: metaAccountsOf(a), syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, apps: composioReady(), platforms: last });
+    const g = googleOn(req.user) ? req.user.channels.googleApp : null;
+    res.json({ meta: a ? { connected: true, via: 'apps', account: a.account, accounts: metaAccountsOf(a), syncedAt: a.syncedAt || null, error: a.error || '' } : { connected: !!m.tokenEnc, account: m.account || '', syncedAt: m.syncedAt || null, error: m.error || '' }, google: g ? { connected: true, accounts: googleAccountsOf(g), syncedAt: g.syncedAt || null, error: g.error || '' } : { connected: false }, apps: composioReady(), platforms: last });
   });
+  app.post('/api/adspend/google/sync', auth, wrap(async (req, res) => {
+    if (!googleOn(req.user)) return res.status(400).json({ error: 'Connect Google Ads in Apps & ads and pick your ad account first' });
+    try { res.json({ rows: await syncGoogle(req.user, Math.min(90, Number(req.body?.days) || 30)) }); } catch (e) { res.status(400).json({ error: e.message }); }
+  }));
   app.put('/api/adspend/meta', auth, wrap(async (req, res) => {
     const b = req.body || {};
     if (b.clear) { setChannel(req.user.id, 'metaAds', undefined); q("DELETE FROM adspend WHERE userId = ? AND json_extract(data, '$.platform') = 'meta'").run(req.user.id); return res.json({ ok: true }); }
@@ -200,10 +228,11 @@ export function registerAdSpend(app, { auth, wrap }) {
   });
   app.delete('/api/adspend/:platform', auth, (req, res) => { res.json({ deleted: q("DELETE FROM adspend WHERE userId = ? AND json_extract(data, '$.platform') = ?").run(req.user.id, String(req.params.platform)).changes }); });
 
-  // daily Meta sync for everyone connected
+  // daily Meta and Google sync for everyone connected
   const job = async () => {
-    for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.channels.metaAds.tokenEnc') IS NOT NULL OR json_extract(data, '$.channels.metaApp.account') IS NOT NULL").all()) {
+    for (const row of q("SELECT data FROM users WHERE json_extract(data, '$.channels.metaAds.tokenEnc') IS NOT NULL OR json_extract(data, '$.channels.metaApp.account') IS NOT NULL OR json_extract(data, '$.channels.googleApp.account') IS NOT NULL").all()) {
       const u = JSON.parse(row.data);
+      if (googleOn(u) && Date.now() - (u.channels.googleApp.syncedAt || 0) >= 20 * 3600000) { try { await syncGoogle(u, 7); } catch {} } // the error is kept on googleApp
       const app = appSpend(u);
       if (!app && !u.channels.metaAds?.tokenEnc) continue;
       if (Date.now() - ((app ? u.channels.metaApp : u.channels.metaAds).syncedAt || 0) < 20 * 3600000) continue;

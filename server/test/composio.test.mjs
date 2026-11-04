@@ -23,14 +23,22 @@ before(async () => {
       const p = url.pathname.replace('/api/v3.1', '');
       if (p === '/auth_configs' && req.method === 'GET') return send(200, { items: url.searchParams.get('toolkit_slug') === 'metaads' ? [{ id: 'ac_meta', status: 'ENABLED' }] : [] });
       if (p === '/auth_configs' && req.method === 'POST') return send(201, { auth_config: { id: `ac_${body.toolkit.slug}` } });
-      if (p === '/connected_accounts/link') { connected.push({ id: 'ca_1', status: 'ACTIVE', toolkit: { slug: 'metaads' }, user_id: body.user_id, created_at: 'now' }); return send(201, { redirect_url: 'https://connect.composio.dev/link/abc' }); }
+      if (p === '/connected_accounts/link') { const g = body.auth_config_id === 'ac_googleads'; connected.push({ id: g ? 'ca_g' : 'ca_1', status: 'ACTIVE', toolkit: { slug: g ? 'googleads' : 'metaads' }, user_id: body.user_id, created_at: 'now' }); return send(201, { redirect_url: 'https://connect.composio.dev/link/abc' }); }
       if (p === '/connected_accounts' && req.method === 'GET') return send(200, { items: connected.filter((c) => c.user_id === url.searchParams.get('user_ids')) });
       if (p.startsWith('/connected_accounts/') && req.method === 'DELETE') { connected = connected.filter((c) => `/connected_accounts/${c.id}` !== p); return send(200, { success: true }); }
       if (p === '/tools') return send(200, { items: url.searchParams.get('toolkit_slug') === 'metaads' ? [
         { slug: 'METAADS_GET_INSIGHTS', name: 'Get insights', description: 'Campaign performance insights', input_parameters: { properties: { object_id: {} } } },
         { slug: 'METAADS_CREATE_CAMPAIGN', name: 'Create campaign', description: 'Create a campaign', input_parameters: { properties: { name: {}, status: {} } } },
-      ] : [{ slug: 'GOOGLEADS_SEARCH_STREAM_GAQL', name: 'Search', description: 'Google Ads report' }] });
+      ] : [{ slug: 'GOOGLEADS_SEARCH_STREAM_GAQL', name: 'Search', description: 'Google Ads report', input_parameters: { properties: { query: {}, customer_id: {} } } }, { slug: 'GOOGLEADS_LIST_ACCESSIBLE_CUSTOMERS', name: 'List customers', description: 'Accessible accounts', input_parameters: { properties: { customer_id: {} } } }] });
       const slug = p.split('/').pop();
+      // Google Ads: one own account, and a manager (MCC) with one client account under it
+      if (slug === 'GOOGLEADS_LIST_ACCESSIBLE_CUSTOMERS') return send(200, { successful: true, data: { resourceNames: ['customers/1234567890', 'customers/5550001111'] } });
+      if (slug === 'GOOGLEADS_SEARCH_STREAM_GAQL') {
+        const { query: gq = '', customer_id: cid } = body.arguments;
+        if (/FROM customer_client/.test(gq) && cid === '5550001111') return send(200, { successful: true, data: { results: [{ customerClient: { id: '7770002222', descriptiveName: 'Client Co', currencyCode: 'INR', manager: false } }] } });
+        if (/FROM customer LIMIT/.test(gq)) return send(200, { successful: true, data: [{ results: [{ customer: cid === '5550001111' ? { id: cid, descriptiveName: 'Agency MCC', manager: true } : { id: cid, descriptiveName: 'Asha Search', currencyCode: 'INR', manager: false } }] }] });
+        if (/FROM campaign WHERE segments\.date BETWEEN/.test(gq)) return send(200, { successful: true, data: { results: cid === '7770002222' ? [{ segments: { date: '2026-10-21' }, campaign: { name: 'Client Brand' }, customer: { currencyCode: 'INR' }, metrics: { costMicros: '300000000' } }] : [{ segments: { date: '2026-10-20' }, campaign: { name: 'Diwali Search' }, customer: { currencyCode: 'INR' }, metrics: { costMicros: '1250500000' } }] } });
+      }
       if (slug === 'METAADS_GET_AD_ACCOUNTS') return send(200, { successful: true, data: { data: [{ id: 'act_1111111', account_id: '1111111', name: 'Asha Studio' }, ...(twoAccounts.has(body.user_id) ? [{ id: 'act_4444444', account_id: '4444444', name: 'Asha Kids' }] : [])] } });
       if (slug === 'METAADS_LIST_AD_ACCOUNT_PIXELS') return send(200, { successful: true, data: { pixels: body.arguments.ad_account_id === '4444444' ? [{ id: '5555555', name: 'Kids pixel' }] : [{ id: '2222222', name: 'Main pixel' }] } });
       if (slug === 'METAADS_GET_INSIGHTS' && body.arguments.object_id === 'act_4444444') return send(200, { successful: true, data: { data: [{ date_start: '2026-10-20', campaign_name: 'Kids Launch', adset_name: 'Parents', ad_name: 'Reel K', ad_id: '130001', spend: '700' }] } });
@@ -210,4 +218,35 @@ test('more brands: spend syncs from every picked ad account, and a funnel can fi
   await api(`/public/${g.slug}/lead`, 'POST', { stepId: g.steps[0].id, email: 'kids@example.com', name: 'Asha', eventId: 'lead-kids-123456' });
   assert.ok(await until(() => mine().includes('5555555')), 'the funnel’s own pixel, through the connection');
   assert.ok(!mine().includes('2222222'), 'never the main pixel instead');
+});
+
+test('Google Ads: pick the ad account (own or under a manager), Hive works in it, and its spend syncs daily', async () => {
+  const on = await api('/admin/settings', 'PUT', { composio: { apps: ['metaads', 'googleads'] } }, ADMIN);
+  assert.deepEqual(on.data.composio.apps, ['metaads', 'googleads']);
+  const T6 = (await register(api)).token, id6 = (await api('/me', 'GET', null, T6)).data.id;
+  assert.equal((await api('/integrations/google', 'GET', null, T6)).data.connected, false);
+  await api('/integrations/googleads/connect', 'POST', {}, T6);
+  const opts = (await api('/integrations/google', 'GET', null, T6)).data;
+  assert.equal(opts.connected, true);
+  assert.deepEqual(opts.accounts.map((a) => [a.id, a.name, a.manager || '']), [['1234567890', 'Asha Search', ''], ['7770002222', 'Client Co', '5550001111']], 'the manager itself is not pickable, its client account is');
+  assert.equal((await api('/integrations/google', 'PUT', { account: '9999999999' }, T6)).status, 400, 'an account from elsewhere is refused');
+  const saved = (await api('/integrations/google', 'PUT', { account: '123-456-7890', accounts: ['7770002222'] }, T6)).data;
+  assert.deepEqual([saved.selected.account, saved.selected.accounts], ['1234567890', ['1234567890', '7770002222']]);
+  // spend from both accounts (micros → rupees), next to the other platforms
+  assert.equal((await api('/adspend/google/sync', 'POST', { days: 30 }, T6)).data.rows, 2);
+  const sp = (await api('/adspend', 'GET', null, T6)).data;
+  assert.deepEqual([sp.google.connected, sp.google.accounts], [true, ['1234567890', '7770002222']]);
+  assert.ok(sp.platforms.some((p) => p.p === 'google' && p.n === 2));
+  // Hive: the picked account is shown and used when the action doesn't name one
+  const tools = (await api('/integrations/tools?q=report', 'GET', null, T6)).data;
+  assert.equal(tools.googleAdsAccount.id, '1234567890');
+  const ran = (await api('/integrations/run', 'POST', { slug: 'GOOGLEADS_SEARCH_STREAM_GAQL', arguments: { query: 'SELECT campaign.name FROM campaign' } }, T6)).data;
+  assert.equal(ran.data.args.customer_id, '1234567890');
+  assert.equal(ran.data.user, `fh_${id6}`);
+  const other = (await api('/integrations/run', 'POST', { slug: 'GOOGLEADS_SEARCH_STREAM_GAQL', arguments: { query: 'SELECT campaign.name FROM campaign', customer_id: '7770002222' } }, T6)).data;
+  assert.equal(other.data.args.customer_id, '7770002222', 'another of their accounts when asked');
+  // disconnecting Google Ads clears the pick
+  await api('/integrations/connections/ca_g', 'DELETE', null, T6);
+  assert.equal((await api('/adspend', 'GET', null, T6)).data.google.connected, false);
+  await api('/admin/settings', 'PUT', { composio: { apps: ['metaads'] } }, ADMIN);
 });

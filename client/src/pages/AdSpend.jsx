@@ -37,8 +37,16 @@ export function AdSpendPanel() {
         </>}
         <p className="hint">Synced every day (the last 7 days are refreshed, so late-arriving spend is corrected).{d.meta.via !== 'apps' && (d.apps ? ' Connect Meta Ads in Apps & ads above and pick your ad account to start — no token needed.' : ' Easier: connect Meta Ads in Apps & ads above and pick your ad account — no token needed.')}</p>
       </div>
+      {d.apps && <div className="rzp">
+        <div className="rzp-h"><b>Google Ads</b>{d.google?.connected ? <span className="pill ok">Synced {d.google.syncedAt ? ago(d.google.syncedAt) : ''}</span> : <span className="pill">Not connected</span>}</div>
+        {d.google?.error && <p className="hint warn-t">{d.google.error}</p>}
+        {d.google?.connected ? <>
+          <p className="hint ok-t">Pulled through your Google Ads connection (Apps &amp; ads above) — account{d.google.accounts?.length > 1 ? 's' : ''} {d.google.accounts.join(', ')}. Synced daily; it replaces Google Ads CSV uploads for the same days.</p>
+          <div className="row"><button className="btn ghost" onClick={async () => { try { const r = await api('/adspend/google/sync', 'POST', { days: 30 }); toast(`Synced ${r.rows} rows`); load(); } catch (e) { toast(e.message); } }}>Sync now</button></div>
+        </> : <p className="hint">Connect Google Ads in Apps &amp; ads above and pick your ad account — spend then syncs every day, no CSV needed.</p>}
+      </div>}
       <div className="rzp">
-        <div className="rzp-h"><b>Google Ads & others (CSV)</b></div>
+        <div className="rzp-h"><b>{d.apps ? 'Other networks (CSV)' : 'Google Ads & others (CSV)'}</b></div>
         <p className="hint">Google Ads → Campaigns → Download → CSV, with the <b>Day</b> segment added. Any file with date, campaign and cost columns works (YouTube, LinkedIn, TikTok…). Uploading a day again replaces it.</p>
         <div className="row"><select value={platform} onChange={(e) => setPlatform(e.target.value)}>{[['google', 'Google Ads'], ['youtube', 'YouTube'], ['linkedin', 'LinkedIn'], ['tiktok', 'TikTok'], ['other', 'Other']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select><button className="btn ghost" onClick={upload}>Upload CSV</button></div>
         {d.platforms?.length > 0 && <p className="hint">{d.platforms.map((p) => `${p.p}: ${p.n} rows, up to ${p.d}`).join(' · ')}</p>}

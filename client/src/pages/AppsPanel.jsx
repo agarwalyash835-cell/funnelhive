@@ -35,6 +35,13 @@ export function AppsPanel() {
                 {live ? <div className="app-st"><span className="pill ok">Connected</span><button className="link-btn danger-t" onClick={() => remove(live)}>Disconnect</button></div>
                   : <button className="btn primary sm" disabled={busy === a.app} onClick={() => connect(a.app)}>{busy === a.app ? 'Opening…' : `Connect ${a.name}`}</button>}
                 {live && a.app === 'metaads' && <MetaSetup />}
+                {live && a.app === 'googleads' && <GoogleSetup />}
+                {a.app === 'googleads' && !live && <details className="app-help"><summary>No Google Ads account yet?</summary>
+                  <ol>
+                    <li>Open <a href="https://ads.google.com" target="_blank" rel="noreferrer">ads.google.com</a> and sign in with the Google account you’ll use for ads.</li>
+                    <li>Choose <b>Switch to Expert Mode</b> → <b>Create an account without a campaign</b>, set India and ₹, and add your payment card. Google bills ad spend to you directly.</li>
+                    <li>Come back and press <b>Connect Google Ads</b> above, signing in with that same Google account.</li>
+                  </ol></details>}
                 {!live && conns.some((c) => c.status !== 'ACTIVE') && <small className="muted">A connection was started but not finished — connect again.</small>}
                 {a.app === 'metaads' && !live && <details className="app-help"><summary>How to get a Meta access token</summary>
                   <ol>
@@ -50,6 +57,42 @@ export function AppsPanel() {
         {d.error && <p className="hint warn">{d.error}</p>}
         <p className="hint">Then just ask Hive AI, e.g. “How did my Meta ads do this week?” or “Create a ₹500/day campaign for my webinar funnel”.</p>
       </Panel>
+    </div>
+  );
+}
+
+// after connecting Google Ads: pick the ad account Hive works in (and any others whose spend should sync too)
+function GoogleSetup() {
+  const [g, setG] = useState(null);
+  const [v, setV] = useState({ account: '', accounts: [] });
+  const [busy, setBusy] = useState(false);
+  const load = () => api('/integrations/google').then((x) => {
+    setG(x);
+    const main = x.selected?.account || (x.accounts.length === 1 ? x.accounts[0].id : '');
+    setV({ account: main, accounts: (x.selected?.accounts || []).filter((id) => id !== main) });
+  }).catch((e) => setG({ error: e.message, accounts: [] }));
+  useEffect(() => { load(); }, []);
+  if (!g) return <div className="skeleton sm" />;
+  const save = async () => {
+    setBusy(true);
+    try { const r = await api('/integrations/google', 'PUT', v); setG({ ...g, selected: r.selected }); toast('Saved — Hive works in this account, and its spend syncs daily'); } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const sel = g.selected;
+  const done = sel && sel.account === v.account && (sel.accounts || []).filter((id) => id !== v.account).sort().join() === [...v.accounts].sort().join();
+  const label = (a) => `${a.name || 'Account'} · ${a.id.replace(/^(\d{3})(\d{3})(\d+)$/, '$1-$2-$3')}${a.currency ? ` · ${a.currency}` : ''}${a.manager ? ' (via manager)' : ''}`;
+  const others = g.accounts.filter((a) => a.id !== v.account);
+  return (
+    <div className="meta-setup">
+      {g.error && <p className="hint warn">{/developer[ _-]?token/i.test(g.error) ? 'Google Ads isn’t fully set up on our side yet (developer token) — we’re on it. Your connection is saved.' : g.error}</p>}
+      {!g.error && !g.accounts.length && <small className="muted">No ad accounts found for this Google login — create one at ads.google.com, then reload.</small>}
+      {g.accounts.length > 0 && <label>Ad account<select value={v.account} onChange={(e) => setV({ account: e.target.value, accounts: v.accounts.filter((id) => id !== e.target.value) })}>
+        <option value="">Choose…</option>{g.accounts.map((a) => <option key={a.id} value={a.id}>{label(a)}</option>)}</select></label>}
+      {v.account && others.length > 0 && <div className="meta-more"><small className="muted">Other ad accounts — their spend syncs daily too</small>
+        {others.map((a) => <label key={a.id} className="tog"><input type="checkbox" checked={v.accounts.includes(a.id)} onChange={(e) => setV({ ...v, accounts: e.target.checked ? [...v.accounts, a.id] : v.accounts.filter((id) => id !== a.id) })} /><span />{label(a)}</label>)}</div>}
+      {g.accounts.length > 0 && <button className="btn primary sm" disabled={busy || !v.account || done} onClick={save}>{busy ? 'Saving…' : done ? 'Saved' : 'Use this account'}</button>}
+      {sel && <small className="muted">Hive works in {sel.accountName || sel.account}; spend syncs daily{sel.accounts?.length > 1 ? ` from ${sel.accounts.length} accounts` : ''}{sel.syncedAt ? ` (last ${new Date(sel.syncedAt).toLocaleDateString('en-IN')})` : ''}.</small>}
+      {sel?.error && <small className="warn-t">{sel.error}</small>}
     </div>
   );
 }
