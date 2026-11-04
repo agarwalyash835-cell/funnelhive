@@ -61,3 +61,24 @@ export async function assessPrompt({ kind, prompt, aspect, seconds, product }) {
     return { quality: pct(v.quality), virality: pct(v.virality), verdict: s(v.verdict, 240), problems: (Array.isArray(v.problems) ? v.problems : []).map((x) => s(x, 200)).filter(Boolean).slice(0, 4), prompt: s(v.prompt, 1500) };
   } catch (e) { console.error('studio prompt check failed', e.message); return null; }
 }
+
+// a Design (designs.js): the words on every slide and the background picture's prompt, before the picture is paid for
+const DESIGN_DIRECTOR = `You are the creative director of a top Indian social media agency. Before the background picture is paid for, check a design (an Instagram post, story, carousel, ad creative or YouTube thumbnail) for an Indian small business: the words on each slide and the prompt for the picture behind them.
+Check: does the headline stop the scroll and read in under 2 seconds (few words, one idea)? is the offer, price or date clear where there is one? is there one clear call to action? is the language natural for the audience, spelled right, in the right script, and right for the occasion (festivals: warm, respectful, no hard sell in a greeting)? for a carousel: does the cover make people swipe, does each slide make one point, does the end slide ask for one action? is the picture prompt specific (subject, setting, light) and does it leave calm room for the words, with no text in it?
+Never invent prices, offers, dates or claims. Answer only JSON:
+{"quality": 0-100, "virality": 0-100, "verdict": "one plain sentence", "problems": ["plain words", …at most 4], "slides": [{"slide": n from 1, "text": {only the fields worth changing: the better words, same language and script}}], "background": "a better picture prompt or empty"}
+Only suggest a change when it clearly helps. Never mention AI, models or tools.`;
+// → the check, or null without an answer. fields: the field keys each slide takes (anything else is dropped)
+export async function assessDesign({ brief, group, format, lang, slides, background, fields }) {
+  const user = `Brief: ${s(brief, 1200)}\nKind: ${group || 'post'} · frame ${format || 'square'} · language ${lang || 'en'}\nSlides: ${JSON.stringify(slides.map((x, i) => ({ slide: i + 1, template: x.template, text: x.text })))}\nPicture prompt: ${s(background, 1200)}`;
+  try {
+    const v = parse(await askAI(DESIGN_DIRECTOR, user, { json: true, timeoutMs: 60000 }));
+    if (!v || typeof v !== 'object') return null;
+    const changes = (Array.isArray(v.slides) ? v.slides : []).map((x) => {
+      const i = Math.round(Number(x?.slide)) - 1, keys = fields[i] || [];
+      const text = Object.fromEntries(Object.entries(x?.text || {}).filter(([k, t]) => keys.includes(k) && typeof t === 'string' && t.trim()).map(([k, t]) => [k, s(t, 260)]));
+      return { i, text };
+    }).filter((x) => Number.isInteger(x.i) && x.i >= 0 && x.i < slides.length && Object.keys(x.text).length).slice(0, 12);
+    return { quality: pct(v.quality), virality: pct(v.virality), verdict: s(v.verdict, 240), problems: (Array.isArray(v.problems) ? v.problems : []).map((x) => s(x, 200)).filter(Boolean).slice(0, 4), slides: changes, background: s(v.background, 1200), at: Date.now() };
+  } catch (e) { console.error('studio design check failed', e.message); return null; }
+}

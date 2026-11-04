@@ -25,6 +25,10 @@ const scenes = (r) => (r.shots || []).map((s, i) => ({ i, line: r.lines?.[i]?.te
 const board = (r) => ({ id: r.id, status: r.status, title: r.title, motion: r.motion, scenes: scenes(r), credits: { changeScene: r.sceneCredits?.start, animate: r.cost?.animate, res: r.cost?.res } });
 const brief = (a) => ({ id: a.id, kind: a.kind, status: a.status, tier: a.tier, url: a.url, poster: a.poster, issues: a.issues, ...(a.redoCredits ? { redoCredits: a.redoCredits, fix: a.fix || '' } : {}), ...(a.cost ? { cost: a.cost } : {}), prompt: a.prompt.slice(0, 120), ...(a.kind === 'reel' ? { title: a.title, links: a.links, shots: a.shots?.map((s) => s.clip?.status || s.image?.status || 'queued'), lines: a.lines?.map((l) => (l.url ? (l.check && !l.check.ok ? 'needs a look' : 'done') : 'pending')) } : {}) });
 
+// a design as Hive sees it: its words, slides and what the picture costs
+const POSTS = 'festive-glow, festive-frame, sale-burst, offer-banner, product-launch, testimonial, before-after, editorial, event';
+const design = (d) => ({ ok: true, id: d.id, status: d.status, format: d.format, lang: d.lang, preview: d.preview, credits: d.credits, typography: d.typography, slides: d.slides, error: d.error || undefined, ...(d.assessment ? { assessment: d.assessment } : {}), note: d.status === 'producing' ? 'The picture is being made — about a minute; check with studio_design.' : d.preview ? `A free preview (brand colours stand in for the picture). Making the picture costs about ${d.credits} credits (studio_finish_design); changes to the words are free.` : 'Ready — the links are each slide’s url; changes are free (studio_edit_design).' });
+
 export const TOOLS = [
   {
     name: 'studio_make_images',
@@ -114,9 +118,10 @@ export const TOOLS = [
   // ---------- the check before spending: quality and virality, with changes to make first (free) ----------
   {
     name: 'studio_check',
-    description: 'Before ANY paid Studio step (images, ad creatives, clips, a Reel’s storyboard or approval), check the plan for quality and virality — free, nothing is made. With id: a Reel’s script, scene by scene and line by line (hook, each scene’s pictures and movement, voice, closing card, music). With prompt (+ kind image|clip): one image, ad creative or clip. Tell the seller the two scores in plain words and the changes that would help most; apply the ones they accept (studio_approve_reel / studio_storyboard take the edited script), then go ahead.',
-    schema: S({ id: str('Optional: the Reel id'), prompt: str('Optional: the words for an image or clip'), kind: { type: 'string', enum: ['image', 'clip'], description: 'For a prompt: image (default) or clip' }, aspect: str('Optional: frame, e.g. 1:1, 9:16'), seconds: num('Optional: clip length') }),
+    description: 'Before ANY paid Studio step (images, ad creatives, clips, a design’s picture, a Reel’s storyboard or approval), check the plan for quality and virality — free, nothing is made. With id: a Reel’s script, scene by scene and line by line (hook, each scene’s pictures and movement, voice, closing card, music). With prompt (+ kind image|clip): one image, ad creative or clip. Tell the seller the two scores in plain words and the changes that would help most; apply the ones they accept (studio_approve_reel / studio_storyboard take the edited script), then go ahead.',
+    schema: S({ id: str('Optional: the Reel id'), designId: str('Optional: a design, thumbnail or carousel id (its words on every slide and its picture prompt)'), prompt: str('Optional: the words for an image or clip'), kind: { type: 'string', enum: ['image', 'clip'], description: 'For a prompt: image (default) or clip' }, aspect: str('Optional: frame, e.g. 1:1, 9:16'), seconds: num('Optional: clip length') }),
     run: async (ctx, a) => {
+      if (a.designId) { const d = await ctx.call('POST', `/studio/designs/${encodeURIComponent(a.designId)}/assess`, {}); return { ok: true, id: d.id, assessment: d.assessment, slides: d.slides.map((x) => ({ template: x.template, text: x.text })), note: 'Apply the changes the seller accepts with studio_edit_design (free), then studio_finish_design.' }; }
       if (a.id) { const r = await ctx.call('POST', `/studio/reels/${encodeURIComponent(a.id)}/assess`, {}); return { ok: true, id: r.id, assessment: r.assessment, script: r.script }; }
       if (!a.prompt) throw new Error('Give a Reel id or the words to check');
       return { ok: true, ...(await ctx.call('POST', '/studio/assess', { kind: a.kind || 'image', prompt: a.prompt, aspect: a.aspect, seconds: a.seconds })) };
@@ -153,6 +158,54 @@ export const TOOLS = [
     summary: () => 'Animating the storyboard',
   },
   ...variationTools.TOOLS,
+  // ---------- Designs: posts, stories, thumbnails and carousels with words on them (studio/designs.js) ----------
+  {
+    name: 'studio_make_design',
+    description: 'Make a design with words on it: a festive greeting (Diwali, Holi, Eid, Independence Day…), a sale or offer poster, a product launch, a customer quote, a before/after, an event, a story graphic or an ad creative — in English or any Indian language (the words are typeset by Studio, so Hindi, Marathi, Gujarati, Tamil… are always spelled and shaped right), on the seller’s brand colours and logo. Studio writes the words and shows a free preview; nothing is paid for until studio_finish_design makes the background picture. With photo (their own upload) or photoId (a ready Studio image) it uses that picture instead and is final at once, free. Show the preview and the words, offer changes (studio_edit_design, free), suggest studio_check with designId, then studio_finish_design.',
+    schema: S({ brief: str('What it is for: the occasion or product, the offer, dates, who it’s for'), template: str(`Optional template id: ${POSTS}; omit to let Studio pick`), format: str('square (1080×1080 post, default) | portrait (1080×1350 post) | story (1080×1920)'), lang: str('Language of the words: en, hi, mr, gu, bn, ta, te, kn, ml, pa, od, ur (default: the seller’s usual)'), photo: str('Optional: their own picture (/uploads/…)'), photoId: str('Optional: a ready Studio image id to use as the picture'), typography: { type: 'boolean', description: 'English only: the picture model paints the headline as stylised lettering (clearly an AI-lettered headline; may be imperfect). Default false — Studio typesets it' }, tier: TIER, imodel: IMODEL }, ['brief']),
+    run: async (ctx, a) => design(await ctx.call('POST', '/studio/designs', { brief: a.brief, group: 'post', template: a.template, format: a.format, lang: a.lang, typography: !!a.typography, tier: a.tier, imodel: a.imodel, ...(a.photo ? { photo: a.photo } : {}), ...(a.photoId ? { photoId: a.photoId } : {}) })),
+    images: (r) => r.slides.filter((s) => s.url).map((s, i) => ({ url: s.url, label: r.preview ? `Preview ${i + 1}` : `Slide ${i + 1}`, caption: s.name })),
+    summary: (r) => (r.preview ? `Drafted a ${r.format} design (free preview)` : `Made a ${r.format} design`),
+  },
+  {
+    name: 'studio_make_thumbnail',
+    description: 'Make a YouTube thumbnail (1280×720): huge readable words with one highlighted, the face or product beside them. Same flow as studio_make_design: a free preview first, the picture is made with studio_finish_design.',
+    schema: S({ brief: str('The video: topic, the hook, who is in it'), template: str('yt-bold (outlined words, default) | yt-split (colour panel and arrow)'), lang: str('Language of the words (default en)'), photo: str('Optional: their own picture (/uploads/…)'), photoId: str('Optional: a ready Studio image id'), tier: TIER }, ['brief']),
+    run: async (ctx, a) => design(await ctx.call('POST', '/studio/designs', { brief: a.brief, group: 'thumbnail', template: a.template, format: 'thumbnail', lang: a.lang, tier: a.tier, ...(a.photo ? { photo: a.photo } : {}), ...(a.photoId ? { photoId: a.photoId } : {}) })),
+    images: (r) => r.slides.filter((s) => s.url).map((s) => ({ url: s.url, label: 'Thumbnail', caption: s.name })),
+    summary: () => 'Drafted a thumbnail',
+  },
+  {
+    name: 'studio_make_carousel',
+    description: 'Make an Instagram carousel from a brief: a cover that makes people swipe, content slides with one point each, an end slide with the action — one background and one look across all slides, words in any Indian language. A free preview first; studio_finish_design makes the shared background picture (one picture’s credits for the whole carousel). The seller downloads the slides one by one or as a zip.',
+    schema: S({ brief: str('The topic and what the reader should learn or do'), slides: num('3–10 slides in total, default 5'), format: str('portrait (1080×1350, default) | square'), lang: str('Language of the words'), photo: str('Optional: their own picture for the background (/uploads/…)'), tier: TIER }, ['brief']),
+    run: async (ctx, a) => design(await ctx.call('POST', '/studio/designs', { brief: a.brief, group: 'carousel', slides: a.slides || 5, format: a.format || 'portrait', lang: a.lang, tier: a.tier, ...(a.photo ? { photo: a.photo } : {}) })),
+    images: (r) => r.slides.filter((s) => s.url).map((s, i) => ({ url: s.url, label: `Slide ${i + 1}`, caption: s.text.headline || s.text.heading || '' })),
+    summary: (r) => `Drafted a ${r.slides.length}-slide carousel`,
+  },
+  {
+    name: 'studio_finish_design',
+    description: 'Make the background picture for a design, thumbnail or carousel (the only paid step — credits in the design’s "credits"), then every slide is drawn on it — about a minute; check with studio_design. With note, the picture is made again with that change (costs credits again). Only once the seller agrees.',
+    schema: S({ id: str('The design id'), note: str('Optional: what to change in the picture'), tier: TIER }, ['id']),
+    run: async (ctx, a) => design(await ctx.call('POST', `/studio/designs/${encodeURIComponent(a.id)}/make`, { note: a.note || '', tier: a.tier })),
+    summary: () => 'Making the design’s picture',
+  },
+  {
+    name: 'studio_design',
+    description: 'A design, thumbnail or carousel as it is now: status (draft = free preview, producing = picture being made, ready, failed), each slide’s words and picture.',
+    schema: S({ id: str('The design id') }, ['id']),
+    run: async (ctx, a) => design(await ctx.call('GET', `/studio/designs/${encodeURIComponent(a.id)}`)),
+    images: (r) => r.slides.filter((s) => s.url).map((s, i) => ({ url: s.url, label: `Slide ${i + 1}`, caption: s.name })),
+    summary: (r) => `Design: ${r.status}`,
+  },
+  {
+    name: 'studio_edit_design',
+    description: 'Change a design — free, the picture is kept: words ({ slides: [{ i, text: { headline, sub, cta, … } }] }, slides from 0; put *stars* around words to highlight them), template, brand colours (["#rrggbb", "#rrggbb"]), lettering (sans | serif | display), size (square | portrait | story | thumbnail), or their own photo.',
+    schema: S({ id: str('The design id'), slides: { type: 'array', items: { type: 'object' }, description: '[{ i, text: { field: words } }]' }, template: str('Another template of the same kind'), colours: { type: 'array', items: { type: 'string' } }, family: str('sans | serif | display'), format: str('square | portrait | story | thumbnail'), photo: str('Optional: their own picture (/uploads/…)') }, ['id']),
+    run: async (ctx, a) => { const { id, ...b } = a; return design(await ctx.call('PUT', `/studio/designs/${encodeURIComponent(id)}`, b)); },
+    images: (r) => r.slides.filter((s) => s.url).map((s, i) => ({ url: s.url, label: `Slide ${i + 1}`, caption: s.name })),
+    summary: () => 'Changed the design',
+  },
 ];
 
 // clips and Reels are the costly renders: the seller confirms
@@ -161,6 +214,8 @@ const secs = (a) => Math.min(15, Math.max(4, Math.round(a.seconds || 5)));
 export const OK = {
   ...variationTools.OK,
   studio_make_images: (a) => { const n = Math.min(4, Math.max(1, Math.round(a.count || 1))); return `Make ${n} ${TIER_NAME(a.tier)} image${n === 1 ? '' : 's'} in Studio — about ${n * imageCost(a.tier)} credits`; },
+  // a design's picture is the only paid step of a design (the words and every change are free)
+  studio_finish_design: (a) => { const d = T.studio.get(String(a.id || '')); const t = a.tier || d?.tier; return `Make the picture for this design${d?.slides?.length > 1 ? ` (${d.slides.length} slides, one shared picture)` : ''} — about ${imageCost(t, d?.imodel)} credits`; },
   studio_make_clip: (a) => `Make a ${secs(a)}-second ${TIER_NAME(a.tier)} video clip at ${clipRes(a.tier, a.res)} in Studio — about ${clipCost(a.tier, secs(a), a.res)} credits`,
   studio_redo: (a) => { const x = T.studio.get(String(a.id || '')); const c = redoCost(x); return `Make it again in Studio${c ? ` — about ${c} credits` : ''}`; },
   studio_approve_reel: (a) => { const r = T.studio.get(String(a.id || '')), sc = a.script || r?.script; const c = r && sc ? reelCost({ tier: r.tier, seconds: r.seconds, shots: sc.shots?.length || 4, lines: sc.lines?.length || 4, res: a.res || r.res, motion: a.motion || r.motion, vmodel: a.vmodel || r.vmodel, imodel: a.imodel || r.imodel, presenters: presenterScenes(sc), face: !!r.presenter?.image }) : null; return `Make this Reel: its shots, voiceover and edit${c ? ` ${c.motion === 'photo' ? 'as stills with photo motion' : c.motion === 'story' ? `as a storyline at ${c.res}` : `at ${c.res}`}${c.presenter ? `, with ${c.presenter.scenes} presenter scene${c.presenter.scenes === 1 ? '' : 's'} lip-synced (${c.presenter.credits} of the credits)` : ''} — about ${c.credits} credits` : ''}`; },

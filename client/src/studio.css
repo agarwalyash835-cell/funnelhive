@@ -418,3 +418,8 @@
   .tb-actions:has(.sxw-modes) { width: 100%; }
   .sxw-modes { width: 100%; } .sxw-modes button { flex: 1; justify-content: center; padding: 7px 6px; }
 }
+
+/* the Designs mode canvas: what it makes, and the designer opening over it */
+.sx-empty-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; min-height: 360px; padding: 32px 24px; color: var(--c-text); }
+.sx-empty-stage h3 { margin: 4px 0 0; font-size: 20px; }
+.sx-empty-stage .sx-hint { max-width: 460px; }

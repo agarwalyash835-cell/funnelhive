@@ -18,6 +18,7 @@ import { Icon } from '../../ui';
 import CastBrand from './CastBrand';
 import PresenterPicker from './PresenterPicker';
 import Variations from './Variations';
+import Designs from './Designs';
 
 const registry = [];
 export function registerStudioExtension(x) {
@@ -61,7 +62,20 @@ function PresenterTag({ shot }) {
 }
 
 registerStudioExtension({ id: 'cast', slot: 'inspector', label: 'Cast & brand', icon: 'users', when: (d) => feature(d, 'cast') || (Array.isArray(d?.cast) && d.cast.length > 0), Panel: CastPanel });
-registerStudioExtension({ id: 'designs', slot: 'mode', label: 'Designs', icon: 'layout', when: (d) => feature(d, 'designs') /* the tab shows once the Designs feature registers its Stage */ });
+// Designs: posts, stories, thumbnails and carousels with words in any Indian language — the designer opens over the canvas
+function DesignsStage({ load }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="sx-empty-stage">
+      <Icon name="layout" size={28} />
+      <h3>Posts, stories, thumbnails and carousels</h3>
+      <p className="sx-hint">Festive greetings, sale posters, launch posts, quotes and YouTube thumbnails — with your words typeset in English or any Indian language, on your brand. A free preview first; only the picture costs credits.</p>
+      <button type="button" className="btn primary" onClick={() => setOpen(true)}><Icon name="plus" size={14} /> New design</button>
+      {open && <Designs onClose={() => { setOpen(false); load?.(); }} />}
+    </div>
+  );
+}
+registerStudioExtension({ id: 'designs', slot: 'mode', label: 'Designs', icon: 'layout', when: (d) => feature(d, 'designs'), Stage: DesignsStage });
 registerStudioExtension({ id: 'presenter', slot: 'scene', label: 'Presenter', icon: 'mic', when: (d) => feature(d, 'presenter'), SceneTag: PresenterTag });
 registerStudioExtension({ id: 'presenter-pick', slot: 'concept', label: 'Presenter', icon: 'mic', when: (d) => feature(d, 'presenter'), ConceptBar: PresenterBar });
 registerStudioExtension({ id: 'variations', slot: 'concept', label: 'Variations', icon: 'layers', when: (d) => feature(d, 'variations'), ConceptBar: VariationsBar });
