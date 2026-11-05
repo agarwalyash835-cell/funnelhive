@@ -195,4 +195,18 @@ test('a reworded line gets a new lip-synced clip; a caption change does not', as
   assert.equal(done.status, 'ready', done.error);
   const again = created.slice(before).filter((c) => c.model === 'omnihuman-2-0');
   assert.equal(again.length, 1, 'the presenter speaks the new words');
+  // the replaced clip's audio is removed; the new one stays (a redo of the new clip still needs it)
+  const talks = created.filter((c) => c.model === 'omnihuman-2-0');
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(fs.existsSync(onDisk(talks[0].input.audio_url)), false, 'the old WAV is gone');
+  assert.equal(fs.existsSync(onDisk(talks.at(-1).input.audio_url)), true, 'the new WAV is kept');
+});
+
+test('a testimonial recommendation is priced with its talking scenes', async () => {
+  const rec = (await api('/studio/recommend', 'POST', { purpose: 'testimonial', seconds: 30, shots: 4, lines: 4 }, S)).data;
+  const s = rec.settings;
+  const est = (await api('/studio/estimate', 'POST', { kind: 'reel', tier: s.tier, seconds: 30, shots: 4, lines: 4, res: s.res, motion: s.motion, vmodel: s.vmodel, imodel: s.imodel, presenters: 2 }, S)).data;
+  assert.equal(rec.credits, est.credits, 'half the scenes (the hook included) are priced as presenters');
+  const plain = (await api('/studio/estimate', 'POST', { kind: 'reel', tier: s.tier, seconds: 30, shots: 4, lines: 4, res: s.res, motion: s.motion, vmodel: s.vmodel, imodel: s.imodel }, S)).data;
+  assert.notEqual(rec.credits, plain.credits);
 });

@@ -12,11 +12,10 @@
 // "AI typography" (English only, clearly marked): the picture model paints the headline itself in a stylised way —
 // only with the models that are good at words — and the typesetter draws everything else.
 import fs from 'node:fs';
-import path from 'node:path';
-import { T, q, JOBS, dir as DATA_DIR } from '../db.js';
+import { T, q, JOBS } from '../db.js';
 import { studioAI } from '../ai.js';
 import { studioReady } from './kie.js';
-import { enqueue, view } from './jobs.js';
+import { enqueue, view, dropFiles } from './jobs.js';
 import { imageCost, modelKey, TIER_MENU, TIERS } from './models.js';
 import { localCopy, save, rm, tmpFile } from './media.js';
 import { memoryOf } from './memory.js';
@@ -24,7 +23,6 @@ import { LANGUAGES, langBase } from './voice.js';
 import { FORMATS, FAMILIES, hexOk, safeBox } from './typeset.js';
 import { checkDesign, gateOf, QUALITY_BAR } from './standard.js';
 import { TEMPLATES, TEMPLATE_IDS, CAROUSEL, draw } from './design-templates.js';
-import { s3Enabled, deleteObject } from '../storage.js';
 import { planHash } from './preflight.js';
 
 export const GROUPS = ['post', 'thumbnail', 'carousel'];
@@ -89,24 +87,17 @@ export function backgroundPrompt(d) {
 }
 
 // ---------- drawing ----------
-const UPLOADS = path.join(DATA_DIR, 'uploads');
 // the files behind a design's previous slides: removed when it's re-drawn (only the latest version is kept)
-export async function dropOutputs(userId, outputs = []) {
-  const { addStorage } = await import('../limits.js');
-  for (const o of outputs) {
-    const m = /\/uploads\/([\w-]+)\/(studio-[\w.-]+\.png)$/.exec(o?.url || '');
-    if (!m || m[1] !== userId) continue;
-    const f = path.join(UPLOADS, m[1], m[2]);
-    if (fs.existsSync(f)) fs.rmSync(f, { force: true });
-    else if (s3Enabled()) await deleteObject(`uploads/${m[1]}/${m[2]}`).catch(() => {});
-    if (o.bytes) addStorage(userId, -o.bytes);
-  }
-}
+export const dropOutputs = (userId, outputs = []) => dropFiles(userId, outputs);
 // a picture the design uses → a local file (and whether it's a temp copy to delete)
 async function fileOf(url) { if (!url) return null; try { return await localCopy(url, 'png'); } catch (e) { console.error('design picture unavailable', e.message); return null; } }
 
-// every slide drawn on the design's current picture(s) → saved; the old files go
-export async function renderDesign(d) {
+// what a drawing depends on: two edits close together can finish out of order, so a drawing is kept only if the design
+// still says what it was drawn from
+const drawnFrom = (d) => JSON.stringify([d.slides, d.colours, d.family, d.format, d.bgUrl, d.photo, d.photo2, d.brand, d.typography]);
+// every slide drawn on the design's current picture(s) → saved; the old files go. Drawn from words that changed
+// meanwhile: thrown away and drawn again from the latest (a few times at most)
+export async function renderDesign(d, tries = 0) {
   const made = [];
   const [photo, photo2, logo] = await Promise.all([fileOf(d.bgUrl || d.photo), fileOf(d.photo2), fileOf(d.brand?.logo)]);
   for (const c of [photo, photo2, logo]) if (c?.temp) made.push(c.file);
@@ -122,7 +113,12 @@ export async function renderDesign(d) {
       outputs.push({ url: saved.url, bytes: saved.bytes, width: dim.width, height: dim.height });
     }
   } finally { rm(...made); }
-  const old = T.studio.get(d.id)?.outputs || [];
+  const now = T.studio.get(d.id);
+  if (!now || drawnFrom(now) !== drawnFrom(d)) {
+    await dropOutputs(d.userId, outputs);
+    return now && tries < 3 ? renderDesign(now, tries + 1) : now;
+  }
+  const old = now.outputs || [];
   const x = T.studio.update(d.id, (y) => { y.outputs = outputs; y.version = (y.version || 0) + 1; y.drawnAt = Date.now(); if (y.status !== 'producing') y.status = y.bg === 'ai' && !y.bgUrl ? 'draft' : finalStatus(y); delete y.error; });
   await dropOutputs(d.userId, old);
   return x;

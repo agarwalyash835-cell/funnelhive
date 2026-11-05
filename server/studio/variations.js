@@ -330,6 +330,7 @@ export function registerVariations(app, { auth, wrap, limiter, scriptLimiter, ga
   });
   // the test as ads: { ids?, link, dailyBudget, pageId, country, text, planOnly } — always paused
   app.post('/api/studio/reels/:id/launch', auth, limiter, wrap(async (req, res) => {
+    if (!gate(req, res)) return;
     const r = myReel(req, res); if (!r) return;
     const b = req.body || {}, { root, members } = familyOf(r);
     const pick = members.filter((m) => finished(m) && (!Array.isArray(b.ids) || !b.ids.length || b.ids.includes(m.id)));

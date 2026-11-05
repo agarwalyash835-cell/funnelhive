@@ -8,7 +8,9 @@
 //   ready / needs_review / failed
 // Changes after that (edit): new caption style or sizes → editing again; a reworded line or a redone shot → producing.
 import fs from 'node:fs';
-import { T, q, JOBS } from '../db.js';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { T, q, JOBS, dir as DATA_DIR } from '../db.js';
 import { studioAI } from '../ai.js';
 import { studioModels, TIERS, ASPECTS, voiceId, sarvamFor, clipRes, modelKey, clipLength, imageCost } from './models.js';
 import { speak, TTS_MODEL } from '../sarvam.js';
@@ -23,7 +25,7 @@ import { notify } from '../notify.js';
 import { memoryOf, memoryPrompt, withPrefs } from './memory.js';
 import { reviewReel } from './qa.js';
 import { planHash } from './preflight.js';
-import { castShot, castPrompt, resolveCast, brandFont, brandKit } from './cast.js';
+import { castShot, castPrompt, resolveCast, brandFont, brandKit, BRAND_FONTS } from './cast.js';
 import { celebrityIn, CELEBRITY_ERROR, presenterBrief, faceStill, presenterReady, presenterClip, relip, sceneStarts, talks } from './presenter.js';
 import { cleanCam, cleanLook, enforceTreatment, filmPrompt, movePrompt } from './cinema.js';
 import { HOOKS, STRUCTURES, BEATS, playbookPrompt, checkVideo, reelFormat, cutEvery, gateOf, HOOK_MAX_WORDS } from './standard.js';
@@ -32,6 +34,10 @@ export const LENGTHS = [15, 30, 45];
 export const CAPTION_IDS = Object.keys(CAPTION_STYLES);
 const MAX_LINE_TRIES = 3;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
+// the edit's kept parts (assemble.js render cache): one folder per Reel on this server, outside the seller's storage
+const keyOf = (x) => crypto.createHash('sha1').update(JSON.stringify(x)).digest('hex').slice(0, 16);
+export const cacheDir = (id) => path.join(DATA_DIR, 'studio-cache', String(id).replace(/[^\w-]/g, ''));
+export const dropCache = (id) => fs.rm(cacheDir(id), { recursive: true, force: true }, () => {});
 // the transcriber for the listen-back check and the captions (none without the platform's speech-to-text key)
 const transcriber = () => (process.env.SARVAM_API_KEY ? sarvamTranscriber() : null);
 
@@ -42,7 +48,9 @@ Answer only JSON: {"title": short name, "hook": the hook's id from the playbook 
 ${playbookPrompt()}
 Rules: the first line is the hook — at most ${HOOK_MAX_WORDS} words, doing exactly what the chosen hook says, and it stops the scroll in under 2 seconds; the first shot is a striking frame (close or macro on a face, hands or the product, or a moving camera); the product (or its result) is on screen by the second shot; never two shots of the same size back to back — mix wide, medium, close and macro like an agency edit; every image prompt carries the look (palette, light, lens) so the stills match; 3-6 lines, each one short spoken sentence; stay within the word limit given (it's how long the video runs); one shot per line, in order; the shots follow the chosen structure's beats, with the same main person throughout (described the same way in every prompt — age, look, clothes); every person is Indian unless the brief says otherwise; show the real product in most shots; the closing card always has a call to action; never invent claims, prices or offers the brief doesn't give (leave offer empty then); write the lines in the language asked, in that language's own script, naturally spoken (common English words are fine).`;
 
-export function cleanScript(s) {
+// treatment false: the editor's own camera plan is kept as given (no sizes changed for variety) — the rules are still
+// reported by the Creative Standard
+export function cleanScript(s, { treatment = true } = {}) {
   const lines = (Array.isArray(s?.lines) ? s.lines : []).map((x) => clip(typeof x === 'string' ? x : x?.text, 220)).filter(Boolean).slice(0, 8);
   // the treatment (cinema.js) rides along on each shot: its beat, whether the product is on screen, its camera plan
   const bool = (v) => (v === true || v === 'true' ? true : v === false || v === 'false' ? false : null);
@@ -51,7 +59,7 @@ export function cleanScript(s) {
   // a person speaking to camera is never a real public figure (presenter.js)
   if (celebrityIn(...shots0.filter((x) => x.type === 'presenter').map((x) => x.image))) return { error: CELEBRITY_ERROR };
   // the cinematography rules (varied sizes, a striking first frame), applied whatever was sent
-  const { shots } = enforceTreatment(shots0);
+  const { shots } = treatment ? enforceTreatment(shots0) : { shots: shots0 };
   const e = s?.endCard || {}, look = cleanLook(s?.look);
   return { script: { title: clip(s?.title, 80) || 'Reel', ...(HOOKS[s?.hook] ? { hook: s.hook } : {}), ...(STRUCTURES[s?.structure] ? { structure: s.structure } : {}), ...(look ? { look } : {}), lines, shots, music: clip(s?.music, 200), endCard: { headline: clip(e.headline, 40), offer: clip(e.offer, 40), cta: clip(e.cta, 30) } } };
 }
@@ -98,7 +106,7 @@ export function approveReel(r, script, o = {}) {
 // ---------- the storyboard: change a scene, then animate ----------
 const stillsDone = (r) => r.shots.every((s, i) => done(T.studio.get(s.imageId)) && (r.motion !== 'story' || talks(r, i) || done(T.studio.get(s.endId))));
 // a still made again with the note (the job runs it through the queue and its checks again)
-const remake = (id, note) => T.studio.update(id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [note] : y.fix ? [y.fix] : []; y.error = ''; if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
+const remake = (id, note) => T.studio.update(id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [note] : y.fix ? [y.fix] : []; y.error = ''; if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; requeued(y); });
 // what remaking scene i's picture costs: one still; in a storyline the opening still also brings a new closing one
 export const sceneCost = (r, part) => imageCost(r.tier, r.imodel) * (r.motion === 'story' && part !== 'end' ? 2 : 1);
 // one change at a time: { i, note, part: 'start'|'end' } a new picture · { i, text } new words · { i, to } moved · { i, drop }
@@ -166,7 +174,8 @@ Keep the same people, faces, clothes, place and light as the reference picture �
     const seconds = clipLength(modelKey('clip', r.tier, r.vmodel), Math.min(story ? 15 : 10, words ? Math.max(4, Math.ceil(words)) : s.seconds)); // fixed-length models round up
     changed = true;
     if (r.motion === 'photo') return { ...s, seconds, still: img.url };
-    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, vmodel: r.vmodel, res: r.res, prompt: movePrompt(s), aspect: r.aspect, seconds, ref: img.url, ...(endImg ? { last: endImg.url } : {}), sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
+    // clipNote: what the seller asked to change when this clip was made again (editReel)
+    return { ...s, seconds, clipId: enqueue(r.userId, { kind: 'clip', tier: r.tier, vmodel: r.vmodel, res: r.res, prompt: [movePrompt(s), s.clipNote].filter(Boolean).join('\n').slice(0, 1500), aspect: r.aspect, seconds, ref: img.url, ...(endImg ? { last: endImg.url } : {}), sourceId: img.id, reelId: r.id, enhance: true, by: r.by }).id };
   });
   if (changed) r = T.studio.update(r.id, (x) => { x.shots = shots; });
   // a presenter scene whose still and words are ready: its lip-synced clip, made from that line's audio
@@ -272,25 +281,37 @@ const spreadWords = (lines, spans) => lines.flatMap((l, i) => { const ws = l.tex
 // call to action as a button. Without one: the same text on the brand colour.
 const assEsc = (s) => String(s || '').replace(/[{}\\]/g, '').replace(/\n/g, ' ');
 const assHex = (hex, a = 0) => `&H${Math.round(a * 255).toString(16).padStart(2, '0').toUpperCase()}${hex.slice(5, 7)}${hex.slice(3, 5)}${hex.slice(1, 3)}`.toUpperCase();
-export async function makeCard(card, colour, aspect, still = null) {
+// style 'matte' (the house look): words left-aligned at a margin in bone white, the call to action as words in a muted
+// accent (no button box), a calm charcoal or brand-colour ground, the picture behind it darker and less saturated.
+// 'classic': centred words and a button.
+export const CARD_STYLES = ['classic', 'matte'];
+const MATTE = { ground: '#2B2B2B', text: '#EDE8E0', accent: '#C9A13B' };
+export async function makeCard(card, colour, aspect, still = null, { style = 'classic', font = 'Noto Sans' } = {}) {
   if (!card || !(card.headline || card.offer || card.cta)) return null;
   const { width: W, height: H } = dims(aspect, 1080);
-  const hex = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : '#111827';
+  const brand = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : null;
+  const matte = style === 'matte';
+  const hex = brand || (matte ? MATTE.ground : '#111827');
+  const ff = String(font || 'Noto Sans').replace(/[,\r\n]/g, ' ');
   // the button in the brand colour over a picture; on the plain brand-colour card it would vanish, so it's white there
-  const button = /^#[0-9a-f]{6}$/i.test(colour || '') ? (still ? colour : '#FFFFFF') : '#FFD400';
+  const button = brand ? (still ? brand : '#FFFFFF') : '#FFD400';
   const ass = tmpFile('ass'), png = tmpFile('png');
-  const styles = [
-    'Style: Card,Noto Sans,60,&H00FFFFFF,&H00FFFFFF,&H78000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,5,60,60,60,1',
+  const styles = matte ? [
+    `Style: Card,${ff},60,${assHex(MATTE.text)},${assHex(MATTE.text)},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,7,60,60,60,1`,
+    `Style: Cta,${ff},60,${assHex(MATTE.accent)},${assHex(MATTE.accent)},&H00000000,&H00000000,-1,0,0,0,100,100,2,0,1,0,0,7,60,60,60,1`,
+  ] : [
+    `Style: Card,${ff},60,&H00FFFFFF,&H00FFFFFF,&H78000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,5,60,60,60,1`,
     // the call to action as a button: dark text on an opaque box in the brand colour (yellow without one)
-    `Style: Cta,Noto Sans,60,${/^#(ffd|fff|fe|fd|fc)/i.test(button) ? '&H00111111' : '&H00FFFFFF'},&H00FFFFFF,${assHex(button)},&H00000000,-1,0,0,0,100,100,0,0,3,${Math.round(H * 0.018)},0,5,60,60,60,1`,
+    `Style: Cta,${ff},60,${/^#(ffd|fff|fe|fd|fc)/i.test(button) ? '&H00111111' : '&H00FFFFFF'},&H00FFFFFF,${assHex(button)},&H00000000,-1,0,0,0,100,100,0,0,3,${Math.round(H * 0.018)},0,5,60,60,60,1`,
   ];
-  const events = cardLayout(card, W, H, !!still).map((b) => `Dialogue: 0,0:00:00.00,0:00:05.00,${b.style},,0,0,0,,{\\an8\\pos(${b.x},${b.top})\\fs${b.fs}}${b.lines.map(assEsc).join('\\N')}`);
+  const an = matte ? 7 : 8;
+  const events = cardLayout(card, W, H, !!still, matte ? 'left' : 'center').map((b) => `Dialogue: 0,0:00:00.00,0:00:05.00,${b.style},,0,0,0,,{\\an${an}\\pos(${b.x},${b.top})\\fs${b.fs}}${b.lines.map(assEsc).join('\\N')}`);
   fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`);
   const fileArg = ass.replace(/\\/g, '/').replace(/^([A-Za-z]):/, '$1\\:');
   if (still) {
     // the sharp copy: as big as fits in the top part, whatever its shape (in a wide frame: the left side)
     const wide = wideCard(W, H, still), fw = Math.round(W * (wide ? 0.46 : 0.72)), fh = Math.round(H * (wide ? 0.8 : 0.44));
-    await ffmpeg(['-i', still, '-frames:v', '1', '-filter_complex', `[0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:2,eq=brightness=-0.3:saturation=1.15[bg];[0]scale=${fw}:${fh}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=${wide ? `${Math.round(W * 0.27)}-w/2:(H-h)/2` : `(W-w)/2:${Math.round(H * 0.27)}-h/2`},ass='${fileArg}'`, png], { timeoutMs: 60000 });
+    await ffmpeg(['-i', still, '-frames:v', '1', '-filter_complex', `[0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:2,eq=brightness=${matte ? '-0.38:saturation=0.7' : '-0.3:saturation=1.15'}[bg];[0]scale=${fw}:${fh}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=${wide ? `${Math.round(W * 0.27)}-w/2:(H-h)/2` : `(W-w)/2:${Math.round(H * 0.27)}-h/2`},ass='${fileArg}'`, png], { timeoutMs: 60000 });
   }
   if (!fs.existsSync(png)) await ffmpeg(['-f', 'lavfi', '-i', `color=c=${hex}:s=${W}x${H}:d=1`, '-frames:v', '1', '-vf', `ass='${fileArg}'`, png], { timeoutMs: 60000 });
   rm(ass);
@@ -307,17 +328,23 @@ async function edit(r) {
     for (const l of r.lines) lineFiles.push(await local(l.url, (l.url.match(/\.(\w+)$/) || [])[1] || 'mp3'));
     const voice = await joinVoice(lineFiles);
     temp.push(voice.file);
+    // the transcript is kept with the voiceover it came from: a re-edit that didn't change a line doesn't send it again
+    const voiceKey = keyOf(r.lines.map((l) => l.url));
+    let words = r.words?.key === voiceKey ? r.words.list : null;
     const tr = transcriber();
-    let words = null;
-    if (tr) words = (await tr(voice.file, r.lang).catch((e) => { console.error('caption transcript failed', e.message); return null; }))?.words || null;
+    if (!words && tr) {
+      words = (await tr(voice.file, r.lang).catch((e) => { console.error('caption transcript failed', e.message); return null; }))?.words || null;
+      if (words?.length) T.studio.update(r.id, (x) => { x.words = { key: voiceKey, list: words }; });
+    }
     if (!words?.length) words = spreadWords(r.lines, voice.spans);
     const owner = T.users.get(r.userId);
+    const font = brandFont(r.userId);
     // the closing card shows the product: the first scene's still
     const firstStill = T.studio.get(r.shots?.[0]?.imageId)?.url;
     const still = firstStill ? await local(firstStill, 'png').catch(() => null) : null;
-    const card = await makeCard(r.script.endCard, owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary || brandKit(r.userId).colours[0], r.aspect, still);
+    const card = await makeCard(r.script.endCard, r.cardColour || owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary || brandKit(r.userId).colours[0], r.aspect, still, { style: r.cardStyle || 'classic', font });
     if (card) temp.push(card);
-    const logo = r.logo ? await local(r.logo, 'png').catch(() => null) : null;
+    const logo = r.logo && !r.logoOpts?.off ? await local(r.logo, 'png').catch(() => null) : null;
     // the music bed: made once for the Reel (in the script's mood, as long as the voiceover) and kept, so re-edits reuse it
     let music = null;
     if (r.music !== false) {
@@ -331,7 +358,12 @@ async function edit(r) {
     const starts = sceneStarts(r.shots, voice.spans);
     // the Creative Standard's pace for this format: long shots get punch-in cuts (free, in the edit)
     const format = reelFormat(r);
-    const out = await render({ ...(starts ? { starts, synced: r.shots.map((s, i) => talks(r, i)) } : {}), clips, voice: voice.file, music, musicDb: -19, words, look: 'cinematic', transitions: 'cinematic', sfx: true, punch: cutEvery(format), captions: r.captions?.style ? { style: r.captions.style, font: brandFont(r.userId), ...(r.captions.colour ? { colour: r.captions.colour } : {}) } : null, logo: logo ? { file: logo, position: 'top-right', size: 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short: r.tier === 'cinematic' ? 1080 : 720, name: 'reel' });
+    // the heavy parts are kept between edits (assemble.js render cache): their keys are everything they depend on
+    const look = r.grade || 'cinematic', musicDb = Number.isFinite(r.musicDb) ? r.musicDb : -19, short = r.tier === 'cinematic' ? 1080 : 720;
+    const clipUrls = r.shots.map((s) => T.studio.get(s.clipId)?.url || '');
+    const cache = { dir: cacheDir(r.id), pic: keyOf([clipUrls, voiceKey, look, format, starts, short]), audio: keyOf([clipUrls, voiceKey, r.music === false ? 'off' : r.musicUrl || 'new', musicDb, starts]) };
+    const caps = r.captions?.style ? { style: r.captions.style, font: r.captions.font || font, ...(r.captions.colour ? { colour: r.captions.colour } : {}), ...(Number.isFinite(r.captions.y) ? { y: r.captions.y } : {}), ...(r.captions.align ? { align: r.captions.align } : {}) } : null;
+    const out = await render({ ...(starts ? { starts, synced: r.shots.map((s, i) => talks(r, i)) } : {}), clips, voice: voice.file, music, musicDb, words, look, transitions: 'cinematic', sfx: true, punch: cutEvery(format), captions: caps, logo: logo ? { file: logo, position: r.logoOpts?.position || 'top-right', size: r.logoOpts?.size || 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short, name: 'reel', cache });
     const outputs = {};
     for (const [aspect, f] of Object.entries(out.files)) { temp.push(f); outputs[aspect] = (await save(r.userId, f, 'mp4', 'video/mp4')).url; }
     const first = out.files[sizes[0]] || Object.values(out.files)[0];
@@ -374,7 +406,7 @@ async function edit(r) {
 export function retryReel(r) {
   for (const s of r.shots || []) for (const id of [s.imageId, s.endId, s.clipId]) {
     const a = id && T.studio.get(id);
-    if (a?.status === 'failed') T.studio.update(a.id, (y) => { y.status = 'queued'; y.attempts = 0; y.error = ''; delete y.taskId; delete y.doneAt; });
+    if (a?.status === 'failed') T.studio.update(a.id, (y) => { y.status = 'queued'; y.attempts = 0; y.error = ''; delete y.taskId; delete y.doneAt; requeued(y); });
   }
   return T.studio.update(r.id, (x) => {
     x.lines = (x.lines || []).map((l) => (l.url ? l : { ...l, tries: 0, error: '' }));
@@ -383,53 +415,142 @@ export function retryReel(r) {
   });
 }
 
-// ---------- changes after it's made (from the Studio page or Hive) ----------
-// { captions?: { style, colour }, sizes?, lines?: [{ i, text }], shots?: [{ i, note }], endCard? }
+// ---------- changes after it's made (from the Studio page, Hive or studio/edit.js) ----------
+// Free (re-edit only): captions { style, colour, font, y, align } | null · sizes · endCard · cardStyle · cardColour ·
+//   look { base, brightness, contrast, saturation, warmth } · music { off, volume } · logo { position, size, off }
+// Paid: voice (every line again) · lines [{ i, text }] · music { mood } (a new track) ·
+//   shots [{ i, note } a new clip from the same picture | { i, picture } the picture itself edited, then a new clip |
+//          { i, move, note? } the camera move changed, a new clip]
+// A changed shot gets a NEW clip row (the old one stays until versions.js lets it go), so an edit can be undone.
+export const LOOK_BASES = ['natural', 'cinematic', 'matte'];
+export const LOGO_PLACES = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+const CAPTION_FONTS = Object.values(BRAND_FONTS).map((f) => f.family);
+const hexOk = (v) => /^#[0-9a-f]{6}$/i.test(String(v || ''));
+const nudge = (v, was) => (v === undefined || v === null ? was || 0 : Math.max(-2, Math.min(2, Math.round(Number(v) || 0))));
+export const cleanGrade = (g, was = {}) => {
+  const w = typeof was === 'string' ? { base: was } : was || {};
+  const out = { base: LOOK_BASES.includes(g?.base) ? g.base : w.base || 'cinematic' };
+  for (const k of ['brightness', 'contrast', 'saturation', 'warmth']) { const n = nudge(g?.[k], w[k]); if (n) out[k] = n; }
+  return out;
+};
+// the words for a picture edited in place: the current picture goes in as the reference, so only the change is made
+export const EDIT_PICTURE = (what, was = '') => `Edit the reference picture: ${clip(what, 300)}. Change only what this asks; keep everything it doesn't mention exactly as it is — the product, the people (faces, hair, clothes), the place, the light and the look.${was ? `\nThe picture shows: ${clip(was, 600)}` : ''}`;
+export function editStill(id, what) {
+  const img = T.studio.get(id);
+  if (!img?.url || ['queued', 'rendering', 'checking'].includes(img.status)) return null;
+  return T.studio.update(id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = []; y.error = ''; y.ref = img.url; y.prompt = EDIT_PICTURE(what, img.basePrompt || img.prompt); y.basePrompt ||= img.prompt; y.edits = [...(y.edits || []), clip(what, 300)].slice(-5); delete y.qa; delete y.taskId; delete y.doneAt; requeued(y); });
+}
+// a row made again starts clean of the queue's own retry marks (jobs.js)
+export const requeued = (y) => { for (const k of ['staleTask', 'overtime', 'startTries', 'notBefore', 'paused', 'saved', 'posterSaved']) delete y[k]; return y; };
 export function editReel(r, b) {
-  const lines = [...r.lines], shots = [...r.shots];
+  const lines = [...r.lines], shots = [...r.shots], plan = [...(r.script?.shots || [])];
   let reproduce = false;
   // another voice: every line is spoken again
   let voice = null;
   if (b.voice && voiceId(b.voice) !== r.voice) { voice = voiceId(b.voice); for (let i = 0; i < lines.length; i++) lines[i] = { text: lines[i].text, url: null, tries: 0, check: null }; reproduce = true; }
   for (const { i, text } of Array.isArray(b.lines) ? b.lines : []) { if (lines[i] && clip(text, 220)) { lines[i] = { text: clip(text, 220), url: null, tries: 0, check: null }; reproduce = true; } }
-  for (const { i, note } of Array.isArray(b.shots) ? b.shots : []) {
-    const c = shots[i] && T.studio.get(shots[i].clipId);
-    if (!c) continue;
-    // photo motion: a new still (with the change), animated again once it's made
-    if (c.photo) {
-      T.studio.update(shots[i].imageId, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [clip(note, 300)] : y.fix ? [y.fix] : []; if (note) y.prompt = `${y.prompt}\n${clip(note, 300)}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
-      shots[i] = { ...shots[i], still: null, clipId: null };
+  for (const sb of Array.isArray(b.shots) ? b.shots : []) {
+    const i = Number(sb?.i), s = shots[i];
+    if (!s) continue;
+    const note = clip(sb.note, 300);
+    // the picture itself, edited with the change (then a new clip from it; a storyline's closing picture follows it)
+    if (clip(sb.picture, 300)) {
+      if (!editStill(s.imageId, sb.picture)) continue;
+      shots[i] = { ...s, endId: null, clipId: null, still: null, clipNote: '' };
       reproduce = true;
       continue;
     }
-    T.studio.update(c.id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [clip(note, 300)] : y.fix ? [y.fix] : []; if (note) y.prompt = `${y.prompt}\n${clip(note, 300)}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; });
+    const c = s.clipId && T.studio.get(s.clipId);
+    // another camera move: the plan changes and a new clip follows it
+    if (sb.move) {
+      const move = cleanCam({ move: sb.move })?.move;
+      if (!move) continue;
+      const cam = { ...(s.cam || plan[i]?.cam || {}), move };
+      shots[i] = { ...s, cam, clipId: null, still: null, clipNote: note };
+      if (plan[i]) plan[i] = { ...plan[i], cam };
+      reproduce = true;
+      continue;
+    }
+    if (!c) continue;
+    // photo motion: a new still (with the change), animated again once it's made
+    if (c.photo) {
+      T.studio.update(s.imageId, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [note] : y.fix ? [y.fix] : []; if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); delete y.qa; delete y.taskId; delete y.doneAt; requeued(y); });
+      shots[i] = { ...s, still: null, clipId: null };
+      reproduce = true;
+      continue;
+    }
+    // a new clip from the same picture, with the note (or the quality check's own fix)
+    shots[i] = { ...s, clipId: null, clipNote: note || c.fix || '' };
     reproduce = true;
   }
+  // a scene dropped or moved after it's made: only the edit runs again (its picture, clip and line go with it)
+  const order = (from, to) => { for (const list of [shots, lines, plan]) if (from < list.length) list.splice(Math.min(to, list.length - 1), 0, list.splice(from, 1)[0]); };
+  for (const i of (Array.isArray(b.drop) ? b.drop : []).map(Number).filter((i) => i >= 0).sort((a, z) => z - a)) {
+    if (shots.length < 2 && lines.length < 2) break;
+    if (i < shots.length && shots.length > 1) shots.splice(i, 1);
+    if (i < lines.length && lines.length > 1) lines.splice(i, 1);
+    if (i < plan.length && plan.length > 1) plan.splice(i, 1);
+  }
+  if (b.move && Number.isInteger(Number(b.move.i)) && Number.isInteger(Number(b.move.to))) order(Number(b.move.i), Math.max(0, Number(b.move.to)));
   // a presenter speaking a line that changed (or in another voice) gets a new lip-synced clip
   const relipped = relip(shots, lines.length, new Set(lines.flatMap((l, i) => (!l.url && r.lines[i]?.url ? [i] : []))));
   for (let i = 0; i < shots.length; i++) if (relipped[i] !== shots[i]) { shots[i] = relipped[i]; reproduce = true; }
   return T.studio.update(r.id, (x) => {
-    if (b.captions) x.captions = { style: CAPTION_IDS.includes(b.captions.style) ? b.captions.style : x.captions?.style || 'pop', ...(/^#[0-9a-f]{6}$/i.test(b.captions.colour || '') ? { colour: b.captions.colour } : {}) };
-    if (b.captions === null) x.captions = null;
-    if (Array.isArray(b.sizes) && b.sizes.length) x.sizes = b.sizes.filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a)).slice(0, 4);
-    if (b.endCard) x.script = { ...x.script, endCard: { headline: clip(b.endCard.headline, 40), offer: clip(b.endCard.offer, 40), cta: clip(b.endCard.cta, 30) } };
+    applySettings(x, b);
     if (voice) x.voice = voice;
-    x.lines = lines; x.shots = shots; x.script = { ...x.script, lines: lines.map((l) => l.text) };
+    x.lines = lines; x.shots = shots; x.script = { ...x.script, lines: lines.map((l) => l.text), ...(plan.length ? { shots: plan } : {}) };
     x.status = reproduce ? 'producing' : 'editing'; x.editTries = 0; delete x.doneAt; delete x.error;
   });
 }
+// the free settings, on the row being updated (also before the Reel is made: studio/edit.js)
+export function applySettings(x, b) {
+  {
+    if (b.captions) {
+      const was = x.captions || {};
+      x.captions = { style: CAPTION_IDS.includes(b.captions.style) ? b.captions.style : was.style || 'pop' };
+      const colour = b.captions.colour === undefined ? was.colour : b.captions.colour, font = b.captions.font === undefined ? was.font : b.captions.font;
+      const y = b.captions.y === undefined ? was.y : Number(b.captions.y), align = b.captions.align === undefined ? was.align : b.captions.align;
+      if (hexOk(colour)) x.captions.colour = colour;
+      if (CAPTION_FONTS.includes(font)) x.captions.font = font;
+      if (Number.isFinite(y) && y >= 0.1 && y <= 0.9) x.captions.y = Math.round(y * 100) / 100;
+      if (['left', 'center'].includes(align)) x.captions.align = align;
+    }
+    if (b.captions === null) x.captions = null;
+    if (Array.isArray(b.sizes)) { const s = b.sizes.filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a)).slice(0, 4); if (s.length) x.sizes = s; }
+    if (b.endCard) x.script = { ...x.script, endCard: { headline: clip(b.endCard.headline, 40), offer: clip(b.endCard.offer, 40), cta: clip(b.endCard.cta, 30) } };
+    if (CARD_STYLES.includes(b.cardStyle)) x.cardStyle = b.cardStyle;
+    if (b.cardColour === null) delete x.cardColour; else if (hexOk(b.cardColour)) x.cardColour = b.cardColour;
+    if (b.look) x.grade = cleanGrade(b.look, x.grade || 'cinematic');
+    if (b.music) {
+      if (b.music.off === true) x.music = false;
+      if (b.music.off === false) delete x.music;
+      if (b.music.volume !== undefined && Number.isFinite(Number(b.music.volume))) x.musicDb = Math.max(-32, Math.min(-8, Math.round(Number(b.music.volume))));
+      if (clip(b.music.mood, 200)) { x.script = { ...x.script, music: clip(b.music.mood, 200) }; delete x.musicUrl; delete x.music; }
+    }
+    if (b.logo) {
+      const was = x.logoOpts || {};
+      x.logoOpts = { position: LOGO_PLACES.includes(b.logo.position) ? b.logo.position : was.position || 'top-right', size: Number.isFinite(Number(b.logo.size)) ? Math.max(0.08, Math.min(0.32, Number(b.logo.size))) : was.size || 0.18, ...(b.logo.off === true || (b.logo.off === undefined && was.off) ? { off: true } : {}) };
+    }
+  }
+  return x;
+}
 
 // ---------- the loop ----------
-let editing = false, voicing = false;
-const busy = new Set();
+// A few Reels move at once, at most PER_ACCOUNT of one seller's (a seller's batch can't hold up everyone else's): the
+// voiceover steps are light; the edit runs ffmpeg, the heavy part, so fewer of those.
+const MAX_PRODUCING = Number(process.env.STUDIO_MAX_REELS || 4), MAX_EDITING = Number(process.env.STUDIO_MAX_EDITS || 1), PER_ACCOUNT = 2;
+const busy = new Map(); // reel id → { userId, editing }
 export async function reelsTick() {
   if (!studioReady()) return;
   const rows = q("SELECT data FROM studio WHERE status IN ('producing', 'editing', 'storyboard_ready') ORDER BY at").all().map((x) => JSON.parse(x.data)).filter((x) => x.kind === 'reel' && (x.status !== 'storyboard_ready' || storyboardBusy(x)));
-  const jobs = [];
+  const jobs = [], perAccount = new Map();
+  let producing = 0, editing = 0;
+  for (const b of busy.values()) { perAccount.set(b.userId, (perAccount.get(b.userId) || 0) + 1); if (b.editing) editing++; else producing++; }
   for (const r of rows) {
-    if (busy.has(r.id)) continue;
-    if (['producing', 'storyboard_ready'].includes(r.status) && !voicing) { voicing = true; busy.add(r.id); jobs.push(produce(r).catch((e) => console.error('reel step failed', r.id, e.message)).finally(() => { voicing = false; busy.delete(r.id); })); }
-    else if (r.status === 'editing' && !editing) { editing = true; busy.add(r.id); jobs.push(edit(r).finally(() => { editing = false; busy.delete(r.id); })); }
+    if (busy.has(r.id) || (perAccount.get(r.userId) || 0) >= PER_ACCOUNT) continue;
+    const run = (fn, isEdit) => { busy.set(r.id, { userId: r.userId, editing: isEdit }); perAccount.set(r.userId, (perAccount.get(r.userId) || 0) + 1); jobs.push(fn(r).catch((e) => console.error('reel step failed', r.id, e.message)).finally(() => busy.delete(r.id))); };
+    if (['producing', 'storyboard_ready'].includes(r.status) && producing < MAX_PRODUCING) { producing++; run(produce, false); }
+    else if (r.status === 'editing' && editing < MAX_EDITING) { editing++; run(edit, true); }
   }
   await Promise.all(jobs);
 }

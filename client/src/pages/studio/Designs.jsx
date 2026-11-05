@@ -6,7 +6,7 @@
 // Self-contained: <Designs onClose={…} /> (opened from Studio).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
-import { Modal, Icon, toast } from '../../ui';
+import { Modal, Icon, toast, confirmDialog } from '../../ui';
 
 const KINDS = [['post', 'Post / story'], ['thumbnail', 'YouTube thumbnail'], ['carousel', 'Carousel']];
 const FAMILY = [['', 'Template’s own'], ['sans', 'Clean'], ['serif', 'Classic'], ['display', 'Heavy']];
@@ -45,6 +45,15 @@ const CSS = `
 @media (max-width:760px){.dz{grid-template-columns:1fr}}
 `;
 
+// a file the API sends (a PNG, a zip), signed in like api(); on an error it's asked again through api(), so a sign-out,
+// an agency visit ending or the paywall are handled the same way and the server's message is shown
+async function blobOf(path) {
+  const r = await fetch(`/api${path}`, { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token') || ''}` } });
+  if (r.ok) return r.blob();
+  await api(path);
+  throw new Error('The download didn’t work — try again');
+}
+
 // a template's look, drawn by the server with its sample words in the seller's brand (signed in, so fetched, not linked)
 const sampleCache = new Map();
 function Sample({ id, format }) {
@@ -53,8 +62,8 @@ function Sample({ id, format }) {
   useEffect(() => {
     if (sampleCache.has(key)) { setUrl(sampleCache.get(key)); return undefined; }
     let live = true;
-    fetch(`/api/studio/designs/templates/${id}/sample?format=${format}`, { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token') || ''}` } })
-      .then((r) => (r.ok ? r.blob() : null)).then((b) => { if (!b) return; const u = URL.createObjectURL(b); sampleCache.set(key, u); if (live) setUrl(u); }).catch(() => {});
+    blobOf(`/studio/designs/templates/${id}/sample?format=${format}`)
+      .then((b) => { const u = URL.createObjectURL(b); sampleCache.set(key, u); if (live) setUrl(u); }).catch(() => {});
     return () => { live = false; };
   }, [key]);
   return <span className={`dz-thumb ${format}`}>{url ? <img src={url} alt="" loading="lazy" /> : <i className="spin dark" />}</span>;
@@ -85,7 +94,8 @@ export function Designs({ onClose }) {
   const templates = useMemo(() => (menu?.templates || []).filter((t) => (kind === 'carousel' ? t.id === 'carousel-cover' : t.group === kind)), [menu, kind]);
   const tpl = (id) => menu?.templates.find((t) => t.id === id);
   const sameKind = d ? (menu?.templates || []).filter((t) => t.group === tpl(d.slides[0].template)?.group) : [];
-  const open = (x) => { setD(x); setEdit({ slides: x.slides.map((s) => ({ ...s.text })), template: x.slides[0].template, colours: x.colours?.length ? x.colours : tpl(x.slides[0].template)?.colours || ['#111111', '#ffcc00'], family: '', format: x.format }); };
+  // the lettering picked stays picked after a save (the server reports the drawn family, not the choice)
+  const open = (x) => { setD(x); setEdit((e) => ({ id: x.id, slides: x.slides.map((s) => ({ ...s.text })), template: x.slides[0].template, colours: x.colours?.length ? x.colours : tpl(x.slides[0].template)?.colours || ['#111111', '#ffcc00'], family: e?.id === x.id ? e.family : '', format: x.format })); };
   const pickKind = (k) => { setKind(k); set({ template: '', format: k === 'thumbnail' ? 'thumbnail' : k === 'carousel' ? 'portrait' : 'square' }); };
   const upload = async (f) => {
     if (!f) return;
@@ -109,11 +119,14 @@ export function Designs({ onClose }) {
   });
   const check = () => run('check', async () => setD(await api(`/studio/designs/${d.id}/assess`, 'POST', {})));
   const apply = (s) => setEdit((e) => ({ ...e, slides: e.slides.map((t, i) => (i === s.i ? { ...t, ...s.text } : t)) }));
-  const make = () => run('make', async () => open(await api(`/studio/designs/${d.id}/make`, 'POST', {})));
+  // the picture is the paid step: say what it costs and go ahead only on a yes, like every other paid step
+  const make = async () => {
+    const again = d.status === 'failed';
+    if (!(await confirmDialog({ title: again ? 'Try the picture again?' : 'Make the picture?', text: `Studio makes the picture behind the words for about ${d.credits} credits. Every change after that is a free re-draw.`, confirm: `${again ? 'Try again' : 'Make it'} · ${d.credits} credits` }))) return;
+    run('make', async () => open(await api(`/studio/designs/${d.id}/make`, 'POST', {})));
+  };
   const zip = () => run('zip', async () => {
-    const r = await fetch(`/api/studio/designs/${d.id}/zip`, { headers: { Authorization: `Bearer ${localStorage.getItem('ff_token')}` } });
-    if (!r.ok) throw new Error('The download didn’t work — try again');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = 'design.zip'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await blobOf(`/studio/designs/${d.id}/zip`)); a.download = 'design.zip'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   });
 
   if (!menu) return <Modal title="Designs" onClose={onClose} width={1100}><div className="skeleton" /></Modal>;

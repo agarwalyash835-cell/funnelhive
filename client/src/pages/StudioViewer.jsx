@@ -1,12 +1,54 @@
 // Studio's full-screen viewer: an image you can zoom (scroll, double-click, + / − / 0) and drag around, or a clip that
 // loops; ← / → move through the set, Esc closes. The side panel says what it is, how it was checked and what to do next.
+// Editable items (the gallery's own images and clips) get a "change it" box: say what should be different and the
+// picture is edited with this one as the reference (or the clip made again) — the cost is shown first, and the last
+// change can be undone. Studio reloads on the 'ff:studio-changed' event.
 import { useEffect, useRef, useState } from 'react';
-import { Icon } from '../ui';
+import { Icon, toast, confirmDialog } from '../ui';
+import { api } from '../api';
 
 const STATUS = { ready: 'Passed the quality check', needs_review: 'Needs a look', failed: 'Couldn’t be made' };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+export const studioChanged = () => window.dispatchEvent(new CustomEvent('ff:studio-changed'));
 
-export function Viewer({ items, index, onIndex, onClose, actions }) {
+function ChangeBox({ a }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setText(''), [a.id]);
+  const target = a.kind === 'clip' ? 'clip' : 'image';
+  const change = target === 'clip' ? { clip: text } : { picture: text };
+  const go = async (e) => {
+    e.preventDefault();
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    try {
+      const { plan } = await api('/studio/edit', 'POST', { id: a.id, target, change, dryRun: true });
+      if (!plan.free && !(await confirmDialog({ title: `${target === 'clip' ? 'Make the clip again' : 'Edit the picture'}? · about ${plan.credits} credits`, text: `${plan.summary}. Everything you didn’t mention stays as it is. About ${plan.credits} credits — you can undo it after.`, confirm: `Go ahead · ${plan.credits} credits` }))) { setBusy(false); return; }
+      await api('/studio/edit', 'POST', { id: a.id, target, change });
+      toast(target === 'clip' ? 'Making the clip again — about a minute' : 'Editing the picture — about a minute');
+      setText(''); studioChanged();
+    } catch (err) { toast(err.message); }
+    setBusy(false);
+  };
+  const undo = async () => {
+    setBusy(true);
+    try { await api(`/studio/assets/${a.id}/undo`, 'POST', {}); toast('Back to how it was'); studioChanged(); } catch (err) { toast(err.message); }
+    setBusy(false);
+  };
+  const working = ['queued', 'rendering', 'checking'].includes(a.status);
+  return (
+    <form className="sxv-change" onSubmit={go}>
+      <label htmlFor={`chg-${a.id}`}><b>Change it</b><small>{target === 'clip' ? 'Say what should move differently' : 'Say what should be different — the rest stays'}</small></label>
+      <textarea id={`chg-${a.id}`} rows={2} maxLength={300} value={text} disabled={busy || working} placeholder={target === 'clip' ? 'e.g. slower, the camera pushes in on the label' : 'e.g. make the background darker'} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) go(e); }} />
+      <div className="row">
+        <button className="btn primary sm" disabled={busy || working || !text.trim()}><Icon name="wand" size={13} /> {working ? 'Being made…' : 'Change it'}</button>
+        {a.versions?.length > 0 && <button type="button" className="btn ghost sm" disabled={busy || working} onClick={undo} title={a.versions[0].label}><Icon name="redo" size={13} /> Undo last change</button>}
+      </div>
+    </form>
+  );
+}
+
+export function Viewer({ items, index, onIndex, onClose, actions, editable = true }) {
   const a = items[index];
   const [z, setZ] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -75,6 +117,7 @@ export function Viewer({ items, index, onIndex, onClose, actions }) {
           </div>
         )}
         {a.error && <div className="sxv-qa warn"><b>{a.error}</b></div>}
+        {editable && a.id && a.url && ['image', 'clip'].includes(a.kind) && !a.presenter && <ChangeBox a={a} />}
         {actions?.(a)}
         <small style={{ color: '#8d8d98' }}>Scroll or double-click to zoom · drag to move · ← → to browse · Esc to close</small>
       </aside>

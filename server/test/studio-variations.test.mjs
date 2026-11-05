@@ -83,7 +83,8 @@ before(async () => {
   }).listen(0);
   await new Promise((r) => setTimeout(r, 30));
   const base = `http://127.0.0.1:${fake.address().port}`;
-  srv = await startServer({ KIE_API_KEY: 'kie-test', KIE_BASE_URL: base, SARVAM_API_KEY: 'sarvam-test', SARVAM_BASE_URL: base, COMPOSIO_API_KEY: 'cmp_test', COMPOSIO_BASE_URL: base, ADMIN_EMAILS: 'boss@var.test', APP_URL: 'https://app.var.test' });
+  // one Reel voiced at a time: the stand-in speech-to-text "hears" the last line spoken, so two at once would cross over
+  srv = await startServer({ KIE_API_KEY: 'kie-test', KIE_BASE_URL: base, SARVAM_API_KEY: 'sarvam-test', SARVAM_BASE_URL: base, COMPOSIO_API_KEY: 'cmp_test', COMPOSIO_BASE_URL: base, ADMIN_EMAILS: 'boss@var.test', APP_URL: 'https://app.var.test', STUDIO_MAX_REELS: '1' });
   api = srv.api;
   ADMIN = (await register(api, 'boss@var.test')).token;
   const link = srv.log().match(/To: boss@var\.test[\s\S]*?\/verify\?token=([a-f0-9.]+)/);
@@ -241,4 +242,15 @@ test('launch with every action: a paused campaign, ad set and one paused ad per 
   const v = (await api(`/studio/reels/${variants[0].id}/results`, 'GET', null, S)).data;
   assert.equal(v.launch.status, 'PAUSED');
   assert.ok(v.variants.every((x) => x.ad?.status === 'PAUSED' && x.ad.adId));
+});
+
+test('launch is behind the Studio gate like every other step that acts', async () => {
+  await api(`/admin/studio/accounts/${sid}`, 'PUT', { on: false }, ADMIN);
+  try {
+    const l = await api(`/studio/reels/${reelId}/launch`, 'POST', { link: 'https://ghee.example.in', planOnly: true }, S);
+    assert.equal(l.status, 403);
+    assert.equal(l.data.code, 'STUDIO_OFF');
+    // reading results stays open
+    assert.equal((await api(`/studio/reels/${reelId}/results`, 'GET', null, S)).status, 200);
+  } finally { await api(`/admin/studio/accounts/${sid}`, 'PUT', { on: true }, ADMIN); }
 });

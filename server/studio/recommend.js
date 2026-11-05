@@ -77,7 +77,8 @@ export function recommend({ brief, purpose, seconds, shots = 4, lines = 4 }) {
   const priced = (s) => {
     if (!s) return null;
     const settings = { ...s, vmodel: modelKey('clip', s.tier, s.vmodel), imodel: modelKey('image', s.tier, s.imodel), aspect: p.aspect, seconds: secs, ...(p.presenter ? { presenter: p.presenter } : {}) };
-    return { settings, credits: reelCost({ tier: s.tier, seconds: secs, shots, lines, res: s.res, motion: s.motion, vmodel: settings.vmodel, imodel: settings.imodel }).credits };
+    // a presenter Reel: the hook and at least half the scenes are a person talking (presenter.js presenterBrief), priced so
+    return { settings, credits: reelCost({ tier: s.tier, seconds: secs, shots, lines, res: s.res, motion: s.motion, vmodel: settings.vmodel, imodel: settings.imodel, presenters: p.presenter ? Math.max(1, Math.ceil(shots / 2)) : 0 }).credits };
   };
   return { purpose: id, label: p.label, guessed: !PURPOSES[purpose], why: p.why, ...priced(p.pick), cheaper: priced(p.cheaper), premium: priced(p.premium), purposes: PURPOSE_IDS.map((k) => ({ id: k, label: PURPOSES[k].label })) };
 }

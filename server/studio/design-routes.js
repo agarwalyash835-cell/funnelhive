@@ -70,6 +70,7 @@ export function registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownU
   }));
   // the check before spending: quality and virality of the words and the picture prompt, with better words to apply
   app.post('/api/studio/designs/:id/assess', auth, writer, wrap(async (req, res) => {
+    if (!gate(req, res)) return;
     const d = mine(req, res); if (!d) return;
     const hash = designHash(d);
     if (d.assessment?.hash === hash && !req.body?.again) return res.json(designView(d));
@@ -89,6 +90,7 @@ export function registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownU
   });
   // any change — words, template, colours, font style, size, own photo — is a free re-draw (no new picture)
   app.put('/api/studio/designs/:id', auth, limiter, wrap(async (req, res) => {
+    if (!gate(req, res)) return;
     const d = mine(req, res, ['draft', 'ready', 'needs_review', 'failed']); if (!d) return;
     const b = { ...(req.body || {}) };
     for (const k of ['photo', 'photo2']) if (b[k] !== undefined || b[`${k}Id`]) { const p = picture(req, b[k], b[`${k}Id`]); if (p === false) return res.status(400).json({ error: 'Pick one of your own pictures' }); b[k] = p; }
@@ -96,6 +98,7 @@ export function registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownU
   }));
   // draw it again as it is (e.g. after the brand's logo changed)
   app.post('/api/studio/designs/:id/redraw', auth, limiter, wrap(async (req, res) => {
+    if (!gate(req, res)) return;
     const d = mine(req, res, ['draft', 'ready', 'needs_review']); if (!d) return;
     res.json(designView(await renderDesign(d)));
   }));

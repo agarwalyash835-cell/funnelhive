@@ -186,7 +186,29 @@ test('only the seller’s own pictures, and only their own designs', async () =>
   assert.equal((await api('/studio/designs', 'POST', { brief: 'Diwali greeting for all', photo: 'https://evil.example/x.png' }, S)).status, 400);
   const other = (await register(api, 'other@design.test')).token;
   assert.equal((await api(`/studio/designs/${did}`, 'GET', null, other)).status, 404);
-  assert.equal((await api(`/studio/designs/${did}`, 'PUT', { text: { headline: 'x' } }, other)).status, 404);
+  // an account without Studio is stopped at the gate before anything else (edits, the check and redraws all act)
+  assert.equal((await api(`/studio/designs/${did}`, 'PUT', { text: { headline: 'x' } }, other)).status, 403);
+  assert.equal((await api(`/studio/designs/${did}/assess`, 'POST', {}, other)).status, 403);
+  assert.equal((await api(`/studio/designs/${did}/redraw`, 'POST', {}, other)).status, 403);
+});
+
+test('two quick edits that finish out of order leave the latest words drawn and no stray files', async () => {
+  const d = (await api('/studio/designs', 'POST', { brief: 'Diwali greeting from our store', group: 'post', template: 'festive-greeting', format: 'square', lang: 'en', bg: 'none' }, S)).data;
+  const dirOf = path.dirname(onDisk(d.url));
+  const pngs = () => fs.readdirSync(dirOf).filter((f) => /^studio-.*\.png$/.test(f)).length;
+  const n = pngs();
+  const [a, b] = await Promise.all([
+    api(`/studio/designs/${d.id}`, 'PUT', { slides: [{ i: 0, text: { headline: 'First words' } }] }, S),
+    api(`/studio/designs/${d.id}`, 'PUT', { slides: [{ i: 0, text: { headline: 'Second words' } }] }, S),
+  ]);
+  assert.equal(a.status, 200); assert.equal(b.status, 200);
+  await new Promise((r) => setTimeout(r, 300));
+  const x = (await api(`/studio/designs/${d.id}`, 'GET', null, S)).data;
+  assert.ok(['First words', 'Second words'].includes(x.slides[0].text.headline), 'one of the two edits is the latest');
+  assert.ok(x.version >= 2);
+  assert.ok(fs.existsSync(onDisk(x.url)));
+  // a drawing made from words that changed meanwhile is thrown away, so only the current slide file is left
+  assert.equal(pngs(), n, 'the old slide is replaced and a stale drawing leaves nothing behind');
 });
 
 test('deleting a design removes its slide files and its background picture', async () => {

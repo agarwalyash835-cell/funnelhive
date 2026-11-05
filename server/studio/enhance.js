@@ -28,22 +28,25 @@ export async function sharpness(file) {
 export async function to720(src, { preset = 'medium' } = {}) {
   const p = await probe(src);
   if (!p.video || Math.min(p.width, p.height) >= SHORT) return { file: src, enhanced: false, reason: 'already 720p or more', width: p.width, height: p.height };
-  const plain = tmpFile('mp4'), out = tmpFile('mp4');
+  const plain = tmpFile('mp4'), out = tmpFile('mp4'), flat = tmpFile('mp4');
   const audio = p.audio ? ['-c:a', 'aac', '-b:a', '160k'] : ['-an'];
-  await ffmpeg(['-i', src, '-vf', `scale='if(gt(iw,ih),-2,${SHORT})':'if(gt(iw,ih),${SHORT},-2)':flags=bilinear`, ...ENCODE, ...audio, plain]);
-  await ffmpeg(['-i', src, '-vf', PRESETS[preset] || PRESETS.medium, ...ENCODE, ...audio, out]);
-  if (!fs.existsSync(out)) { rm(plain); return { file: src, enhanced: false, reason: 'enhancing failed', width: p.width, height: p.height }; }
-  const [before, after] = await Promise.all([sharpness(plain), sharpness(out)]);
-  rm(plain);
-  const sharper = before.blur == null || after.blur == null || after.blur < before.blur;
-  const notBlockier = before.block == null || after.block == null || after.block <= before.block * 1.1;
-  const q = await probe(out);
-  // not better than a plain upscale: still deliver 720p, but the plain kind (no over-sharpening)
-  if (!(sharper && notBlockier)) {
-    rm(out);
-    const flat = tmpFile('mp4');
-    await ffmpeg(['-i', src, '-vf', UP, ...ENCODE, ...audio, flat]);
-    return { file: flat, enhanced: false, reason: 'sharpening didn’t help this clip', preset, before, after, width: q.width, height: q.height };
-  }
-  return { file: out, enhanced: true, preset, before, after, width: q.width, height: q.height };
+  // a timeout (ffmpeg throws) takes every temp file with it; on success only the one returned is kept
+  try {
+    await ffmpeg(['-i', src, '-vf', `scale='if(gt(iw,ih),-2,${SHORT})':'if(gt(iw,ih),${SHORT},-2)':flags=bilinear`, ...ENCODE, ...audio, plain]);
+    await ffmpeg(['-i', src, '-vf', PRESETS[preset] || PRESETS.medium, ...ENCODE, ...audio, out]);
+    if (!fs.existsSync(out)) { rm(plain, out, flat); return { file: src, enhanced: false, reason: 'enhancing failed', width: p.width, height: p.height }; }
+    const [before, after] = await Promise.all([sharpness(plain), sharpness(out)]);
+    rm(plain);
+    const sharper = before.blur == null || after.blur == null || after.blur < before.blur;
+    const notBlockier = before.block == null || after.block == null || after.block <= before.block * 1.1;
+    const q = await probe(out);
+    // not better than a plain upscale: still deliver 720p, but the plain kind (no over-sharpening)
+    if (!(sharper && notBlockier)) {
+      rm(out);
+      await ffmpeg(['-i', src, '-vf', UP, ...ENCODE, ...audio, flat]);
+      return { file: flat, enhanced: false, reason: 'sharpening didn’t help this clip', preset, before, after, width: q.width, height: q.height };
+    }
+    rm(flat);
+    return { file: out, enhanced: true, preset, before, after, width: q.width, height: q.height };
+  } catch (e) { rm(plain, out, flat); throw e; }
 }

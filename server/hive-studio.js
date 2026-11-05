@@ -9,6 +9,7 @@ import { sceneCost } from './studio/reels.js';
 import { CAST_TOOLS, CAST_OK } from './hive-cast.js';
 import { presenterScenes } from './studio/presenter.js';
 import * as variationTools from './hive-variations.js';
+import { planEdit, EDITS } from './studio/edit.js';
 const S = (props, required = []) => ({ type: 'object', properties: props, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
 const num = (description) => ({ type: 'number', description });
@@ -18,12 +19,14 @@ const VMODEL = str('Optional video model id from the tier’s menu (studio_statu
 const IMODEL = str('Optional image model id from the tier’s menu (studio_status → models.image, e.g. nano-banana-2-1, gpt-image-2, seedream-5-pro): only when the seller picks one');
 const PRESENTER = { type: 'string', enum: ['ugc', 'testimonial', 'founder'], description: 'Optional: a person speaking to the camera, lip-synced to the voiceover in any language — ugc (a customer filming themselves), testimonial (a happy buyer), founder (the seller about their product). The best-converting style for Indian ads. Scenes marked type "presenter" in the script are that person talking; the presenter is an invented person or the seller — never a celebrity or real public figure (refused)' };
 // what one already-made clip costs to make again
-const redoCost = (x) => (x?.presenter ? presenterCost(x.seconds) : x?.kind === 'clip' ? clipCost(x.tier, x.seconds, x.res) : x?.kind === 'image' ? imageCost(x.tier) : null);
+// (a photo-motion clip is made again from a new still: that's an image's credits)
+const redoCost = (x) => (x?.presenter ? presenterCost(x.seconds) : x?.photo ? imageCost(x.tier, x.imodel) : x?.kind === 'clip' ? clipCost(x.tier, x.seconds, x.res, x.vmodel) : x?.kind === 'image' ? imageCost(x.tier, x.imodel) : null);
+const editList = (k) => [...(EDITS[k].free || []).map((x) => `${x} (free)`), ...(EDITS[k].paid || []).map((x) => `${x} (credits)`)].join('; ');
 const MOTION = { type: 'string', enum: ['video', 'story', 'photo'], description: 'video (AI clips from an opening still, default) | story (an opening and a closing still per scene, animated between them — tells the story best, a second still per scene) | photo (stills with a zoom or pan, far cheaper)' };
 // a Reel's storyboard as Hive sees it: each scene's line and picture(s), ready or not
 const scenes = (r) => (r.shots || []).map((s, i) => ({ i, line: r.lines?.[i]?.text || r.script?.lines?.[i] || '', shows: r.script?.shots?.[i]?.image?.slice(0, 160) || '', picture: s.image?.url || null, closing: s.end?.url || null, status: s.image?.status || 'queued', ...(s.end ? { closingStatus: s.end.status } : {}) }));
 const board = (r) => ({ id: r.id, status: r.status, title: r.title, motion: r.motion, scenes: scenes(r), credits: { changeScene: r.sceneCredits?.start, animate: r.cost?.animate, res: r.cost?.res } });
-const brief = (a) => ({ id: a.id, kind: a.kind, status: a.status, tier: a.tier, url: a.url, poster: a.poster, issues: a.issues, ...(a.redoCredits ? { redoCredits: a.redoCredits, fix: a.fix || '' } : {}), ...(a.cost ? { cost: a.cost } : {}), prompt: a.prompt.slice(0, 120), ...(a.kind === 'reel' ? { title: a.title, links: a.links, shots: a.shots?.map((s) => s.clip?.status || s.image?.status || 'queued'), lines: a.lines?.map((l) => (l.url ? (l.check && !l.check.ok ? 'needs a look' : 'done') : 'pending')) } : {}) });
+const brief = (a) => ({ id: a.id, kind: a.kind, status: a.status, tier: a.tier, url: a.url, poster: a.poster, issues: a.issues, ...(a.redoCredits ? { redoCredits: a.redoCredits, fix: a.fix || '' } : {}), ...(a.cost ? { cost: a.cost } : {}), prompt: a.prompt.slice(0, 120), ...(a.versions?.length ? { versions: a.versions.length, lastChange: a.versions[0].label } : {}), ...(a.kind === 'reel' ? { title: a.title, links: a.links, grade: a.grade, captions: a.captions, music: a.musicOn === false ? 'off' : a.musicDb, cardStyle: a.cardStyle, scenes: a.script?.shots?.map((s, i) => ({ i, line: a.script.lines?.[i] || '', shows: String(s.image || '').slice(0, 100), move: s.cam?.move || '' })), shots: a.shots?.map((s) => s.clip?.status || s.image?.status || 'queued'), lines: a.lines?.map((l) => (l.url ? (l.check && !l.check.ok ? 'needs a look' : 'done') : 'pending')) } : {}) });
 
 // a design as Hive sees it: its words, slides and what the picture costs
 const POSTS = 'festive-glow, festive-frame, sale-burst, offer-banner, product-launch, testimonial, before-after, editorial, event';
@@ -91,9 +94,33 @@ export const TOOLS = [
   {
     name: 'studio_edit_reel',
     description: 'Change a finished Reel: caption style or colour ({ captions: { style, colour: "#rrggbb" } }), sizes, reword voiceover lines ({ lines: [{ i, text }] }, 0-based), redo shots with a note ({ shots: [{ i, note }] }), or the closing card ({ endCard: { headline, offer, cta } }). Only what changed is redone. A finished Reel’s links (per size) are in studio_status — use those to upload it to an ad with the ads tools once the seller agrees.',
-    schema: S({ id: str('The Reel id'), captions: { type: 'object', description: '{ style, colour }' }, sizes: { type: 'array', items: { type: 'string' } }, lines: { type: 'array', items: { type: 'object' } }, shots: { type: 'array', items: { type: 'object' } }, endCard: { type: 'object' } }, ['id']),
+    schema: S({ id: str('The Reel id'), captions: { type: 'object', description: '{ style, colour }' }, sizes: { type: 'array', items: { type: 'string' } }, lines: { type: 'array', items: { type: 'object' } }, shots: { type: 'array', items: { type: 'object' } }, endCard: { type: 'object' }, voice: str('Optional: another voice id (from studio_status voices) — every line is recorded again') }, ['id']),
     run: async (ctx, a) => { const { id, ...b } = a; return { ok: true, reel: brief(await ctx.call('PUT', `/studio/reels/${encodeURIComponent(id)}`, b)) }; },
     summary: () => 'Changed the Reel',
+  },
+  // ---------- one way to change anything (studio/edit.js): what the seller points at, in their words ----------
+  {
+    name: 'studio_edit',
+    description: `Change anything in Studio the way the seller says it — "make the background darker", "swap scene 3 for a close-up", "change the caption font", "music quieter", "remove scene 2". PREFER THIS over the older edit tools. Aim it at the item and part the seller means (the Studio context says what they have open and selected): target "reel" (the whole Reel), "scene:N" (from 0), "image", "clip", "design" or "slide:N". A picture is EDITED with the current one as the reference, so everything not mentioned stays the same — say only the change. Free changes are instant re-edits; paid ones are confirmed with their credits. Every change can be undone (studio_undo). What change takes —
+Reel: ${editList('reel')}.
+Scene: ${editList('scene')}.
+Image: ${editList('image')}. Clip: ${editList('clip')}.
+Design: ${editList('design')}. Slide: ${editList('slide')}.
+Looks are nudged in steps from the current setting (the Reel's grade in studio_status): "a bit darker" = brightness one lower than now; "much warmer" = warmth two higher.`,
+    schema: S({ id: str('The Studio item id (a Reel, image, clip or design)'), target: str('reel | scene:N | image | clip | design | slide:N'), change: { type: 'object', description: 'The fields to change, as listed above' } }, ['id', 'target', 'change']),
+    run: async (ctx, a) => {
+      const r = await ctx.call('POST', '/studio/edit', { id: a.id, target: a.target, change: a.change });
+      const it = r.item || {};
+      return { ok: true, done: r.plan.summary, free: r.plan.free, credits: r.plan.credits, id: it.id, status: it.status, url: it.url, versions: (it.versions || []).length, note: r.plan.free ? 'Applied — a re-edit, ready in under a minute. It can be undone with studio_undo.' : 'Started — the new picture or clip is being made, then it’s edited again (a few minutes). It can be undone with studio_undo.' };
+    },
+    summary: (r) => r.done,
+  },
+  {
+    name: 'studio_undo',
+    description: 'Undo the last change to a Studio item (Reel, image, clip or design), or go back to an earlier version (version: its number from the item\x27s versions). Free; the current state is kept as a version too, so this can be undone as well.',
+    schema: S({ id: str('The Studio item id'), version: num('Optional: the version number to go back to (default: the last change)') }, ['id']),
+    run: async (ctx, a) => { const it = await ctx.call('POST', `/studio/assets/${encodeURIComponent(a.id)}/undo`, a.version ? { n: a.version } : {}); return { ok: true, id: it.id, status: it.status, url: it.url, versions: (it.versions || []).map((v) => ({ n: v.n, label: v.label, at: v.at })) }; },
+    summary: () => 'Went back to the version before',
   },
   // ---------- what Studio remembers about the seller: their brand, taste, characters and usual choices ----------
   {
@@ -223,6 +250,8 @@ export const OK = {
   studio_storyboard: (a) => { const r = T.studio.get(String(a.id || '')), sc = a.script || r?.script; if (r?.status !== 'script_ready' || !sc) return null; const c = reelCost({ tier: r.tier, seconds: r.seconds, shots: sc.shots?.length || 4, lines: sc.lines?.length || 4, res: a.res || r.res, motion: a.motion || r.motion, vmodel: a.vmodel || r.vmodel, imodel: a.imodel || r.imodel, presenters: presenterScenes(sc), face: !!r.presenter?.image }); const n = sc.shots?.length || 4; return `Make the storyboard: ${c.motion === 'story' ? `an opening and a closing picture for each of the ${n} scenes` : `a picture for each of the ${n} scenes`} and the voiceover — about ${c.storyboard} credits (animating it afterwards: about ${c.animate} credits more, asked then)`; },
   studio_change_scene: (a) => { if (a.drop || a.text || (a.to !== undefined && a.to !== null)) return null; const r = T.studio.get(String(a.id || '')); return `Make scene ${Number(a.i) + 1}’s picture again${a.note ? ` (“${String(a.note).slice(0, 80)}”)` : ''}${r ? ` — about ${sceneCost(r, a.part)} credits` : ''}`; },
   studio_animate: (a) => { const r = T.studio.get(String(a.id || '')); const c = r?.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.shots?.length || r.script.shots.length, lines: r.lines?.length || r.script.lines.length, res: a.res || r.res, motion: r.motion, vmodel: a.vmodel ? modelKey('clip', r.tier, a.vmodel) : r.vmodel, imodel: r.imodel, presenters: presenterScenes(r.script), face: !!r.presenter?.image }) : null; return `Animate the storyboard: ${c ? `${r.shots?.length || ''} ${c.motion === 'photo' ? 'pictures with a zoom or pan' : `clips at ${c.res}`}${c.presenter ? ` (${c.presenter.scenes} of them a presenter speaking, lip-synced)` : ''}, then the edit with music — about ${c.animate} credits` : 'its clips, then the edit'}`; },
+  // a change is asked about only when it costs credits (a picture edited, a clip made again, a new music track)
+  studio_edit: (a) => { const x = T.studio.get(String(a.id || '')); if (!x) return null; const p = planEdit(x, a.target, a.change); return p.error || p.free ? null : `${p.summary} — about ${p.credits} credits`; },
   studio_edit_reel: (a) => { if (!a.shots?.length) return null; const r = T.studio.get(String(a.id || '')); const c = (a.shots || []).reduce((t, { i }) => { const x = r?.shots?.[i] && T.studio.get(r.shots[i].clipId); return t + (x ? redoCost(x) : 0); }, 0); return `Redo ${a.shots.length} shot${a.shots.length === 1 ? '' : 's'} of the Reel and edit it again${c ? ` — about ${c} credits` : ''}`; },
 };
 // the cast and brand kit (hive-cast.js)

@@ -32,7 +32,12 @@ export const PRESETS = {
   karaoke: { label: 'Karaoke highlight', mode: 'phrase', size: 0.075, bold: true, upper: false, colour: '#ffffff', highlight: '#22d3ee', outline: 0.08, shadow: 0.02, box: false, y: 0.66, maxWords: 4, karaoke: true },
   // small and quiet, for videos where the picture carries the message
   minimal: { label: 'Minimal', mode: 'phrase', size: 0.045, bold: false, upper: false, colour: '#ffffff', highlight: '#ffffff', outline: 0.06, shadow: 0.03, box: false, y: 0.8, maxWords: 7 },
+  // the house look: left-aligned, bone white with the spoken word in muted mustard (no neon, no box), a thin charcoal
+  // edge and a soft shadow instead of a hard black outline; bold, two or three words that pop as they're said
+  matte: { label: 'Matte left', mode: 'phrase', pop: true, size: 0.082, bold: true, upper: true, colour: '#ede8e0', highlight: '#c9a13b', outline: 0.05, outlineColour: '#1e1e1c', shadow: 0.04, box: false, y: 0.7, maxWords: 3, align: 'left' },
 };
+// ASS alignment on the bottom row: 1 left, 2 centre, 3 right
+const ALIGN = { left: 1, center: 2, right: 3 };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // h:mm:ss.cc
@@ -77,12 +82,16 @@ export function captionPlace(look, width, height) {
 }
 
 // words [{ w, start, end }] → the text of an .ass file
-// opts: { style ('pop'|'lower'|'karaoke'|'minimal'), mode?, width, height, font, colour?, highlight?, upper?, offset (s) }
-export function buildAss(words, { style = 'pop', mode, width = 1080, height = 1920, font = 'Noto Sans', colour, highlight, upper, offset = 0 } = {}) {
+// opts: { style ('pop'|'lower'|'karaoke'|'minimal'|'matte'), mode?, width, height, font, colour?, highlight?, upper?,
+// y? (0–1 down the frame; kept inside the safe area by captionPlace), align? ('left'|'center'; left sits at the safe
+// area's left margin), offset (s) }
+export function buildAss(words, { style = 'pop', mode, width = 1080, height = 1920, font = 'Noto Sans', colour, highlight, upper, y, align, offset = 0 } = {}) {
   const P = { ...(PRESETS[style] || PRESETS.pop) };
   if (colour) P.colour = colour;
   if (highlight) P.highlight = highlight;
   if (upper != null) P.upper = !!upper;
+  if (Number.isFinite(Number(y)) && y !== null && y !== '') P.y = clamp(Number(y), 0, 1);
+  if (align === 'left' || align === 'center') P.align = align;
   const m = mode || P.mode;
   const list = (words || []).map((w) => ({ w: clean(w.w), start: Number(w.start) + offset, end: Number(w.end) + offset })).filter((w) => w.w && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start);
   const { size, marginV } = captionPlace(P, width, height);
@@ -90,8 +99,8 @@ export function buildAss(words, { style = 'pop', mode, width = 1080, height = 19
   const outline = P.box ? Math.max(6, Math.round(size * P.outline)) : Math.max(2, Math.round(size * P.outline));
   const shadow = Math.round(size * P.shadow);
   // BorderStyle 3 = an opaque box behind the text (OutlineColour fills it); 1 = outline + shadow
-  const outlineColour = P.box ? assColour(P.boxColour, P.boxAlpha) : assColour('#000000', 0);
-  const style0 = ['Main', font, size, assColour(P.karaoke ? P.highlight : P.colour), assColour(P.karaoke ? P.colour : P.highlight), outlineColour, assColour('#000000', 0.4), P.bold ? -1 : 0, 0, 0, 0, 100, 100, 0, 0, P.box ? 3 : 1, outline, shadow, 2, safe.left, safe.right, marginV, 1];
+  const outlineColour = P.box ? assColour(P.boxColour, P.boxAlpha) : assColour(P.outlineColour || '#000000', 0);
+  const style0 = ['Main', font, size, assColour(P.karaoke ? P.highlight : P.colour), assColour(P.karaoke ? P.colour : P.highlight), outlineColour, assColour(P.outlineColour || '#000000', 0.4), P.bold ? -1 : 0, 0, 0, 0, 100, 100, 0, 0, P.box ? 3 : 1, outline, shadow, ALIGN[P.align] || 2, safe.left, safe.right, marginV, 1];
   const head = [
     '[Script Info]', 'ScriptType: v4.00+', `PlayResX: ${width}`, `PlayResY: ${height}`, 'WrapStyle: 0', 'ScaledBorderAndShadow: yes', 'YCbCr Matrix: TV.709', '',
     '[V4+ Styles]',

@@ -6,7 +6,7 @@
 // PRESENTER_MODELS). The clip lasts as long as its line; the editor drops the clip's own sound and lines its first frame
 // up with the line in the master voice track (assemble.js render starts/synced), so the voice is never doubled or late.
 import { T } from '../db.js';
-import { enqueue } from './jobs.js';
+import { enqueue, dropFiles } from './jobs.js';
 import { localCopy, save, rm, ffmpeg, tmpFile, probe } from './media.js';
 
 export const PRESENTER_STYLES = ['ugc', 'testimonial', 'founder'];
@@ -81,8 +81,16 @@ async function sceneAudio(r, i) {
     const chain = files.map((_, k) => `[${k}:a]aresample=44100,aformat=channel_layouts=mono,apad=pad_dur=${GAP}[a${k}]`).join(';');
     await ffmpeg([...files.flatMap((f) => ['-i', f]), '-filter_complex', `${chain};${files.map((_, k) => `[a${k}]`).join('')}concat=n=${files.length}:v=0:a=1,apad=whole_dur=${whole.toFixed(2)}[out]`, '-map', '[out]', '-t', whole.toFixed(2), out]);
     const saved = await save(r.userId, out, 'wav', 'audio/wav');
-    return { url: saved.url, seconds: Math.round(whole * 100) / 100 };
+    return { url: saved.url, bytes: saved.bytes, seconds: Math.round(whole * 100) / 100 };
   } finally { rm(out, ...temp); }
+}
+// the WAVs of this scene's earlier presenter clips (an attempt before, or a relip): their clip was replaced, so the audio
+// it was made from goes (a clip still being made keeps it until it's done; the next order for the scene takes it)
+function dropOldAudio(r, i, keepId) {
+  const old = T.studio.all({ userId: r.userId }).filter((x) => x.reelId === r.id && x.presenter && x.scene === i && x.id !== keepId && x.audio && !['queued', 'rendering', 'checking'].includes(x.status));
+  if (!old.length) return;
+  for (const x of old) T.studio.update(x.id, (y) => { delete y.audio; delete y.audioBytes; });
+  dropFiles(r.userId, old.map((x) => ({ url: x.audio, bytes: x.audioBytes }))).catch((e) => console.error('presenter audio not removed', r.id, e.message));
 }
 // order scene i's lip-synced clip (one step of the Reel's loop) → the Reel's shots with its clip id
 export async function presenterClip(r, i, set) {
@@ -90,7 +98,8 @@ export async function presenterClip(r, i, set) {
   try {
     const audio = await sceneAudio(r, i);
     const direction = `${r.presenter?.style === 'founder' ? 'A founder' : 'A real customer'} speaking warmly and naturally to the camera, small natural head and hand movements, steady framing`;
-    const c = enqueue(r.userId, { kind: 'clip', presenter: true, tier: r.tier, prompt: direction, aspect: r.aspect, seconds: audio.seconds, ref: img.url, audio: audio.url, sourceId: img.id, reelId: r.id, enhance: true, by: r.by });
+    const c = enqueue(r.userId, { kind: 'clip', presenter: true, tier: r.tier, prompt: direction, aspect: r.aspect, seconds: audio.seconds, ref: img.url, audio: audio.url, audioBytes: audio.bytes, scene: i, sourceId: img.id, reelId: r.id, enhance: true, by: r.by });
+    dropOldAudio(r, i, c.id);
     return set((x) => { x.shots = x.shots.map((y, j) => (j === i ? { ...y, clipId: c.id, seconds: audio.seconds } : y)); });
   } catch (e) {
     console.error('presenter audio failed', r.id, i, e.message);

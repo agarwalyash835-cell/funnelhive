@@ -153,7 +153,14 @@ export const clipRes = (tier, res, key) => { const t = tierOf(tier), k = modelKe
 const imageRes = (tier, key) => { const r = TIER_MENU[tierOf(tier)].imageRes, e = IMAGE_MODELS[key]; return e.res.includes(r) ? r : e.res.at(-1); };
 // how long a clip the model will really make for `seconds` (fixed-length models round up to the next length they offer)
 export const clipLength = (key, seconds) => { const e = VIDEO_MODELS[key] || VIDEO_MODELS['seedance-2'], s = Math.max(1, Math.round(Number(seconds) || 5)); if (e.lengths) return e.lengths.find((l) => l >= s) ?? e.lengths.at(-1); return Math.min(e.secs[1], Math.max(e.secs[0], s)); };
-export const imageCost = (tier, key) => { const t = tierOf(tier), k = modelKey('image', t, key), r = imageRes(t, k); return Math.ceil(override('image', k)?.[r] ?? IMAGE_MODELS[k].price[r]); };
+// with no model asked for, the admin's own model for the tier is what pick() makes, so that's what's priced (when it's
+// one the catalogue knows; else the tier's default as before)
+export const imageCost = (tier, key) => {
+  const t = tierOf(tier), o = !key ? platform().studio?.models?.image?.[t] : null;
+  const ok = o?.model ? Object.keys(IMAGE_MODELS).find((x) => IMAGE_MODELS[x].model === o.model) : null;
+  const k = ok || modelKey('image', t, key), r = ok && IMAGE_MODELS[ok].price[o.resolution] != null ? o.resolution : imageRes(t, k);
+  return Math.ceil(override('image', k)?.[r] ?? IMAGE_MODELS[k].price[r]);
+};
 export const clipCost = (tier, seconds, res, key) => {
   const t = tierOf(tier), k = modelKey('clip', t, key), e = VIDEO_MODELS[k], r = clipRes(t, res, k), len = clipLength(k, seconds);
   const rates = { ...e.price.rates, ...(override('clip', k) || {}) }, top = Math.max(...Object.values(rates));

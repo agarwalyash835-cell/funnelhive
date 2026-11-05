@@ -1,18 +1,20 @@
-// The creative director: Hive's chat (POST /api/hive/chat, streamed), kept to one thread for Studio and told what's on
-// the canvas (the open Reel, or what's being made) with each message, so it can use its Studio tools on it — write a
-// Reel, check it before spending, change a scene, animate. Anything it changes shows up on the canvas as it happens.
+// The creative director: Hive's chat (POST /api/hive/chat, streamed) in its Studio scope (only Studio's tools, told how
+// to edit), one thread per thing being worked on (a Reel, an image, or the mode when nothing is open), and told what's on
+// the canvas and what the seller has pointed at with each message — so "make the background darker" or "swap this for
+// a close-up" lands on the right thing (studio_edit). Anything it changes shows up on the canvas as it happens.
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles, Square, ArrowUp, Check, X, Loader2, Plus } from 'lucide-react';
+import { Sparkles, Square, ArrowUp, Check, X, Loader2, Plus, Crosshair } from 'lucide-react';
 import { api } from '../../api';
 import { toast } from '../../ui';
 
 const KEY = 'ff_studio_thread';
-const savedThread = () => { try { return localStorage.getItem(KEY) || null; } catch { return null; } };
-const saveThread = (id) => { try { if (id) localStorage.setItem(KEY, id); else localStorage.removeItem(KEY); } catch { /* private mode */ } };
+const keyOf = (scope) => `${KEY}:${scope}`;
+const savedThread = (scope) => { try { return localStorage.getItem(keyOf(scope)) || null; } catch { return null; } };
+const saveThread = (scope, id) => { try { if (id) localStorage.setItem(keyOf(scope), id); else localStorage.removeItem(keyOf(scope)); } catch { /* private mode */ } };
 // the canvas, said to the director with each message (and left out when the thread is shown)
 const CTX = /\n\n\(Studio context: [\s\S]*\)$/;
 const clean = (t) => String(t || '').replace(CTX, '');
-const DOING = { studio_make_images: 'Making the images', studio_make_clip: 'Making the clip', studio_status: 'Looking at your Studio', studio_redo: 'Redoing it', studio_make_reel: 'Writing your Reel', studio_approve_reel: 'Starting the Reel', studio_edit_reel: 'Changing the Reel', studio_memory: 'Reading your brand notes', studio_remember: 'Remembering that', studio_check: 'Checking quality and virality', studio_storyboard: 'Drawing up the storyboard', studio_change_scene: 'Changing the scene', studio_animate: 'Bringing the scenes to life' };
+const DOING = { studio_make_images: 'Making the images', studio_make_clip: 'Making the clip', studio_status: 'Looking at your Studio', studio_redo: 'Redoing it', studio_make_reel: 'Writing your Reel', studio_approve_reel: 'Starting the Reel', studio_edit_reel: 'Changing the Reel', studio_edit: 'Making the change', studio_undo: 'Going back', studio_memory: 'Reading your brand notes', studio_remember: 'Remembering that', studio_check: 'Checking quality and virality', studio_storyboard: 'Drawing up the storyboard', studio_change_scene: 'Changing the scene', studio_animate: 'Bringing the scenes to life', studio_make_design: 'Drafting the design', studio_make_thumbnail: 'Drafting the thumbnail', studio_make_carousel: 'Drafting the carousel', studio_finish_design: 'Making the picture', studio_edit_design: 'Changing the design', studio_design: 'Looking at the design' };
 
 function Rich({ text }) {
   const inline = (s, k) => s.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((p, i) => (/^\*\*.+\*\*$/.test(p) ? <b key={`${k}-${i}`}>{p.slice(2, -2)}</b> : /^`.+`$/.test(p) ? <code key={`${k}-${i}`}>{p.slice(1, -1)}</code> : p));
@@ -38,9 +40,11 @@ function Tools({ tools, onDecide, deciding }) {
   );
 }
 
-export function DirectorChat({ reel, mode, onActivity, onCollapse }) {
+// selected: { id, kind, target, label, url } — what the seller pointed at; onUnselect drops it back to the whole thing
+export function DirectorChat({ reel, mode, selected, onUnselect, onActivity, onCollapse }) {
+  const scope = reel?.id || (selected?.id && selected.kind !== 'reel' ? selected.id : `mode-${mode}`);
   const [ready, setReady] = useState(null);
-  const [tid, setTid] = useState(savedThread);
+  const [tid, setTid] = useState(() => savedThread(scope));
   const [msgs, setMsgs] = useState([]);
   const [live, setLive] = useState(null);
   const [input, setInput] = useState('');
@@ -48,13 +52,23 @@ export function DirectorChat({ reel, mode, onActivity, onCollapse }) {
   const [deciding, setDeciding] = useState(null);
   const abort = useRef(null), endRef = useRef(null), boxRef = useRef(null);
   useEffect(() => { api('/hive/status').then((s) => setReady(!!s.ready)).catch(() => setReady(false)); }, []);
-  useEffect(() => { if (!tid) return; api(`/hive/threads/${tid}`).then((t) => setMsgs(t.messages || [])).catch(() => { saveThread(null); setTid(null); }); }, []);
+  // each thing has its own conversation: switching brings back that thing's thread
+  useEffect(() => {
+    if (busy) return;
+    const t = savedThread(scope);
+    setTid(t); setMsgs([]);
+    if (t) api(`/hive/threads/${t}`).then((x) => setMsgs(x.messages || [])).catch(() => { saveThread(scope, null); setTid(null); });
+  }, [scope]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [msgs, live]);
   useEffect(() => { const b = boxRef.current; if (!b) return; b.style.height = 'auto'; b.style.height = `${Math.min(160, b.scrollHeight)}px`; }, [input]);
 
+  const chip = selected && !(selected.kind === 'reel' && selected.target === 'reel') ? selected : null;
+  const pointed = chip ? ` They have selected: ${chip.label} (studio_edit target "${chip.target}" on item ${chip.id}) — “this”, “it” and “here” mean that.` : '';
   const context = () => (reel
-    ? `(Studio context: the seller has the Reel “${reel.title}” open (id ${reel.id}, status ${reel.status}). Use the Studio tools on this Reel unless they say otherwise; say the credits before anything paid.)`
-    : `(Studio context: the seller is in Studio making ${mode === 'clip' ? 'video clips' : mode === 'reel' ? 'Reels' : mode === 'image' ? 'images' : mode}. Use the Studio tools; say the credits before anything paid.)`);
+    ? `(Studio context: the seller has the Reel “${reel.title}” open (id ${reel.id}, status ${reel.status}).${pointed} Use the Studio tools on this Reel unless they say otherwise; say the credits before anything paid.)`
+    : chip
+      ? `(Studio context: the seller is in Studio with ${chip.label.toLowerCase()} selected (id ${chip.id}, studio_edit target "${chip.target}") — “this” and “it” mean that. Use the Studio tools; say the credits before anything paid.)`
+      : `(Studio context: the seller is in Studio making ${mode === 'clip' ? 'video clips' : mode === 'reel' ? 'Reels' : mode === 'image' ? 'images' : mode}. Use the Studio tools; say the credits before anything paid.)`);
 
   const send = async (text = input) => {
     const message = text.trim();
@@ -64,9 +78,18 @@ export function DirectorChat({ reel, mode, onActivity, onCollapse }) {
     setLive({ tools: [] });
     const ac = new AbortController(); abort.current = ac;
     let threadId = tid;
+    const here = scope;
     try {
-      const res = await fetch('/api/hive/chat', { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ff_token')}` }, body: JSON.stringify({ message: `${message}\n\n${context()}`, threadId: tid }) });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Your creative director is unavailable right now'); }
+      // the streamed reply can't go through api(): this light call first refreshes an old sign-in the same way
+      await api('/hive/status').catch(() => {});
+      const res = await fetch('/api/hive/chat', { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ff_token')}` }, body: JSON.stringify({ message: `${message}\n\n${context()}`, threadId: tid, scope: 'studio' }) });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        // out of credits or the plan ended: the app's upgrade prompt, as everywhere else
+        if (res.status === 402) window.dispatchEvent(new CustomEvent('ff:paywall', { detail: e }));
+        if (res.status === 401) await api('/hive/status').catch(() => {}); // signs out, or back to the agency, as api() does
+        throw new Error(e.error || 'Your creative director is unavailable right now');
+      }
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '';
       for (;;) {
@@ -78,7 +101,7 @@ export function DirectorChat({ reel, mode, onActivity, onCollapse }) {
           const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
           if (!chunk.startsWith('data: ')) continue;
           const ev = JSON.parse(chunk.slice(6));
-          if (ev.type === 'thread') { threadId = ev.threadId; setTid(ev.threadId); saveThread(ev.threadId); }
+          if (ev.type === 'thread') { threadId = ev.threadId; setTid(ev.threadId); saveThread(here, ev.threadId); }
           else if (ev.type === 'thinking') setLive((l) => ({ ...l, thinking: ev.text }));
           else if (ev.type === 'tool') {
             setLive((l) => ({ ...l, tools: ev.status === 'running' ? [...l.tools, ev] : l.tools.map((t) => (t.id === ev.id ? { ...t, ...ev } : t)) }));
@@ -105,12 +128,16 @@ export function DirectorChat({ reel, mode, onActivity, onCollapse }) {
     } catch (e) { toast(e.message); }
     setDeciding(null);
   };
-  const fresh = () => { if (busy) return; saveThread(null); setTid(null); setMsgs([]); boxRef.current?.focus(); };
+  const fresh = () => { if (busy) return; saveThread(scope, null); setTid(null); setMsgs([]); boxRef.current?.focus(); };
 
+  const sceneSel = chip?.target?.startsWith('scene:');
   const sugg = reel
-    ? (reel.status === 'script_ready' ? ['Make the first two seconds impossible to scroll past', 'Check this before I spend anything', 'Rewrite it in Hindi, same story'] : reel.status === 'storyboard_ready' ? ['Which scene is weakest? Fix it', 'Make scene 1 warmer and closer', 'Animate it — what will it cost?'] : ['What would make this Reel perform better?', 'Make a 15-second cut of this idea', 'Remember: I like warm morning light'])
-    : mode === 'reel' ? ['Write a 30s launch Reel for my product, Hindi voiceover', 'Plan a festive-sale Reel with a WhatsApp call to action', 'What do you remember about my brand?']
-      : mode === 'clip' ? ['Turn my latest image into a slow push-in clip', 'Suggest three clip ideas for my product'] : ['Make 4 product shots on a festive table', 'Shoot my product like a premium brand would', 'What do you remember about my brand?'];
+    ? (reel.status === 'script_ready' ? ['Make the first two seconds impossible to scroll past', 'Check this before I spend anything', 'Rewrite it in Hindi, same story']
+      : reel.status === 'storyboard_ready' ? (sceneSel ? ['Make this one warmer and closer', 'Swap this for a close-up of the product', 'Drop this scene'] : ['Which scene is weakest? Fix it', 'Make scene 1 warmer and closer', 'Animate it — what will it cost?'])
+        : sceneSel ? ['Swap this for a close-up', 'Make the camera push in slowly here', 'Remove this scene'] : ['Make it look more matte and filmic', 'Captions on the left, in a serif font', 'Music a bit quieter', 'Undo the last change'])
+    : chip?.kind === 'image' ? ['Make the background darker', 'Warmer, morning light', 'Remove the clutter around the product']
+      : chip?.kind === 'clip' ? ['Slower, with a gentle push-in', 'Keep the camera still'] : mode === 'reel' ? ['Write a 30s launch Reel for my product, Hindi voiceover', 'Plan a festive-sale Reel with a WhatsApp call to action', 'What do you remember about my brand?']
+        : mode === 'clip' ? ['Turn my latest image into a slow push-in clip', 'Suggest three clip ideas for my product'] : ['Make 4 product shots on a festive table', 'Shoot my product like a premium brand would', 'What do you remember about my brand?'];
   const empty = !msgs.length && !live;
 
   return (
@@ -126,7 +153,7 @@ export function DirectorChat({ reel, mode, onActivity, onCollapse }) {
           <div className="sxc-empty">
             <span className="sxc-orb" aria-hidden="true"><Sparkles size={22} /></span>
             <h3>Brief me like you’d brief an agency</h3>
-            <p>I write the scripts, plan the shots, check them for quality and virality before you spend, and change anything you point at.</p>
+            <p>I write the scripts, plan the shots, check them before you spend — and change anything you point at. Click a scene or a picture, then just say what should be different.</p>
             {ready === false && <p className="sxc-warn">The director isn’t switched on yet — everything on the canvas still works.</p>}
           </div>
         )}
@@ -145,9 +172,16 @@ export function DirectorChat({ reel, mode, onActivity, onCollapse }) {
         <div ref={endRef} />
       </div>
       {!busy && ready && <div className="sxc-sugg">{sugg.map((x) => <button key={x} type="button" onClick={() => send(x)}>{x}</button>)}</div>}
+      {chip && (
+        <div className="sxc-sel" aria-label="What your message is about">
+          {chip.url ? <img src={chip.url} alt="" /> : <Crosshair size={14} aria-hidden="true" />}
+          <span>Editing <b>{chip.label}</b></span>
+          {onUnselect && <button type="button" className="icon-btn" aria-label="Talk about the whole thing instead" title="Talk about the whole thing instead" onClick={onUnselect}><X size={13} /></button>}
+        </div>
+      )}
       <form className="sxc-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
         <textarea ref={boxRef} rows={1} value={input} disabled={!ready} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={ready === false ? 'The director is offline' : reel ? 'Ask for a change to this Reel…' : 'Tell me what you want to make…'} aria-label="Message the creative director" />
+          placeholder={ready === false ? 'The director is offline' : chip ? `What should change in ${chip.label.toLowerCase()}?` : reel ? 'Ask for a change to this Reel…' : 'Tell me what you want to make…'} aria-label="Message the creative director" />
         {busy ? <button type="button" className="sxc-send stop" aria-label="Stop" onClick={() => abort.current?.abort()}><Square size={13} /></button>
           : <button className="sxc-send" aria-label="Send" disabled={!input.trim() || !ready}><ArrowUp size={17} /></button>}
       </form>

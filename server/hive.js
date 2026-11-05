@@ -936,8 +936,9 @@ export function startGroups(message, history = [], focused = false) {
   return g;
 }
 const defOf = (t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.schema });
-export const toolDefsFor = (groups) => {
-  const names = new Set([...CORE_TOOLS, ...[...groups].flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
+// core false: a scoped chat (Studio's director) starts without the funnel-building tools
+export const toolDefsFor = (groups, core = true) => {
+  const names = new Set([...(core ? CORE_TOOLS : []), ...[...groups].flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
   return [...TOOLS.filter((t) => names.has(t.name)).map(defOf), USE_TOOLS];
 };
 
@@ -987,11 +988,15 @@ const failKey = (name, args) => (name === 'run_app_action' ? `app:${String(args?
 const WRAP_UP = '[Note from the app: stop here — no more tools in this reply. In a few short lines tell the user what got done, what didn’t work and why (say the error plainly), and exactly what they need to do next. Don’t promise to keep trying.]';
 
 // ---------- the turn ----------
-export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses }) {
+// Studio's director (scope 'studio'): only the Studio tools to start with (others load on request), and how to edit
+const STUDIO_NOTE = `\n\nYou are working inside Studio as the seller's creative director (images, clips, Reels and designs). To change anything they have made, use studio_edit on what they mean — the Studio context names what is open and selected; "this", "it" and "here" mean the selected thing. Say what a change costs before anything paid (free changes just happen). "Undo", "go back" or "I liked it before" → studio_undo. Keep replies short: what changed, what it cost, what they could try next.`;
+export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses, scope = null }) {
+  const studio = scope === 'studio';
   let context = '';
-  if (focusFunnelId) { try { context = `\n\n[The user is looking at funnel ${focusFunnelId}: ${clip(outline(await ctx.call('GET', `/funnels/${focusFunnelId}`), ctx.origin)).slice(0, 3000)}]`; } catch {} }
+  if (focusFunnelId && !studio) { try { context = `\n\n[The user is looking at funnel ${focusFunnelId}: ${clip(outline(await ctx.call('GET', `/funnels/${focusFunnelId}`), ctx.origin)).slice(0, 3000)}]`; } catch {} }
   const input = [...history.slice(-12).map((m) => ({ role: m.role, content: m.text })), { role: 'user', content: message + context }];
-  const groups = startGroups(message, history, !!focusFunnelId);
+  const groups = studio ? new Set(['studio', ...startGroups(message, history.slice(-2), false)].filter((g) => g !== 'sections')) : startGroups(message, history, !!focusFunnelId);
+  const system = studio ? SYSTEM + STUDIO_NOTE : SYSTEM;
   const done = [], rounds = new Map(), seen = new Map(), fails = new Map(), blocked = new Map();
   const usage = { rounds: 0, tokensIn: 0, tokensOut: 0 };
   const turnEnd = Date.now() + TURN_MS;
@@ -1055,12 +1060,12 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     if (usage.tokensIn >= TURN_TOKENS) { stoppedForBudget = true; break; }
     if (Date.now() > turnEnd - 20000) break; // out of time: wrapped up below
     compact(input, rounds, i);
-    const tools = toolDefsFor(groups);
+    const tools = toolDefsFor(groups, !studio);
     await slot(signal);
     let d;
-    try { d = await model({ instructions: SYSTEM, input, tools, signal, timeoutMs: Math.max(15000, Math.min(CALL_MS, turnEnd - Date.now())) }); } finally { freeSlot(); }
+    try { d = await model({ instructions: system, input, tools, signal, timeoutMs: Math.max(15000, Math.min(CALL_MS, turnEnd - Date.now())) }); } finally { freeSlot(); }
     usage.rounds++;
-    usage.tokensIn += d.usage?.input_tokens || estTokens([SYSTEM, input, tools]);
+    usage.tokensIn += d.usage?.input_tokens || estTokens([system, input, tools]);
     usage.tokensOut += d.usage?.output_tokens || estTokens(d.output);
     const say = d.output.filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('').trim();
     const calls = d.output.filter((o) => o.type === 'function_call');
@@ -1093,7 +1098,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
       input.push({ role: 'user', content: WRAP_UP });
       await slot(signal);
       let d;
-      try { d = await model({ instructions: SYSTEM, input, tools: [], signal, timeoutMs: 45000 }); } finally { freeSlot(); }
+      try { d = await model({ instructions: system, input, tools: [], signal, timeoutMs: 45000 }); } finally { freeSlot(); }
       usage.rounds++;
       text = d.output.filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('').trim();
     } catch (e) { if (signal?.aborted) throw e; }
@@ -1256,7 +1261,9 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       const ctx = { ...jr.ctx, pending: [] };
       // spoken from the dashboard's voice assistant: the answer is read aloud, in the language they spoke
       const spoken = req.body.voice ? `${message}\n\n(Spoken by voice${VOICE_LANGS[req.body.voice] ? ` in ${VOICE_LANGS[req.body.voice]}` : ''}: reply in that same language and script, in 1–3 short, natural spoken sentences — no lists, tables, links or formatting. If you need something from them, ask just one question.)` : message;
-      const out = await hiveTurn({ ctx, history, message: spoken, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal });
+      // a Studio thread stays a Studio thread (the director's chat in Studio)
+      if (req.body.scope === 'studio' && !t.scope) { t.scope = 'studio'; T.hive.put(t); }
+      const out = await hiveTurn({ ctx, history, message: spoken, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal, scope: t.scope || null });
       const undoId = saveUndo();
       t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now(), ...(undoId ? { undoId } : {}) });
       logUsage(req.user.id, out.usage);

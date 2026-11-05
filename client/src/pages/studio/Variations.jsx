@@ -23,11 +23,12 @@ export default function Variations({ reel, onChange }) {
   const [launch, setLaunch] = useState({ link: '', dailyBudget: 500, pageId: '' });
   const [plan, setPlan] = useState(null);
 
+  // the two load apart: results can fail (no Meta connection) and the variations still show; variations failing shows
+  // a way to try again instead of the skeleton for good
   const load = async () => {
-    try {
-      const [v, r] = await Promise.all([api(`/studio/reels/${id}/variations`), api(`/studio/reels/${id}/results`)]);
-      setD(v); setRes(r);
-    } catch (e) { toast(e.message); }
+    const [v, r] = await Promise.allSettled([api(`/studio/reels/${id}/variations`), api(`/studio/reels/${id}/results`)]);
+    if (v.status === 'fulfilled') setD(v.value); else { toast(v.reason?.message || 'Couldn’t load the variations'); setD((x) => x || { failed: true }); }
+    setRes(r.status === 'fulfilled' ? r.value : null);
   };
   useEffect(() => { if (id) load(); }, [id]);
   // while variants are being made, look again every few seconds
@@ -35,6 +36,7 @@ export default function Variations({ reel, onChange }) {
   useEffect(() => { if (!making) return undefined; const t = setInterval(load, 8000); return () => clearInterval(t); }, [making, id]);
   if (!reel) return null;
   if (!d) return <div className="skeleton" />;
+  if (d.failed) return <div className="sxv"><p className="muted sm">The variations couldn’t be loaded. <button type="button" className="btn ghost sm" onClick={() => { setD(null); load(); }}>Try again</button></p></div>;
 
   const ideas = d.ideas?.items || [];
   const fresh = ideas.filter((x) => !x.made);

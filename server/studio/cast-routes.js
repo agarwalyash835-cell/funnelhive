@@ -18,6 +18,7 @@ export function registerCast(app, { auth, limiter, gate, ownUpload, who, reelVie
   app.get('/api/studio/cast/:id', auth, (req, res) => { advanceSheets(req.user.id); const c = mineMember(req, res); if (c) res.json(memberView(c)); });
   // { name, look, outfit, photos: [their own uploads] }
   app.post('/api/studio/cast', auth, (req, res) => {
+    if (!gate(req, res)) return;
     const m = cleanMember(req.body || {}, isOwn(req.user.id));
     if (m.error) return res.status(400).json(m);
     const out = addMember(req.user.id, m.member);
@@ -25,12 +26,14 @@ export function registerCast(app, { auth, limiter, gate, ownUpload, who, reelVie
     res.status(201).json(memberView(out.member));
   });
   app.put('/api/studio/cast/:id', auth, (req, res) => {
+    if (!gate(req, res)) return;
     const c = mineMember(req, res); if (!c) return;
     const m = cleanMember(req.body || {}, isOwn(req.user.id), c);
     if (m.error) return res.status(400).json(m);
     if (castOf(req.user.id).some((x) => x.id !== c.id && x.name.toLowerCase() === m.member.name.toLowerCase())) return res.status(400).json({ error: `There’s already someone called ${m.member.name}` });
     res.json(memberView(T.studiocast.update(c.id, (x) => { Object.assign(x, m.member); })));
   });
+  // deleting stays open when Studio is off: a seller can always remove their own people
   app.delete('/api/studio/cast/:id', auth, (req, res) => { const c = mineMember(req, res); if (!c) return; dropMember(c); res.json({ ok: true }); });
 
   // the reference sheet: what it costs (free), then made only with that price confirmed
@@ -51,6 +54,7 @@ export function registerCast(app, { auth, limiter, gate, ownUpload, who, reelVie
   // the brand kit: { name, logo, colours, font, tone, products }
   app.get('/api/studio/brand', auth, (req, res) => res.json({ ...brandKit(req.user.id), fonts }));
   app.put('/api/studio/brand', auth, (req, res) => {
+    if (!gate(req, res)) return;
     const out = setBrandKit(req.user.id, req.body || {}, isOwn(req.user.id));
     if (out.error) return res.status(400).json(out);
     res.json({ ...out.kit, fonts });
@@ -58,6 +62,7 @@ export function registerCast(app, { auth, limiter, gate, ownUpload, who, reelVie
 
   // who is in a Reel (ids or names), before it's approved: their pictures go into every still they appear in
   app.put('/api/studio/reels/:id/cast', auth, (req, res) => {
+    if (!gate(req, res)) return;
     const r = T.studio.get(req.params.id);
     if (!r || r.userId !== req.user.id || r.kind !== 'reel') return res.status(404).json({ error: 'Not found' });
     if (r.status !== 'script_ready') return res.status(409).json({ error: 'Pick the cast before the Reel is made' });

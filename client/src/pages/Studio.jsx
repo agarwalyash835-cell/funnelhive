@@ -31,6 +31,8 @@ export default function Studio({ extensions = studioExtensions() }) {
   const [chat, setChat] = useState(() => read(UI).chat !== false); // the director's column (wide screens)
   const [sheet, setSheet] = useState(false); // the director over the canvas (mid-size screens)
   const [pane, setPane] = useState('canvas'); // phones: director | canvas | settings
+  // what the seller has pointed at on the canvas — the director's "this": { id, kind, target, label, url }
+  const [selected, setSelected] = useState(null);
   const [, tick] = useState(0);
   const seenRef = useRef(null); // ids that were still being made at the last look
   const load = () => api('/studio').then((x) => {
@@ -43,7 +45,15 @@ export default function Studio({ extensions = studioExtensions() }) {
     }
     seenRef.current = now; setD(x);
   }).catch(() => setD(false));
-  useEffect(() => { load(); const back = () => { document.title = document.title.replace(/^● /, ''); }; document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back); }, []);
+  useEffect(() => {
+    load();
+    const back = () => { document.title = document.title.replace(/^● /, ''); };
+    const changed = () => load(); // an edit from the viewer (StudioViewer studioChanged)
+    document.addEventListener('visibilitychange', back); window.addEventListener('ff:studio-changed', changed);
+    return () => { document.removeEventListener('visibilitychange', back); window.removeEventListener('ff:studio-changed', changed); };
+  }, []);
+  // a new Reel (or none) open: what was pointed at belongs to the last one
+  useEffect(() => { setSelected(open ? { id: open, kind: 'reel', target: 'reel', label: 'The whole Reel' } : null); }, [open]);
   useEffect(() => { write(PREFS, { tier: v.tier, vmodel: v.vmodel, imodel: v.imodel, res: v.res, aspect: v.aspect, count: v.count, seconds: v.seconds, lang: v.lang, length: v.length, voice: v.voice, captions: v.captions, sizes: v.sizes }); }, [v.tier, v.vmodel, v.imodel, v.res, v.aspect, v.count, v.seconds, v.lang, v.length, v.voice, v.captions, v.sizes.join()]);
   useEffect(() => { write(UI, { mode, chat }); }, [mode, chat]);
   const live = !!d?.assets?.some((a) => ACTIVE.includes(a.status));
@@ -60,7 +70,7 @@ export default function Studio({ extensions = studioExtensions() }) {
   const reel = open && assets.find((a) => a.id === open && a.kind === 'reel');
   // set the composer; a second argument switches mode too (Animate on an image → a clip from it)
   const set = (p, m) => { setV((x) => ({ ...x, ...p })); if (m) changeMode(m); };
-  const changeMode = (k) => { setMode(k); setOpen(null); setPane('canvas'); setV((x) => ({ ...x, aspect: k === 'image' ? (x.aspect === '9:16' ? '1:1' : x.aspect) : k === 'clip' ? (x.aspect === '1:1' ? '9:16' : x.aspect) : x.aspect })); };
+  const changeMode = (k) => { setMode(k); setOpen(null); setSelected(null); setPane('canvas'); setV((x) => ({ ...x, aspect: k === 'image' ? (x.aspect === '9:16' ? '1:1' : x.aspect) : k === 'clip' ? (x.aspect === '1:1' ? '9:16' : x.aspect) : x.aspect })); };
   const modeExts = extOf(extensions, 'mode', d);
   const modeExt = modeExts.find((x) => x.id === mode);
   const openReel = (id) => { setOpen(id); setPane('canvas'); };
@@ -75,11 +85,12 @@ export default function Studio({ extensions = studioExtensions() }) {
       </>}>
       <div className={`sxw${chat ? '' : ' no-chat'}${sheet ? ' sheet' : ''} pane-${pane}${reel ? ' has-reel' : ''}`}>
         <aside className="sxw-chat" aria-label="Creative director">
-          <DirectorChat reel={reel || null} mode={mode} onActivity={load} onCollapse={() => { setChat(false); setSheet(false); }} />
+          <DirectorChat reel={reel || null} mode={mode} selected={selected} onUnselect={() => setSelected(reel ? { id: reel.id, kind: 'reel', target: 'reel', label: 'The whole Reel' } : null)} onActivity={load} onCollapse={() => { setChat(false); setSheet(false); }} />
         </aside>
-        {reel ? <ReelWorkspace key={reel.id} r={reel} d={d} onChange={load} onClose={() => setOpen(null)} extensions={extensions} openMemory={() => setMemory(true)} />
+        {reel ? <ReelWorkspace key={reel.id} r={reel} d={d} onChange={load} onClose={() => setOpen(null)} extensions={extensions} openMemory={() => setMemory(true)} selected={selected} onSelect={setSelected} />
           : modeExt ? <><main className="sxw-stage"><modeExt.Stage d={d} assets={assets} load={load} openAsset={openReel} /></main><aside className="sxw-inspect">{modeExt.Inspector ? <modeExt.Inspector d={d} load={load} /> : null}</aside></>
-            : <MakeWorkspace d={d} mode={MODES.some(([k]) => k === mode) ? mode : 'image'} v={v} set={set} assets={assets} load={load} onOpenReel={openReel} openMemory={() => setMemory(true)} extensions={extensions} />}
+            : <MakeWorkspace d={d} mode={MODES.some(([k]) => k === mode) ? mode : 'image'} v={v} set={set} assets={assets} load={load} onOpenReel={openReel} openMemory={() => setMemory(true)} extensions={extensions}
+              onSelect={(a) => setSelected(a && ['image', 'clip'].includes(a.kind) ? { id: a.id, kind: a.kind, target: a.kind, label: `This ${a.kind}`, url: a.poster || a.url } : null)} />}
         <nav className="sxw-tabs" aria-label="Panels">
           {[['chat', 'sparkles', 'Director'], ['canvas', reel ? 'play' : 'image', reel ? 'Storyboard' : 'Canvas'], ['inspect', 'settings', 'Settings']].map(([k, ic, l]) => <button key={k} type="button" className={pane === k ? 'on' : ''} aria-pressed={pane === k} onClick={() => setPane(k)}><Icon name={ic} size={16} />{l}</button>)}
         </nav>

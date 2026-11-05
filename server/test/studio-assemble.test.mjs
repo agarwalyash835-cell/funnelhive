@@ -47,8 +47,8 @@ test('sizes and fit: even pixel sizes; vertical → square crops, vertical → l
   assert.equal(fitMode(1920, 1080, 1080, 1920, 'crop'), 'crop');
 });
 
-test('captions: built from word timings, inside the safe area, four looks', () => {
-  assert.deepEqual(Object.keys(PRESETS), ['pop', 'lower', 'karaoke', 'minimal']);
+test('captions: built from word timings, inside the safe area, five looks', () => {
+  assert.deepEqual(Object.keys(PRESETS), ['pop', 'lower', 'karaoke', 'minimal', 'matte']);
   assert.equal(assColour('#ffd400'), '&H0000D4FF');
   const pop = buildAss(words, { style: 'pop' });
   const events = pop.split('\n').filter((l) => l.startsWith('Dialogue:'));

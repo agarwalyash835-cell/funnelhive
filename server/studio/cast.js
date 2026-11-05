@@ -8,7 +8,7 @@
 //              tone of voice, and product photos (the first is the product for a Reel made without one).
 // One row per character and one 'brand' row per seller in `studiocast`. Sellers only ever see tiers and credits.
 import { T, JOBS } from '../db.js';
-import { enqueue } from './jobs.js';
+import { enqueue, dropAsset } from './jobs.js';
 import { pick, imageCost, TIERS } from './models.js';
 import { memoryOf, setMemory, withCharacters } from './memory.js';
 
@@ -62,8 +62,10 @@ export function addMember(userId, m) {
   if (all.some((c) => c.name.toLowerCase() === m.name.toLowerCase())) return { error: `There’s already someone called ${m.name}` };
   return { member: T.studiocast.insert({ userId, kind: 'character', ...m, sheet: null, at: Date.now() }) };
 }
+// their sheet pictures go with them, files and storage too (one still being made goes once it's done: jobs.js dropAsset)
+const dropSheet = (c) => { const ids = Object.values(c.sheet?.ids || {}).filter(Boolean); for (const id of ids) dropAsset(T.studio.get(id), ids); };
 export function dropMember(c) {
-  for (const id of Object.values(c.sheet?.ids || {})) { const a = id && T.studio.get(id); if (a && a.status !== 'rendering') T.studio.del(a.id); }
+  dropSheet(c);
   T.studiocast.del(c.id);
 }
 
@@ -85,7 +87,7 @@ const sheetImage = (c, p, tier, refs, by) => enqueue(c.userId, { kind: 'image', 
 // starts it: the front portrait now (from their photos when there are some), the others once it's made
 export function startSheet(c, tier, by = null) {
   const t = TIERS.includes(tier) ? tier : 'standard';
-  for (const id of Object.values(c.sheet?.ids || {})) { const a = id && T.studio.get(id); if (a && a.status !== 'rendering') T.studio.del(a.id); }
+  dropSheet(c);
   const front = sheetImage(c, SHEET[0], t, (c.photos || []).slice(0, PER_PERSON), by);
   return T.studiocast.update(c.id, (x) => { x.sheet = { tier: t, credits: sheetCost(t), ids: { front }, by, at: Date.now() }; });
 }

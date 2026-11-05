@@ -27,7 +27,7 @@ export function useComposer(d, mode, v) {
   return { tierInfo, vms, ims, vm, im, resOpts, res, perSec, cost, reelEst };
 }
 
-export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openMemory, extensions, modeExt }) {
+export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openMemory, extensions, modeExt, onSelect }) {
   const c = useComposer(d, mode, v);
   const { tierInfo, vms, ims, vm, im, resOpts, res, perSec, cost } = c;
   const [busy, setBusy] = useState(false);
@@ -64,7 +64,8 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
           if (chk.prompt && await confirmDialog({ title: 'Before you spend', text: `${why}\n\nA stronger version:\n“${chk.prompt}”`, confirm: 'Use the stronger version', cancel: 'Keep mine' })) { prompt = chk.prompt; set({ prompt }); }
         }
         if (mode === 'image' && !(await confirmDialog({ title: `Make ${v.count > 1 ? `${v.count} images` : 'this image'}?`, text: `${im?.name || 'The image model'} makes ${v.count > 1 ? 'them' : 'it'} for about ${cost} credits.`, confirm: `Make it · ${cost} credits` }))) { setBusy(false); return; }
-        if (mode === 'image') await api('/studio/images', 'POST', { prompt, tier: v.tier, model: im?.id, aspect: v.aspect, count: v.count, ...(v.ref ? { ref: v.ref } : {}) });
+        // the picture shown is the one sent: a Studio image picked with "Animate" is a saved file of the seller's, so it goes as the reference
+        if (mode === 'image') await api('/studio/images', 'POST', { prompt, tier: v.tier, model: im?.id, aspect: v.aspect, count: v.count, ...(src ? { ref: src } : {}) });
         else {
           // a video costs real credits: say how many, and go ahead only on a yes
           const other = resOpts.filter((r) => r !== res).map((r) => `${r}: about ${Math.ceil(perSec(r) * v.seconds)} credits`).join(' · ');
@@ -84,6 +85,10 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
   };
   const remove = async (a) => { if (!(await confirmDialog({ title: 'Delete this?', text: 'It’s removed from Studio.', confirm: 'Delete', danger: true }))) return; try { await api(`/studio/assets/${a.id}`, 'DELETE'); setView(null); load(); } catch (e) { toast(e.message); } };
   const animate = (a) => { set({ sourceId: a.id, ref: '', aspect: a.aspect === '1:1' ? '9:16' : a.aspect, prompt: '' }, 'clip'); setView(null); setTimeout(() => box.current?.focus(), 200); };
+  // the image or clip open in the viewer is the one selected (the Director chat's "this one"); null once it's closed
+  const selected = view != null ? viewable[view] || null : null;
+  useEffect(() => { onSelect?.(selected); }, [selected?.id]);
+  useEffect(() => () => onSelect?.(null), []);
   const openCard = (a) => { if (a.kind === 'reel') return onOpenReel(a.id); const i = viewable.findIndex((x) => x.id === a.id); if (i >= 0) setView(i); };
   const canGo = v.prompt.trim().length >= (mode === 'reel' ? 10 : 3) && !busy;
   const go = mode === 'image' ? `Make ${v.count > 1 ? `${v.count} images` : 'image'}` : mode === 'clip' ? 'Make clip' : 'Write the script';
@@ -120,7 +125,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
               const wait = WAIT[a.status], badge = BADGE[a.status];
               return [
                 head && <div key={`h-${a.id}`} className="sx-group" style={{ columnSpan: 'all' }}>{head}</div>,
-                <div key={a.id} className={`sx-card st-${a.status}`} role="button" tabIndex={0} onClick={() => openCard(a)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) openCard(a); }} aria-label={a.title || a.prompt}>
+                <div key={a.id} className={`sx-card st-${a.status}${selected?.id === a.id ? ' on' : ''}`} style={selected && selected.id !== a.id ? { opacity: 0.55, transition: 'opacity .2s, transform .2s' } : selected?.id === a.id ? { transform: 'scale(1.02)', transition: 'opacity .2s, transform .2s' } : undefined} aria-pressed={selected?.id === a.id} role="button" tabIndex={0} onClick={() => openCard(a)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) openCard(a); }} aria-label={a.title || a.prompt}>
                   {a.status === 'failed' && a.kind !== 'reel' ? (
                     <div className="sx-fail"><b>Couldn’t be made</b><p>{a.error || a.prompt}</p><div className="row"><button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); redo(a); }}><Icon name="redo" size={13} /> Try again</button><button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); remove(a); }}>Delete</button></div></div>
                   ) : wait ? (

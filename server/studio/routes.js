@@ -11,9 +11,11 @@ import { dir as DATA_DIR } from '../db.js';
 import { publicUrlFor } from '../storage.js';
 import { adminMiddleware, audit } from '../admin-guard.js';
 import { studioReady } from './kie.js';
-import { enqueue, view, tick, tierOk } from './jobs.js';
+import { enqueue, view, tick, tierOk, dropAsset, dropFiles } from './jobs.js';
 import { TIERS, TIER_NAMES, ASPECTS, DEFAULTS, studioModels, VOICES, voiceSample, voiceId, CLIP_RES, clipRes, imageCost, clipCost, reelCost, MOTIONS, modelKey, tierMenu } from './models.js';
-import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, reelsTick, LENGTHS, CAPTION_IDS, storyboardScene, animateReel, sceneCost } from './reels.js';
+import { writeScript, cleanScript, newReel, approveReel, editReel, retryReel, reelsTick, LENGTHS, CAPTION_IDS, storyboardScene, animateReel, sceneCost, dropCache, requeued, LOOK_BASES, LOGO_PLACES, CARD_STYLES } from './reels.js';
+import { planEdit, applyEdit, undoEdit, versionsOf, EDITS, CAPTION_FONTS } from './edit.js';
+import { snapshot, busyOf, prune, dropVersionFiles } from './versions.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
@@ -35,13 +37,17 @@ export function reelView(r) {
   const cost = r.script ? reelCost({ tier: r.tier, seconds: r.seconds, shots: r.script.shots?.length || 4, lines: r.script.lines?.length || 4, res: r.res, motion: r.motion, vmodel: r.vmodel, imodel: r.imodel, presenters: presenterScenes(r.script), face: !!r.presenter?.image }) : null;
   // the check before spending, while it still matches the plan
   const assessment = r.script && r.assessment?.hash === planOf(r) ? r.assessment : null;
-  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds, type: x.type || 'scene' })), presenter: r.presenter || null, lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r), assessment, cast: r.cast || [], parentId: r.parentId || null, variant: r.variant || null, adVerdict: r.adVerdict || null, ...standardView(r, assessment) };
+  return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds, type: x.type || 'scene' })), presenter: r.presenter || null, lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r), assessment, cast: r.cast || [], parentId: r.parentId || null, variant: r.variant || null, adVerdict: r.adVerdict || null, ...standardView(r, assessment), ...settingsOf(r) };
 }
+// the free settings an editor (or the director) changes after it's made, as they stand
+const settingsOf = (r) => ({ grade: typeof r.grade === 'object' ? r.grade : { base: r.grade || 'cinematic' }, musicOn: r.music !== false, musicDb: Number.isFinite(r.musicDb) ? r.musicDb : -19, logoOpts: r.logoOpts || { position: 'top-right', size: 0.18 }, hasLogo: !!r.logo, cardStyle: r.cardStyle || 'classic', cardColour: r.cardColour || null, versions: versionsOf(r), restoredFrom: r.restoredFrom || null });
+// every item carries its versions (newest first) — undo and compare
+const withVersions = (a, v) => ({ ...v, versions: versionsOf(a), restoredFrom: a.restoredFrom || null });
 // the editor's notes on the finished video (studio/qa.js reviewReel), each fix applied through PUT /reels/:id; "reviewing"
 // only for a few minutes (a restart mid-review leaves no notes, not a spinner forever)
 const editorNotes = (r) => ({ review: r.review || null, reviewing: !!r.reviewing && !r.review && Date.now() - (r.doneAt || 0) < 300000 });
 const planOf = (r) => planHash({ script: r.script, aspect: r.aspect, seconds: r.seconds });
-const anyView = (a) => (a.kind === 'reel' ? reelView(a) : a.kind === 'design' ? designView(a) : view(a));
+const anyView = (a) => withVersions(a, a.kind === 'reel' ? reelView(a) : a.kind === 'design' ? designView(a) : view(a));
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 export const studioOn = (u) => !!u?.studio?.on;
@@ -64,7 +70,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.get('/api/studio', auth, (req, res) => {
     // a Reel's own shots are shown inside the Reel, not again in the gallery
     const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId && !a.castId && !a.designId).slice(0, 200); // a cast's reference pictures live with the cast
-    res.json({ on: studioOn(req.user) && studioReady(), features: { cast: true, presenter: true, variations: true, designs: true }, tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], clipRes: CLIP_RES[id], imageCredits: imageCost(id), clipCreditsPer5s: Object.fromEntries(CLIP_RES[id].map((r) => [r, clipCost(id, 5, r)])), models: tierMenu(id) })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), assets: rows.map(anyView) });
+    res.json({ on: studioOn(req.user) && studioReady(), features: { cast: true, presenter: true, variations: true, designs: true }, tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], clipRes: CLIP_RES[id], imageCredits: imageCost(id), clipCreditsPer5s: Object.fromEntries(CLIP_RES[id].map((r) => [r, clipCost(id, 5, r)])), models: tierMenu(id) })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), editing: { fonts: CAPTION_FONTS, looks: LOOK_BASES, logoPlaces: LOGO_PLACES, cardStyles: CARD_STYLES }, assets: rows.map(anyView) });
   });
   // images: 1–4 at a time, from words, optionally keeping the seller's real product (their photo as the reference)
   app.post('/api/studio/images', auth, limiter, (req, res) => {
@@ -171,7 +177,8 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.put('/api/studio/reels/:id/script', auth, (req, res) => {
     const r = myReel(req, res, ['script_ready']); if (!r) return;
     const b = req.body || {};
-    const c = b.script ? cleanScript(b.script) : { script: r.script };
+    // keepCamera: the editor's camera plan as they set it (no sizes changed for variety; the standard still reports it)
+    const c = b.script ? cleanScript(b.script, { treatment: !b.keepCamera }) : { script: r.script };
     if (c.error) return res.status(400).json(c);
     if (b.script) learn(r.userId, { kind: 'script_edited', reel: r, script: c.script });
     // the settings can change before anything is made: voice, caption style, sizes
@@ -211,7 +218,9 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.post('/api/studio/reels/:id/storyboard-scene', auth, limiter, (req, res) => {
     if (!gate(req, res)) return;
     const r = myReel(req, res, ['storyboard_ready']); if (!r) return;
-    const out = storyboardScene(r, req.body || {});
+    const b = req.body || {};
+    snapshot(r.id, `Before: scene ${Number(b.i) + 1} ${b.drop ? 'dropped' : b.to != null ? 'moved' : b.text ? 'reworded' : 'picture changed'}`, who(req));
+    const out = storyboardScene(T.studio.get(r.id), b);
     if (out.error) return res.status(400).json(out);
     res.json(reelView(out.reel));
   });
@@ -237,9 +246,36 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.put('/api/studio/reels/:id', auth, limiter, (req, res) => {
     if (!gate(req, res)) return;
     const r = myReel(req, res, ['ready', 'needs_review', 'failed']); if (!r) return;
-    for (const s of Array.isArray(req.body?.shots) ? req.body.shots : []) learn(r.userId, { kind: 'redo', note: s?.note });
-    res.json(reelView(editReel(r, req.body || {})));
+    if (busyOf(r)) return res.status(409).json({ error: 'It’s still being made' });
+    for (const s of Array.isArray(req.body?.shots) ? req.body.shots : []) learn(r.userId, { kind: 'redo', note: s?.note || s?.picture });
+    snapshot(r.id, 'Before a change', who(req));
+    res.json(reelView(editReel(T.studio.get(r.id), req.body || {})));
   });
+
+  // ---------- one way to change anything (edit.js) — the canvas and the director alike ----------
+  // { id, target: reel | scene:N | image | clip | design | slide:N, change: {…}, dryRun } → the plan (what it does and
+  // costs) on a dry run; else the change, after a snapshot, → { plan, item }
+  app.get('/api/studio/edits', auth, (req, res) => res.json(EDITS));
+  app.post('/api/studio/edit', auth, limiter, wrap(async (req, res) => {
+    const b = req.body || {}, a = T.studio.get(String(b.id || ''));
+    if (!a || a.userId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+    const plan = planEdit(a, b.target, b.change);
+    if (plan.error) return res.status(400).json(plan);
+    if (b.dryRun) return res.json({ plan });
+    if (!gate(req, res)) return;
+    if (!plan.free) learn(a.userId, { kind: 'redo', note: b.change?.picture || b.change?.clip || b.change?.background || '' });
+    const out = await applyEdit(a, b.target, b.change, { by: who(req) });
+    if (out.error) return res.status(409).json(out);
+    res.json({ plan: out.plan, item: anyView(T.studio.get(a.id)) });
+  }));
+  app.get('/api/studio/assets/:id/versions', auth, (req, res) => { const a = mine(req, res); if (a) res.json({ versions: versionsOf(a) }); });
+  // undo: the last change (or version n) back — free; the current state is kept as a version too
+  app.post('/api/studio/assets/:id/undo', auth, limiter, wrap(async (req, res) => {
+    const a = mine(req, res); if (!a) return;
+    const out = await undoEdit(a, req.body?.n ?? null, who(req));
+    if (out.error) return res.status(409).json(out);
+    res.json(anyView(T.studio.get(a.id)));
+  }));
   // make it again, with what to change (the note joins the request); a fresh set of attempts
   app.post('/api/studio/assets/:id/redo', auth, limiter, (req, res) => {
     if (!gate(req, res)) return;
@@ -248,8 +284,9 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     if (['queued', 'rendering', 'checking'].includes(a.status)) return res.status(409).json({ error: 'It’s still being made' });
     const note = clip(req.body?.note, 300);
     learn(a.userId, { kind: 'redo', note: note || a.fix });
-    if (a.kind === 'clip' && req.body?.res) T.studio.update(a.id, (y) => { y.res = clipRes(y.tier, req.body.res); });
-    const x = T.studio.update(a.id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [note] : y.fix ? [y.fix] : []; y.error = ''; delete y.qa; delete y.doneAt; delete y.taskId; if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); });
+    snapshot(a.id, `Before: made again${note ? ` — “${note.slice(0, 60)}”` : ''}`, who(req));
+    if (a.kind === 'clip' && req.body?.res) T.studio.update(a.id, (y) => { y.res = clipRes(y.tier, req.body.res, y.vmodel); });
+    const x = T.studio.update(a.id, (y) => { y.status = 'queued'; y.attempts = 0; y.checkTries = 0; y.notes = note ? [note] : y.fix ? [y.fix] : []; y.error = ''; delete y.qa; delete y.doneAt; delete y.taskId; requeued(y); if (note) y.prompt = `${y.prompt}\n${note}`.slice(0, 1500); });
     res.json(view(x));
   });
   app.delete('/api/studio/assets/:id', auth, (req, res) => {
@@ -260,6 +297,18 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
       dropOutputs(a.userId, a.outputs).catch((e) => console.error('design files not removed', a.id, e.message));
       for (const x of T.studio.all({ userId: a.userId })) if (x.designId === a.id && x.status !== 'rendering') T.studio.del(x.id);
     }
+    // the files only its old versions point at go too (a picture edited in place kept its earlier one for undo)
+    dropVersionFiles(a);
+    // a Reel takes its videos, pictures, clips and kept edit parts with it (what another Reel — a variation — uses stays)
+    if (a.kind === 'reel') {
+      prune({ ...a, shots: [], versions: [] }); dropCache(a.id);
+      T.studio.del(a.id);
+      const used = new Set(T.studio.all({ userId: a.userId }).flatMap((x) => [x.musicUrl, x.poster, x.url, ...Object.values(x.outputs && !Array.isArray(x.outputs) ? x.outputs : {})]).filter(Boolean));
+      dropFiles(a.userId, [...Object.values(a.outputs || {}), a.poster, a.musicUrl].filter((u) => u && !used.has(u))).catch((e) => console.error('reel files not removed', a.id, e.message));
+      return res.json({ ok: true });
+    }
+    // an image or clip: its files too, unless another row uses them (jobs.js dropAsset; a busy one goes once it's done)
+    if (a.kind === 'image' || a.kind === 'clip') { dropAsset(a); return res.json({ ok: true }); }
     T.studio.del(a.id);
     res.json({ ok: true });
   });

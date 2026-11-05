@@ -2,7 +2,9 @@
 //   joinClips → fitDuration (to the voiceover) → burnCaptions → overlayLogo → appendEndCard   (picture, per size)
 //   mixAudio (voice + music, music ducked under speech) → normaliseLoudness (-14 LUFS)          (sound, once)
 //   mux → an mp4; render() runs the whole chain for 9:16, 1:1 and 16:9.
-// Pictures are video-only until mux, so every step can be re-run on its own (a caption change re-renders captions only).
+// Pictures are video-only until mux, so every step can be re-run on its own. render() keeps the heavy parts (the joined
+// picture per size, the mixed sound) when given a cache, so a caption, logo or closing-card change only re-runs the
+// steps after them.
 import fs from 'node:fs';
 import path from 'node:path';
 import { run, probe, need, loudness } from './ff.js';
@@ -52,7 +54,20 @@ export function transitionFor(i, n, style = 'dissolve') {
 }
 // one look across every shot (they come from different models and renders): a touch more contrast and colour, and a
 // soft vignette that pulls the eye to the middle
-export const LOOKS = { natural: '', cinematic: 'eq=contrast=1.05:saturation=1.08:gamma=0.99,vignette=angle=PI/6' };
+// matte: lifted blacks, softer contrast and colour, a little grain — the house look (no glossy "AI" sheen)
+export const LOOKS = { natural: '', cinematic: 'eq=contrast=1.05:saturation=1.08:gamma=0.99,vignette=angle=PI/6', matte: 'eq=contrast=0.94:saturation=0.8:gamma=1.03,curves=all=0/0.06 1/0.94,noise=alls=5:allf=t' };
+// a look as a filter chain: a named base and the editor's nudges, each -2..2 steps ("a bit darker" is -1 brightness).
+// look: 'cinematic' | { base, brightness, contrast, saturation, warmth }
+const step = (v) => Math.max(-2, Math.min(2, Math.round(Number(v) || 0)));
+export function gradeFilter(look) {
+  const g = typeof look === 'string' ? { base: look } : look || {};
+  const b = step(g.brightness), c = step(g.contrast), s = step(g.saturation), w = step(g.warmth);
+  const eq = b || c || s ? `eq=brightness=${(b * 0.04).toFixed(2)}:contrast=${(1 + c * 0.06).toFixed(2)}:saturation=${(1 + s * 0.12).toFixed(2)}` : '';
+  const warm = w ? `colorbalance=rm=${(w * 0.04).toFixed(2)}:bm=${(-w * 0.04).toFixed(2)}` : '';
+  return [LOOKS[g.base] || '', eq, warm].filter(Boolean).join(',');
+}
+const gradeNeeds = (f) => ['eq', 'vignette', 'curves', 'noise', 'colorbalance'].filter((x) => f.includes(`${x}=`));
+export const lookBase = (look) => (typeof look === 'string' ? look : look?.base || 'natural');
 // where each cut lands in the joined picture (seconds), for the whoosh under it
 export function cutTimes(lens, fade = 0.3, style = 'dissolve') {
   const out = [];
@@ -72,8 +87,9 @@ const PUNCH = 1.15; // every other part this much tighter — an editor's cut wi
 export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3, transitions = 'dissolve', look = 'natural', fades = null, punch = 0 } = {}) {
   if (!files?.length) throw new Error('Add at least one clip');
   if (transitions === 'cut') fade = 0;
-  need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []), ...(LOOKS[look] ? ['eq', 'vignette'] : []), ...(punch ? ['split', 'trim', 'setpts'] : []));
-  const grade = LOOKS[look] ? `,${LOOKS[look]}` : '';
+  const gf = gradeFilter(look);
+  need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []), ...gradeNeeds(gf), ...(punch ? ['split', 'trim', 'setpts'] : []));
+  const grade = gf ? `,${gf}` : '';
   const lens = [];
   const even = (n) => Math.round(n / 2) * 2;
   const parts = files.map((f, i) => {
@@ -127,9 +143,11 @@ export async function fitDuration(video, seconds, out, { fps = 30, hold = false 
 // height); without one, the block is centred. → [{ style, text, fs, top }]
 // A wide frame (16:9) with a picture puts the picture on the left and the words in a column on the right, larger —
 // the tall layout would leave them small under a short picture. → also each block's x (its centre).
+// align 'left': the words start at a margin (the matte card) and x is their left edge instead of their centre
 export const wideCard = (W, H, still) => !!still && W > H * 1.2;
-export function cardLayout(card, W, H, still) {
-  const wide = wideCard(W, H, still), k = wide ? 1.45 : 1, x = Math.round(wide ? W * 0.72 : W / 2);
+export function cardLayout(card, W, H, still, align = 'center') {
+  const wide = wideCard(W, H, still), k = wide ? 1.45 : 1;
+  const x = align === 'left' ? Math.round(wide ? W * 0.53 : 60) : Math.round(wide ? W * 0.72 : W / 2);
   const usable = wide ? Math.round(W * 0.4) : W - 120, gap = Math.round(H * 0.022 * k), pad = Math.round(H * 0.018 * k);
   // each block broken into lines here, word by word to the column's width (the renderer would wrap to the whole frame);
   // Noto Sans bold runs about 0.55 of the font size per character
@@ -304,9 +322,19 @@ export function slotPlan(starts, n, body, { fps = 30, voiceDelay = 0.15, fade = 
   return { T, slots, fades, lens: slots.map((x, i) => f(x + (fades[i + 1] || 0))) };
 }
 // punch: cut long shots every this many seconds (standard.js cutEvery) → also { segments: the picture's cuts in all }
-export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false, starts = null, synced = [], punch = 0 }) {
-  const temp = [];
+// cache: { dir, pic, audio } — keys for the heavy parts (the joined, graded, fitted picture per size; the mixed and
+// levelled sound). A later edit with the same keys (a caption, logo or closing-card change) starts from the kept files,
+// so it takes seconds instead of re-joining every clip. The caller makes the keys from everything those parts depend on.
+const keepOne = (dir, prefix, keep) => { try { for (const f of fs.readdirSync(dir)) if (f.startsWith(prefix) && path.join(dir, f) !== keep) fs.rmSync(path.join(dir, f), { force: true }); } catch { /* no cache yet */ } };
+const toCache = (from, to, prefix) => { try { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to); keepOne(path.dirname(to), prefix, to); } catch (e) { console.error('studio cache not kept', e.message); } };
+export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false, starts = null, synced = [], punch = 0, cache = null }) {
+  const temp = [], finals = [];
   const t = (n, ext = 'mp4') => { const f = tmpFile(outDir, n, ext); temp.push(f); return f; };
+  const kept = (key) => (cache?.dir && key ? path.join(cache.dir, key) : null);
+  const picOf = (aspect) => kept(cache?.pic && `pic-${aspect.replace(':', 'x')}-${cache.pic}.mp4`);
+  const audioAt = kept(cache?.audio && `audio-${cache.audio}.wav`);
+  const aspects = [...new Set(sizes)].filter((a) => ASPECTS[a]);
+  const picsKept = aspects.every((a) => { const p = picOf(a); return p && fs.existsSync(p); });
   try {
     const voiceLen = voice ? probe(voice).duration : 0;
     // with a voiceover the video lasts as long as it does (plus a breath); without one, as long as the clips
@@ -319,10 +347,12 @@ export async function render({ clips, voice, music, words = [], captions = { sty
     const plan = voice ? slotPlan(starts, clips.length, body, { fps, voiceDelay, fade, transitions }) : null;
     let whooshes = [];
     if (plan) {
-      // each clip to its slot first (once, for every size)
-      const fitted = [];
-      for (let i = 0; i < clips.length; i++) fitted.push(await fitDuration(clips[i], plan.lens[i], t(`slot${i}`), { fps, hold: !!synced[i] }));
-      clips = fitted;
+      // each clip to its slot first (once, for every size) — not needed when every size's picture is kept
+      if (!picsKept) {
+        const fitted = [];
+        for (let i = 0; i < clips.length; i++) fitted.push(await fitDuration(clips[i], plan.lens[i], t(`slot${i}`), { fps, hold: !!synced[i] }));
+        clips = fitted;
+      }
       if (sfx) whooshes = plan.T.slice(1).map((x, i) => x + plan.fades[i + 1] / 2).filter((c) => c < body);
     } else if (sfx && clips.length > 1) {
       const lens = clips.map((c) => probe(c).duration || 0), cuts = cutTimes(lens, fade, transitions);
@@ -331,16 +361,24 @@ export async function render({ clips, voice, music, words = [], captions = { sty
       whooshes = cuts.map((c) => c * k).filter((c) => c < body);
     }
     let audio = null;
-    if (voice || music) {
-      const mixed = await mixAudio({ voice, music, duration, voiceDelay, musicDb, whooshes, polish: look === 'cinematic' }, t('mix', 'wav'));
+    if (audioAt && fs.existsSync(audioAt)) audio = audioAt;
+    else if (voice || music) {
+      const mixed = await mixAudio({ voice, music, duration, voiceDelay, musicDb, whooshes, polish: lookBase(look) !== 'natural' }, t('mix', 'wav'));
       audio = await normaliseLoudness(mixed, t('norm', 'wav'));
+      if (audioAt) toCache(audio, audioAt, 'audio-');
     }
     const files = {};
-    const segments = clips.reduce((n, c) => n + punchCount(probe(c).duration || 0, punch), 0);
-    for (const aspect of [...new Set(sizes)].filter((a) => ASPECTS[a])) {
+    const segments = (plan && picsKept ? plan.lens : clips.map((c) => probe(c).duration || 0)).reduce((n, len) => n + punchCount(len, punch), 0);
+    for (const aspect of aspects) {
       const { width, height } = dims(aspect, short);
-      let v = await joinClips(clips, t(`join-${aspect.replace(':', 'x')}`), { width, height, fps, fade, transitions, look, punch, ...(plan ? { fades: plan.fades } : {}) });
-      v = await fitDuration(v, body, t('fit'), { fps });
+      const pc = picOf(aspect);
+      let v;
+      if (pc && fs.existsSync(pc)) v = pc;
+      else {
+        v = await joinClips(clips, t(`join-${aspect.replace(':', 'x')}`), { width, height, fps, fade, transitions, look, punch, ...(plan ? { fades: plan.fades } : {}) });
+        v = await fitDuration(v, body, t('fit'), { fps });
+        if (pc) toCache(v, pc, `pic-${aspect.replace(':', 'x')}-`);
+      }
       if (captions && words.length) {
         const ass = writeAss(words, t('captions', 'ass'), { ...captions, width, height, offset: voiceDelay });
         v = await burnCaptions(v, ass, t('cap'), { fontsDir, fps });
@@ -348,11 +386,14 @@ export async function render({ clips, voice, music, words = [], captions = { sty
       if (logo?.file) v = await overlayLogo(v, logo.file, t('logo'), { ...logo, fps });
       if (card) v = await appendEndCard(v, endCard.image, t('card'), { seconds: card, fps });
       const final = path.join(studioTmp(outDir), `${name}-${aspect.replace(':', 'x')}-${Date.now().toString(36)}.mp4`);
+      finals.push(final);
       files[aspect] = await mux(v, audio, final);
     }
     const lufs = audio ? (await loudness(files[Object.keys(files)[0]])).lufs : null;
+    finals.length = 0; // handed to the caller
     return { files, duration, lufs, segments };
   } finally {
-    for (const f of temp) fs.rm(f, { force: true }, () => {});
+    // a size that failed part-way: the finished sizes before it are not handed over, so they go too
+    for (const f of [...temp, ...finals]) fs.rm(f, { force: true }, () => {});
   }
 }
