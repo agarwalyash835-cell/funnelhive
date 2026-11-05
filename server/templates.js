@@ -417,17 +417,28 @@ function index() {
   INDEX = { docs, idf: (w) => Math.log(1 + base.length / (df[w] || base.length)) };
   return INDEX;
 }
-export function similarTemplates(prompt, k = 2) {
-  const { docs, idf } = index();
+// the brief's own words, then the related words they bring in
+function queryWords(prompt) {
   const q = words(prompt);
   if (/\bca\b|chartered accountan/i.test(prompt)) q.unshift('ca'); // too short for the word filter, but a template of its own
   if (/\bai\b|artificial intelligence/i.test(prompt)) q.unshift('ai');
   const own = new Set(q);
   const related = [...new Set(q.flatMap((w) => (RELATED[w] || '').split(' ').filter((x) => x && !own.has(x))))];
-  const expanded = [...new Set(q), ...related];
+  return { own, expanded: [...own, ...related] };
+}
+// Is the template about the brief's kind of business? Its id, name or category names something the seller said
+// (a word in its sample copy alone — "smart", "daily" — doesn't count). A seller's own product that no template
+// covers gets "no": that template's copy is about another business.
+export function sameNiche(prompt, t) {
+  const d = t && index().docs.find((x) => x.t.id === t.id);
+  return !!d && queryWords(prompt).expanded.some((w) => !FUNNEL_WORDS.has(w) && (d.title.has(w) || d.t.id.replace(/^[vwq]-/, '') === w));
+}
+// words that name a kind of funnel say which pool to pick from, not which niche — no exact-id bonus for them
+const FUNNEL_WORDS = new Set(['webinar', 'masterclass', 'workshop', 'seminar', 'session', 'training', 'vsl', 'application', 'apply', 'call']);
+export function similarTemplates(prompt, k = 2) {
+  const { docs, idf } = index();
+  const { own, expanded } = queryWords(prompt);
   const nq = own.size;
-  // words that name a kind of funnel say which pool to pick from, not which niche — no exact-id bonus for them
-  const FUNNEL_WORDS = new Set(['webinar', 'masterclass', 'workshop', 'seminar', 'session', 'training', 'vsl', 'application', 'apply', 'call']);
   const score = (d) => expanded.reduce((a, w, i) => {
     const weight = i < nq ? 1 : 0.8; // related words count a little less than the user's own words
     return a + weight * (d.t.id.replace(/^[vwq]-/, '') === w && !FUNNEL_WORDS.has(w) ? 12 + 3 * idf(w) : idf(w) * (d.title.has(w) ? 3 : d.body.has(w) ? 1 : 0));

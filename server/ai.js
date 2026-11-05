@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { similarTemplates, allTemplates, matchTemplate, parsePrompt } from './templates.js';
+import { similarTemplates, allTemplates, matchTemplate, parsePrompt, sameNiche } from './templates.js';
 import { audit, enforce, barText, blueprintOf, qualityBar, trimTemplate, alignSteps } from './quality.js';
 import { uid } from './db.js';
 import { knownBlocks } from './block-types.js';
@@ -360,7 +360,9 @@ The seller chose their design: ${design}.` : ''}`;
   }
   // guarantee: never below the template bar
   const f = structuredClone(best);
-  if (bestIssues.length) report.filledFromTemplate = [...enforce(f, trimTemplate(matchTemplate(prompt), length), blueprint), ...applyNeeds(f, needs, uid)];
+  // the template only tops up a funnel for its own kind of business — a seller's own product never gets another
+  // business's pages and copy pasted in (templates.js sameNiche)
+  if (bestIssues.length) report.filledFromTemplate = [...enforce(f, trimTemplate(matchTemplate(prompt), length), blueprint, { borrow: sameNiche(prompt, closest) }), ...applyNeeds(f, needs, uid)];
   const final = check(f);
   report.finalIssues = final.length;
   report.remaining = final.map((i) => `${i.type}: ${i.msg}`);

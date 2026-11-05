@@ -164,19 +164,26 @@ export function audit(f, blueprint) {
 
 // ---------- last resort: bring anything still below the bar up to the template ----------
 // `tpl` is the closest template, already personalised to the seller's business.
-export function enforce(f, tpl, blueprint) {
+// borrow: false when that template is about another business (the seller's own product no template covers) — then
+// none of its pages, sections or copy go into the funnel (the page would be about something else); only the
+// mechanical fixes (prices in sync, valid layouts) are made, and what's still short stays in the quality report.
+// The AI's main page always keeps its place: a "landing" page fills the template's "sales" slot and vice versa.
+const SAME_JOB = { sales: 'landing', landing: 'sales' };
+export function enforce(f, tpl, blueprint, { borrow = true } = {}) {
   const filled = [];
   const { keys, mins } = qualityBar();
   f.theme = { ...tpl.theme, ...(STYLES.includes(f.theme?.style) ? { style: f.theme.style } : {}), ...(HEX.test(f.theme?.primary || '') ? { primary: f.theme.primary } : {}), ...(HEX.test(f.theme?.secondary || '') ? { secondary: f.theme.secondary } : {}),
     // the fonts, corners and text size the AI picked (already checked against what the renderer knows)
     ...Object.fromEntries(['headingFont', 'bodyFont', 'radius', 'textSize', 'lang'].filter((k) => f.theme?.[k]).map((k) => [k, f.theme[k]])) };
-  // steps: keep the AI's step when its type matches the blueprint, otherwise take the template's
+  if (!borrow) { fixups(f, filled); return [...new Set(filled)]; }
+  // steps: keep the AI's step when its type (or a page doing the same job) matches the blueprint, otherwise take the template's
   const phase = (list, i) => list.slice(0, i).filter((s) => s.type === 'checkout').length;
   const bpPhase = blueprint.map((_, i) => phase(blueprint, i));
   const aiPhase = f.steps.map((_, i) => phase(f.steps, i));
   const steps = blueprint.map((bp, i) => {
-    const mine = f.steps.find((s, j) => s.type === bp.type && !s._used && aiPhase[j] === bpPhase[i]) || (blueprint.filter((x) => x.type === bp.type).length === 1 && f.steps.find((s) => s.type === bp.type && !s._used));
-    if (mine) { mine._used = true; return mine; }
+    let mine = f.steps.find((s, j) => s.type === bp.type && !s._used && aiPhase[j] === bpPhase[i]) || (blueprint.filter((x) => x.type === bp.type).length === 1 && f.steps.find((s) => s.type === bp.type && !s._used));
+    if (!mine && SAME_JOB[bp.type] && !blueprint.some((x) => x.type === SAME_JOB[bp.type])) mine = f.steps.find((s, j) => s.type === SAME_JOB[bp.type] && !s._used && aiPhase[j] === bpPhase[i]);
+    if (mine) { mine._used = true; mine.type = bp.type; return mine; }
     filled.push(`${bp.type} page`);
     return refStep(tpl, i, bp.type);
   });

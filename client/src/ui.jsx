@@ -707,7 +707,7 @@ export function useFunnelDraft() {
       // say what really happened: a template start when the AI couldn't write it (no credits used), and sections
       // completed from the template when the AI's draft fell short
       if (r.fallback) toast(t('Our AI couldn’t write this one just now, so you’re starting from our closest template — no credits were used. Edit it, or try again in a minute.'));
-      else if (r.usedAI && r.quality) toast(r.quality.finalIssues === 0 && !r.quality.filledFromTemplate?.length ? t('Quality check passed — {n} pages ready', { n: r.steps.length }) : t('Funnel ready — a few sections came from our template, review the highlighted ones'));
+      else if (r.usedAI && r.quality) toast(r.quality.finalIssues === 0 && !r.quality.filledFromTemplate?.length ? t('Quality check passed — {n} pages ready', { n: r.steps.length }) : r.quality.filledFromTemplate?.length ? t('Funnel ready — a few sections came from our template, review the highlighted ones') : t('Funnel ready — give it a read and fill in anything that’s missing'));
       nav(`/funnels/${r.id}`);
     } catch (x) { setErr(x.message); setBusy(false); }
   };

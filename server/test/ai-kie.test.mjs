@@ -95,7 +95,8 @@ test('what the seller asks for is required: in the prompt, checked, and put in p
   assert.deepEqual([hero.variant, hero.videoUrl], ['bgvideo', 'https://youtu.be/abcdefghijk']);
   const cd = blocks.find((b) => b.type === 'countdown')?.props;
   assert.deepEqual([cd?.mode, cd?.endsAt], ['fixed', Date.UTC(2030, 11, 15) - 330 * 60000]);
-  assert.equal(r.quality.finalIssues, 0, JSON.stringify(r.quality.remaining));
+  // the closest template is a coach's website — another business: its pages never fill out a perfume launch
+  assert.doesNotMatch(JSON.stringify(r.steps), /work that fits|career|coach/i, JSON.stringify(r.steps).slice(0, 300));
 });
 
 test('quality gate: a weak first draft is repaired, and whatever is still missing comes from the template', async () => {
