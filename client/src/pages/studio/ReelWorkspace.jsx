@@ -13,6 +13,7 @@ import { Icon, toast, promptDialog, confirmDialog } from '../../ui';
 import { Viewer } from '../StudioViewer';
 import { okStatus, band, RATIO, Score, Section, Seg, Field, Ratio } from './shared';
 import { extOf } from './extensions';
+import { BrandKits } from './BrandKits';
 
 const STEPS = ['Script', 'Shots', 'Voiceover', 'Edit', 'Done'];
 const SIZES = [['9:16', 'Reels'], ['1:1', 'Square'], ['4:5', 'Feed'], ['16:9', 'Wide']];
@@ -530,13 +531,16 @@ function SceneInspector({ ed }) {
 // kit for it — free, the Reel is edited again with the new kit's logo and colours
 function KitPanel({ ed }) {
   const { r, d, busy, working } = ed;
+  const [open, setOpen] = useState(false);
   if (!r.kit) return null;
   const locked = Object.entries(r.kit.locks || {}).filter(([, v]) => v).map(([f, v]) => `${{ logo: 'logo', colours: 'colours', font: 'font', cta: 'call to action', legal: 'legal line' }[f]}${v === 'agency' ? ' (agency)' : ''}`);
   const move = (kitId) => ed.act(() => api(`/studio/assets/${r.id}/kit`, 'PUT', { kitId }), 'Made with the other brand kit — re-editing');
   return (
-    <Section id="reel-kit" title="Brand kit" icon="palette" open={false} extra={<small className="muted">{r.kit.label}</small>}>
+    <Section id="reel-kit" title="Brand kit" icon="palette" extra={<small className="muted">{r.kit.label}</small>}>
       {(d.kits || []).length > 1 && <Field label="Made with"><select value={r.kit.id} disabled={busy || working} onChange={(e) => move(e.target.value)}>{d.kits.map((k) => <option key={k.id} value={k.id}>{k.label}{k.isDefault ? ' (default)' : ''}</option>)}</select></Field>}
       <p className="sxi-hint">{locked.length ? `Locked: ${locked.join(', ')} — used exactly as the kit has them. They change only in the brand kit.` : 'Nothing is locked in this kit.'}</p>
+      <button type="button" className="btn ghost sm" onClick={() => setOpen(true)}><Icon name="palette" size={13} /> Manage brand kits</button>
+      {open && <BrandKits onClose={() => { setOpen(false); ed.onChange?.(); }} />}
     </Section>
   );
 }

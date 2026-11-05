@@ -8,6 +8,7 @@ import { Icon, toast, confirmDialog, promptDialog } from '../../ui';
 import { Viewer } from '../StudioViewer';
 import { ACTIVE, WAIT, BADGE, TIER_HINT, ASPECT_NAME, USUALLY, IDEAS, ago, toDataUrl, dayOf, aspectOf, Ratio, Score, Section, Seg, Field } from './shared';
 import { extOf } from './extensions';
+import { BrandKits } from './BrandKits';
 
 export function useComposer(d, mode, v) {
   // the tier's models (the first is its default): what each makes, what it costs
@@ -34,6 +35,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
   const [filter, setFilter] = useState('all');
   const [view, setView] = useState(null);
   const [check, setCheck] = useState(null); // the last before-you-spend check, kept in the inspector
+  const [kitsOpen, setKitsOpen] = useState(false);
   const file = useRef(), logoFile = useRef(), box = useRef();
 
   const counts = useMemo(() => ({ all: assets.length, image: assets.filter((a) => a.kind === 'image').length, clip: assets.filter((a) => a.kind === 'clip').length, reel: assets.filter((a) => a.kind === 'reel').length, live: assets.filter((a) => ACTIVE.includes(a.status)).length, review: assets.filter((a) => a.status === 'needs_review' || a.status === 'failed').length }), [assets]);
@@ -183,8 +185,10 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
 
       <aside className="sxw-inspect" aria-label="Settings">
         <div className="sxi-head"><b>{mode === 'image' ? 'Image' : mode === 'clip' ? 'Video clip' : 'Reel · full ad'}</b><small>{USUALLY[mode]?.split(' — ')[0]}</small></div>
-        {mode === 'reel' && kits.length > 1 && <Section id="make-kit" title="Brand" icon="layout" extra={<small className="muted">{kit?.label}</small>}>
-          <Field label="Brand kit" hint="Its logo, colours, font, call to action and legal line — and whatever it locks"><select value={kit?.id || ''} onChange={(e) => set({ kitId: e.target.value })}>{kits.map((k) => <option key={k.id} value={k.id}>{k.label}{k.isDefault ? ' (default)' : ''}</option>)}</select></Field>
+        {mode === 'reel' && <Section id="make-kit" title="Brand kit" icon="palette" extra={<small className="muted">{kit?.label}</small>}>
+          {kits.length > 1 && <Field label="Made with" hint="Its logo, colours, font, call to action and legal line — and whatever it locks"><select value={kit?.id || ''} onChange={(e) => set({ kitId: e.target.value })}>{kits.map((k) => <option key={k.id} value={k.id}>{k.label}{k.isDefault ? ' (default)' : ''}</option>)}</select></Field>}
+          {kits.length <= 1 && <p className="sxi-hint">Your logo, colours, font, call to action and legal line. Add a kit per client or brand, and lock what must never change.</p>}
+          <button type="button" className="btn ghost sm" onClick={() => setKitsOpen(true)}><Icon name="palette" size={13} /> Manage brand kits</button>
         </Section>}
         {mode === 'reel' && <Recommend brief={v.prompt} v={v} set={set} />}
         <Section id="make-quality" title="Quality" icon="sparkles">
@@ -225,10 +229,12 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
           {check.problems?.length > 0 && <ul className="sxi-list">{check.problems.map((x) => <li key={x}>{x}</li>)}</ul>}
           {check.prompt && v.prompt !== check.prompt && <button type="button" className="btn ghost sm" onClick={() => { set({ prompt: check.prompt }); box.current?.focus(); }}><Icon name="check" size={13} /> Use the stronger version</button>}
         </Section>}
-        <button type="button" className="sxi-memory" onClick={openMemory} title="Your brand, taste, characters and usual choices — every new Reel script uses them"><Icon name="sparkles" size={14} /><span><b>What Studio remembers</b><small>Brand, taste, characters, usual choices</small></span><Icon name="chevron" size={14} /></button>
+        <button type="button" className="sxi-memory" onClick={() => setKitsOpen(true)} title="One kit per brand or client: logo, colours, font, call to action, legal line — with locks"><Icon name="palette" size={14} /><span><b>Brand kits</b><small>{kits.length > 1 ? `${kits.length} kits · ` : ''}Logo, colours, font, locks</small></span><Icon name="chevron" size={14} /></button>
+        <button type="button" className="sxi-memory" onClick={openMemory} title="Your taste, characters and usual choices — every new Reel script uses them"><Icon name="sparkles" size={14} /><span><b>What Studio remembers</b><small>Taste, characters, usual choices</small></span><Icon name="chevron" size={14} /></button>
         {extOf(extensions, 'inspector', d).map((x) => <Section key={x.id} id={`ext-${x.id}`} title={x.label} icon={x.icon}><x.Panel d={d} mode={mode} load={load} /></Section>)}
         {modeExt?.Inspector && <modeExt.Inspector d={d} load={load} />}
       </aside>
+      {kitsOpen && <BrandKits onClose={() => { setKitsOpen(false); load(); }} />}
       {view != null && viewable[view] && <Viewer items={viewable.map((a) => ({ ...a, tierName: d.tiers.find((t) => t.id === a.tier)?.name }))} index={view} onIndex={setView} onClose={() => setView(null)} actions={actionsFor} />}
     </>
   );

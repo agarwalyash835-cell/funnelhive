@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import { Modal, Icon, toast, confirmDialog } from '../../ui';
+import { BrandKits } from './BrandKits';
 
 const KINDS = [['post', 'Post / story'], ['thumbnail', 'YouTube thumbnail'], ['carousel', 'Carousel']];
 const FAMILY = [['', 'Template’s own'], ['sans', 'Clean'], ['serif', 'Classic'], ['display', 'Heavy']];
@@ -78,6 +79,8 @@ export function Designs({ onClose }) {
   const [edit, setEdit] = useState(null); // its words / colours / lettering, being edited
   const [busy, setBusy] = useState('');
   const [kits, setKits] = useState([]); // brand kits: one per brand or client (studio/brand.js)
+  const [kitsOpen, setKitsOpen] = useState(false);
+  const loadKits = () => api('/studio/kits').then((x) => setKits(x.kits || [])).catch(() => {});
   const file = useRef(null);
   const set = (p) => setV((x) => ({ ...x, ...p }));
 
@@ -152,7 +155,12 @@ export function Designs({ onClose }) {
             <label>Size<select value={v.format} onChange={(e) => set({ format: e.target.value })}>{menu.formats.map((f) => <option key={f.id} value={f.id}>{f.label} · {f.width}×{f.height}</option>)}</select></label>
             <label>Language<select value={v.lang} onChange={(e) => set({ lang: e.target.value })}>{menu.languages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
           </div>
-          {kits.length > 1 && <label>Brand kit<select value={v.kitId || kits.find((k) => k.isDefault)?.id || ''} onChange={(e) => set({ kitId: e.target.value })}>{kits.map((k) => <option key={k.id} value={k.id}>{k.label}{k.isDefault ? ' (default)' : ''}</option>)}</select></label>}
+          <div className="row">
+            {kits.length > 1 ? <label className="grow">Brand kit<select value={v.kitId || kits.find((k) => k.isDefault)?.id || ''} onChange={(e) => set({ kitId: e.target.value })}>{kits.map((k) => <option key={k.id} value={k.id}>{k.label}{k.isDefault ? ' (default)' : ''}</option>)}</select></label>
+              : <span className="muted sm grow">Made with your brand kit: logo, colours, lettering, call to action</span>}
+            <button type="button" className="btn ghost sm" onClick={() => setKitsOpen(true)}><Icon name="palette" size={13} /> Brand kits</button>
+          </div>
+          {kitsOpen && <BrandKits onClose={() => { setKitsOpen(false); loadKits(); }} />}
           {kind === 'carousel' && <label>Slides<input type="number" min={3} max={10} value={v.slides} onChange={(e) => set({ slides: Number(e.target.value) })} /></label>}
           <label>Picture behind the words
             <select value={v.bg === 'photo' ? v.photo || 'photo' : v.bg} onChange={(e) => { const x = e.target.value; if (x === 'ai' || x === 'none') set({ bg: x, photo: '' }); else if (x === 'upload') file.current?.click(); else set({ bg: 'photo', photo: x }); }}>
