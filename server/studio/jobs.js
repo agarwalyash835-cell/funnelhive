@@ -73,6 +73,7 @@ export function dropAsset(a, together = []) {
   if (!a) return;
   if (['rendering', 'checking'].includes(a.status) || working.has(a.id)) { set(a.id, (x) => { x.drop = true; }); return; }
   T.studio.del(a.id);
+  for (const id of T.studioshare.ids({ assetId: a.id })) T.studioshare.del(id); // its client links (share.js) go with it
   const others = T.studio.all({ userId: a.userId }).filter((x) => x.id !== a.id && !together.includes(x.id));
   const used = new Set(others.flatMap((x) => [x.url, x.poster, x.ref, x.bgUrl, x.audio, ...(x.refs || [])]).filter(Boolean));
   const files = [{ url: a.url, bytes: a.bytes }, { url: a.poster, bytes: a.posterBytes }, a.saved, a.posterSaved].filter((o) => o?.url && !used.has(o.url));

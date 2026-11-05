@@ -465,5 +465,14 @@
 .sxk-lock:disabled { opacity: .6; cursor: not-allowed; }
 .sxk-ed-f { margin-top: 10px; }
 @media (max-width: 760px) { .sxk-body { grid-template-columns: 1fr; } .sxk-row { grid-template-columns: 1fr auto; } .sxk-lbl { grid-column: 1 / -1; } }
+/* share with client (studio/ShareLinks.jsx): make a link, the one just made, and the live and old ones */
+.sxsh { display: grid; gap: 16px; }
+.sxsh-new, .sxsh-made { display: grid; gap: 12px; justify-items: start; }
+.sxsh-made { background: var(--c-surface-2); border-radius: 12px; padding: 14px; justify-items: stretch; }
+.sxsh-made .row input { flex: 1; min-width: 0; font-size: 13px; }
+.sxsh-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; } .sxsh-row > span { font-size: 13px; color: var(--c-muted); }
+.sxsh-list { display: grid; gap: 6px; } .sxsh-list h4 { margin: 0; font-size: 13px; }
+.sxsh-list summary { cursor: pointer; font-size: 13px; color: var(--c-muted); }
+.sxsh-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; } .sxsh-item > span { display: grid; gap: 2px; font-size: 13px; } .sxsh-item small { color: var(--c-muted); }
 /* the selected scene's facts once it's made */
 .sxi-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12.5px; margin: 0 0 8px; } .sxi-facts dt { color: var(--c-muted); } .sxi-facts dd { margin: 0; }

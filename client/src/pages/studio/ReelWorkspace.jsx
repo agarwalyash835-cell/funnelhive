@@ -14,6 +14,7 @@ import { Viewer } from '../StudioViewer';
 import { okStatus, band, RATIO, Score, Section, Seg, Field, Ratio } from './shared';
 import { extOf } from './extensions';
 import { BrandKits } from './BrandKits';
+import { ShareLinks } from './ShareLinks';
 
 const STEPS = ['Script', 'Shots', 'Voiceover', 'Edit', 'Done'];
 const SIZES = [['9:16', 'Reels'], ['1:1', 'Square'], ['4:5', 'Feed'], ['16:9', 'Wide']];
@@ -224,6 +225,7 @@ export function ReelWorkspace({ r, d, onChange, onClose, extensions, openMemory,
 function ReelHeader({ ed, onClose }) {
   const { r, d, s, busy, editing, boarding, made } = ed;
   const st = stepsOf(r);
+  const [share, setShare] = useState(false);
   return (
     <header className="sxs-reelh">
       <button type="button" className="sxs-back" onClick={onClose} aria-label="Back to all work" title="Back to all work (Esc)"><span style={{ display: 'grid', transform: 'rotate(180deg)' }}><Icon name="chevron" size={16} /></span></button>
@@ -234,8 +236,10 @@ function ReelHeader({ ed, onClose }) {
         {boarding && <button className="btn primary" disabled={busy} onClick={ed.animate}><Icon name="play" size={14} /> Animate · {r.cost?.animate ?? '…'} cr</button>}
         {r.status === 'failed' && <button className="btn primary" disabled={busy} onClick={ed.retry}><Icon name="redo" size={14} /> Retry · {ed.retryCost} cr</button>}
         {r.versions?.length > 0 && !ed.working && <button className="btn ghost" disabled={busy} onClick={() => ed.undo()} title={`Undo: ${r.versions[0].label.replace(/^Before: /, '')}`}><Icon name="redo" size={14} /> Undo</button>}
+        {made && r.outputs && <button type="button" className="btn ghost" onClick={() => setShare(true)} title="A temporary link for your client to watch or download it"><Icon name="send" size={14} /> Share with client</button>}
         {made && r.outputs?.[ed.size] && <a className="btn primary" href={r.outputs[ed.size]} download><Icon name="download" size={14} /> Download {ed.size}</a>}
       </div>
+      {share && <ShareLinks id={r.id} title={s.title} onClose={() => setShare(false)} />}
     </header>
   );
 }

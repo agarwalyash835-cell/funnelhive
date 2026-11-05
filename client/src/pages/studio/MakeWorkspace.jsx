@@ -9,6 +9,7 @@ import { Viewer } from '../StudioViewer';
 import { ACTIVE, WAIT, BADGE, TIER_HINT, ASPECT_NAME, USUALLY, IDEAS, ago, toDataUrl, dayOf, aspectOf, Ratio, Score, Section, Seg, Field } from './shared';
 import { extOf } from './extensions';
 import { BrandKits } from './BrandKits';
+import { ShareLinks } from './ShareLinks';
 
 export function useComposer(d, mode, v) {
   // the tier's models (the first is its default): what each makes, what it costs
@@ -36,6 +37,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
   const [view, setView] = useState(null);
   const [check, setCheck] = useState(null); // the last before-you-spend check, kept in the inspector
   const [kitsOpen, setKitsOpen] = useState(false);
+  const [share, setShare] = useState(null); // the image or clip being shared with a client
   const file = useRef(), logoFile = useRef(), box = useRef();
 
   const counts = useMemo(() => ({ all: assets.length, image: assets.filter((a) => a.kind === 'image').length, clip: assets.filter((a) => a.kind === 'clip').length, reel: assets.filter((a) => a.kind === 'reel').length, live: assets.filter((a) => ACTIVE.includes(a.status)).length, review: assets.filter((a) => a.status === 'needs_review' || a.status === 'failed').length }), [assets]);
@@ -103,6 +105,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
       {a.kind === 'image' ? <button className="btn ghost" onClick={() => animate(a)}><Icon name="play" size={15} /> Animate</button> : <button className="btn ghost" onClick={() => { navigator.clipboard?.writeText(new URL(a.url, location.origin).href); toast('Link copied'); }}><Icon name="link" size={15} /> Copy link</button>}
       <button className="btn ghost" onClick={() => redo(a)}><Icon name="redo" size={15} /> Redo</button>
       <button className="btn ghost" onClick={() => remove(a)}><Icon name="trash" size={15} /> Delete</button>
+      {['ready', 'needs_review'].includes(a.status) && <button className="btn ghost" style={{ gridColumn: '1 / -1' }} onClick={() => setShare(a)}><Icon name="send" size={15} /> Share with client</button>}
     </div>
   );
 
@@ -235,6 +238,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
         {modeExt?.Inspector && <modeExt.Inspector d={d} load={load} />}
       </aside>
       {kitsOpen && <BrandKits onClose={() => { setKitsOpen(false); load(); }} />}
+      {share && <ShareLinks id={share.id} title={share.prompt?.slice(0, 60)} onClose={() => setShare(null)} />}
       {view != null && viewable[view] && <Viewer items={viewable.map((a) => ({ ...a, tierName: d.tiers.find((t) => t.id === a.tier)?.name }))} index={view} onIndex={setView} onClose={() => setView(null)} actions={actionsFor} />}
     </>
   );

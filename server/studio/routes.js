@@ -18,6 +18,7 @@ import { planEdit, applyEdit, undoEdit, versionsOf, EDITS, CAPTION_FONTS } from 
 import { snapshot, busyOf, prune, dropVersionFiles } from './versions.js';
 import { kitOf, kitsOf, kitView, ownKit, lockScript, reelLockError } from './brand.js';
 import { registerKits } from './kit-routes.js';
+import { registerShares } from './share.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
@@ -305,6 +306,8 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.delete('/api/studio/assets/:id', auth, (req, res) => {
     const a = mine(req, res); if (!a) return;
     if (a.status === 'rendering') return res.status(409).json({ error: 'Wait for it to finish, then delete it' });
+    // its client links stop at once (share.js)
+    for (const id of T.studioshare.ids({ assetId: a.id })) T.studioshare.del(id);
     // a design takes its slide files and its background picture with it (the storage is given back)
     if (a.kind === 'design') {
       dropOutputs(a.userId, a.outputs).catch((e) => console.error('design files not removed', a.id, e.message));
@@ -342,6 +345,8 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   registerCast(app, { auth, limiter, gate, ownUpload, who, reelView });
   // the brand kits: one per client or brand, with locked elements (kit-routes.js, brand.js)
   registerKits(app, { auth, limiter, gate, who, anyView });
+  // temporary preview / download links for clients (share.js)
+  registerShares(app, { auth, limiter, rateLimit, isTest, gate, who, wrap });
 
   // ---------- Designs: words on pictures (design-routes.js) ----------
   registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownUpload, who });

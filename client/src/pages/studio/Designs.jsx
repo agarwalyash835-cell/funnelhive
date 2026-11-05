@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import { Modal, Icon, toast, confirmDialog } from '../../ui';
 import { BrandKits } from './BrandKits';
+import { ShareLinks } from './ShareLinks';
 
 const KINDS = [['post', 'Post / story'], ['thumbnail', 'YouTube thumbnail'], ['carousel', 'Carousel']];
 const FAMILY = [['', 'Template’s own'], ['sans', 'Clean'], ['serif', 'Classic'], ['display', 'Heavy']];
@@ -80,6 +81,7 @@ export function Designs({ onClose }) {
   const [busy, setBusy] = useState('');
   const [kits, setKits] = useState([]); // brand kits: one per brand or client (studio/brand.js)
   const [kitsOpen, setKitsOpen] = useState(false);
+  const [share, setShare] = useState(false);
   const loadKits = () => api('/studio/kits').then((x) => setKits(x.kits || [])).catch(() => {});
   const file = useRef(null);
   const set = (p) => setV((x) => ({ ...x, ...p }));
@@ -202,7 +204,9 @@ export function Designs({ onClose }) {
                 {d.status === 'failed' && d.bg === 'ai' && <button type="button" className="btn" disabled={!!busy} onClick={make}>Try the picture again — about {d.credits} credits</button>}
                 <button type="button" className="btn ghost" disabled={!!busy || d.status === 'producing'} onClick={check}>{busy === 'check' ? 'Checking…' : 'Check quality and reach (free)'}</button>
                 {d.outputs.length > 1 && <button type="button" className="btn ghost" disabled={!!busy} onClick={zip}><Icon name="download" size={14} /> All slides (.zip)</button>}
+                {d.outputs.length > 0 && d.status !== 'failed' && <button type="button" className="btn ghost" onClick={() => setShare(true)}><Icon name="send" size={14} /> Share with client</button>}
               </div>
+              {share && <ShareLinks id={d.id} title={d.slides?.[0]?.text?.headline} onClose={() => setShare(false)} />}
               {d.standard?.rules?.length > 0 && (
                 <div className="panel sm" style={{ padding: 12 }} aria-label="Creative Standard">
                   <b>Standard · {d.standard.label}</b>

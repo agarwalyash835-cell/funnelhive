@@ -58,6 +58,7 @@ const Affiliates = lazy(() => import('./pages/Affiliates'));
 const AffiliatePortal = lazy(() => import('./pages/AffiliatePortal'));
 const Vault = lazy(() => import('./pages/Vault'));
 const QuotePublic = lazy(() => import('./pages/QuotePublic'));
+const ShareView = lazy(() => import('./pages/ShareView'));
 const Webinars = lazy(() => import('./pages/Webinars'));
 const Broadcasts = lazy(() => import('./pages/Broadcasts'));
 const Inbox = lazy(() => import('./pages/Inbox'));
@@ -190,6 +191,7 @@ const app = isSuper ? superApp : onDomain ? (
         <Route path="/counter" element={P(Counter)} />
         <Route path="/vault" element={P(Vault)} />
         <Route path="/q/:id" element={L(QuotePublic)} />
+        <Route path="/view/:token" element={L(ShareView)} />
         <Route path="/webinars" element={P(Webinars)} />
         <Route path="/broadcasts" element={P(Broadcasts)} />
         <Route path="/campaigns" element={P(Broadcasts)} />
