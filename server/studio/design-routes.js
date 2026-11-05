@@ -3,7 +3,9 @@
 import { T } from '../db.js';
 import { TIERS, TIER_NAMES, imageCost, modelKey } from './models.js';
 import { LANGUAGES } from './voice.js';
-import { newDesign, makeBackground, editDesign, zipDesign, designView, designHash, designsTick, templateMenu, formatMenu, renderDesign, GROUPS, regate } from './designs.js';
+import { newDesign, makeBackground, editDesign, zipDesign, designView, designHash, designsTick, templateMenu, formatMenu, renderDesign, GROUPS, regate, fieldsOf } from './designs.js';
+import { kitOf, ownKit, designLockError } from './brand.js';
+import { snapshot } from './versions.js';
 import { assessDesign } from './preflight.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -63,6 +65,7 @@ export function registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownU
     if (brief.length < 6 && !hasText) return res.status(400).json({ error: 'Tell us what the design is for: the occasion or product, the offer, who it’s for' });
     const photo = picture(req, b.photo, b.photoId), photo2 = picture(req, b.photo2, b.photo2Id);
     if (photo === false || photo2 === false) return res.status(400).json({ error: 'Pick one of your own pictures' });
+    if (b.kitId && !ownKit(req.user.id, b.kitId)) return res.status(400).json({ error: 'Pick one of your brand kits' });
     if (b.group && !GROUPS.includes(b.group)) return res.status(400).json({ error: 'Pick a post, a thumbnail or a carousel' });
     let d;
     try { d = await newDesign(req.user, { ...b, brief: brief || clip(Object.values(b.text || {}).join(' '), 300), photo, photo2, bg: b.bg || (photo ? 'photo' : 'ai'), by: who(req) }); } catch (e) { console.error('design start failed', e.message, e.detail || ''); return res.status(502).json({ error: e.message }); }
@@ -94,7 +97,11 @@ export function registerDesigns(app, { auth, rateLimit, isTest, wrap, gate, ownU
     const d = mine(req, res, ['draft', 'ready', 'needs_review', 'failed']); if (!d) return;
     const b = { ...(req.body || {}) };
     for (const k of ['photo', 'photo2']) if (b[k] !== undefined || b[`${k}Id`]) { const p = picture(req, b[k], b[`${k}Id`]); if (p === false) return res.status(400).json({ error: 'Pick one of your own pictures' }); b[k] = p; }
-    try { res.json(designView(await editDesign(d, b))); } catch (e) { console.error('design edit failed', e.message, e.detail || ''); res.status(500).json({ error: 'The design couldn’t be drawn — try again' }); }
+    // what the brand kit locks can't be changed here (only in the kit, by its owner or agency)
+    const lockErr = designLockError(kitOf(d.userId, d.kitId), b, d.slides, fieldsOf);
+    if (lockErr) return res.status(409).json({ error: lockErr, locked: true });
+    snapshot(d.id, 'Before: a change to the design', who(req)); // undo (versions.js)
+    try { res.json(designView(await editDesign(T.studio.get(d.id), b))); } catch (e) { console.error('design edit failed', e.message, e.detail || ''); res.status(500).json({ error: 'The design couldn’t be drawn — try again' }); }
   }));
   // draw it again as it is (e.g. after the brand's logo changed)
   app.post('/api/studio/designs/:id/redraw', auth, limiter, wrap(async (req, res) => {

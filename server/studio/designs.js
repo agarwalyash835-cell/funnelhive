@@ -24,6 +24,8 @@ import { FORMATS, FAMILIES, hexOk, safeBox } from './typeset.js';
 import { checkDesign, gateOf, QUALITY_BAR } from './standard.js';
 import { TEMPLATES, TEMPLATE_IDS, CAROUSEL, draw } from './design-templates.js';
 import { planHash } from './preflight.js';
+import { kitOf, kitView, lockedDesign } from './brand.js';
+export const fieldsOf = (tpl) => (TEMPLATES[tpl]?.fields || []).map((f) => f.key);
 
 export const GROUPS = ['post', 'thumbnail', 'carousel'];
 export const BACKGROUNDS = ['ai', 'photo', 'none'];
@@ -99,7 +101,8 @@ const drawnFrom = (d) => JSON.stringify([d.slides, d.colours, d.family, d.format
 // meanwhile: thrown away and drawn again from the latest (a few times at most)
 export async function renderDesign(d, tries = 0) {
   const made = [];
-  const [photo, photo2, logo] = await Promise.all([fileOf(d.bgUrl || d.photo), fileOf(d.photo2), fileOf(d.brand?.logo)]);
+  const kit = kitOf(d.userId, d.kitId), lk = lockedDesign(d, kit, fieldsOf);
+  const [photo, photo2, logo] = await Promise.all([fileOf(d.bgUrl || d.photo), fileOf(d.photo2), fileOf(lk.brand?.logo)]);
   for (const c of [photo, photo2, logo]) if (c?.temp) made.push(c.file);
   const outputs = [];
   try {
@@ -107,8 +110,10 @@ export async function renderDesign(d, tries = 0) {
       const s = d.slides[i], out = tmpFile('png');
       made.push(out);
       // AI typography: the picture already carries the headline, so the typesetter leaves it out
-      const text = { ...s.text, brand: d.brand?.name || '', ...(d.typography && d.bgUrl && i === 0 ? { headline: '' } : {}) };
-      const dim = await draw({ format: d.format, template: s.template, text, colours: d.colours, family: d.family, photo: photo?.file || null, photo2: photo2?.file || null, logo: logo?.file || null, slide: i, slides: Math.max(1, d.slides.length - 2), out });
+      // the brand kit's locked elements (colours, lettering, call to action) whatever the design holds, and its legal line
+      const ls = lk.slides[i] || s;
+      const text = { ...ls.text, brand: lk.brand?.name || '', ...(kit.legal ? { legal: kit.legal } : {}), ...(d.typography && d.bgUrl && i === 0 ? { headline: '' } : {}) };
+      const dim = await draw({ format: d.format, template: s.template, text, colours: lk.colours, family: lk.family, photo: photo?.file || null, photo2: photo2?.file || null, logo: logo?.file || null, slide: i, slides: Math.max(1, d.slides.length - 2), out });
       const saved = await save(d.userId, out, 'png', 'image/png');
       outputs.push({ url: saved.url, bytes: saved.bytes, width: dim.width, height: dim.height });
     }
@@ -128,6 +133,10 @@ export async function renderDesign(d, tries = 0) {
 // opts: { brief, group, format, template, lang, slides, bg, photo, photo2, tier, imodel, typography, colours, family, text, by }
 export async function newDesign(user, o) {
   const mem = memoryOf(user.id);
+  // made with a brand kit (a client's or one of the seller's brands; the default when none): its name, colours,
+  // lettering and logo, and whatever it locks
+  const kit = kitOf(user.id, o.kitId);
+  mem.brand = { name: kit.name, colours: kit.colours || [], logo: kit.logo, ...(kit.lettering ? { font: kit.lettering } : {}) };
   const group = GROUPS.includes(o.group) ? o.group : TEMPLATES[o.template] ? groupOf(o.template) : 'post';
   const format = FORMATS[o.format] ? o.format : group === 'thumbnail' ? 'thumbnail' : group === 'carousel' ? 'portrait' : 'square';
   const lang = LANGUAGES[langBase(o.lang)] ? langBase(o.lang) : mem.prefs?.lang || 'en';
@@ -140,12 +149,12 @@ export async function newDesign(user, o) {
   else copy = await writeCopy({ brief: o.brief, group, template: o.template, slides: o.slides, lang, business, format, typography });
   const colours = (Array.isArray(o.colours) && o.colours.filter(hexOk).length ? o.colours.filter(hexOk) : mem.brand?.colours || []).slice(0, 2);
   const bg = BACKGROUNDS.includes(o.bg) ? o.bg : o.photo ? 'photo' : 'ai';
-  const d = enqueue(user.id, {
-    kind: 'design', status: 'draft', group, format, lang, prompt: clip(o.brief, 1500), bgPrompt: copy.background, bg, typography, tier,
+  const d = enqueue(user.id, lockedDesign({
+    kind: 'design', status: 'draft', kitId: kit.id, group, format, lang, prompt: clip(o.brief, 1500), bgPrompt: copy.background, bg, typography, tier,
     imodel: bgModel(tier, o.imodel, typography), photo: bg === 'photo' ? o.photo || null : null, photo2: o.photo2 || null, colours,
     family: FAMILIES.includes(o.family) ? o.family : FAMILIES.includes(mem.brand?.font) ? mem.brand.font : null,
     brand: { name: business, logo: mem.brand?.logo || '' }, slides: copy.slides, outputs: [], by: o.by || null,
-  });
+  }, kit, fieldsOf));
   return renderDesign(d);
 }
 // the go-ahead for the background picture (this is where credits are spent); with a note, the picture changes
@@ -177,6 +186,8 @@ export async function editDesign(d, b = {}) {
     if (b.photo !== undefined) { y.photo = b.photo || null; if (b.photo) { y.bg = 'photo'; y.bgUrl = null; } }
     if (b.photo2 !== undefined) y.photo2 = b.photo2 || null;
     if (b.background !== undefined && y.bg === 'ai') y.bgPrompt = clip(b.background, 1200);
+    // what the brand kit locks stays as the kit has it (the routes refuse such a change first, with the reason)
+    Object.assign(y, lockedDesign(y, kitOf(y.userId, y.kitId), fieldsOf));
   });
   return renderDesign(x);
 }
@@ -219,6 +230,8 @@ export function designView(d) {
     url: d.outputs?.[0]?.url || null, outputs: (d.outputs || []).map((o) => o.url), version: d.version || 0, picture: bgRow ? view(bgRow) : null, pictureReady: !!d.bgUrl,
     credits: d.bg === 'ai' ? designCost(d) : 0, preview: d.bg === 'ai' && !d.bgUrl, error: d.error || '', assessment: d.assessment?.hash === hash ? d.assessment : null, at: d.at, by: d.by || null,
     ...(() => { const standard = designStandard(d); return { standard, gate: gateOf(standard, scoreOf(d)) }; })(),
+    // the brand kit it's made with, and what it locks (the editor greys those out)
+    kit: (() => { const k = kitView(kitOf(d.userId, d.kitId)); return { id: k.id, label: k.label, colours: k.colours, lettering: k.lettering, cta: k.cta, legal: k.legal, locks: k.locks }; })(),
   };
 }
 export const designHash = (d) => planHash({ slides: d.slides, bg: d.bgPrompt });

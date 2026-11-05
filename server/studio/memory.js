@@ -13,6 +13,7 @@ import { TIERS, VOICES, MOTIONS, modelKey } from './models.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { LANGUAGES } from './voice.js';
 import { cleanLook, lookPrompt } from './cinema.js';
+import { defaultKit, patchKit } from './brand.js';
 
 const CAP = { likes: 8, avoid: 10, characters: 3, wins: 5, colours: 3 };
 const LEN = { item: 100, name: 30, look: 200, title: 60, hook: 100 };
@@ -30,11 +31,15 @@ const items = (v, n = LEN.item) => [].concat(v ?? []).map((x) => clip(x, n)).fil
 const person = (c) => ({ name: clip(c?.name, LEN.name), look: clip(c?.look, LEN.look) });
 const ownLogo = (userId, url) => (/^\/uploads\/[\w-]+\/[\w.-]+\.(png|jpe?g|webp)$/i.test(String(url || '')) && String(url).split('/')[2] === userId ? url : '');
 
+// the brand is the default brand kit's (brand.js): name, colours, logo, lettering (as `font`) and look book
+const brandOf = (userId) => { const k = defaultKit(userId); return { name: k.name || '', colours: k.colours || [], logo: k.logo || '', ...(k.lettering ? { font: k.lettering } : {}), ...(k.look ? { look: k.look } : {}) }; };
 export function memoryOf(userId) {
   const m = T.studiomem.get(userId);
   const e = empty();
-  return m ? { brand: { ...e.brand, ...m.brand }, likes: m.likes || [], avoid: m.avoid || [], characters: m.characters || [], prefs: m.prefs || {}, wins: m.wins || [], at: m.at || null } : { ...e, at: null };
+  return m ? { brand: brandOf(userId), likes: m.likes || [], avoid: m.avoid || [], characters: m.characters || [], prefs: m.prefs || {}, wins: m.wins || [], at: m.at || null } : { ...e, brand: brandOf(userId), at: null };
 }
+// a brand change from memory (learning, or the memory panel) goes to the default kit; a locked element stays as it is
+const toKit = (userId, b) => patchKit(userId, null, { ...(b.name !== undefined ? { name: b.name } : {}), ...(b.colours !== undefined ? { colours: b.colours } : {}), ...(b.logo !== undefined ? { logo: ownLogo(userId, b.logo) } : {}), ...(b.font !== undefined ? { lettering: b.font } : {}), ...(b.look !== undefined ? { look: b.look } : {}) }, 'system');
 // only choices that still exist are kept (a model taken off the menu is forgotten)
 function cleanPrefs(p = {}, base = {}) {
   const o = { ...base };
@@ -53,7 +58,7 @@ function cleanPrefs(p = {}, base = {}) {
   return o;
 }
 function save(userId, m) {
-  const out = { id: userId, userId, brand: m.brand, likes: m.likes, avoid: m.avoid, characters: m.characters, prefs: m.prefs, wins: m.wins, at: Date.now() };
+  const out = { id: userId, userId, brand: {}, likes: m.likes, avoid: m.avoid, characters: m.characters, prefs: m.prefs, wins: m.wins, at: Date.now() };
   // over the size limit: drop the oldest item of the longest list until it fits
   while (JSON.stringify(out).length > MAX_BYTES) {
     const k = ['wins', 'likes', 'avoid', 'characters'].sort((a, b) => JSON.stringify(out[b]).length - JSON.stringify(out[a]).length)[0];
@@ -68,12 +73,11 @@ function save(userId, m) {
 export function remember(userId, p = {}) {
   const m = memoryOf(userId);
   if (p.brand) {
-    const b = p.brand;
-    if (b.name !== undefined) m.brand.name = clip(b.name, 80);
-    if (b.colours !== undefined) m.brand.colours = add(m.brand.colours, [].concat(b.colours).map(hex).filter(Boolean), CAP.colours);
-    if (b.logo !== undefined) m.brand.logo = ownLogo(userId, b.logo);
-    if (b.font !== undefined) { if (FONT_STYLES.includes(b.font)) m.brand.font = b.font; else delete m.brand.font; }
-    if (b.look !== undefined) { const l = cleanLook(b.look); if (l) m.brand.look = l; else delete m.brand.look; }
+    const b = { ...p.brand };
+    // colours learned join the front of the kit's list (told directly, they replace it: setMemory)
+    if (b.colours !== undefined) b.colours = add(m.brand.colours, [].concat(b.colours).map(hex).filter(Boolean), CAP.colours);
+    if (b.font !== undefined && !FONT_STYLES.includes(b.font)) b.font = null;
+    toKit(userId, b);
   }
   if (p.likes) m.likes = add(m.likes, items(p.likes), CAP.likes);
   if (p.avoid) m.avoid = add(m.avoid, items(p.avoid), CAP.avoid);
@@ -85,9 +89,8 @@ export function remember(userId, p = {}) {
 // the seller's own corrections: each field given replaces what was there (lists as a whole)
 export function setMemory(userId, b = {}) {
   const m = memoryOf(userId);
-  if (b.brand) m.brand = { name: b.brand.name !== undefined ? clip(b.brand.name, 80) : m.brand.name, colours: b.brand.colours !== undefined ? add([], [].concat(b.brand.colours).map(hex).filter(Boolean), CAP.colours) : m.brand.colours, logo: b.brand.logo !== undefined ? ownLogo(userId, b.brand.logo) : m.brand.logo };
-  if (b.brand) { const font = b.brand.font !== undefined ? b.brand.font : memoryOf(userId).brand.font; if (FONT_STYLES.includes(font)) m.brand.font = font; } // only when set (sans | serif | display)
-  if (b.brand) { const look = cleanLook(b.brand.look !== undefined ? b.brand.look : memoryOf(userId).brand.look); if (look) m.brand.look = look; } // the look book
+  // the brand lives in the default brand kit (brand.js); a font other than sans | serif | display is left as it was
+  if (b.brand) toKit(userId, { ...b.brand, ...(b.brand.font !== undefined && !FONT_STYLES.includes(b.brand.font) ? { font: undefined } : {}), ...(b.brand.look !== undefined && !cleanLook(b.brand.look) ? { look: undefined } : {}) });
   for (const k of ['likes', 'avoid']) if (b[k] !== undefined) m[k] = add([], items(b[k]), CAP[k]);
   if (b.characters !== undefined) m.characters = add([], [].concat(b.characters).map(person).filter((c) => c.name && c.look), CAP.characters);
   if (b.wins !== undefined) m.wins = add([], [].concat(b.wins).map((w) => ({ title: clip(w?.title, LEN.title), hook: clip(w?.hook, LEN.hook) })).filter((w) => w.title), CAP.wins);

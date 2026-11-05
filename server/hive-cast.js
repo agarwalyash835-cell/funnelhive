@@ -34,10 +34,17 @@ export const CAST_TOOLS = [
     summary: (r) => `Making ${r.person.name}’s reference pictures`,
   },
   {
+    name: 'studio_brand_kits',
+    description: 'The seller’s brand kits — one per brand or agency client — each with its name, logo, colours, font, lettering, tone, product photos, closing-card call to action and legal line, and what it LOCKS (locked elements are used exactly as the kit has them and can’t be changed from the chat or by an edit; only the account’s owner or its agency can unlock them, in the brand kit settings). Pass kitId to studio_make_reel or studio_make_design to make it for that brand.',
+    schema: S({}),
+    run: async (ctx) => { const d = await ctx.call('GET', '/studio/kits'); return { ok: true, kits: d.kits.map((k) => ({ id: k.id, label: k.label, default: k.isDefault, name: k.name, colours: k.colours, font: k.font, cta: k.cta, legal: k.legal, locked: Object.keys(k.locks).filter((f) => k.locks[f]) })) }; },
+    summary: (r) => `Checked the brand kits (${r.kits.length})`,
+  },
+  {
     name: 'studio_brand_kit',
-    description: 'Set the seller’s brand kit, used in every Studio video: business name, logo (/uploads/…), brand colours (#rrggbb), font (from studio_cast → fonts), tone of voice, product photos (/uploads/…; the first is used when a Reel has no product photo). Only what the seller said.',
-    schema: S({ name: str('Optional'), logo: str('Optional'), colours: list('Optional: #rrggbb'), font: str('Optional: a font id'), tone: str('Optional: e.g. warm, family, no hype'), products: list('Optional: product photo URLs') }),
-    run: async (ctx, a) => { const { fonts, ...kit } = await ctx.call('PUT', '/studio/brand', a); return { ok: true, brand: kit }; },
+    description: 'Set a brand kit (kitId from studio_brand_kits; the default kit when left out), used in every Studio video and design made with it: business name, logo (/uploads/…), brand colours (#rrggbb), font (from studio_cast → fonts), lettering for designs (sans | serif | display), tone of voice, product photos (/uploads/…; the first is used when a Reel has no product photo), the closing card’s call to action, a legal line. Only what the seller said. A LOCKED element is refused — tell the seller it’s locked in the brand kit (the owner or agency can unlock it there); never try to unlock it.',
+    schema: S({ kitId: str('Optional: which kit (default kit when left out)'), name: str('Optional'), logo: str('Optional'), colours: list('Optional: #rrggbb'), font: str('Optional: a font id'), lettering: str('Optional: sans | serif | display'), tone: str('Optional: e.g. warm, family, no hype'), products: list('Optional: product photo URLs'), cta: str('Optional: the closing card’s call to action, max 30 characters'), legal: str('Optional: a legal line, e.g. T&C apply') }),
+    run: async (ctx, a) => { const { kitId, ...b } = a; const { fonts, ...kit } = await ctx.call('PUT', `/studio/brand${kitId ? `?kit=${encodeURIComponent(kitId)}` : ''}`, b); return { ok: true, brand: kit }; },
     summary: () => 'Updated the brand kit',
   },
   {

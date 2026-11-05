@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Modal, Icon, toast, confirmDialog } from '../ui';
+import { BrandKits } from './studio/BrandKits';
 
 const PREF_LABEL = { tier: 'Quality', vmodel: 'Video model', imodel: 'Stills', res: 'Video', voice: 'Voice', captions: 'Captions', aspect: 'Frame', lang: 'Language', seconds: 'Length', motion: 'Motion' };
 const MOTION = { video: 'AI video', story: 'Storyline', photo: 'Photo motion' };
@@ -25,19 +26,19 @@ export function StudioMemory({ d, onClose }) {
   const [m, setM] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [who, setWho] = useState({ name: '', look: '' });
-  const [colour, setColour] = useState('#ff6b00');
-  useEffect(() => { api('/studio/memory').then(setM).catch((e) => { toast(e.message); onClose(); }); }, []);
+  const [kits, setKits] = useState(false);
+  const reload = () => api('/studio/memory').then((x) => setM((was) => (was ? { ...was, brand: x.brand } : x))).catch((e) => { toast(e.message); onClose(); });
+  useEffect(() => { reload(); }, []);
   if (!m) return <Modal title="What Studio remembers about you" onClose={onClose} width={640}><div className="skeleton" /></Modal>;
   const change = (p) => { setM((x) => ({ ...x, ...p })); setDirty(true); };
-  const brand = (p) => change({ brand: { ...m.brand, ...p } });
   // the usual choices, in words (model ids → their names on the tier's menu)
   const tier = d.tiers.find((t) => t.id === m.prefs.tier);
   const prefText = (k, v) => k === 'tier' ? tier?.name || v : k === 'vmodel' ? tier?.models?.video?.find((x) => x.id === v)?.name || v : k === 'imodel' ? tier?.models?.image?.find((x) => x.id === v)?.name || v
     : k === 'voice' ? d.voices?.find((x) => x.id === v)?.name || v : k === 'captions' ? d.captionStyles.find((x) => x.id === v)?.name || v : k === 'lang' ? d.languages.find((x) => x.id === v)?.name || v : k === 'seconds' ? `${v}s` : k === 'motion' ? MOTION[v] || v : v;
   const prefs = Object.entries(m.prefs || {}).filter(([k]) => PREF_LABEL[k]);
-  const save = async () => { try { setM(await api('/studio/memory', 'PUT', { brand: m.brand, likes: m.likes, avoid: m.avoid, characters: m.characters, wins: m.wins, prefs: m.prefs })); setDirty(false); toast('Saved — your next scripts use it'); } catch (e) { toast(e.message); } };
+  const save = async () => { try { setM(await api('/studio/memory', 'PUT', { likes: m.likes, avoid: m.avoid, characters: m.characters, wins: m.wins, prefs: m.prefs })); setDirty(false); toast('Saved — your next scripts use it'); } catch (e) { toast(e.message); } };
   const wipe = async () => {
-    if (!(await confirmDialog({ title: 'Forget everything?', text: 'Studio forgets your brand, likes, characters and usual choices. Your images, clips and Reels stay.', confirm: 'Forget everything', danger: true }))) return;
+    if (!(await confirmDialog({ title: 'Forget everything?', text: 'Studio forgets what it learned: likes, things to avoid, characters, usual choices. Your brand kits, images, clips and Reels stay.', confirm: 'Forget everything', danger: true }))) return;
     try { await api('/studio/memory', 'DELETE'); onClose(); toast('Studio has forgotten it all'); } catch (e) { toast(e.message); }
   };
   const addWho = () => { if (!who.name.trim() || who.look.trim().length < 5) return; change({ characters: [{ name: who.name.trim(), look: who.look.trim() }, ...m.characters.filter((c) => c.name.toLowerCase() !== who.name.trim().toLowerCase())].slice(0, 3) }); setWho({ name: '', look: '' }); };
@@ -48,13 +49,10 @@ export function StudioMemory({ d, onClose }) {
         <p className="sx-hint">Studio learns from your script edits, redo notes and what you approve, and writes every new Reel with it. Change anything that isn’t right.</p>
         <section className="sxm-sec">
           <h4>Your brand</h4>
+          <p className="sx-hint">Your name, logo, colours, font, call to action and legal line live in your brand kits (one per brand or client, with locks).</p>
           <div className="row">
-            <label className="sm">Business name<input maxLength={80} value={m.brand.name} placeholder="Your business settings name is used" onChange={(e) => brand({ name: e.target.value })} /></label>
-            {m.brand.logo && <span className="sxm-item"><img src={m.brand.logo} alt="Logo" style={{ height: 22, maxWidth: 70, objectFit: 'contain' }} /><button type="button" aria-label="Remove logo" onClick={() => brand({ logo: '' })}><Icon name="x" size={12} /></button></span>}
-          </div>
-          <div className="sxm-items">
-            {m.brand.colours.map((c) => <span key={c} className="sxm-item"><i className="sxm-swatch" style={{ background: c }} />{c}<button type="button" aria-label={`Remove ${c}`} onClick={() => brand({ colours: m.brand.colours.filter((x) => x !== c) })}><Icon name="x" size={12} /></button></span>)}
-            {m.brand.colours.length < 3 && <span className="sxm-item"><input type="color" value={colour} onChange={(e) => setColour(e.target.value)} aria-label="Brand colour" /><button type="button" className="btn ghost sm" onClick={() => brand({ colours: [...new Set([...m.brand.colours, colour.toLowerCase()])] })}>Add colour</button></span>}
+            <span className="sxm-items grow">{m.brand.logo && <img src={m.brand.logo} alt="Logo" style={{ height: 22, maxWidth: 70, objectFit: 'contain' }} />}<b className="sm">{m.brand.name || 'Your brand'}</b>{m.brand.colours.map((c) => <i key={c} className="sxm-swatch" title={c} style={{ background: c }} />)}</span>
+            <button type="button" className="btn ghost sm" onClick={() => setKits(true)}><Icon name="palette" size={13} /> Brand kits</button>
           </div>
         </section>
         <List title="You like" hint="Look and tone — e.g. warm morning light, short punchy lines." items={m.likes} onChange={(likes) => change({ likes })} placeholder="Something you like in your ads" />
@@ -81,6 +79,7 @@ export function StudioMemory({ d, onClose }) {
           <button type="button" className="btn primary" disabled={!dirty} onClick={save}>Save</button>
         </div>
       </div>
+      {kits && <BrandKits onClose={() => { setKits(false); reload(); }} />}
     </Modal>
   );
 }

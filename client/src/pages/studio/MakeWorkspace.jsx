@@ -41,6 +41,9 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
   const viewable = shown.filter((a) => a.kind !== 'reel' && a.url);
   const images = assets.filter((a) => a.kind === 'image' && a.url && a.status !== 'failed');
   const src = v.sourceId ? images.find((x) => x.id === v.sourceId)?.url : v.ref;
+  // the brand kit a Reel is made with (a client's, or another of the seller's brands): only asked when there's a choice
+  const kits = d.kits || [];
+  const kit = kits.find((k) => k.id === v.kitId) || kits.find((k) => k.isDefault) || null;
   const voices = d.voices || [];
 
   const upload = async (f, key = 'ref') => {
@@ -52,7 +55,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
     setBusy(true);
     try {
       if (mode === 'reel') {
-        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || undefined, captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.motion ? { motion: v.motion } : {}), ...(v.presenter ? { presenter: { style: v.presenter } } : {}), ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}) });
+        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || undefined, captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.motion ? { motion: v.motion } : {}), ...(v.presenter ? { presenter: { style: v.presenter } } : {}), ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}), ...(kit ? { kitId: kit.id } : {}) });
         set({ prompt: '' }); await load(); onOpenReel(r.id);
       } else {
         // before spending: the words checked for quality and virality, and a stronger version offered (free)
@@ -180,6 +183,9 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
 
       <aside className="sxw-inspect" aria-label="Settings">
         <div className="sxi-head"><b>{mode === 'image' ? 'Image' : mode === 'clip' ? 'Video clip' : 'Reel · full ad'}</b><small>{USUALLY[mode]?.split(' — ')[0]}</small></div>
+        {mode === 'reel' && kits.length > 1 && <Section id="make-kit" title="Brand" icon="layout" extra={<small className="muted">{kit?.label}</small>}>
+          <Field label="Brand kit" hint="Its logo, colours, font, call to action and legal line — and whatever it locks"><select value={kit?.id || ''} onChange={(e) => set({ kitId: e.target.value })}>{kits.map((k) => <option key={k.id} value={k.id}>{k.label}{k.isDefault ? ' (default)' : ''}</option>)}</select></Field>
+        </Section>}
         {mode === 'reel' && <Recommend brief={v.prompt} v={v} set={set} />}
         <Section id="make-quality" title="Quality" icon="sparkles">
           <div className="sxi-tiers">{d.tiers.map((t) => <button key={t.id} type="button" className={v.tier === t.id ? 'on' : ''} aria-pressed={v.tier === t.id} onClick={() => set({ tier: t.id })}><b>{t.name}</b><small>{TIER_HINT[t.id]}</small></button>)}</div>

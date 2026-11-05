@@ -3,6 +3,7 @@
 import { T } from '../db.js';
 import { TIERS, imageCost } from './models.js';
 import { castOf, castMember, resolveCast, cleanMember, addMember, dropMember, memberView, sheetCost, startSheet, sheetBusy, advanceSheets, brandKit, setBrandKit, BRAND_FONTS, SHEET } from './cast.js';
+import { whoOf } from './brand.js';
 
 export function registerCast(app, { auth, limiter, gate, ownUpload, who, reelView }) {
   const isOwn = (userId) => (u) => ownUpload(userId, u);
@@ -51,12 +52,13 @@ export function registerCast(app, { auth, limiter, gate, ownUpload, who, reelVie
     res.status(202).json(memberView(startSheet(c, tier, who(req))));
   });
 
-  // the brand kit: { name, logo, colours, font, tone, products }
-  app.get('/api/studio/brand', auth, (req, res) => res.json({ ...brandKit(req.user.id), fonts }));
+  // a brand kit (brand.js; ?kit=id, else the default): { name, logo, colours, font, lettering, tone, products, cta, legal,
+  // locks } — the director's tool (hive-cast.js) uses this too, so a locked element is refused here like anywhere else
+  app.get('/api/studio/brand', auth, (req, res) => res.json({ ...brandKit(req.user.id, req.query.kit || null), fonts }));
   app.put('/api/studio/brand', auth, (req, res) => {
     if (!gate(req, res)) return;
-    const out = setBrandKit(req.user.id, req.body || {}, isOwn(req.user.id));
-    if (out.error) return res.status(400).json(out);
+    const out = setBrandKit(req.user.id, req.body || {}, isOwn(req.user.id), whoOf(req), req.query.kit || req.body?.kitId || null);
+    if (out.error) return res.status(out.locked ? 409 : 400).json(out);
     res.json({ ...out.kit, fonts });
   });
 

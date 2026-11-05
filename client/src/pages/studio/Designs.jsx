@@ -77,12 +77,13 @@ export function Designs({ onClose }) {
   const [d, setD] = useState(null); // the design open on the right
   const [edit, setEdit] = useState(null); // its words / colours / lettering, being edited
   const [busy, setBusy] = useState('');
+  const [kits, setKits] = useState([]); // brand kits: one per brand or client (studio/brand.js)
   const file = useRef(null);
   const set = (p) => setV((x) => ({ ...x, ...p }));
 
   useEffect(() => {
     api('/studio/designs').then(setMenu).catch((e) => { toast(e.message); onClose?.(); });
-    api('/studio').then((s) => setImages((s.assets || []).filter((a) => a.kind === 'image' && a.url && a.status !== 'failed'))).catch(() => {});
+    api('/studio').then((s) => { setImages((s.assets || []).filter((a) => a.kind === 'image' && a.url && a.status !== 'failed')); setKits(s.kits || []); }).catch(() => {});
   }, []);
   // while the picture is being made, look again every few seconds
   useEffect(() => {
@@ -105,14 +106,16 @@ export function Designs({ onClose }) {
   const run = async (label, fn) => { setBusy(label); try { await fn(); } catch (e) { toast(e.message); } finally { setBusy(''); } };
 
   const start = () => run('write', async () => {
-    const body = { brief: v.brief, group: kind, template: kind === 'carousel' ? undefined : v.template || undefined, format: v.format, lang: v.lang, slides: v.slides, bg: v.bg, typography: v.typography && v.lang === 'en' && v.bg === 'ai', tier: v.tier };
+    const body = { brief: v.brief, group: kind, template: kind === 'carousel' ? undefined : v.template || undefined, format: v.format, lang: v.lang, slides: v.slides, bg: v.bg, typography: v.typography && v.lang === 'en' && v.bg === 'ai', tier: v.tier, ...(v.kitId ? { kitId: v.kitId } : {}) };
     if (v.bg === 'photo') { if (v.photo.startsWith('studio:')) body.photoId = v.photo.slice(7); else body.photo = v.photo; }
     const x = await api('/studio/designs', 'POST', body);
     open(x);
     setMenu((m) => ({ ...m, designs: [x, ...m.designs] }));
   });
   const save = () => run('save', async () => {
-    const body = { slides: edit.slides.map((text, i) => ({ i, text })), colours: edit.colours, format: edit.format, ...(edit.family ? { family: edit.family } : {}) };
+    // what the brand kit locks isn't sent (it can't change here)
+    const lk = d.kit?.locks || {};
+    const body = { slides: edit.slides.map((text, i) => { const t = { ...text }; if (lk.cta) delete t.cta; return { i, text: t }; }), format: edit.format, ...(lk.colours ? {} : { colours: edit.colours }), ...(edit.family && !lk.font ? { family: edit.family } : {}) };
     if (edit.template !== d.slides[0].template && d.group !== 'carousel') body.template = edit.template;
     open(await api(`/studio/designs/${d.id}`, 'PUT', body));
     toast('Updated — no credits used');
@@ -149,6 +152,7 @@ export function Designs({ onClose }) {
             <label>Size<select value={v.format} onChange={(e) => set({ format: e.target.value })}>{menu.formats.map((f) => <option key={f.id} value={f.id}>{f.label} · {f.width}×{f.height}</option>)}</select></label>
             <label>Language<select value={v.lang} onChange={(e) => set({ lang: e.target.value })}>{menu.languages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
           </div>
+          {kits.length > 1 && <label>Brand kit<select value={v.kitId || kits.find((k) => k.isDefault)?.id || ''} onChange={(e) => set({ kitId: e.target.value })}>{kits.map((k) => <option key={k.id} value={k.id}>{k.label}{k.isDefault ? ' (default)' : ''}</option>)}</select></label>}
           {kind === 'carousel' && <label>Slides<input type="number" min={3} max={10} value={v.slides} onChange={(e) => set({ slides: Number(e.target.value) })} /></label>}
           <label>Picture behind the words
             <select value={v.bg === 'photo' ? v.photo || 'photo' : v.bg} onChange={(e) => { const x = e.target.value; if (x === 'ai' || x === 'none') set({ bg: x, photo: '' }); else if (x === 'upload') file.current?.click(); else set({ bg: 'photo', photo: x }); }}>
@@ -209,11 +213,12 @@ export function Designs({ onClose }) {
                   <div className="row">
                     {d.group !== 'carousel' && <label>Template<select value={edit.template} onChange={(e) => setEdit({ ...edit, template: e.target.value })}>{sameKind.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>}
                     <label>Size<select value={edit.format} onChange={(e) => setEdit({ ...edit, format: e.target.value })}>{menu.formats.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
-                    <label>Lettering<select value={edit.family} onChange={(e) => setEdit({ ...edit, family: e.target.value })}>{FAMILY.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+                    <label>Lettering<select value={edit.family} disabled={!!d.kit?.locks?.font} title={d.kit?.locks?.font ? 'Locked by the brand kit' : undefined} onChange={(e) => setEdit({ ...edit, family: e.target.value })}>{FAMILY.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
                   </div>
                   <div className="dz-sw">
                     <span className="sm">Colours</span>
-                    {[0, 1].map((k) => <input key={k} type="color" aria-label={k ? 'Accent colour' : 'Main colour'} value={edit.colours[k] || '#ffcc00'} onChange={(e) => { const c = [...edit.colours]; c[k] = e.target.value; setEdit({ ...edit, colours: c }); }} />)}
+                    {[0, 1].map((k) => <input key={k} type="color" disabled={!!d.kit?.locks?.colours} aria-label={k ? 'Accent colour' : 'Main colour'} value={edit.colours[k] || '#c9a13b'} onChange={(e) => { const c = [...edit.colours]; c[k] = e.target.value; setEdit({ ...edit, colours: c }); }} />)}
+                    {(d.kit?.locks?.colours || d.kit?.locks?.font || d.kit?.locks?.cta) && <span className="muted sm">{d.kit.label}: {[d.kit.locks.colours && 'colours', d.kit.locks.font && 'lettering', d.kit.locks.cta && 'call to action'].filter(Boolean).join(', ')} locked</span>}
                     <span className="muted sm">Put *stars* around words to highlight them</span>
                   </div>
                   {edit.slides.map((text, i) => (
@@ -221,7 +226,7 @@ export function Designs({ onClose }) {
                       {edit.slides.length > 1 && <h5 style={{ margin: '4px 0' }}>Slide {i + 1}</h5>}
                       <div className="dz-fields">
                         {fieldsOf(i === 0 && d.group !== 'carousel' ? edit.template : d.slides[i].template).map((f) => (
-                          <label key={f.key}>{f.label}<input type="text" maxLength={f.max + 4} value={text[f.key] || ''} onChange={(e) => setEdit({ ...edit, slides: edit.slides.map((t, j) => (j === i ? { ...t, [f.key]: e.target.value } : t)) })} /></label>
+                          <label key={f.key}>{f.label}<input type="text" maxLength={f.max + 4} value={text[f.key] || ''} disabled={f.key === 'cta' && !!d.kit?.locks?.cta} title={f.key === 'cta' && d.kit?.locks?.cta ? 'Locked by the brand kit' : undefined} onChange={(e) => setEdit({ ...edit, slides: edit.slides.map((t, j) => (j === i ? { ...t, [f.key]: e.target.value } : t)) })} /></label>
                         ))}
                       </div>
                     </div>

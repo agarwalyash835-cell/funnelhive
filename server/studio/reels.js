@@ -26,6 +26,7 @@ import { memoryOf, memoryPrompt, withPrefs } from './memory.js';
 import { reviewReel } from './qa.js';
 import { planHash } from './preflight.js';
 import { castShot, castPrompt, resolveCast, brandFont, brandKit, BRAND_FONTS } from './cast.js';
+import { kitOf, locked, lockScript, lockedReel, reelLockError } from './brand.js';
 import { celebrityIn, CELEBRITY_ERROR, presenterBrief, faceStill, presenterReady, presenterClip, relip, sceneStarts, talks } from './presenter.js';
 import { cleanCam, cleanLook, enforceTreatment, filmPrompt, movePrompt } from './cinema.js';
 import { HOOKS, STRUCTURES, BEATS, playbookPrompt, checkVideo, reelFormat, cutEvery, gateOf, HOOK_MAX_WORDS } from './standard.js';
@@ -67,9 +68,12 @@ export function cleanScript(s, { treatment = true } = {}) {
 export const wordBudget = (seconds) => Math.max(12, Math.round((seconds - 3) * 2.4));
 export const wordCount = (script) => (script.lines || []).join(' ').split(/\s+/).filter(Boolean).length;
 const parseScript = (text) => { try { return cleanScript(JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))); } catch { return { error: 'not JSON' }; } };
-export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null, cast = [], presenter = null }) {
+export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null, cast = [], presenter = null, kitId = null }) {
   const budget = wordBudget(seconds);
-  const user = `Brief: ${brief}\nBusiness: ${business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}${presenterBrief(presenter)}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(memoryOf(userId), business) + castPrompt(userId, cast) : ''}`;
+  // the brand the ad is for: the Reel's brand kit (an agency's client, or one of the seller's brands), else the default
+  const kit = userId ? brandKit(userId, kitId) : null;
+  const mem = userId ? { ...memoryOf(userId), brand: { name: kit.name, colours: kit.colours, ...(kit.look ? { look: kit.look } : {}) } } : null;
+  const user = `Brief: ${brief}\nBusiness: ${kit?.name || business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}${presenterBrief(presenter)}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(mem, kit?.name || business) + castPrompt(userId, cast, kitId) : ''}`;
   let c = parseScript(await studioAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
   // too long for the length asked (a 15-second Reel that runs 22 seconds), or breaking the Creative Standard's script
@@ -80,7 +84,7 @@ export async function writeScript({ brief, lang, seconds, business, aspect = '9:
     const again = parseScript(await studioAI(SCRIPT_SYSTEM, `${user}\n\nYour last script breaks these rules — rewrite it to meet every one:\n- ${was.join('\n- ')}\nLast script: ${JSON.stringify(c.script)}`, { json: true, timeoutMs: 90000 }).catch(() => ''));
     if (!again.error && misses(again.script).length < was.length) c = again;
   }
-  return c.script;
+  return kit ? lockScript(c.script, kitOf(userId, kitId)) : c.script;
 }
 // the Creative Standard's rules a script can fix by itself (the playbook, the hook, the first frame, the product early, the
 // call to action) → what's wrong, in words for the writer
@@ -91,8 +95,13 @@ export const scriptMisses = (script, { aspect, seconds } = {}) => checkVideo(scr
 // ---------- start, approve ----------
 export const REEL_ASPECTS = ['9:16', '16:9', '1:1', '4:5'];
 export function newReel(userId, o) {
-  o = withPrefs(userId, o); // what the seller didn't choose: their usual (memory.js)
-  return enqueue(userId, { kind: 'reel', status: 'script_ready', tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), ...(['video', 'story', 'photo'].includes(o.motion) ? { motion: o.motion } : {}), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], cast: resolveCast(userId, o.cast).map((c) => c.id), script: o.script, ...(o.presenter ? { presenter: o.presenter } : {}), by: o.by || null });
+  // made with a brand kit (the default when none): its logo when none was picked, and always when the kit locks it
+  const k = kitOf(userId, o.kitId), picked = o.logo;
+  o = withPrefs(userId, o); // what the seller didn't choose: their usual (memory.js — the default kit's logo)
+  if (!k.isDefault) o.logo = picked || k.logo || null;
+  if (k.logo && locked(k, 'logo')) o.logo = k.logo;
+  if (o.script) o.script = lockScript(o.script, k);
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', kitId: k.id, tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), ...(['video', 'story', 'photo'].includes(o.motion) ? { motion: o.motion } : {}), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], cast: resolveCast(userId, o.cast).map((c) => c.id), script: o.script, ...(o.presenter ? { presenter: o.presenter } : {}), by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken. Storyboard first
 // ({ storyboard: true }): only the stills are made (and the lines spoken), then it waits at storyboard_ready for scene
@@ -286,8 +295,9 @@ const assHex = (hex, a = 0) => `&H${Math.round(a * 255).toString(16).padStart(2,
 // 'classic': centred words and a button.
 export const CARD_STYLES = ['classic', 'matte'];
 const MATTE = { ground: '#2B2B2B', text: '#EDE8E0', accent: '#C9A13B' };
-export async function makeCard(card, colour, aspect, still = null, { style = 'classic', font = 'Noto Sans' } = {}) {
-  if (!card || !(card.headline || card.offer || card.cta)) return null;
+// legal: the brand kit's legal line, small along the bottom (left on the matte card)
+export async function makeCard(card, colour, aspect, still = null, { style = 'classic', font = 'Noto Sans', legal = '' } = {}) {
+  if (!card || !(card.headline || card.offer || card.cta || legal)) return null;
   const { width: W, height: H } = dims(aspect, 1080);
   const brand = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : null;
   const matte = style === 'matte';
@@ -306,6 +316,11 @@ export async function makeCard(card, colour, aspect, still = null, { style = 'cl
   ];
   const an = matte ? 7 : 8;
   const events = cardLayout(card, W, H, !!still, matte ? 'left' : 'center').map((b) => `Dialogue: 0,0:00:00.00,0:00:05.00,${b.style},,0,0,0,,{\\an${an}\\pos(${b.x},${b.top})\\fs${b.fs}}${b.lines.map(assEsc).join('\\N')}`);
+  if (legal) {
+    // above the bottom of the frame (a feed's own buttons sit lower on a vertical video), wrapped by the renderer
+    styles.push(`Style: Legal,${ff},${Math.round(H * 0.016)},${assHex(matte ? MATTE.text : '#FFFFFF', 0.25)},&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,${matte ? 1 : 2},60,60,${Math.round(H * (H > W * 1.4 ? 0.06 : 0.04))},1`);
+    events.push(`Dialogue: 0,0:00:00.00,0:00:05.00,Legal,,0,0,0,,${assEsc(legal)}`);
+  }
   fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`);
   const fileArg = ass.replace(/\\/g, '/').replace(/^([A-Za-z]):/, '$1\\:');
   if (still) {
@@ -319,6 +334,9 @@ export async function makeCard(card, colour, aspect, still = null, { style = 'cl
 }
 
 async function edit(r) {
+  // the brand kit's locked elements, whatever the row holds (the logo, the colours, the font, the call to action)
+  const kit = kitOf(r.userId, r.kitId);
+  r = lockedReel(r, kit);
   const temp = [];
   const local = async (url, ext) => { const c = await localCopy(url, ext); if (c.temp) temp.push(c.file); return c.file; };
   try {
@@ -338,11 +356,13 @@ async function edit(r) {
     }
     if (!words?.length) words = spreadWords(r.lines, voice.spans);
     const owner = T.users.get(r.userId);
-    const font = brandFont(r.userId);
+    const font = brandFont(r.userId, r.kitId);
     // the closing card shows the product: the first scene's still
     const firstStill = T.studio.get(r.shots?.[0]?.imageId)?.url;
     const still = firstStill ? await local(firstStill, 'png').catch(() => null) : null;
-    const card = await makeCard(r.script.endCard, r.cardColour || owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary || brandKit(r.userId).colours[0], r.aspect, still, { style: r.cardStyle || 'classic', font });
+    // the card's colour: the Reel's own, else the kit's (first when the kit is a client's or its colours are locked)
+    const kitColour = kit.colours?.[0], kitFirst = !kit.isDefault || locked(kit, 'colours');
+    const card = await makeCard(r.script.endCard, r.cardColour || (kitFirst && kitColour) || owner?.settings?.brandColor || owner?.settings?.whiteLabel?.primary || kitColour, r.aspect, still, { style: r.cardStyle || 'classic', font, legal: kit.legal || '' });
     if (card) temp.push(card);
     const logo = r.logo && !r.logoOpts?.off ? await local(r.logo, 'png').catch(() => null) : null;
     // the music bed: made once for the Reel (in the script's mood, as long as the voiceover) and kept, so re-edits reuse it

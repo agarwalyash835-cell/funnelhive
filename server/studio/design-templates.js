@@ -424,6 +424,15 @@ export async function draw({ format = 'square', template, text = {}, colours = [
   }
   // the stand-ins go under everything else
   const elements = [...stand, ...plan.elements].map((e, i) => ({ ...e, layer: i }));
+  // the brand kit's legal line (brand.js): small, left-aligned along the very bottom, on a soft shade so it reads over
+  // any picture — under the template's own words, never on them
+  if (text.legal) {
+    const S = Math.min(W, H), h = Math.max(S * 0.05, s.b * 0.9), n = elements.length;
+    elements.push(
+      { type: 'gradient', x: 0, y: H - h * 1.6, w: W, h: h * 1.6, dir: 'down', from: 0, to: 0.55, layer: n },
+      { type: 'text', text: text.legal, x: s.l, y: H - h, w: W - s.l - s.r, h: h * 0.8, align: 'left', valign: 'middle', family: 'sans', weight: 500, colour: '#ede8e0', max: S * 0.02, min: S * 0.013, maxLines: 2, lh: 1.15, layer: n + 1 },
+    );
+  }
   await compose({ W, H, fill: plan.fill || '#111111', photos: photos.filter((p) => p.file), elements, logo, out });
   return { width: W, height: H };
 }

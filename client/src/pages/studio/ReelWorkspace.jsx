@@ -402,9 +402,12 @@ function ReelInspector({ ed, extensions, openMemory }) {
   const [card, setCard] = useState(r.script?.endCard || {});
   useEffect(() => { setCard(r.script?.endCard || {}); }, [JSON.stringify(r.script?.endCard || {})]);
   const cardChanged = JSON.stringify(card) !== JSON.stringify(r.script?.endCard || {});
+  const lk = r.kit?.locks || {};
   return (
     <>
       <div className="sxi-head"><b>Reel</b><small>{r.seconds}s · {(r.sizes || ['9:16']).join(', ')}</small></div>
+      <SceneInspector ed={ed} />
+      <KitPanel ed={ed} />
       {editing && <Section id="reel-make" title="How it’s made" icon="play">
         {ed.vms.length > 1 && <Field label="Video model" hint={ed.vm?.note}><select value={ed.vm?.id} onChange={(e) => ed.setVmodel(e.target.value)}>{ed.vms.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>}
         <Field label="Motion" hint="Storyline: an opening and a closing still per scene, animated between them. AI video: animated from the opening still. Photo motion: a zoom or pan, far cheaper."><select value={ed.res} onChange={(e) => ed.setRes(e.target.value)}>{ed.choices.map((x) => <option key={x} value={x}>{ed.labelOf(x)} · about {ed.costAt(x)} credits</option>)}</select></Field>
@@ -454,7 +457,8 @@ function ReelInspector({ ed, extensions, openMemory }) {
           return <button key={c.id} type="button" className={`sxr-style${on ? ' on' : ''}`} disabled={working || busy} onClick={() => !on && ed.settings({ captions: c.id === 'none' ? null : { style: c.id } })}><span className="demo"><CapDemo id={c.id} text={sel.line} /></span><span className="t">{c.name}</span></button>;
         })}</div>
         {r.captions?.style && (editing || made) && <>
-          {d.editing?.fonts?.length > 0 && <Field label="Font"><select value={r.captions.font || ''} disabled={working || busy} onChange={(e) => ed.change('reel', { captions: { font: e.target.value } })}><option value="">Your brand font</option>{d.editing.fonts.map((f) => <option key={f} value={f}>{f}</option>)}</select></Field>}
+          {d.editing?.fonts?.length > 0 && (lk.font ? <Field label="Font" hint="Locked by the brand kit"><input value={r.kit.fontFamily} disabled readOnly /></Field>
+            : <Field label="Font"><select value={r.captions.font || ''} disabled={working || busy} onChange={(e) => ed.change('reel', { captions: { font: e.target.value } })}><option value="">Your brand font</option>{d.editing.fonts.map((f) => <option key={f} value={f}>{f}</option>)}</select></Field>)}
           <Field label="Where"><div className="sx-modes">{CAPTION_SPOTS.map(([y, l]) => <button key={l} type="button" className={near(CAPTION_SPOTS, r.captions.y, 0.75) === y ? 'on' : ''} disabled={working || busy} onClick={() => ed.change('reel', { captions: { y } })}>{l}</button>)}</div></Field>
           <Field label="Line up"><div className="sx-modes">{[['left', 'Left'], ['center', 'Centre']].map(([k, l]) => <button key={k} type="button" className={(r.captions.align || (r.captions.style === 'matte' ? 'left' : 'center')) === k ? 'on' : ''} disabled={working || busy} onClick={() => ed.change('reel', { captions: { align: k } })}>{l}</button>)}</div></Field>
         </>}
@@ -468,8 +472,10 @@ function ReelInspector({ ed, extensions, openMemory }) {
         })}</div>
         {/* before it's made the card is part of the script; after, it's its own draft (other actions don't drop it) */}
         {[['headline', 'Headline', 40], ['offer', 'Offer or price', 40], ['cta', 'Call to action', 30]].map(([k, l, max]) => (
-          <Field key={k} label={l}><input maxLength={max} value={(made ? card : s.endCard)?.[k] || ''} disabled={!editing && !made} onChange={(e) => (made ? setCard((x) => ({ ...x, [k]: e.target.value })) : ed.edit({ endCard: { ...s.endCard, [k]: e.target.value } }))} /></Field>
+          k === 'cta' && lk.cta ? <Field key={k} label={l} hint="Locked by the brand kit"><input value={r.kit.cta} disabled readOnly /></Field>
+            : <Field key={k} label={l}><input maxLength={max} value={(made ? card : s.endCard)?.[k] || ''} disabled={!editing && !made} onChange={(e) => (made ? setCard((x) => ({ ...x, [k]: e.target.value })) : ed.edit({ endCard: { ...s.endCard, [k]: e.target.value } }))} /></Field>
         ))}
+        {r.kit?.legal && <Field label="Legal line" hint={`From the brand kit${lk.legal ? ' (locked)' : ''} — shown along the bottom of the card`}><input value={r.kit.legal} disabled readOnly /></Field>}
         {made && cardChanged && <div className="row"><button className="btn primary" disabled={busy} onClick={() => ed.change('reel', { endCard: card }, 'Re-editing with the new closing card')}>Apply the closing card</button><button type="button" className="btn ghost" onClick={() => setCard(r.script?.endCard || {})}>Reset</button></div>}
         {(made || editing) && <Field label="Card style" hint="Matte: words on the left, the call to action as words — no button box"><div className="sx-modes">{(d.editing?.cardStyles || ['classic', 'matte']).map((k) => <button key={k} type="button" className={(r.cardStyle || 'classic') === k ? 'on' : ''} disabled={working || busy} onClick={() => (r.cardStyle || 'classic') !== k && ed.change('reel', { cardStyle: k })}>{k === 'matte' ? 'Matte' : 'Classic'}</button>)}</div></Field>}
       </Section>
@@ -486,6 +492,52 @@ function ReelInspector({ ed, extensions, openMemory }) {
       <button type="button" className="sxi-memory" onClick={openMemory}><Icon name="sparkles" size={14} /><span><b>What Studio remembers</b><small>Used in every new script</small></span><Icon name="chevron" size={14} /></button>
       {extOf(extensions, 'inspector', d).map((x) => <Section key={x.id} id={`ext-${x.id}`} title={x.label} icon={x.icon}><x.Panel d={d} reel={r} mode="reel" load={ed.onChange} /></Section>)}
     </>
+  );
+}
+
+// the selected scene, field by field: how long it runs, the shot size, the camera move, whether a person speaks it to
+// camera. Before anything is made these are the plan (free, saved with the script); once made, a size or move change
+// edits that scene's picture or clip (paid, confirmed first); the length then follows its voiceover line.
+const SHOT_SIZES = [['wide', 'Wide'], ['full', 'Full'], ['medium', 'Medium'], ['close', 'Close-up'], ['macro', 'Macro']];
+function SceneInspector({ ed }) {
+  const { r, s, busy, editing, boarding, made, working } = ed;
+  const i = ed.scene, shot = s.shots[i], line = s.lines[i];
+  if (!shot && line == null) return null;
+  const cam = shot?.cam || {}, presenter = shot?.type === 'presenter', madeShot = r.shots?.[i];
+  const plan = (p) => ed.setShot(i, p);
+  const setCam = (p) => plan({ cam: { ...cam, ...p } });
+  return (
+    <Section id="reel-scene" title={`Scene ${i + 1}`} icon="image" extra={<small className="muted">{shot ? `${shot.seconds}s` : 'voice only'}</small>}>
+      {!shot ? <p className="sxi-hint">Words only — this line plays over the last scene.</p> : editing ? <>
+        <p className="sxi-hint">The plan for this scene — free, saved with the script.</p>
+        <Field label="Length"><Seg label="Scene length" value={shot.seconds} onChange={(n) => plan({ seconds: n })} options={[4, 5, 6, 7, 8, 10].map((n) => [n, `${n}s`])} /></Field>
+        <Field label="Shot size"><Seg label="Shot size" wrap value={cam.size || ''} onChange={(v) => setCam({ size: v })} options={SHOT_SIZES.map(([v, l]) => [v, l])} /></Field>
+        <Field label="Camera move"><select value={cam.move || ''} onChange={(e) => setCam({ move: e.target.value })}><option value="">Let the director choose</option>{CAMERA_MOVES.map((m) => <option key={m} value={m}>{m}</option>)}</select></Field>
+        <label className="sxi-toggle" title="This scene shows a person saying its line straight to the camera, lip-synced"><input type="checkbox" checked={presenter} onChange={(e) => plan({ type: e.target.checked ? 'presenter' : undefined })} /><span><b>A person speaks it to camera</b><small>Lip-synced to the line — set the face in the presenter panel</small></span></label>
+        <p className="sxi-hint">Your sizes and moves are kept as you set them; the Standard below says if two shots in a row look alike.</p>
+      </> : <>
+        <dl className="sxi-facts"><dt>Length</dt><dd>{madeShot?.clip?.seconds || shot.seconds}s · follows its voiceover line</dd><dt>Size</dt><dd>{SHOT_SIZES.find(([v]) => v === cam.size)?.[1] || '—'}</dd><dt>Move</dt><dd>{cam.move || '—'}</dd>{presenter && <><dt>Speaker</dt><dd>A person, to camera</dd></>}</dl>
+        {(made || boarding) && madeShot && <>
+          <Field label="Reframe" hint={made ? 'Edits this scene’s picture, then makes its clip again — the cost is shown first' : 'Edits this scene’s picture — the cost is shown first'}><select value="" disabled={busy || working} onChange={(e) => e.target.value && ed.change(`scene:${i}`, { picture: `Reframe it as a ${e.target.value} shot of the same moment` })}><option value="">Another shot size…</option>{SHOT_SIZES.filter(([v]) => v !== cam.size).map(([v, l]) => <option key={v} value={v === 'close' ? 'close-up' : v === 'macro' ? 'extreme close-up macro' : v}>{l}</option>)}</select></Field>
+          {made && r.motion !== 'photo' && <Field label="Camera move" hint="A new clip with this move — the cost is shown first"><select value="" disabled={busy || working} onChange={(e) => e.target.value && ed.change(`scene:${i}`, { move: e.target.value })}><option value="">{cam.move ? `Now: ${cam.move}` : 'Another move…'}</option>{CAMERA_MOVES.filter((m) => m !== cam.move).map((m) => <option key={m} value={m}>{m}</option>)}</select></Field>}
+        </>}
+      </>}
+    </Section>
+  );
+}
+
+// the brand kit this Reel is made with (an agency's client, or one of the seller's brands), what it locks, and another
+// kit for it — free, the Reel is edited again with the new kit's logo and colours
+function KitPanel({ ed }) {
+  const { r, d, busy, working } = ed;
+  if (!r.kit) return null;
+  const locked = Object.entries(r.kit.locks || {}).filter(([, v]) => v).map(([f, v]) => `${{ logo: 'logo', colours: 'colours', font: 'font', cta: 'call to action', legal: 'legal line' }[f]}${v === 'agency' ? ' (agency)' : ''}`);
+  const move = (kitId) => ed.act(() => api(`/studio/assets/${r.id}/kit`, 'PUT', { kitId }), 'Made with the other brand kit — re-editing');
+  return (
+    <Section id="reel-kit" title="Brand kit" icon="palette" open={false} extra={<small className="muted">{r.kit.label}</small>}>
+      {(d.kits || []).length > 1 && <Field label="Made with"><select value={r.kit.id} disabled={busy || working} onChange={(e) => move(e.target.value)}>{d.kits.map((k) => <option key={k.id} value={k.id}>{k.label}{k.isDefault ? ' (default)' : ''}</option>)}</select></Field>}
+      <p className="sxi-hint">{locked.length ? `Locked: ${locked.join(', ')} — used exactly as the kit has them. They change only in the brand kit.` : 'Nothing is locked in this kit.'}</p>
+    </Section>
   );
 }
 
@@ -522,7 +574,8 @@ function FinishPanel({ ed }) {
       {r.hasLogo && <Section id="reel-logo" title="Logo" icon="image" open={false} extra={<small className="muted">{lp.off ? 'Hidden' : lp.position}</small>}>
         <Field label="Corner"><div className="sx-modes">{(d.editing?.logoPlaces || ['top-left', 'top-right', 'bottom-left', 'bottom-right']).map((k) => <button key={k} type="button" className={!lp.off && lp.position === k ? 'on' : ''} disabled={off} onClick={() => ed.change('reel', { logo: { position: k, off: false } })}>{k.replace('-', ' ')}</button>)}</div></Field>
         <Field label="Size"><div className="sx-modes">{LOGO_SIZES.map(([v, l]) => <button key={v} type="button" className={!lp.off && near(LOGO_SIZES, lp.size, 0.18) === v ? 'on' : ''} disabled={off} onClick={() => ed.change('reel', { logo: { size: v, off: false } })}>{l}</button>)}</div></Field>
-        <button type="button" className="btn ghost sm" disabled={off || lp.off} onClick={() => ed.change('reel', { logo: { off: true } })}>Hide the logo</button>
+        {r.kit?.locks?.logo ? <p className="sxi-hint">The brand kit locks the logo: it’s always on.</p>
+          : <button type="button" className="btn ghost sm" disabled={off || lp.off} onClick={() => ed.change('reel', { logo: { off: true } })}>Hide the logo</button>}
       </Section>}
     </>
   );

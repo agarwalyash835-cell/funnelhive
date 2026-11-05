@@ -14,6 +14,8 @@ import { enqueue } from './jobs.js';
 import { snapshot, restore, busyOf, versionsOf } from './versions.js';
 import { cleanCam } from './cinema.js';
 import { BRAND_FONTS } from './cast.js';
+import { kitOf, reelLockError, designLockError } from './brand.js';
+import { TEMPLATES } from './design-templates.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const ACTIVE = ['queued', 'rendering', 'checking'];
@@ -61,6 +63,9 @@ export function planEdit(row, target, change = {}) {
 }
 
 function planReel(r, t, c) {
+  // the brand kit's locked elements can't be changed from here (only in the kit, by its owner or agency)
+  const lockErr = reelLockError(kitOf(r.userId, r.kitId), t.part === 'reel' ? pickReel(c) : {});
+  if (lockErr) return { error: lockErr, locked: true };
   const n = Math.max(r.shots?.length || 0, r.script?.shots?.length || 0, r.lines?.length || r.script?.lines?.length || 0);
   if (t.part === 'scene' && !(t.i >= 0 && t.i < n)) return { error: `There’s no scene ${t.i + 1} — this Reel has ${n}` };
   if (!['reel', 'scene'].includes(t.part)) return { error: 'A Reel is changed as a whole (target "reel") or a scene at a time ("scene:N")' };
@@ -126,7 +131,10 @@ const describeReel = (b) => [
   b.logo ? 'the logo' : '', b.endCard || b.cardStyle || b.cardColour ? 'the closing card' : '', b.sizes ? 'the sizes' : '', b.voice ? 'another voice' : '',
 ].filter(Boolean).join(', ').replace(/^./, (x) => x.toUpperCase()) || 'Changed the Reel';
 
+const fieldsOf = (tpl) => (TEMPLATES[tpl]?.fields || []).map((f) => f.key);
 function planDesign(d, t, c) {
+  const lockErr = designLockError(kitOf(d.userId, d.kitId), t.part === 'slide' ? { slides: [{ i: t.i, text: c.text }] } : c, d.slides, fieldsOf);
+  if (lockErr) return { error: lockErr, locked: true };
   if (t.part === 'slide') {
     if (!d.slides?.[t.i]) return { error: `There’s no slide ${t.i + 1}` };
     if (!c.text || typeof c.text !== 'object') return { error: 'For a slide: text { headline, sub, cta, … }' };

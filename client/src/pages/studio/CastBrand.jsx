@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import { Modal, Icon, toast, confirmDialog } from '../../ui';
+import { BrandKits } from './BrandKits';
 
 const toDataUrl = (f) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
 const uploadFiles = async (files) => { const out = []; for (const f of files) out.push((await api('/uploads', 'POST', { type: f.type, data: await toDataUrl(f) })).url); return out; };
@@ -93,41 +94,9 @@ function NewPerson({ onAdd }) {
   );
 }
 
-function Brand({ kit, fonts, onSaved }) {
-  const [b, setB] = useState(kit);
-  const [colour, setColour] = useState('#ff6b00');
-  const logo = useRef(null);
-  const dirty = JSON.stringify(b) !== JSON.stringify(kit);
-  const set = (p) => setB((x) => ({ ...x, ...p }));
-  const save = async () => { try { const { fonts: _f, ...k } = await api('/studio/brand', 'PUT', { name: b.name, logo: b.logo, colours: b.colours, font: b.font, tone: b.tone, products: b.products }); onSaved(k); setB(k); toast('Brand kit saved — every new video uses it'); } catch (e) { toast(e.message); } };
-  const font = fonts.find((f) => f.id === b.font);
-  return (
-    <section className="sxm-sec">
-      <h4>Brand kit</h4>
-      <div className="row">
-        <label className="sm grow">Business name<input maxLength={80} value={b.name} onChange={(e) => set({ name: e.target.value })} /></label>
-        {b.logo ? <span className="sxm-item"><img src={b.logo} alt="Logo" style={{ height: 22, maxWidth: 70, objectFit: 'contain' }} /><button type="button" aria-label="Remove logo" onClick={() => set({ logo: '' })}><Icon name="x" size={12} /></button></span>
-          : <button type="button" className="btn ghost sm" onClick={() => logo.current?.click()}><Icon name="plus" size={13} /> Logo</button>}
-        <input ref={logo} type="file" accept="image/png,image/webp,image/jpeg" hidden onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) try { set({ logo: (await uploadFiles([f]))[0] }); } catch (err) { toast(err.message); } }} />
-      </div>
-      <div className="sxm-items">
-        {b.colours.map((c) => <span key={c} className="sxm-item"><i className="sxm-swatch" style={{ background: c }} />{c}<button type="button" aria-label={`Remove ${c}`} onClick={() => set({ colours: b.colours.filter((x) => x !== c) })}><Icon name="x" size={12} /></button></span>)}
-        {b.colours.length < 3 && <span className="sxm-item"><input type="color" value={colour} onChange={(e) => setColour(e.target.value)} aria-label="Brand colour" /><button type="button" className="btn ghost sm" onClick={() => set({ colours: [...new Set([...b.colours, colour.toLowerCase()])] })}>Add colour</button></span>}
-      </div>
-      <label className="sm">Font for captions
-        <select value={b.font} onChange={(e) => set({ font: e.target.value })}>{fonts.map((f) => <option key={f.id} value={f.id}>{f.name} — {f.note}</option>)}</select>
-      </label>
-      {font && <p style={{ fontFamily: `'${font.family}', sans-serif`, fontSize: 18, margin: 0 }}>{b.name || 'Your brand'} · शुद्ध देसी घी · ₹499</p>}
-      <label className="sm">Tone of voice<input maxLength={200} value={b.tone} placeholder="e.g. warm and homely, no hype" onChange={(e) => set({ tone: e.target.value })} /></label>
-      <div className="sm">Product photos <span className="muted">(the first is used when a video has none)</span></div>
-      <Photos urls={b.products} max={6} label="Add product photos" onChange={(products) => set({ products })} />
-      <div className="row"><span className="grow" /><button type="button" className="btn primary sm" disabled={!dirty} onClick={save}>Save brand kit</button></div>
-    </section>
-  );
-}
-
 export default function CastBrand({ onClose }) {
   const [d, setD] = useState(null);
+  const [kits, setKits] = useState(false);
   const load = () => api('/studio/cast').then(setD).catch((e) => { toast(e.message); onClose?.(); });
   useEffect(() => { load(); }, []);
   // while reference pictures are being made, look again every few seconds
@@ -148,9 +117,14 @@ export default function CastBrand({ onClose }) {
           {d.characters.length ? d.characters.map((c) => <Person key={c.id} c={c} credits={d.sheet.credits} onChange={(x) => swap(c.id, x)} />) : <span className="muted sm">No one yet</span>}
         </section>
         <NewPerson onAdd={(c) => setD((x) => ({ ...x, characters: [...x.characters, c] }))} />
-        <Brand kit={d.brand} fonts={d.fonts} onSaved={(brand) => setD((x) => ({ ...x, brand }))} />
+        <section className="sxm-sec">
+          <h4>Brand</h4>
+          <p className="sx-hint">Logo, colours, font, call to action and legal line live in your brand kits — one per brand or client, with locks.</p>
+          <div className="row"><span className="muted sm grow">{d.brand?.label || d.brand?.name || 'Your brand'}{d.brand?.logo ? ' · logo set' : ''}{d.brand?.colours?.length ? ` · ${d.brand.colours.length} colour${d.brand.colours.length === 1 ? '' : 's'}` : ''}</span><button type="button" className="btn ghost sm" onClick={() => setKits(true)}><Icon name="palette" size={13} /> Brand kits</button></div>
+        </section>
         <div className="row sxm-foot"><span className="grow" /><button type="button" className="btn ghost" onClick={onClose}>Close</button></div>
       </div>
+      {kits && <BrandKits onClose={() => { setKits(false); load(); }} />}
     </Modal>
   );
 }

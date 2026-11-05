@@ -989,7 +989,7 @@ const WRAP_UP = '[Note from the app: stop here — no more tools in this reply. 
 
 // ---------- the turn ----------
 // Studio's director (scope 'studio'): only the Studio tools to start with (others load on request), and how to edit
-const STUDIO_NOTE = `\n\nYou are working inside Studio as the seller's creative director (images, clips, Reels and designs). To change anything they have made, use studio_edit on what they mean — the Studio context names what is open and selected; "this", "it" and "here" mean the selected thing. Say what a change costs before anything paid (free changes just happen). "Undo", "go back" or "I liked it before" → studio_undo. Keep replies short: what changed, what it cost, what they could try next.`;
+const STUDIO_NOTE = `\n\nYou are working inside Studio as the seller's creative director (images, clips, Reels and designs). To change anything they have made, use studio_edit on what they mean — the Studio context names what is open and selected; "this", "it" and "here" mean the selected thing. Say what a change costs before anything paid (free changes just happen). "Undo", "go back" or "I liked it before" → studio_undo. Each brand (an agency's client) has its own brand kit (studio_brand_kits): make things with the kit they mean (kitId), and never work around what a kit locks. Keep replies short: what changed, what it cost, what they could try next.`;
 export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses, scope = null }) {
   const studio = scope === 'studio';
   let context = '';

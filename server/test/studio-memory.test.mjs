@@ -147,6 +147,8 @@ test('the seller corrects it (checked), another seller never sees it, and forget
   assert.equal((await api('/studio/memory', 'DELETE', null, S)).status, 200);
   const g = await memory();
   assert.deepEqual([g.likes, g.characters, g.prefs], [[], [], {}]);
+  // what it learned is gone; the brand stays — it lives in the brand kit now (studio/brand.js), not in what was learned
+  assert.equal(g.brand.name, 'Shuddh');
   await reel({});
-  assert.doesNotMatch(prompts.at(-1), /What Studio remembers/);
+  assert.doesNotMatch(prompts.at(-1), /What this seller likes|Bright colours|Avoid \(they asked|Their characters/);
 });

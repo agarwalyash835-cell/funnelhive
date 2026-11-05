@@ -10,18 +10,13 @@
 import { T, JOBS } from '../db.js';
 import { enqueue, dropAsset } from './jobs.js';
 import { pick, imageCost, TIERS } from './models.js';
-import { memoryOf, setMemory, withCharacters } from './memory.js';
+import { withCharacters } from './memory.js';
+import { BRAND_FONTS, kitOf, kitView, patchKit, fontFamily } from './brand.js';
 
 export const MAX_CAST = 12;
 const MAX_PHOTOS = 4, MAX_PRODUCTS = 6, PER_PERSON = 3;
-// the fonts the editor can draw with (the server image bundles the Noto family, Devanagari included) — Google Fonts, so
-// the page can show them as they'll look. Latin-only ones fall back to Noto Sans Devanagari for Hindi or Marathi.
-export const BRAND_FONTS = {
-  'noto-sans': { name: 'Noto Sans', family: 'Noto Sans', devanagari: false, note: 'Clean and modern' },
-  'noto-serif': { name: 'Noto Serif', family: 'Noto Serif', devanagari: false, note: 'Classic, premium' },
-  'noto-sans-devanagari': { name: 'Noto Sans Devanagari', family: 'Noto Sans Devanagari', devanagari: true, note: 'Hindi and Marathi, clean' },
-  'noto-serif-devanagari': { name: 'Noto Serif Devanagari', family: 'Noto Serif Devanagari', devanagari: true, note: 'Hindi and Marathi, classic' },
-};
+// the fonts live with the brand kits now (brand.js)
+export { BRAND_FONTS };
 // the reference sheet: the front portrait first, the other two made from it
 export const SHEET = [
   { part: 'front', label: 'Front', aspect: '3:4', shot: 'Front-facing head-and-shoulders portrait, looking straight at the camera, relaxed natural expression' },
@@ -105,35 +100,26 @@ export function advanceSheets(userId = null) {
   }
 }
 
-// ---------- the brand kit ----------
-const brandRow = (userId) => T.studiocast.get(`brand-${userId}`);
-export function brandKit(userId) {
-  const b = brandRow(userId) || {}, m = memoryOf(userId).brand;
-  return { name: m.name, logo: m.logo, colours: m.colours, font: BRAND_FONTS[b.font] ? b.font : 'noto-sans', tone: b.tone || '', products: b.products || [] };
-}
-// { name, logo, colours } go to memory.js (where they always lived); { font, tone, products } here
-export function setBrandKit(userId, b, isOwn) {
+// ---------- the brand kit (brand.js: one or more kits, with locked elements) ----------
+// kitId: a Reel's or design's kit (its own `kitId`); the default kit when none
+export const brandKit = (userId, kitId = null) => kitView(kitOf(userId, kitId));
+// { name, logo, colours, font, lettering, tone, products, cta, legal, locks } for a kit (the default when none)
+export function setBrandKit(userId, b, isOwn, who = 'owner', kitId = null) {
   if (b.products !== undefined && [].concat(b.products || []).some((u) => !isOwn(u))) return { error: 'Pick your own product photos' };
   if (b.logo && !isOwn(b.logo)) return { error: 'Pick your own logo' };
-  if (b.font !== undefined && b.font !== null && !BRAND_FONTS[b.font]) return { error: 'Pick one of the fonts offered' };
-  const brand = {};
-  for (const k of ['name', 'logo']) if (b[k] !== undefined) brand[k] = b[k] || '';
-  if (b.colours !== undefined) brand.colours = [].concat(b.colours || []).map(hex).filter(Boolean);
-  if (Object.keys(brand).length) setMemory(userId, { brand });
-  const cur = brandRow(userId) || { id: `brand-${userId}`, userId, kind: 'brand' };
-  T.studiocast.put({ ...cur, ...(b.font !== undefined ? { font: b.font || 'noto-sans' } : {}), ...(b.tone !== undefined ? { tone: clip(b.tone, 200) } : {}), ...(b.products !== undefined ? { products: [...new Set([].concat(b.products || []))].slice(0, MAX_PRODUCTS) } : {}), at: Date.now() });
-  return { kit: brandKit(userId) };
+  return patchKit(userId, kitId, b, who);
 }
-export const brandFont = (userId) => BRAND_FONTS[brandKit(userId).font].family;
+export const brandFont = (userId, kitId = null) => fontFamily(kitOf(userId, kitId));
 
 // ---------- using them ----------
 // the script writer is told who the cast are (and who the seller picked for this ad) and the brand's tone
-export function castPrompt(userId, picked = []) {
-  const all = castOf(userId).slice(0, 8), kit = brandKit(userId), out = [];
+export function castPrompt(userId, picked = [], kitId = null) {
+  const all = castOf(userId).slice(0, 8), kit = brandKit(userId, kitId), out = [];
   if (all.length) out.push(`Their cast — recurring people with fixed looks (reference pictures keep their faces the same). When a shot shows one of them, call them by name in its prompt and describe them exactly like this: ${all.map((c) => `${c.name} — ${c.look}${c.outfit ? `, wearing ${c.outfit}` : ''}`).join('; ')}`);
   const chosen = resolveCast(userId, picked);
   if (chosen.length) out.push(`Cast this ad with: ${chosen.map((c) => c.name).join(', ')} — they are the people in it, named in every shot they appear in.`);
   if (kit.tone) out.push(`The brand’s tone of voice: ${kit.tone}`);
+  if (kit.locks.cta && kit.cta) out.push(`The closing card's call to action is always exactly: “${kit.cta}”.`);
   return out.length ? `\n\n${out.join('\n')}` : '';
 }
 // how many reference pictures a still can take: the model the job will really use (jobs.js startRender falls back to the
@@ -153,7 +139,7 @@ export function inScene(userId, text, picked = []) {
 // a Reel's still → { prompt, ref, refs }: the product photo (or the opening still for a closing one) as `ref`, then each
 // person's pictures in turn — every person's best first — so the total stays within the model's limit
 export function castShot(r, scene, { prompt = scene, primary } = {}) {
-  const kit = brandKit(r.userId);
+  const kit = brandKit(r.userId, r.kitId);
   const ref = primary !== undefined ? primary : r.ref || kit.products[0] || null;
   const people = inScene(r.userId, scene, r.cast);
   const room = Math.max(0, imageRefLimit(r.tier, r.imodel) - (ref ? 1 : 0));
