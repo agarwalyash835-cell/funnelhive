@@ -21,7 +21,10 @@ const SIZES = [['9:16', 'Reels'], ['1:1', 'Square'], ['4:5', 'Feed'], ['16:9', '
 const STATUS_LINE = { script_ready: 'Check the script and storyboard, then approve — nothing is made until you do.', storyboard: 'Drawing the storyboard: a picture for each scene, about a minute. The voiceover is recorded meanwhile.', storyboard_ready: 'Your storyboard: change, move or drop any scene, then animate it.', producing: 'Making the shots and recording the voiceover. Each is checked as it’s made.', editing: 'Putting it together: clips, voiceover, captions, logo and the closing card.', ready: 'Ready to download or put in an ad.', needs_review: 'Ready — but something needs a look.', failed: 'Stopped part-way — retry to finish only what’s missing.' };
 const STEP_WORD = { queued: 'Queued', rendering: 'Rendering', checking: 'Checking', needs_review: 'Look', failed: 'Failed' };
 const CAMERA_MOVES = ['push in', 'pull out', 'pan', 'tilt', 'dolly', 'tracking', 'orbit', 'handheld', 'crane', 'static'];
-const LOOK_NAMES = { natural: 'Natural', cinematic: 'Cinematic', matte: 'Matte film' };
+const LOOK_NAMES = { natural: 'Natural', cinematic: 'Cinematic', matte: 'Matte film', warm_luxe: 'Warm luxe', clean_bright: 'Clean bright', moody: 'Moody', food_pop: 'Food pop' };
+const TRANSITION_NAMES = { cinematic: 'Cinematic', dissolve: 'Dissolve', whip: 'Whip', zoom: 'Zoom', mixed: 'Mixed', cut: 'Hard cut', match: 'Match cut' };
+// what a style's overlays can show; each is optional (an overlay without its value is left out)
+const OVERLAY_FIELDS = [['price', 'Price', '₹4,999'], ['location', 'Location', 'Whitefield, Bengaluru'], ['stat', 'A number to count up', '1,200+ happy families'], ['deadline', 'Deadline', 'Offer ends Sunday'], ['phone', 'Phone', '98xxxxxx10'], ['whatsapp', 'WhatsApp', '98xxxxxx10']];
 const MUSIC_LEVELS = [[-26, 'Quiet'], [-19, 'Normal'], [-13, 'Loud']];
 const LOGO_SIZES = [[0.12, 'Small'], [0.18, 'Medium'], [0.26, 'Large']];
 const CAPTION_SPOTS = [[0.22, 'Top'], [0.5, 'Middle'], [0.75, 'Bottom']];
@@ -47,6 +50,8 @@ function CapDemo({ id, text }) {
   if (id === 'karaoke') return <span className="cap-karaoke">{w.slice(0, -1).join(' ')} <em>{w.at(-1)}</em></span>;
   if (id === 'lower') return <span className="cap-lower">{w.join(' ')}</span>;
   if (id === 'minimal') return <span className="cap-minimal">{w.join(' ')}</span>;
+  if (id === 'punch') return <span className="cap-punch">{w.at(-1)}</span>;
+  if (id === 'strip') return <span className="cap-strip">{w.slice(0, -1).join(' ')} <em>{w.at(-1)}</em></span>;
   if (id === 'matte') return <span className="cap-matte">{w.slice(0, -1).join(' ')} <em>{w.at(-1)}</em></span>;
   return <span className="cap-none">No captions</span>;
 }
@@ -561,8 +566,23 @@ function FinishPanel({ ed }) {
   const look = (p) => ed.change('reel', { look: { ...g, ...p } }, editing ? 'Kept for the edit' : 'Re-grading — under a minute');
   const lp = r.logoOpts || { position: 'top-right', size: 0.18 };
   const newTrack = async () => { const mood = await promptDialog({ title: 'A new music track', text: 'Describe the music — genre, instruments, tempo, mood (no artist names). It’s made for this Reel, then it’s edited again.', label: 'Music', value: r.script?.music || '', placeholder: 'e.g. warm acoustic guitar, slow, hopeful' }); if (mood) ed.change('reel', { music: { mood } }, 'Making a new track, then re-editing'); };
+  const [more, setMore] = useState(null); // another industry's styles, when the seller looks further
+  const rc = r.recipe, info = r.overlayInfo || {};
+  const otherIndustry = async (industry) => { try { setMore(industry ? (await api(`/studio/recipes?industry=${encodeURIComponent(industry)}`)).recipes : null); } catch (e) { toast(e.message); } };
+  const styles = more || d.recipes || [];
+  const fill = async ([k, label, eg]) => { const val = await promptDialog({ title: label, text: 'Shown by the edit style’s overlays (leave empty to hide it). Free — only the edit runs again.', label, value: info[k] || '', placeholder: `e.g. ${eg}` }); if (val !== null && val !== undefined && val !== (info[k] || '')) ed.change('reel', { overlayInfo: { [k]: val } }, editing ? 'Kept for the edit' : 'Re-editing with the overlays'); };
   return (
     <>
+      <Section id="reel-style" title="Edit style" icon="sparkles" open={false} extra={<small className="muted">{rc?.name || 'Standard'}</small>}>
+        <p className="sxi-hint">A proven edit for your industry: captions, pace, transitions, overlays, sound and colour.{editing ? ' Kept for when it’s edited.' : ' Free — only the edit runs again.'}</p>
+        <div className="sx-recipes">
+          <button type="button" className={`sx-recipe${!rc ? ' on' : ''}`} disabled={off} onClick={() => rc && ed.change('reel', { recipe: null }, 'Back to the standard edit')}><b>Standard</b></button>
+          {styles.map((x) => <button key={x.id} type="button" className={`sx-recipe${rc?.id === x.id ? ' on' : ''}`} disabled={off} title={x.about} onClick={() => rc?.id !== x.id && ed.change('reel', { recipe: x.id }, editing ? 'Kept for the edit' : `Re-editing as ${x.name}`)}><b>{x.name}</b><small>{x.about}</small></button>)}
+        </div>
+        {d.industries?.length > 0 && <Field label="Other industries"><select defaultValue="" disabled={off} onChange={(e) => otherIndustry(e.target.value)}><option value="">Your industry</option>{d.industries.map((k) => <option key={k} value={k}>{k}</option>)}</select></Field>}
+        <Field label="Transitions"><div className="sx-modes">{(d.editing?.transitions || Object.keys(TRANSITION_NAMES)).map((k) => <button key={k} type="button" className={(r.transitions || rc?.transitions || 'cinematic') === k ? 'on' : ''} disabled={off} onClick={() => ed.change('reel', { transitions: k })}>{TRANSITION_NAMES[k] || k}</button>)}</div></Field>
+        {rc && <Field label="Overlays show"><div className="sx-modes">{OVERLAY_FIELDS.map((f) => <button key={f[0]} type="button" className={info[f[0]] ? 'on' : ''} disabled={off} title={info[f[0]] || f[2]} onClick={() => fill(f)}>{f[1]}{info[f[0]] ? ' ✓' : ''}</button>)}</div></Field>}
+      </Section>
       <Section id="reel-look" title="Look" icon="sparkles" open={false} extra={<small className="muted">{LOOK_NAMES[g.base] || g.base}</small>}>
         <p className="sxi-hint">One grade over every shot.{editing ? ' Kept for when it’s edited.' : ' Free — only the edit runs again.'}</p>
         <div className="sx-modes">{(d.editing?.looks || ['natural', 'cinematic', 'matte']).map((k) => <button key={k} type="button" className={g.base === k ? 'on' : ''} disabled={off} onClick={() => g.base !== k && look({ base: k })}>{LOOK_NAMES[k] || k}</button>)}</div>

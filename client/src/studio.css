@@ -476,3 +476,11 @@
 .sxsh-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; } .sxsh-item > span { display: grid; gap: 2px; font-size: 13px; } .sxsh-item small { color: var(--c-muted); }
 /* the selected scene's facts once it's made */
 .sxi-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12.5px; margin: 0 0 8px; } .sxi-facts dt { color: var(--c-muted); } .sxi-facts dd { margin: 0; }
+/* edit styles (server/studio/recipes.js): a name and a line on what the edit looks like */
+.sx-recipes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.sx-recipe { display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--c-line); border-radius: 11px; padding: 9px 10px; background: var(--c-surface); cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.sx-recipe small { color: var(--c-muted); font-size: 11.5px; line-height: 1.35; }
+.sx-recipe.on { border-color: var(--c-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent) 26%, transparent); }
+.sx-recipe:disabled { opacity: .55; cursor: default; }
+.cap-punch { font-weight: 900; font-size: 19px; color: #ff4d2e; text-transform: uppercase; text-shadow: 0 2px 0 #000, 0 0 3px #000; }
+.cap-strip { font-weight: 700; font-size: 11px; color: #111; background: #fff; padding: 3px 7px; border-radius: 3px; } .cap-strip em { font-style: normal; color: #c2185b; }

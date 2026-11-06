@@ -20,6 +20,8 @@ import { kitOf, kitsOf, kitView, ownKit, lockScript, reelLockError } from './bra
 import { registerKits } from './kit-routes.js';
 import { registerShares } from './share.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
+import { RECIPES, recipesFor, recipeById, recipeView } from './recipes.js';
+import { TRANSITION_STYLES } from './assemble.js';
 import { LANGUAGES } from './voice.js';
 import { publicUrl } from './media.js';
 import { memoryOf, setMemory, remember, forget, learn, withPrefs } from './memory.js';
@@ -43,7 +45,9 @@ export function reelView(r) {
   return { ...view(r), cost, res: cost?.res || null, title: r.script?.title || 'Reel', lang: r.lang, voice: r.voice, captions: r.captions, sizes: r.sizes || ['9:16'], script: r.script, shots: (r.shots || []).map((x) => ({ image: brief(T.studio.get(x.imageId)), end: x.endId ? brief(T.studio.get(x.endId)) : null, clip: brief(T.studio.get(x.clipId)), motion: x.motion, seconds: x.seconds, type: x.type || 'scene' })), presenter: r.presenter || null, lines: (r.lines || []).map((l) => ({ text: l.text, url: l.url, tries: l.tries, check: l.check, error: l.error || '' })), outputs: r.outputs || null, links: r.outputs ? Object.fromEntries(Object.entries(r.outputs).map(([k, u]) => [k, publicUrl(u)])) : null, duration: r.duration || null, storyboard: !!r.storyboard, motion: r.motion || 'video', sceneCredits: r.shots ? { start: sceneCost(r, 'start'), end: sceneCost(r, 'end') } : null, ...editorNotes(r), assessment, cast: r.cast || [], parentId: r.parentId || null, variant: r.variant || null, adVerdict: r.adVerdict || null, ...standardView(r, assessment), ...settingsOf(r) };
 }
 // the free settings an editor (or the director) changes after it's made, as they stand
-const settingsOf = (r) => ({ grade: typeof r.grade === 'object' ? r.grade : { base: r.grade || 'cinematic' }, musicOn: r.music !== false, musicDb: Number.isFinite(r.musicDb) ? r.musicDb : -19, logoOpts: r.logoOpts || { position: 'top-right', size: 0.18 }, hasLogo: !!r.logo, cardStyle: r.cardStyle || 'classic', cardColour: r.cardColour || null, versions: versionsOf(r), restoredFrom: r.restoredFrom || null, kit: kitBrief(r) });
+// the seller's industry: their CRM kit (crmkits.js), which picks the edit styles shown first
+const industryOf = (u) => u?.settings?.crmKit?.id || 'general';
+const settingsOf = (r) => ({ grade: typeof r.grade === 'object' ? r.grade : { base: r.grade || 'cinematic' }, musicOn: r.music !== false, musicDb: Number.isFinite(r.musicDb) ? r.musicDb : -19, logoOpts: r.logoOpts || { position: 'top-right', size: 0.18 }, hasLogo: !!r.logo, cardStyle: r.cardStyle || 'classic', cardColour: r.cardColour || null, recipe: recipeById(r.recipe) ? recipeView(recipeById(r.recipe)) : null, transitions: r.transitions || null, overlayInfo: r.overlayInfo || {}, versions: versionsOf(r), restoredFrom: r.restoredFrom || null, kit: kitBrief(r) });
 // the brand kit a Reel or design is made with, and what it locks (the editor greys those controls out)
 const kitBrief = (a) => { const k = kitView(kitOf(a.userId, a.kitId)); return { id: k.id, label: k.label, name: k.name, colours: k.colours, fontFamily: k.fontFamily, lettering: k.lettering, logo: k.logo, cta: k.cta, legal: k.legal, locks: k.locks }; };
 // every item carries its versions (newest first) — undo and compare
@@ -75,7 +79,7 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   app.get('/api/studio', auth, (req, res) => {
     // a Reel's own shots are shown inside the Reel, not again in the gallery
     const rows = T.studio.all({ userId: req.user.id }, { order: 'at', desc: true, limit: 300 }).filter((a) => !a.reelId && !a.castId && !a.designId).slice(0, 200); // a cast's reference pictures live with the cast
-    res.json({ on: studioOn(req.user) && studioReady(), features: { cast: true, presenter: true, variations: true, designs: true }, tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], clipRes: CLIP_RES[id], imageCredits: imageCost(id), clipCreditsPer5s: Object.fromEntries(CLIP_RES[id].map((r) => [r, clipCost(id, 5, r)])), models: tierMenu(id) })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), editing: { fonts: CAPTION_FONTS, looks: LOOK_BASES, logoPlaces: LOGO_PLACES, cardStyles: CARD_STYLES }, kits: kitsOf(req.user.id).map((k) => ({ id: k.id, label: k.label || k.name || 'Brand kit', isDefault: !!k.isDefault })), assets: rows.map(anyView) });
+    res.json({ on: studioOn(req.user) && studioReady(), features: { cast: true, presenter: true, variations: true, designs: true }, tiers: TIERS.map((id) => ({ id, name: TIER_NAMES[id], clipRes: CLIP_RES[id], imageCredits: imageCost(id), clipCreditsPer5s: Object.fromEntries(CLIP_RES[id].map((r) => [r, clipCost(id, 5, r)])), models: tierMenu(id) })), aspects: ASPECTS, languages: Object.entries(LANGUAGES).map(([id, name]) => ({ id, name })), lengths: LENGTHS, captionStyles: CAPTION_IDS.map((id) => ({ id, name: CAPTION_STYLES[id].label })), voices: VOICES.map(({ id, name, note, gender }) => ({ id, name, note, gender, sample: voiceSample(id) })), editing: { fonts: CAPTION_FONTS, looks: LOOK_BASES, logoPlaces: LOGO_PLACES, cardStyles: CARD_STYLES, transitions: TRANSITION_STYLES }, industry: industryOf(req.user), recipes: recipesFor(industryOf(req.user)).map(recipeView), industries: [...new Set(RECIPES.map((x) => x.industry))], kits: kitsOf(req.user.id).map((k) => ({ id: k.id, label: k.label || k.name || 'Brand kit', isDefault: !!k.isDefault })), assets: rows.map(anyView) });
   });
   // images: 1–4 at a time, from words, optionally keeping the seller's real product (their photo as the reference)
   app.post('/api/studio/images', auth, limiter, (req, res) => {
@@ -134,6 +138,11 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
   // ---------- Reels ----------
   const scriptLimiter = rateLimit({ windowMs: 3600000, max: isTest ? 1000 : 30, key: (req) => req.user.id, message: 'You’ve written a lot of scripts this hour — try again later.' });
   // a brief → the script, straight away (the cheap step); nothing is rendered until it's approved
+  // the industry edit styles (recipes.js): the seller's own industry (their CRM kit) unless they ask for another
+  app.get('/api/studio/recipes', auth, (req, res) => {
+    const industry = String(req.query.industry || industryOf(req.user));
+    res.json({ industry, mine: industryOf(req.user), industries: [...new Set(RECIPES.map((r) => r.industry))], recipes: recipesFor(industry).map(recipeView) });
+  });
   app.post('/api/studio/reels', auth, scriptLimiter, wrap(async (req, res) => {
     if (!gate(req, res)) return;
     const b = withPrefs(req.user.id, req.body || {}), brief = clip(b.brief, 1500); // unset choices: the seller's usual
@@ -154,10 +163,10 @@ export function registerStudio(app, { auth, rateLimit, isTest, wrap }) {
     const kit = kitOf(req.user.id, b.kitId);
     const brandName = kit.name || business;
     let script;
-    try { script = await writeScript({ brief, lang: b.lang, seconds, business: brandName, aspect: b.aspect, userId: req.user.id, cast: b.characters, presenter: presenter?.style, kitId: kit.id }); } catch (e) { return res.status(502).json({ error: e.message }); }
+    try { script = await writeScript({ brief, lang: b.lang, seconds, business: brandName, aspect: b.aspect, userId: req.user.id, cast: b.characters, presenter: presenter?.style, kitId: kit.id, recipe: recipeById(b.recipe)?.id || null }); } catch (e) { return res.status(502).json({ error: e.message }); }
     const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.aspect || '9:16']).filter((a) => ['9:16', '1:1', '16:9', '4:5'].includes(a));
     // the logo as asked (newReel fills in the usual one, or the kit's)
-    const r = newReel(req.user.id, { brief, motion: b.motion, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: req.body?.logo || undefined, kitId: kit.id, brands: brandName ? [brandName] : [], cast: b.characters, script, presenter, by: who(req) });
+    const r = newReel(req.user.id, { brief, motion: b.motion, aspect: b.aspect, lang: b.lang, seconds, tier: b.tier, vmodel: b.vmodel, imodel: b.imodel, res: b.res, voice: b.voice, captions: b.captions, sizes: sizes.length ? sizes : ['9:16'], ref: b.ref, logo: req.body?.logo || undefined, kitId: kit.id, brands: brandName ? [brandName] : [], cast: b.characters, script, presenter, recipe: recipeById(b.recipe)?.id || undefined, by: who(req) });
     res.status(201).json(reelView(r));
   }));
   const myReel = (req, res, statuses) => {

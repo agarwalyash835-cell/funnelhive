@@ -48,6 +48,10 @@ export const NEEDED = {
   ass: 'captions on the video', overlay: 'logos and end cards', scale: 'resizing', pad: 'fitting sizes', crop: 'fitting sizes', boxblur: 'blurred backgrounds for other sizes',
   concat: 'joining clips', tpad: 'holding the last frame', loudnorm: 'even loudness', ebur128: 'measuring loudness', silencedetect: 'finding long pauses', astats: 'finding distorted audio',
   sidechaincompress: 'lowering music under the voice', amix: 'mixing voice and music', adelay: 'timing the voice', afade: 'fading music out', apad: 'padding audio', asplit: 'lowering music under the voice', fade: 'fading in the end card', zoompan: 'photo motion', eq: 'the colour grade', vignette: 'the colour grade', anoisesrc: 'sound effects', highpass: 'sound effects', lowpass: 'sound effects', xfade: 'transitions', acompressor: 'voice polish', equalizer: 'voice polish', deesser: 'voice polish',
+  // reel effects (reelfx.js)
+  split: 'jump cuts and punch-ins', trim: 'jump cuts and punch-ins', setpts: 'jump cuts and speed ramps', fps: 'steady frame rates', format: 'auto-reframing', settb: 'the wipe reveal',
+  atrim: 'cutting the voice with the picture', asetpts: 'cutting the voice with the picture', aformat: 'sound effects', volume: 'sound effects', anullsrc: 'sound effects without a voice', aevalsrc: 'sound effects',
+  vstack: 'split screens', hstack: 'split screens',
 };
 // → names of missing filters (empty when this build has everything)
 export const missingFilters = (names = Object.keys(NEEDED)) => names.filter((n) => !filters().has(n));

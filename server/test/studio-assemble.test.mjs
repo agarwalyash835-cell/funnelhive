@@ -48,7 +48,7 @@ test('sizes and fit: even pixel sizes; vertical → square crops, vertical → l
 });
 
 test('captions: built from word timings, inside the safe area, five looks', () => {
-  assert.deepEqual(Object.keys(PRESETS), ['pop', 'lower', 'karaoke', 'minimal', 'matte']);
+  assert.deepEqual(Object.keys(PRESETS), ['pop', 'lower', 'karaoke', 'minimal', 'punch', 'strip', 'matte']);
   assert.equal(assColour('#ffd400'), '&H0000D4FF');
   const pop = buildAss(words, { style: 'pop' });
   const events = pop.split('\n').filter((l) => l.startsWith('Dialogue:'));
@@ -65,7 +65,7 @@ test('captions: built from word timings, inside the safe area, five looks', () =
   // phrase looks: grouped at punctuation / pauses; karaoke times each word; lower-third has a box (BorderStyle 3)
   assert.deepEqual(phrases(words, { maxWords: 3 }).map((g) => g.length), [3, 1]);
   const kar = buildAss(words, { style: 'karaoke' });
-  assert.match(kar, /\{\\k\d+\}Just \{\\k\d+\}₹499/);
+  assert.match(kar, /\{\\k\d+\}Just \{\\k\d+\}\{\\b1\\fscx112\\fscy112\}₹499/); // a number is a keyword: bolder as it lights up
   assert.equal(buildAss(words, { style: 'lower' }).split('\n').find((l) => l.startsWith('Style:')).split(',')[15], '3');
   // braces and backslashes in what was heard can't inject ASS commands
   assert.doesNotMatch(buildAss([{ w: '{\\pos(0,0)}hi', start: 0, end: 1 }], { style: 'minimal' }), /\\pos/);

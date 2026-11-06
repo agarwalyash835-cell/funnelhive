@@ -16,6 +16,8 @@ import { cleanCam } from './cinema.js';
 import { BRAND_FONTS } from './cast.js';
 import { kitOf, reelLockError, designLockError } from './brand.js';
 import { TEMPLATES } from './design-templates.js';
+import { TRANSITION_STYLES } from './assemble.js';
+import { recipeById } from './recipes.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const ACTIVE = ['queued', 'rendering', 'checking'];
@@ -23,7 +25,7 @@ const ACTIVE = ['queued', 'rendering', 'checking'];
 // what can be changed, per target — also the Hive tool's description (hive-studio.js studio_edit)
 export const EDITS = {
   reel: {
-    free: ['captions { style, colour "#rrggbb", font, y 0.1–0.9 (how far down), align left|center } or null for none', `look { base ${LOOK_BASES.join('|')}, brightness, contrast, saturation, warmth: each -2…2 (0 = as made) }`, 'music { off true|false, volume dB -32…-8 (default -19) }', `logo { position ${LOGO_PLACES.join('|')}, size 0.08–0.32, off }`, 'endCard { headline, offer, cta }', `cardStyle ${CARD_STYLES.join('|')}`, 'cardColour "#rrggbb"', 'sizes [9:16, 1:1, 4:5, 16:9]'],
+    free: ['captions { style, colour "#rrggbb", font, y 0.1–0.9 (how far down), align left|center } or null for none', `look { base ${LOOK_BASES.join('|')}, brightness, contrast, saturation, warmth: each -2…2 (0 = as made) }`, 'music { off true|false, volume dB -32…-8 (default -19) }', `logo { position ${LOGO_PLACES.join('|')}, size 0.08–0.32, off }`, 'endCard { headline, offer, cta }', `cardStyle ${CARD_STYLES.join('|')}`, 'cardColour "#rrggbb"', 'sizes [9:16, 1:1, 4:5, 16:9]', 'recipe (an edit style id for their industry, or null for the standard edit)', `transitions ${TRANSITION_STYLES.join('|')}`, 'overlayInfo { price, location, stat, deadline, name, phone, whatsapp } (what the style’s overlays show)'],
     paid: ['voice (another voice id: every line recorded again)', 'music { mood } (a new track)'],
   },
   scene: {
@@ -123,12 +125,15 @@ function pickReel(c) {
   if (CARD_STYLES.includes(c.cardStyle)) b.cardStyle = c.cardStyle;
   if (c.cardColour !== undefined) b.cardColour = c.cardColour;
   if (c.voice) b.voice = c.voice;
+  if (c.recipe === null || recipeById(c.recipe)) b.recipe = c.recipe;
+  if (TRANSITION_STYLES.includes(c.transitions)) b.transitions = c.transitions;
+  if (c.overlayInfo && typeof c.overlayInfo === 'object') b.overlayInfo = c.overlayInfo;
   return b;
 }
 const describeReel = (b) => [
   b.captions === null ? 'captions off' : b.captions ? `captions${b.captions.style ? ` ${b.captions.style}` : ''}${b.captions.font ? ` in ${b.captions.font}` : ''}${b.captions.y ? ' moved' : ''}` : '',
   b.look ? `the look${b.look.base ? ` (${b.look.base})` : ''}` : '', b.music?.off === true ? 'music off' : b.music?.mood ? 'a new music track' : b.music ? 'the music level' : '',
-  b.logo ? 'the logo' : '', b.endCard || b.cardStyle || b.cardColour ? 'the closing card' : '', b.sizes ? 'the sizes' : '', b.voice ? 'another voice' : '',
+  b.logo ? 'the logo' : '', b.endCard || b.cardStyle || b.cardColour ? 'the closing card' : '', b.sizes ? 'the sizes' : '', b.voice ? 'another voice' : '', b.recipe !== undefined ? (b.recipe ? `the ${recipeById(b.recipe).name} edit style` : 'the standard edit') : '', b.transitions ? `${b.transitions} transitions` : '', b.overlayInfo ? 'the overlays' : '',
 ].filter(Boolean).join(', ').replace(/^./, (x) => x.toUpperCase()) || 'Changed the Reel';
 
 const fieldsOf = (tpl) => (TEMPLATES[tpl]?.fields || []).map((f) => f.key);

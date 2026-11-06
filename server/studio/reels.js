@@ -18,7 +18,8 @@ import { runTask, studioReady } from './kie.js';
 import { enqueue } from './jobs.js';
 import { localCopy, save, rm, ffmpeg, tmpFile, probe } from './media.js';
 import { makeLine, checkLine, sarvamTranscriber, applyPronunciations, LANGUAGES, langBase } from './voice.js';
-import { render, dims, stillMotion, moveFor, cardLayout, wideCard } from './assemble.js';
+import { render, dims, stillMotion, moveFor, cardLayout, wideCard, TRANSITION_STYLES, LOOK_IDS } from './assemble.js';
+import { overlaysFrom } from './motion.js';
 import { makeMusic, MUSIC_MODEL } from './music.js';
 import { PRESETS as CAPTION_STYLES } from './captions.js';
 import { notify } from '../notify.js';
@@ -30,6 +31,7 @@ import { kitOf, locked, lockScript, lockedReel, reelLockError } from './brand.js
 import { celebrityIn, CELEBRITY_ERROR, presenterBrief, faceStill, presenterReady, presenterClip, relip, sceneStarts, talks } from './presenter.js';
 import { cleanCam, cleanLook, enforceTreatment, filmPrompt, movePrompt } from './cinema.js';
 import { HOOKS, STRUCTURES, BEATS, playbookPrompt, checkVideo, reelFormat, cutEvery, gateOf, HOOK_MAX_WORDS } from './standard.js';
+import { recipeById, recipePrompt, renderOptions } from './recipes.js';
 
 export const LENGTHS = [15, 30, 45];
 export const CAPTION_IDS = Object.keys(CAPTION_STYLES);
@@ -68,12 +70,12 @@ export function cleanScript(s, { treatment = true } = {}) {
 export const wordBudget = (seconds) => Math.max(12, Math.round((seconds - 3) * 2.4));
 export const wordCount = (script) => (script.lines || []).join(' ').split(/\s+/).filter(Boolean).length;
 const parseScript = (text) => { try { return cleanScript(JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))); } catch { return { error: 'not JSON' }; } };
-export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null, cast = [], presenter = null, kitId = null }) {
+export async function writeScript({ brief, lang, seconds, business, aspect = '9:16', userId = null, cast = [], presenter = null, kitId = null, recipe = null }) {
   const budget = wordBudget(seconds);
   // the brand the ad is for: the Reel's brand kit (an agency's client, or one of the seller's brands), else the default
   const kit = userId ? brandKit(userId, kitId) : null;
   const mem = userId ? { ...memoryOf(userId), brand: { name: kit.name, colours: kit.colours, ...(kit.look ? { look: kit.look } : {}) } } : null;
-  const user = `Brief: ${brief}\nBusiness: ${kit?.name || business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}${presenterBrief(presenter)}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(mem, kit?.name || business) + castPrompt(userId, cast, kitId) : ''}`;
+  const user = `Brief: ${brief}\nBusiness: ${kit?.name || business || 'the seller'}\nLanguage of the voiceover: ${LANGUAGES[langBase(lang)] || 'English'}\nFrame: ${aspect === '16:9' ? 'landscape 16:9 (a video on a web page) — compose every still wide' : aspect === '1:1' ? 'square 1:1' : 'vertical 9:16'}${presenterBrief(presenter)}\nLength: ${seconds} seconds in total, including a 2.5-second closing card — so the voiceover is AT MOST ${budget} words in total, across all lines.${userId ? memoryPrompt(mem, kit?.name || business) + castPrompt(userId, cast, kitId) : ''}${recipeById(recipe) ? `\nThe edit style the seller picked (follow its hook, pace and shots):\n${recipePrompt(recipeById(recipe))}` : ''}`;
   let c = parseScript(await studioAI(SCRIPT_SYSTEM, user, { json: true, timeoutMs: 90000 }));
   if (c.error) throw new Error('The AI wrote something that wasn’t a script — please try again');
   // too long for the length asked (a 15-second Reel that runs 22 seconds), or breaking the Creative Standard's script
@@ -101,7 +103,9 @@ export function newReel(userId, o) {
   if (!k.isDefault) o.logo = picked || k.logo || null;
   if (k.logo && locked(k, 'logo')) o.logo = k.logo;
   if (o.script) o.script = lockScript(o.script, k);
-  return enqueue(userId, { kind: 'reel', status: 'script_ready', kitId: k.id, tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), ...(['video', 'story', 'photo'].includes(o.motion) ? { motion: o.motion } : {}), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : 'pop' }, sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], cast: resolveCast(userId, o.cast).map((c) => c.id), script: o.script, ...(o.presenter ? { presenter: o.presenter } : {}), by: o.by || null });
+  // an industry edit style (recipes.js): its caption look and grade unless the seller picked their own
+  const rc = recipeById(o.recipe), ro = rc ? renderOptions(rc) : null;
+  return enqueue(userId, { kind: 'reel', status: 'script_ready', kitId: k.id, tier: TIERS.includes(o.tier) ? o.tier : 'standard', vmodel: o.vmodel ? modelKey('clip', o.tier, o.vmodel) : undefined, imodel: o.imodel ? modelKey('image', o.tier, o.imodel) : undefined, res: clipRes(o.tier, o.res, o.vmodel), ...(['video', 'story', 'photo'].includes(o.motion) ? { motion: o.motion } : {}), prompt: o.brief, aspect: REEL_ASPECTS.includes(o.aspect) ? o.aspect : '9:16', seconds: o.seconds, lang: langBase(o.lang) || 'en', voice: voiceId(o.voice), captions: { style: CAPTION_IDS.includes(o.captions) ? o.captions : ro?.captions.style || 'pop' }, ...(rc ? { recipe: rc.id, grade: { base: ro.look.base } } : {}), sizes: o.sizes, ref: o.ref || null, logo: o.logo || null, brands: o.brands || [], cast: resolveCast(userId, o.cast).map((c) => c.id), script: o.script, ...(o.presenter ? { presenter: o.presenter } : {}), by: o.by || null });
 }
 // the seller's go-ahead (with their edits): the shots go into the queue, the lines wait to be spoken. Storyboard first
 // ({ storyboard: true }): only the stills are made (and the lines spoken), then it waits at storyboard_ready for scene
@@ -333,6 +337,27 @@ export async function makeCard(card, colour, aspect, still = null, { style = 'cl
   return fs.existsSync(png) ? png : null;
 }
 
+// How a Reel is cut, from its edit style (recipes.js renderOptions; null for a Reel made without one) and the seller's
+// own picks (r.transitions). → { transitions, sfx, punch (s), emphasis, beatSync, ramp (shot index, -1: none) }
+//   every: the Creative Standard's longest hold for this format (standard.js cutEvery)
+// Beat-synced cuts need a music bed and free cuts: a presenter's scenes are tied to their lines, so not then.
+// The speed ramp goes on the first close or macro shot (the product's hero moment), never on a presenter speaking.
+export function editStyle(r, ro, { starts = null, music = false, every = 0 } = {}) {
+  const emphasis = ro?.punch === 'emphasis';
+  const punch = ro?.punch === 'off' || emphasis ? 0 : Math.min(...[every, ro?.cutEvery].filter((x) => x > 0), Infinity);
+  let ramp = -1;
+  if (ro?.speedRamp) {
+    const ok = (r.shots || []).map((s, i) => !talks(r, i));
+    ramp = (r.shots || []).findIndex((s, i) => ok[i] && ['close', 'macro'].includes((s.cam || r.script?.shots?.[i]?.cam || {}).size));
+    if (ramp < 0) ramp = ok.indexOf(true);
+  }
+  return {
+    transitions: TRANSITION_STYLES.includes(r.transitions) ? r.transitions : ro?.transitions || 'cinematic',
+    sfx: ro ? (ro.sfx?.length ? [...ro.sfx] : false) : true,
+    punch: Number.isFinite(punch) ? punch : 0, emphasis, beatSync: !!(ro?.beatSync && music && !starts), ramp,
+  };
+}
+
 async function edit(r) {
   // the brand kit's locked elements, whatever the row holds (the logo, the colours, the font, the call to action)
   const kit = kitOf(r.userId, r.kitId);
@@ -380,10 +405,17 @@ async function edit(r) {
     const format = reelFormat(r);
     // the heavy parts are kept between edits (assemble.js render cache): their keys are everything they depend on
     const look = r.grade || 'cinematic', musicDb = Number.isFinite(r.musicDb) ? r.musicDb : -19, short = r.tier === 'cinematic' ? 1080 : 720;
+    // the industry edit style (recipes.js): its transitions, sound design, pace, overlays and beat-synced cuts
+    const ro = recipeById(r.recipe) ? renderOptions(recipeById(r.recipe)) : null;
+    const fx = editStyle(r, ro, { starts, music: !!music, every: cutEvery(format) });
     const clipUrls = r.shots.map((s) => T.studio.get(s.clipId)?.url || '');
-    const cache = { dir: cacheDir(r.id), pic: keyOf([clipUrls, voiceKey, look, format, starts, short]), audio: keyOf([clipUrls, voiceKey, r.music === false ? 'off' : r.musicUrl || 'new', musicDb, starts]) };
-    const caps = r.captions?.style ? { style: r.captions.style, font: r.captions.font || font, ...(r.captions.colour ? { colour: r.captions.colour } : {}), ...(Number.isFinite(r.captions.y) ? { y: r.captions.y } : {}), ...(r.captions.align ? { align: r.captions.align } : {}) } : null;
-    const out = await render({ ...(starts ? { starts, synced: r.shots.map((s, i) => talks(r, i)) } : {}), clips, voice: voice.file, music, musicDb, words, look, transitions: 'cinematic', sfx: true, punch: cutEvery(format), captions: caps, logo: logo ? { file: logo, position: r.logoOpts?.position || 'top-right', size: r.logoOpts?.size || 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short, name: 'reel', cache });
+    const cache = { dir: cacheDir(r.id), pic: keyOf([clipUrls, voiceKey, look, format, starts, short, fx.transitions, fx.ramp, fx.beatSync, fx.emphasis]), audio: keyOf([clipUrls, voiceKey, r.music === false ? 'off' : r.musicUrl || 'new', musicDb, starts, fx.sfx, fx.beatSync, fx.transitions]) };
+    const caps = r.captions?.style ? { style: r.captions.style, font: r.captions.font || font, ...(r.captions.colour ? { colour: r.captions.colour } : {}), ...(Number.isFinite(r.captions.y) ? { y: r.captions.y } : {}), ...(r.captions.align ? { align: r.captions.align } : {}), ...(ro?.captions.keywords ? { keywords: ro.captions.keywords } : {}) } : null;
+    // the motion graphics the style asks for, filled from what the seller told us (missing values are left out)
+    const info = r.overlayInfo || {};
+    // (timed once render knows how long the picture runs before the closing card)
+    const overlays = ro?.overlays?.length ? (duration) => overlaysFrom({ offer: r.script.endCard?.offer, price: info.price || r.script.endCard?.offer, location: info.location, business: kit.name || owner?.settings?.businessName, stat: info.stat, deadline: info.deadline, name: info.name || kit.name, phone: info.phone, whatsapp: info.whatsapp || owner?.settings?.supportWhatsapp, duration, wants: ro.overlays }) : null;
+    const out = await render({ ...(starts ? { starts, synced: r.shots.map((s, i) => talks(r, i)) } : {}), clips, voice: voice.file, music, musicDb, words, look, transitions: fx.transitions, sfx: fx.sfx, punch: fx.punch, emphasis: fx.emphasis, beatSync: fx.beatSync, ramp: fx.ramp, overlays, captions: caps, logo: logo ? { file: logo, position: r.logoOpts?.position || 'top-right', size: r.logoOpts?.size || 0.18 } : null, endCard: card ? { image: card, seconds: 2.5 } : null, sizes, short, name: 'reel', cache });
     const outputs = {};
     for (const [aspect, f] of Object.entries(out.files)) { temp.push(f); outputs[aspect] = (await save(r.userId, f, 'mp4', 'video/mp4')).url; }
     const first = out.files[sizes[0]] || Object.values(out.files)[0];
@@ -442,7 +474,7 @@ export function retryReel(r) {
 //   shots [{ i, note } a new clip from the same picture | { i, picture } the picture itself edited, then a new clip |
 //          { i, move, note? } the camera move changed, a new clip]
 // A changed shot gets a NEW clip row (the old one stays until versions.js lets it go), so an edit can be undone.
-export const LOOK_BASES = ['natural', 'cinematic', 'matte'];
+export const LOOK_BASES = LOOK_IDS;
 export const LOGO_PLACES = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const CAPTION_FONTS = Object.values(BRAND_FONTS).map((f) => f.family);
 const hexOk = (v) => /^#[0-9a-f]{6}$/i.test(String(v || ''));
@@ -524,6 +556,16 @@ export function editReel(r, b) {
 }
 // the free settings, on the row being updated (also before the Reel is made: studio/edit.js)
 export function applySettings(x, b) {
+  // another edit style (recipes.js): its caption look, grade and transitions come with it; anything else in the same
+  // change (b.captions, b.look, b.transitions below) still wins. null: back to the standard edit.
+  if (b.recipe === null) delete x.recipe;
+  else if (recipeById(b.recipe)) {
+    const ro = renderOptions(recipeById(b.recipe));
+    x.recipe = b.recipe;
+    x.captions = { ...(x.captions || {}), style: ro.captions.style };
+    x.grade = { ...(typeof x.grade === 'object' ? x.grade : {}), base: ro.look.base };
+    delete x.transitions;
+  }
   {
     if (b.captions) {
       const was = x.captions || {};
@@ -541,6 +583,15 @@ export function applySettings(x, b) {
     if (CARD_STYLES.includes(b.cardStyle)) x.cardStyle = b.cardStyle;
     if (b.cardColour === null) delete x.cardColour; else if (hexOk(b.cardColour)) x.cardColour = b.cardColour;
     if (b.look) x.grade = cleanGrade(b.look, x.grade || 'cinematic');
+    if (TRANSITION_STYLES.includes(b.transitions)) x.transitions = b.transitions;
+    if (b.transitions === null) delete x.transitions;
+    // what the overlays show (a price, the place, a number to count up, the phone or WhatsApp on the closing panel)
+    if (b.overlayInfo && typeof b.overlayInfo === 'object') {
+      const o = { ...(x.overlayInfo || {}) };
+      for (const k of ['price', 'location', 'stat', 'deadline', 'name']) if (b.overlayInfo[k] !== undefined) o[k] = clip(b.overlayInfo[k], 60);
+      for (const k of ['phone', 'whatsapp']) if (b.overlayInfo[k] !== undefined) o[k] = clip(String(b.overlayInfo[k]).replace(/[^\d+ -]/g, ''), 20);
+      x.overlayInfo = Object.fromEntries(Object.entries(o).filter(([, v]) => v));
+    }
     if (b.music) {
       if (b.music.off === true) x.music = false;
       if (b.music.off === false) delete x.music;
