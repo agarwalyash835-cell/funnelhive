@@ -327,7 +327,6 @@ function Hero({ p, ctx }) {
           </div>
           {p.showTrust !== false && (p.socialText || p.rating) && (
             <div className="trust" data-rm="showTrust" data-rm-label="rating row">
-              <div className="avs">{['Riya S', 'Arjun P', 'Meena K', 'Sahil N', 'Vikas J'].map((n) => <Avatar key={n} name={n} />)}</div>
               <div>
                 {p.rating ? <div className="stars">★★★★★ <E ctx={ctx} k="rating" v={p.rating} as="b" num fmt={(v) => `${v}/5`} />{p.reviews && <span className="muted"> · <E ctx={ctx} k="reviews" v={p.reviews} /> reviews</span>}</div> : null}
                 <E ctx={ctx} k="socialText" v={p.socialText} as="div" className="muted sm" />
@@ -391,7 +390,6 @@ function HeroBgVideo({ p, ctx, link }) {
 // The rating row under a hero's button (avatars, stars, social line)
 const Trust = ({ p, ctx, stars = true }) => (p.showTrust !== false && (p.socialText || p.rating) ? (
   <div className="trust" data-rm="showTrust" data-rm-label="rating row">
-    <div className="avs">{['Riya S', 'Arjun P', 'Meena K', 'Sahil N', 'Vikas J'].map((n) => <Avatar key={n} name={n} />)}</div>
     <div>
       {stars && p.rating ? <div className="stars">★★★★★ <E ctx={ctx} k="rating" v={p.rating} as="b" num fmt={(x) => `${x}/5`} />{p.reviews && <span className="muted"> · <E ctx={ctx} k="reviews" v={p.reviews} /> reviews</span>}</div> : null}
       <E ctx={ctx} k="socialText" v={p.socialText} as="div" className="muted sm" />
@@ -562,7 +560,8 @@ function HeroBento({ p, ctx }) {
           <div><E ctx={ctx} k="cardTitle" v={p.cardTitle} as="h3" />{p.cardPrice && <div className="hc-price"><E ctx={ctx} k="cardPrice" v={p.cardPrice} as="b" />{p.cardMrp && <E ctx={ctx} k="cardMrp" v={p.cardMrp} as="s" />}</div>}</div>
         </div>
         {p.rating ? <div className="bt bt-rate"><b><E ctx={ctx} k="rating" v={p.rating} num /></b><span className="stars">★★★★★</span>{p.reviews && <small><E ctx={ctx} k="reviews" v={p.reviews} /> reviews</small>}</div> : null}
-        <div className="bt bt-proof"><div className="avs">{['Riya S', 'Arjun P', 'Meena K', 'Sahil N'].map((n) => <Avatar key={n} name={n} />)}</div>{p.socialText && <E ctx={ctx} k="socialText" v={p.socialText} as="small" />}</div>
+        {/* no stock faces beside the line: they read as real buyers who don't exist */}
+        {p.socialText && <div className="bt bt-proof"><E ctx={ctx} k="socialText" v={p.socialText} as="small" /></div>}
         <div className="bt bt-pts">
           <ul className="checks">{(p.cardPoints || []).map((x, i) => x.text ? <li key={i} data-item={`cardPoints.${i}`}><E ctx={ctx} k={`cardPoints.${i}.text`} v={x.text} /></li> : null)}</ul>
           {(p.chip1 || p.chip2) && <div className="bt-chips">{p.chip1 && <E ctx={ctx} k="chip1" v={p.chip1} as="span" />}{p.chip2 && <E ctx={ctx} k="chip2" v={p.chip2} as="span" />}</div>}
