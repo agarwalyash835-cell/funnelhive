@@ -59,7 +59,7 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
     setBusy(true);
     try {
       if (mode === 'reel') {
-        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || undefined, captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.motion ? { motion: v.motion } : {}), ...(v.presenter ? { presenter: { style: v.presenter } } : {}), ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}), ...(kit ? { kitId: kit.id } : {}) });
+        const r = await api('/studio/reels', 'POST', { brief: v.prompt, lang: v.lang, seconds: v.length, tier: v.tier, vmodel: vm?.id, imodel: im?.id, res, voice: v.voice || undefined, captions: v.captions, sizes: v.sizes, aspect: v.sizes?.[0] || '9:16', ...(v.motion ? { motion: v.motion } : {}), ...(v.presenter ? { presenter: { style: v.presenter } } : {}), ...(v.ref ? { ref: v.ref } : {}), ...(v.logo ? { logo: v.logo } : {}), ...(kit ? { kitId: kit.id } : {}), ...(v.recipe ? { recipe: v.recipe } : {}) });
         set({ prompt: '' }); await load(); onOpenReel(r.id);
       } else {
         // before spending: the words checked for quality and virality, and a stronger version offered (free)
@@ -207,6 +207,13 @@ export function MakeWorkspace({ d, mode, v, set, assets, load, onOpenReel, openM
           {mode === 'clip' && <Field label="Length"><Seg label="Length" value={v.seconds} onChange={(n) => set({ seconds: n })} options={[4, 5, 6, 8, 10, 15].map((n) => [n, `${n}s`])} /></Field>}
           {mode === 'reel' && <Field label="Length"><Seg label="Length" value={v.length} onChange={(n) => set({ length: n })} options={d.lengths.map((n) => [n, `${n}s`])} /></Field>}
         </Section>
+        {mode === 'reel' && d.recipes?.length > 0 && <Section id="make-style" title="Edit style" icon="sparkles" extra={<small className="muted">{d.recipes.find((x) => x.id === v.recipe)?.name || 'Standard'}</small>}>
+          <p className="sx-hint">Proven Reel edits for your industry: the hook, cut pace, captions, transitions, overlays, colour and music. You can change it after it’s made, free.</p>
+          <div className="sx-recipes">
+            <button type="button" className={`sx-recipe${!v.recipe ? ' on' : ''}`} onClick={() => set({ recipe: '' })}><b>Standard</b><small>Studio’s usual edit</small></button>
+            {d.recipes.map((x) => <button key={x.id} type="button" className={`sx-recipe${v.recipe === x.id ? ' on' : ''}`} onClick={() => set({ recipe: x.id, captions: x.captions, ...(d.lengths.includes(x.seconds) ? { length: x.seconds } : {}) })}><b>{x.name}</b><small>{x.about}</small></button>)}
+          </div>
+        </Section>}
         {mode === 'reel' && <Section id="make-voice" title="Voice & captions" icon="mic">
           <Field label="Language"><select value={v.lang} onChange={(e) => set({ lang: e.target.value })}>{d.languages.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
           <Field label="Voice"><select value={v.voice} onChange={(e) => set({ voice: e.target.value })}><option value="">Auto (your usual, or Priya)</option>{voices.map((x) => <option key={x.id} value={x.id}>{x.name} — {x.note}</option>)}</select></Field>

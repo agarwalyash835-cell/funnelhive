@@ -8,7 +8,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { run, probe, need, loudness } from './ff.js';
-import { writeAss, safeArea } from './captions.js';
+import { writeAss, safeArea, autoKeywords } from './captions.js';
+import { writeOverlays } from './motion.js';
+import { speedRamp, beatTimes, snapToBeats, emphasisTimes, punchOnEmphasis, addSfx } from './reelfx.js';
 import { studioTmp } from './voice.js';
 
 export const ASPECTS = { '9:16': [9, 16], '1:1': [1, 1], '16:9': [16, 9], '4:5': [4, 5] };
@@ -46,8 +48,16 @@ export function fitGraph(inp, out, w, h, mode) {
 export const xfadeFor = (a, b, d = 0.3) => Math.max(0, Math.min(d, a / 5, b / 5));
 // the cut between shot i-1 and shot i of n: 'dissolve' is a quick fade every time; 'cinematic' moves the story along —
 // dissolves, a soft push to the side between related moments, and a dip to black into the last scene (the payoff)
-export const TRANSITION_STYLES = ['dissolve', 'cinematic', 'cut'];
+// 'whip' is a fast blurred swipe, 'zoom' punches through into the next shot, 'mixed' moves between whip, zoom and a
+// quick dissolve like a creator's edit; 'match' and 'cut' are hard cuts
+export const TRANSITION_STYLES = ['dissolve', 'cinematic', 'cut', 'whip', 'zoom', 'mixed', 'match'];
+export const hardCut = (style) => style === 'cut' || style === 'match';
+// how long each style's transition runs (s): the energetic ones are quick
+export const fadeOf = (style) => (style === 'cinematic' ? 0.45 : style === 'whip' || style === 'zoom' || style === 'mixed' ? 0.22 : 0.3);
 export function transitionFor(i, n, style = 'dissolve') {
+  if (style === 'whip') return 'hblur';
+  if (style === 'zoom') return 'zoomin';
+  if (style === 'mixed') return ['hblur', 'zoomin', 'fade'][(i - 1) % 3];
   if (style !== 'cinematic') return 'fade';
   if (n > 2 && i === n - 1) return 'fadeblack';
   return i % 2 ? 'fade' : 'smoothleft';
@@ -55,7 +65,17 @@ export function transitionFor(i, n, style = 'dissolve') {
 // one look across every shot (they come from different models and renders): a touch more contrast and colour, and a
 // soft vignette that pulls the eye to the middle
 // matte: lifted blacks, softer contrast and colour, a little grain — the house look (no glossy "AI" sheen)
-export const LOOKS = { natural: '', cinematic: 'eq=contrast=1.05:saturation=1.08:gamma=0.99,vignette=angle=PI/6', matte: 'eq=contrast=0.94:saturation=0.8:gamma=1.03,curves=all=0/0.06 1/0.94,noise=alls=5:allf=t' };
+// the industry looks (recipes.js): warm luxe — golden highlights and a soft vignette (real estate, jewellery, weddings);
+// clean bright — lifted, crisp and neutral (clinics, labs, retail, SaaS); moody — deeper contrast, cool shadows and warm
+// highlights (fitness, auto, events at night); food pop — rich colour and crunch (caterers, cafés, D2C food)
+export const LOOKS = {
+  natural: '', cinematic: 'eq=contrast=1.05:saturation=1.08:gamma=0.99,vignette=angle=PI/6', matte: 'eq=contrast=0.94:saturation=0.8:gamma=1.03,curves=all=0/0.06 1/0.94,noise=alls=5:allf=t',
+  warm_luxe: 'eq=contrast=1.06:saturation=1.06:gamma=0.98,colorbalance=rs=0.03:bs=-0.04:rm=0.04:bm=-0.04:rh=0.03:bh=-0.05,vignette=angle=PI/5',
+  clean_bright: 'eq=brightness=0.03:contrast=1.04:saturation=1.05:gamma=1.05,unsharp=5:5:0.4',
+  moody: 'eq=contrast=1.12:saturation=0.85:brightness=-0.03,colorbalance=rs=-0.03:bs=0.05:rh=0.04:bh=-0.04,vignette=angle=PI/4',
+  food_pop: 'eq=contrast=1.08:saturation=1.3:gamma=0.98,colorbalance=rm=0.03:bm=-0.03,unsharp=5:5:0.5',
+};
+export const LOOK_IDS = Object.keys(LOOKS);
 // a look as a filter chain: a named base and the editor's nudges, each -2..2 steps ("a bit darker" is -1 brightness).
 // look: 'cinematic' | { base, brightness, contrast, saturation, warmth }
 const step = (v) => Math.max(-2, Math.min(2, Math.round(Number(v) || 0)));
@@ -66,13 +86,13 @@ export function gradeFilter(look) {
   const warm = w ? `colorbalance=rm=${(w * 0.04).toFixed(2)}:bm=${(-w * 0.04).toFixed(2)}` : '';
   return [LOOKS[g.base] || '', eq, warm].filter(Boolean).join(',');
 }
-const gradeNeeds = (f) => ['eq', 'vignette', 'curves', 'noise', 'colorbalance'].filter((x) => f.includes(`${x}=`));
+const gradeNeeds = (f) => ['eq', 'vignette', 'curves', 'noise', 'colorbalance', 'unsharp'].filter((x) => f.includes(`${x}=`));
 export const lookBase = (look) => (typeof look === 'string' ? look : look?.base || 'natural');
 // where each cut lands in the joined picture (seconds), for the whoosh under it
 export function cutTimes(lens, fade = 0.3, style = 'dissolve') {
   const out = [];
   let end = lens[0] || 0;
-  for (let i = 1; i < lens.length; i++) { const d = style === 'cut' ? 0 : xfadeFor(lens[i - 1], lens[i], fade); out.push(Math.max(0, end - d / 2)); end += lens[i] - d; }
+  for (let i = 1; i < lens.length; i++) { const d = hardCut(style) ? 0 : xfadeFor(lens[i - 1], lens[i], fade); out.push(Math.max(0, end - d / 2)); end += lens[i] - d; }
   return out;
 }
 // punch-ins: how many parts a shot `len` seconds long is cut into so no picture holds longer than `every` (the Creative
@@ -86,7 +106,7 @@ const PUNCH = 1.15; // every other part this much tighter — an editor's cut wi
 // punch: cut long shots every this many seconds (0: never)
 export async function joinClips(files, out, { width = 1080, height = 1920, fps = 30, mode = 'smart', fade = 0.3, transitions = 'dissolve', look = 'natural', fades = null, punch = 0 } = {}) {
   if (!files?.length) throw new Error('Add at least one clip');
-  if (transitions === 'cut') fade = 0;
+  if (hardCut(transitions)) fade = 0;
   const gf = gradeFilter(look);
   need('scale', 'concat', ...(mode === 'crop' ? ['crop'] : ['crop', 'boxblur', 'overlay']), ...(files.length > 1 && fade > 0 ? ['xfade'] : []), ...gradeNeeds(gf), ...(punch ? ['split', 'trim', 'setpts'] : []));
   const grade = gf ? `,${gf}` : '';
@@ -308,6 +328,9 @@ export async function mux(video, audio, out) {
 //   starts: (optional) where each clip begins in the voiceover, seconds — the cuts then land exactly there, so a clip
 //   made from its own line (a lip-synced presenter) plays in step with the voice track · synced: (with starts) per clip,
 //   true when it must keep its pace (held at the end, never slowed)
+//   The edit styles (recipes.js): sfx: true (whooshes) or kinds ['whoosh','riser','pop','impact'] (reelfx.js) ·
+//   emphasis: punch in on keywords and numbers as they're said (captions.keywords) · beatSync: cuts moved onto the
+//   music's beats · ramp: the index of a clip that slows mid-move · overlays: motion.js items, or (seconds) → items
 // Each clip's sound is always dropped: the voiceover (and music) is the only sound track.
 // Line-synced cuts: clip i starts at T_i (the first at 0; the others at voiceDelay + starts[i], on a frame). Each clip is
 // fitted to its slot plus the dissolve into the next one, and the dissolve into clip i starts at T_i — so clip i's first
@@ -318,7 +341,7 @@ export function slotPlan(starts, n, body, { fps = 30, voiceDelay = 0.15, fade = 
   const T = starts.map((s, i) => (i === 0 ? 0 : f(voiceDelay + Number(s))));
   const slots = T.map((t, i) => f((i < n - 1 ? T[i + 1] : body) - t));
   if (!slots.every((x) => Number.isFinite(x) && x >= 0.5)) return null; // overlapping or tiny: the usual fit instead
-  const fades = slots.map((x, i) => (i === 0 || transitions === 'cut' ? 0 : f(xfadeFor(slots[i - 1], x, fade))));
+  const fades = slots.map((x, i) => (i === 0 || hardCut(transitions) ? 0 : f(xfadeFor(slots[i - 1], x, fade))));
   return { T, slots, fades, lens: slots.map((x, i) => f(x + (fades[i + 1] || 0))) };
 }
 // punch: cut long shots every this many seconds (standard.js cutEvery) → also { segments: the picture's cuts in all }
@@ -327,7 +350,7 @@ export function slotPlan(starts, n, body, { fps = 30, voiceDelay = 0.15, fade = 
 // so it takes seconds instead of re-joining every clip. The caller makes the keys from everything those parts depend on.
 const keepOne = (dir, prefix, keep) => { try { for (const f of fs.readdirSync(dir)) if (f.startsWith(prefix) && path.join(dir, f) !== keep) fs.rmSync(path.join(dir, f), { force: true }); } catch { /* no cache yet */ } };
 const toCache = (from, to, prefix) => { try { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to); keepOne(path.dirname(to), prefix, to); } catch (e) { console.error('studio cache not kept', e.message); } };
-export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false, starts = null, synced = [], punch = 0, cache = null }) {
+export async function render({ clips, voice, music, words = [], captions = { style: 'pop' }, logo, endCard, sizes = ['9:16'], short = 1080, fps = 30, voiceDelay = 0.15, tail = 0.5, musicDb = -16, fontsDir, outDir, name = 'studio', look = 'natural', transitions = 'dissolve', sfx = false, starts = null, synced = [], punch = 0, cache = null, emphasis = false, beatSync = false, ramp = -1, overlays = null }) {
   const temp = [], finals = [];
   const t = (n, ext = 'mp4') => { const f = tmpFile(outDir, n, ext); temp.push(f); return f; };
   const kept = (key) => (cache?.dir && key ? path.join(cache.dir, key) : null);
@@ -343,8 +366,27 @@ export async function render({ clips, voice, music, words = [], captions = { sty
     const duration = body + card;
 
     // where the cuts land once the joined picture is fitted to the voice (fitDuration slows it up to 30% when short)
-    const fade = transitions === 'cinematic' ? 0.45 : 0.3;
-    const plan = voice ? slotPlan(starts, clips.length, body, { fps, voiceDelay, fade, transitions }) : null;
+    const fade = fadeOf(transitions);
+    let plan = voice ? slotPlan(starts, clips.length, body, { fps, voiceDelay, fade, transitions }) : null;
+    // the hero shot slows down mid-move and speeds back up (before any fitting: the slot then trims what runs over)
+    if (ramp >= 0 && clips[ramp] && !picsKept) {
+      const len = probe(clips[ramp]).duration || 0;
+      if (len >= 1.5) { clips = [...clips]; clips[ramp] = await speedRamp(clips[ramp], t('ramp'), { at: len * 0.35, len: Math.min(1.2, len * 0.4), fps }); }
+    }
+    // beat-synced cuts: where the cuts would fall, each moved onto the nearest beat of the music (the grid repeats
+    // when the music loops under a longer voiceover), then laid out like line-synced cuts
+    if (beatSync && music && voice && !plan && clips.length > 1) {
+      const lens = clips.map((c) => probe(c).duration || 0), joined = lens.reduce((a, b) => a + b, 0) || 1;
+      const cuts = cutTimes(lens, fade, transitions).map((c) => (c * body) / joined);
+      const bt = await beatTimes(music).catch(() => null);
+      if (bt?.beats?.length && bt.bpm > 0) {
+        const loop = probe(music).duration || body, grid = [];
+        for (let k = 0; k * loop < body && grid.length < 2000; k++) for (const b of bt.beats) if (b + k * loop < body) grid.push(b + k * loop);
+        const snapped = snapToBeats(cuts, grid, 60 / bt.bpm / 2);
+        plan = slotPlan([0, ...snapped.map((c) => c - voiceDelay)], clips.length, body, { fps, voiceDelay, fade, transitions });
+      }
+    }
+    const kinds = sfx === true ? ['whoosh'] : Array.isArray(sfx) ? sfx : [];
     let whooshes = [];
     if (plan) {
       // each clip to its slot first (once, for every size) — not needed when every size's picture is kept
@@ -353,17 +395,29 @@ export async function render({ clips, voice, music, words = [], captions = { sty
         for (let i = 0; i < clips.length; i++) fitted.push(await fitDuration(clips[i], plan.lens[i], t(`slot${i}`), { fps, hold: !!synced[i] }));
         clips = fitted;
       }
-      if (sfx) whooshes = plan.T.slice(1).map((x, i) => x + plan.fades[i + 1] / 2).filter((c) => c < body);
-    } else if (sfx && clips.length > 1) {
+      if (kinds.length) whooshes = plan.T.slice(1).map((x, i) => x + plan.fades[i + 1] / 2).filter((c) => c < body);
+    } else if (kinds.length && clips.length > 1) {
       const lens = clips.map((c) => probe(c).duration || 0), cuts = cutTimes(lens, fade, transitions);
-      const joined = lens.reduce((a, b) => a + b, 0) - (transitions === 'cut' ? 0 : lens.slice(1).reduce((n, l, i) => n + xfadeFor(lens[i], l, fade), 0));
+      const joined = lens.reduce((a, b) => a + b, 0) - (hardCut(transitions) ? 0 : lens.slice(1).reduce((n, l, i) => n + xfadeFor(lens[i], l, fade), 0));
       const k = joined < body ? Math.min(1.3, body / Math.max(joined, 0.1)) : 1;
       whooshes = cuts.map((c) => c * k).filter((c) => c < body);
     }
+    // the overlays (motion.js items, or a function of the picture's length) and the words that punch in
+    const items = (typeof overlays === 'function' ? overlays(body) : overlays) || [];
+    const keys = captions?.keywords === 'auto' ? autoKeywords(words) : Array.isArray(captions?.keywords) ? captions.keywords : [];
+    const punches = emphasis && words.length ? emphasisTimes(words, keys).map((x) => x + voiceDelay).filter((x) => x > 0.3 && x < body - 0.8) : [];
+    // the sound design: whooshes under the cuts, a pop as each overlay or punch-in lands, a riser into the closing card
+    // and an impact as it appears
+    const events = [
+      ...(kinds.includes('pop') ? [...items.map((x) => x.at), ...punches].filter((x) => x > 0.2 && x < body).map((at) => ({ kind: 'pop', at })) : []),
+      ...(kinds.includes('riser') && card ? [{ kind: 'riser', at: body }] : []),
+      ...(kinds.includes('impact') && card ? [{ kind: 'impact', at: body }] : []),
+    ];
     let audio = null;
     if (audioAt && fs.existsSync(audioAt)) audio = audioAt;
     else if (voice || music) {
-      const mixed = await mixAudio({ voice, music, duration, voiceDelay, musicDb, whooshes, polish: lookBase(look) !== 'natural' }, t('mix', 'wav'));
+      let mixed = await mixAudio({ voice, music, duration, voiceDelay, musicDb, whooshes: kinds.includes('whoosh') ? whooshes : [], polish: lookBase(look) !== 'natural' }, t('mix', 'wav'));
+      if (events.length) mixed = await addSfx(mixed, events, t('sfx', 'wav'), { duration });
       audio = await normaliseLoudness(mixed, t('norm', 'wav'));
       if (audioAt) toCache(audio, audioAt, 'audio-');
     }
@@ -379,6 +433,8 @@ export async function render({ clips, voice, music, words = [], captions = { sty
         v = await fitDuration(v, body, t('fit'), { fps });
         if (pc) toCache(v, pc, `pic-${aspect.replace(':', 'x')}-`);
       }
+      if (punches.length) v = await punchOnEmphasis(v, punches, t('punch'), { fps });
+      if (items.length) v = await burnCaptions(v, writeOverlays(t('overlays', 'ass'), { width, height, items, font: captions?.font || 'Noto Sans', duration: body }), t('ovl'), { fontsDir, fps });
       if (captions && words.length) {
         const ass = writeAss(words, t('captions', 'ass'), { ...captions, width, height, offset: voiceDelay });
         v = await burnCaptions(v, ass, t('cap'), { fontsDir, fps });

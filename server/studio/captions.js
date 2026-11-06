@@ -4,6 +4,7 @@
 // (thick outline or a box behind the text).
 import fs from 'node:fs';
 import { SAFE, minCaption } from './standard.js';
+import { scriptOf, fontFor } from './typeset.js';
 
 // ASS colours are &HAABBGGRR (alpha 00 = solid)
 export function assColour(hex, alpha = 0) {
@@ -34,6 +35,10 @@ export const PRESETS = {
   minimal: { label: 'Minimal', mode: 'phrase', size: 0.045, bold: false, upper: false, colour: '#ffffff', highlight: '#ffffff', outline: 0.06, shadow: 0.03, box: false, y: 0.8, maxWords: 7 },
   // the house look: left-aligned, bone white with the spoken word in muted mustard (no neon, no box), a thin charcoal
   // edge and a soft shadow instead of a hard black outline; bold, two or three words that pop as they're said
+  // one big word at a time, punched in; keywords and numbers in a hot colour (the talking-head / Hinglish creator look)
+  punch: { label: 'Big word punch', mode: 'word', size: 0.11, bold: true, upper: true, colour: '#ffffff', highlight: '#ff4d2e', outline: 0.12, shadow: 0.04, box: false, y: 0.6, maxWords: 1 },
+  // a phrase on a solid brand-coloured strip, the keyword in the highlight colour (clinics, finance, B2B: calm, legible)
+  strip: { label: 'Solid strip', mode: 'phrase', size: 0.062, bold: true, upper: false, colour: '#111111', highlight: '#c2185b', outline: 0.3, shadow: 0, box: true, boxColour: '#ffffff', boxAlpha: 0.05, y: 0.74, maxWords: 4 },
   matte: { label: 'Matte left', mode: 'phrase', pop: true, size: 0.082, bold: true, upper: true, colour: '#ede8e0', highlight: '#c9a13b', outline: 0.05, outlineColour: '#1e1e1c', shadow: 0.04, box: false, y: 0.7, maxWords: 3, align: 'left' },
 };
 // ASS alignment on the bottom row: 1 left, 2 centre, 3 right
@@ -48,7 +53,22 @@ export function assTime(s) {
 }
 // text that's safe inside an ASS event: no override blocks, no hard line breaks
 const clean = (s) => String(s ?? '').replace(/[{}]/g, '').replace(/\\/g, '').replace(/\s+/g, ' ').trim();
-const isNumberish = (w) => /\d|₹/.test(w);
+const isNumberish = (w) => /\d|₹|%/.test(w);
+
+// the words an editor would pop: offers, prices, urgency and proof, in English, Hindi and Hinglish (plus any word said
+// with an exclamation mark). Sellers can pass their own list instead.
+const POP_WORDS = new Set(['free', 'offer', 'sale', 'only', 'today', 'now', 'new', 'best', 'guaranteed', 'guarantee', 'limited', 'discount', 'off', 'save', 'secret', 'mistake', 'mistakes', 'never', 'stop', 'why', 'how', 'results', 'result', 'proof', 'certified', 'lakh', 'crore', 'emi', 'subsidy', 'sirf', 'aaj', 'abhi', 'muft', 'free', 'naya', 'sabse', 'mauka', 'bachat', 'सिर्फ', 'आज', 'अभी', 'मुफ्त', 'फ्री', 'ऑफर', 'नया', 'सबसे', 'मौका', 'बचत', 'छूट', 'लाख', 'करोड़', 'गारंटी']);
+const keyOf = (w) => String(w).replace(/[,.;:!?।"'“”‘’]+/gu, '').toLocaleLowerCase();
+// → the keywords found in a transcript (at most `max`, earliest first), for captions and zoom punch-ins
+export function autoKeywords(words, { max = 8 } = {}) {
+  const out = [];
+  for (const x of words || []) {
+    const k = keyOf(x.w);
+    if (k && (POP_WORDS.has(k) || /!$/.test(x.w) || isNumberish(x.w)) && !out.includes(k)) out.push(k);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 // a word as shown: without the punctuation that ends it (phrases still break on it)
 const bare = (w) => String(w).replace(/[,.;:!?।]+$/u, '') || w;
@@ -85,7 +105,9 @@ export function captionPlace(look, width, height) {
 // opts: { style ('pop'|'lower'|'karaoke'|'minimal'|'matte'), mode?, width, height, font, colour?, highlight?, upper?,
 // y? (0–1 down the frame; kept inside the safe area by captionPlace), align? ('left'|'center'; left sits at the safe
 // area's left margin), offset (s) }
-export function buildAss(words, { style = 'pop', mode, width = 1080, height = 1920, font = 'Noto Sans', colour, highlight, upper, y, align, offset = 0 } = {}) {
+// keywords: words to pop in the highlight colour ('auto': autoKeywords; numbers and ₹ always pop)
+// Words in an Indian script are set in that script's Noto face (a Latin brand font has no Devanagari glyphs).
+export function buildAss(words, { style = 'pop', mode, width = 1080, height = 1920, font = 'Noto Sans', colour, highlight, upper, y, align, offset = 0, keywords = null } = {}) {
   const P = { ...(PRESETS[style] || PRESETS.pop) };
   if (colour) P.colour = colour;
   if (highlight) P.highlight = highlight;
@@ -108,7 +130,13 @@ export function buildAss(words, { style = 'pop', mode, width = 1080, height = 19
     `Style: ${style0.join(',')}`, '',
     '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ];
-  const up = (s) => (P.upper ? s.toLocaleUpperCase() : s);
+  const keys = new Set((keywords === 'auto' ? autoKeywords(list) : Array.isArray(keywords) ? keywords : []).map(keyOf).filter(Boolean));
+  const isKey = (w) => isNumberish(w) || keys.has(keyOf(w));
+  // a word in an Indian script gets its own face, then the line's font again
+  const up = (s) => { const t = P.upper ? s.toLocaleUpperCase() : s; const sc = scriptOf(t); return sc === 'latin' ? t : `{\\fn${fontFor(t)}}${t}{\\fn${font}}`; };
+  const base = assColour(P.colour);
+  // a keyword that isn't being spoken stays in the highlight colour, so the eye still finds it
+  const tint = (w, s) => (keys.has(keyOf(w)) && P.highlight !== P.colour ? `{\\c${hi}}${s}{\\c${base}}` : s);
   const hi = assColour(P.highlight);
   const events = [];
   const ev = (a, b, text) => events.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,${text}`);
@@ -117,8 +145,9 @@ export function buildAss(words, { style = 'pop', mode, width = 1080, height = 19
       // hold each word until the next one starts (no flicker between words), but not across a long pause
       const next = list[i + 1];
       const end = next && next.start - w.end < 0.6 ? next.start : Math.max(w.end, w.start + 0.25);
-      const colourTag = isNumberish(w.w) ? `\\c${hi}` : '';
-      ev(w.start, end, `{\\fscx82\\fscy82\\t(0,90,\\fscx108\\fscy108)\\t(90,160,\\fscx100\\fscy100)${colourTag}}${up(w.w)}`);
+      // a keyword lands bigger, with a stronger overshoot, in the highlight colour
+      const pop = isKey(w.w) ? `\\fscx70\\fscy70\\t(0,110,\\fscx124\\fscy124)\\t(110,200,\\fscx112\\fscy112)\\c${hi}` : '\\fscx82\\fscy82\\t(0,90,\\fscx108\\fscy108)\\t(90,160,\\fscx100\\fscy100)';
+      ev(w.start, end, `{${pop}}${up(w.w)}`);
     });
   } else {
     const groups = phrases(list, { maxWords: P.maxWords || 5, maxChars: Math.max(14, Math.round(((width - safe.left - safe.right) / (size * 0.55)) * 1.6)) });
@@ -129,7 +158,8 @@ export function buildAss(words, { style = 'pop', mode, width = 1080, height = 19
         // the phrase stays put; each word lights up (and pops) while it's spoken
         g.forEach((w, k) => {
           const until = k + 1 < g.length ? g[k + 1].start : end;
-          const text = g.map((x, j) => (j === k ? `{\\c${hi}\\fscx112\\fscy112\\t(0,120,\\fscx100\\fscy100)}${up(bare(x.w))}{\\c${assColour(P.colour)}\\fscx100\\fscy100}` : up(bare(x.w)))).join(' ');
+          const big = isKey(w.w) ? 124 : 112;
+          const text = g.map((x, j) => (j === k ? `{\\c${hi}\\fscx${big}\\fscy${big}\\t(0,120,\\fscx100\\fscy100)}${up(bare(x.w))}{\\c${base}\\fscx100\\fscy100}` : tint(x.w, up(bare(x.w))))).join(' ');
           ev(k ? w.start : start, until, text);
         });
       } else if (P.karaoke) {
@@ -140,11 +170,11 @@ export function buildAss(words, { style = 'pop', mode, width = 1080, height = 19
           const lead = Math.max(0, Math.round((w.start - t) * 100));
           const dur = Math.max(1, Math.round((until - w.start) * 100));
           t = until;
-          return `${lead ? `{\\k${lead}}` : ''}{\\k${dur}}${up(w.w)}`;
+          return `${lead ? `{\\k${lead}}` : ''}{\\k${dur}}${isKey(w.w) ? `{\\b1\\fscx112\\fscy112}${up(w.w)}{\\fscx100\\fscy100}` : up(w.w)}`;
         });
         ev(start, end, `{\\fad(60,60)}${parts.join(' ')}`);
       } else {
-        ev(start, end, `{\\fad(80,80)}${g.map((w) => (isNumberish(w.w) && P.highlight !== P.colour ? `{\\c${hi}}${up(w.w)}{\\c${assColour(P.colour)}}` : up(w.w))).join(' ')}`);
+        ev(start, end, `{\\fad(80,80)}${g.map((w) => (isKey(w.w) && P.highlight !== P.colour ? `{\\c${hi}}${up(w.w)}{\\c${base}}` : up(w.w))).join(' ')}`);
       }
     });
   }
