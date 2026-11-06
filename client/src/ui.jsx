@@ -8,6 +8,7 @@ import SkinPicker from './skinPicker';
 import { isSuper } from './tier';
 import { agencyHost } from './agencyHost';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
+import { LANG_GROUPS } from './i18n';
 import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, EyeOff, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft, Ellipsis, ChevronLeft, CircleCheck } from 'lucide-react';
 
 // One icon set everywhere: Lucide (ISC licence), the same line icons as the page builder's sections and the CRM's
@@ -793,7 +794,7 @@ export function CreateFunnel({ onClose, aiEnabled }) {
         <h2>{t('Describe your business')}</h2>
         <p className="muted">{t('What you sell, who it’s for, the price and the offer — a line or a few. We’ll build the landing page, checkout, upsell, downsell, cross-sells and thank-you page with copy and pricing. (Ads, DM flows and message sequences are made elsewhere — Hive AI and Automations.)')}</p>
         <textarea ref={ref} rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t('e.g. Online yoga classes for working women, ₹499')} />
-        <label className="lang-pick">{t('Page language')} <select value={lang} onChange={(e) => setLang(e.target.value)}><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></label>
+        <label className="lang-pick">{t('Page language')} <select value={lang} onChange={(e) => setLang(e.target.value)}>{LANG_GROUPS.map(([g, list]) => <optgroup key={g} label={t(g)}>{list.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</optgroup>)}</select></label>
         <DesignPicker value={design} onChange={setDesign} />
         <div className="sugg">{EXAMPLES.map((x) => <button type="button" key={x} onClick={() => setPrompt(x)}>{x}</button>)}</div>
         {err && <div className="err">{err}</div>}

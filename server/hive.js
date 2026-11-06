@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import { LANGUAGES as VOICE_LANGS } from './sarvam.js';
 import { withAnswers } from './ai.js';
+import { pageLang, LANG_HELP } from './page-langs.js';
 import { T, uid } from './db.js';
 import { hashToken } from './security.js';
 import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
@@ -95,6 +96,7 @@ export const TOOLS = [
       length: { type: 'string', enum: ['short', 'standard', 'detailed'], description: 'How many sections the main page gets: short (~7, quick read), standard (default), detailed (long-form, every section)' },
       style: str(`Optional page style the user asked for: ${PAGE_STYLES.join('|')}`),
       primary: str('Optional brand colour the user asked for, #rrggbb'),
+      lang: str(`Language of the page copy, only when the user asks for one (or writes to you in it and wants the page that way): ${LANG_HELP}`),
     }, ['brief']),
     run: async (ctx, a) => {
       // a vague brief builds a page about the wrong business: ask first
@@ -102,7 +104,7 @@ export const TOOLS = [
         const c = await ctx.call('POST', '/ai/clarify', { prompt: a.brief, answers: a.answers });
         if (!c.ready) return { needsInfo: true, understood: c.understood, question: c.question, asked: c.asked, next: 'Nothing was built yet. Ask the user just this ONE question (in their language, offering the options), wait for their answer, then call create_funnel again with the same brief and that question and answer added to "answers". It may ask one more, or build.' };
       }
-      const f = await ctx.call('POST', '/ai/generate', { prompt: withAnswers(a.brief, a.answers), length: a.length, style: a.style, primary: a.primary });
+      const f = await ctx.call('POST', '/ai/generate', { prompt: withAnswers(a.brief, a.answers), length: a.length, style: a.style, primary: a.primary, lang: pageLang(a.lang) });
       return { ...outline(f, ctx.origin), usedAI: f.usedAI, qualityCheck: f.quality ? { passed: f.quality.finalIssues === 0 } : undefined };
     },
     summary: (r) => (r.needsInfo ? 'Needs a few details before building' : `Built “${r.name}” — ${r.steps.length} pages, ${r.steps.reduce((n, s) => n + s.sections.length, 0)} sections`), touchesResult: true,
@@ -875,6 +877,7 @@ How to work:
 - New business / new funnel → call create_funnel with a rich brief (what they sell, audience, ₹ price, city, offer, what the page should get people to do). It already builds a complete, quality-checked funnel of the right kind (sales, VSL + application, or webinar). Then apply anything specific the user asked for.
 - Vague or half-done request ("make me a landing page", "email something") → don't guess the business, and don't fire a list of questions. Call create_funnel; if it replies needsInfo, ask the user just that ONE question (in their language, with its options), then call create_funnel again with their answer in "answers". Repeat until it builds — usually one or two questions. Pass answered=true only if they say "just build it"
 - Design wishes ("shorter page", "dark and bold", "use our blue #1e40af") → pass length / style / primary to create_funnel; on an existing funnel use update_funnel (theme) or remove_section. Default length is standard; use short when they want a quick, simple page.
+- Page language ("make it in Tamil", "Marathi page", "English and Bengali both", "Hinglish") → pass lang to create_funnel (ta, mr, en+bn, hinglish…); the copy, the page's buttons and labels and its fonts follow.
 - Editing → get_funnel (ids) → get_page (current props) → update_section / add_section / remove_section / move_section / replace_page. Never invent ids.
 - Automations → list_pipelines if you need stage ids, then create_automation with activate=true when the user wants it live. Triggers like a new lead / sign-up, purchase or booking fire from every funnel and form in the account, so no funnel is needed first — build it account-wide unless the user names a funnel. Use WhatsApp templates (not plain text) for automated WhatsApp.
 - Several independent changes → make all the tool calls, then reply once.

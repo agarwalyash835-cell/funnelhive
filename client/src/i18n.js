@@ -1,7 +1,35 @@
 // The built-in words on funnel pages (form placeholders, checkout, booking, consent) in the funnel's language.
 // Everything the seller writes is already in their own words; this covers the rest. Add a language by adding a
 // dictionary below — missing phrases fall back to English.
-export const LANGS = [['en', 'English'], ['hi', 'हिन्दी (Hindi)']];
+// A page's language (theme.lang, the same codes as server/page-langs.js): 'en', one of the Indian languages below,
+// 'en+<code>' (English mixed with it — its built-in words are in that language) or 'hinglish' (Hindi in English
+// letters — built-in words stay English).
+import { INDIC_DICTS } from './i18n-indic.js';
+
+// code, name in its own script, English name, heading font, body font (fonts that draw the script and Latin)
+export const INDIC = [
+  ['hi', 'हिन्दी', 'Hindi', 'Mukta', 'Hind'], ['mr', 'मराठी', 'Marathi', 'Mukta', 'Hind'],
+  ['gu', 'ગુજરાતી', 'Gujarati', 'Mukta Vaani', 'Hind Vadodara'], ['bn', 'বাংলা', 'Bengali', 'Hind Siliguri', 'Noto Sans Bengali'],
+  ['ta', 'தமிழ்', 'Tamil', 'Mukta Malar', 'Hind Madurai'], ['te', 'తెలుగు', 'Telugu', 'Hind Guntur', 'Noto Sans Telugu'],
+  ['kn', 'ಕನ್ನಡ', 'Kannada', 'Baloo Tamma 2', 'Noto Sans Kannada'], ['ml', 'മലയാളം', 'Malayalam', 'Baloo Chettan 2', 'Noto Sans Malayalam'],
+  ['pa', 'ਪੰਜਾਬੀ', 'Punjabi', 'Mukta Mahee', 'Noto Sans Gurmukhi'], ['or', 'ଓଡ଼ିଆ', 'Odia', 'Baloo Bhaina 2', 'Noto Sans Oriya'],
+];
+export const LANG_GROUPS = [
+  ['One language', [['en', 'English'], ...INDIC.map(([k, n, e]) => [k, `${n} (${e})`])]],
+  ['Mixed with English', [...INDIC.map(([k, n, e]) => [`en+${k}`, `English + ${n} (${e})`]), ['hinglish', 'Hinglish — Hindi in English letters']]],
+];
+export const LANGS = LANG_GROUPS.flatMap(([, list]) => list);
+
+// the theme after choosing a page language: theme.lang, and fonts that draw its script (a Hindi/Marathi page keeps
+// a font that already draws Devanagari)
+const DEVANAGARI_OK = ['Mukta', 'Hind', 'Poppins', 'Noto Sans'];
+export function themeForLang(theme = {}, lang = 'en') {
+  const t = { ...theme, lang: lang === 'en' ? undefined : lang };
+  const L = INDIC.find(([k]) => k === String(lang).replace(/^en\+/, ''));
+  if (!L) return t;
+  const keep = (f) => L[3] === 'Mukta' && DEVANAGARI_OK.includes(f);
+  return { ...t, headingFont: keep(t.headingFont) ? t.headingFont : L[3], bodyFont: keep(t.bodyFont) ? t.bodyFont : L[4] };
+}
 
 const hi = {
   'Full name': 'पूरा नाम', Email: 'ईमेल', 'WhatsApp number': 'व्हाट्सऐप नंबर', 'e.g. Priya Sharma': 'जैसे प्रिया शर्मा',
@@ -25,11 +53,22 @@ const hi = {
   'Payment cancelled — you can try again whenever you’re ready': 'भुगतान रद्द हुआ — जब चाहें दोबारा कोशिश करें', 'Payment could not be completed — please try again': 'भुगतान पूरा नहीं हो सका — कृपया दोबारा कोशिश करें',
 };
 hi['Cookie settings'] = 'कुकी सेटिंग्स';
-const DICT = { hi };
+Object.assign(hi, {
+  'Ends in': 'समाप्त होने में', 'Offer ended': 'ऑफ़र समाप्त', 'Sold out': 'बिक गया', 'No thanks': 'नहीं, धन्यवाद', 'Inclusive of all taxes': 'सभी टैक्स सहित',
+  'Your name': 'आपका नाम', 'Your email': 'आपका ईमेल', 'Thank you! Check your inbox.': 'धन्यवाद! अपना इनबॉक्स देखें।', Close: 'बंद करें', Back: 'पीछे', Next: 'आगे',
+  Question: 'प्रश्न', 'Your result': 'आपका परिणाम', 'Show my result': 'मेरा परिणाम दिखाएँ', 'Your result is ready!': 'आपका परिणाम तैयार है!', 'Pick all that apply': 'जो लागू हों, सब चुनें',
+  // "Priya from Pune / bought": Indian word order puts the city first, so a dot stands in for "from"
+  bought: 'ने ख़रीदा', from: '·', '{n} hours ago': '{n} घंटे पहले', '{n} hour ago': '{n} घंटा पहले', '{n} days ago': '{n} दिन पहले', '{n} day ago': '{n} दिन पहले',
+  '{n} people viewed this page in the last 30 minutes': 'पिछले 30 मिनट में {n} लोगों ने यह पेज देखा',
+});
+const DICT = { hi, ...INDIC_DICTS };
+
+// which dictionary a page language uses: a mixed page ('en+ta') its regional language's, Hinglish none (English)
+const dictFor = (lang) => DICT[String(lang || '').replace(/^en\+/, '')];
 
 // tr(lang, 'Pay {amount} & confirm', { amount: '₹1,499' })
 export function tr(lang, s, vars) {
-  let out = (lang && DICT[lang]?.[s]) || s;
+  let out = (lang && dictFor(lang)?.[s]) || s;
   if (vars) out = out.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
   return out;
 }

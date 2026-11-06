@@ -33,6 +33,24 @@ export const FONT_CHOICES = {
   Sora: { q: 'Sora:wght@400;600;700;800', stack: "'Sora', sans-serif" },
   'Playfair Display': { q: 'Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600', stack: "'Playfair Display', Georgia, serif" },
   Lora: { q: 'Lora:ital,wght@0,400;0,600;0,700;1,500', stack: "'Lora', Georgia, serif" },
+  // Indian scripts (pages in a regional language, or English mixed with one — server/page-langs.js). Each also
+  // draws Latin, so English words, prices and brand names sit in the same font.
+  'Mukta Vaani': { q: 'Mukta+Vaani:wght@400;500;600;700;800', stack: "'Mukta Vaani', sans-serif", indic: 'ગુજરાતી' },
+  'Hind Vadodara': { q: 'Hind+Vadodara:wght@400;500;600;700', stack: "'Hind Vadodara', sans-serif", indic: 'ગુજરાતી' },
+  'Hind Siliguri': { q: 'Hind+Siliguri:wght@400;500;600;700', stack: "'Hind Siliguri', sans-serif", indic: 'বাংলা' },
+  'Noto Sans Bengali': { q: 'Noto+Sans+Bengali:wght@400;500;600;700;800', stack: "'Noto Sans Bengali', sans-serif", indic: 'বাংলা' },
+  'Mukta Malar': { q: 'Mukta+Malar:wght@400;500;600;700;800', stack: "'Mukta Malar', sans-serif", indic: 'தமிழ்' },
+  'Hind Madurai': { q: 'Hind+Madurai:wght@400;500;600;700', stack: "'Hind Madurai', sans-serif", indic: 'தமிழ்' },
+  'Hind Guntur': { q: 'Hind+Guntur:wght@400;500;600;700', stack: "'Hind Guntur', sans-serif", indic: 'తెలుగు' },
+  'Noto Sans Telugu': { q: 'Noto+Sans+Telugu:wght@400;500;600;700;800', stack: "'Noto Sans Telugu', sans-serif", indic: 'తెలుగు' },
+  'Baloo Tamma 2': { q: 'Baloo+Tamma+2:wght@400;500;600;700;800', stack: "'Baloo Tamma 2', sans-serif", indic: 'ಕನ್ನಡ' },
+  'Noto Sans Kannada': { q: 'Noto+Sans+Kannada:wght@400;500;600;700;800', stack: "'Noto Sans Kannada', sans-serif", indic: 'ಕನ್ನಡ' },
+  'Baloo Chettan 2': { q: 'Baloo+Chettan+2:wght@400;500;600;700;800', stack: "'Baloo Chettan 2', sans-serif", indic: 'മലയാളം' },
+  'Noto Sans Malayalam': { q: 'Noto+Sans+Malayalam:wght@400;500;600;700;800', stack: "'Noto Sans Malayalam', sans-serif", indic: 'മലയാളം' },
+  'Mukta Mahee': { q: 'Mukta+Mahee:wght@400;500;600;700;800', stack: "'Mukta Mahee', sans-serif", indic: 'ਪੰਜਾਬੀ' },
+  'Noto Sans Gurmukhi': { q: 'Noto+Sans+Gurmukhi:wght@400;500;600;700;800', stack: "'Noto Sans Gurmukhi', sans-serif", indic: 'ਪੰਜਾਬੀ' },
+  'Baloo Bhaina 2': { q: 'Baloo+Bhaina+2:wght@400;500;600;700;800', stack: "'Baloo Bhaina 2', sans-serif", indic: 'ଓଡ଼ିଆ' },
+  'Noto Sans Oriya': { q: 'Noto+Sans+Oriya:wght@400;500;600;700;800', stack: "'Noto Sans Oriya', sans-serif", indic: 'ଓଡ଼ିଆ' },
 };
 
 // The stylesheet a funnel needs: its style's fonts plus any site-wide font overrides

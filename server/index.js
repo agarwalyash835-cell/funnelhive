@@ -11,6 +11,7 @@ import { T, Events, q, tx, uid, contactKey, testOrder, dir as DATA_DIR, JOBS } f
 import { generateFunnel, clarifyBrief, editBlocks, aiEnabled, aiProvider, chatAI, AGENTS, runAgent, generateImage, imagesReady, IMAGE_ASPECTS } from './ai.js';
 import { trimTemplate, PAGE_LENGTHS } from './quality.js';
 import { PAGE_STYLES } from './page-styles.js';
+import { pageLang, langInstruction, langTheme, htmlLang } from './page-langs.js';
 import { templateList, getTemplate, matchTemplate } from './templates.js';
 import { applyActions, offlineChat } from './actions.js';
 import { abResult } from './stats.js';
@@ -1206,11 +1207,12 @@ app.post('/api/ai/generate', auth, funnelCap, aiLimiter, credits('generate'), wr
   const { prompt } = req.body;
   if (!prompt || prompt.length < 5) return res.status(400).json({ error: 'Describe your business or offer in a sentence' });
   const opts = designOpts(req.body);
-  // Hindi pages: the copy is written in Hindi, and the page's built-in words follow (theme.lang)
-  const hindi = req.body.lang === 'hi';
-  const ask = hindi ? `${prompt}
+  // pages in an Indian language, English mixed with one, or Hinglish (page-langs.js): the copy is written that way,
+  // and the page's built-in words and fonts follow (theme.lang)
+  const lang = pageLang(req.body.lang);
+  const ask = lang === 'en' ? prompt : `${prompt}
 
-Write every word of the page copy in Hindi (Devanagari script) — natural, conversational Hindi a buyer in India would use. Keep brand names, prices, numbers and units as they are.` : prompt;
+${langInstruction(lang)}`;
   let gen;
   try { gen = aiEnabled() ? await generateFunnel(ask, opts) : trimTemplate(matchTemplate(prompt), opts.length); } catch (e) {
     // nothing made, nothing charged, and a plain reason — never a stack-trace message in the dialog
@@ -1222,7 +1224,7 @@ Write every word of the page copy in Hindi (Devanagari script) — natural, conv
   }
   if (opts.style) gen.theme = { ...gen.theme, style: opts.style };
   if (opts.primary) gen.theme = { ...gen.theme, primary: opts.primary };
-  if (hindi) gen.theme = { ...gen.theme, lang: 'hi', headingFont: gen.theme?.headingFont || 'Mukta', bodyFont: gen.theme?.bodyFont || 'Hind' };
+  if (lang !== 'en') gen.theme = langTheme(lang, gen.theme || {});
   const usedAI = aiEnabled() && !gen.fallback;
   // the AI couldn't write it (timeout, bad answer, AI unavailable): the seller starts from the closest template,
   // is told so, and no credits are taken
@@ -2236,6 +2238,7 @@ function renderHtml(f, owner, stepSlug, { domain, preview, base, full = false })
   }
   const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(new RegExp('[\\u2028\\u2029]', 'g'), '');
   return indexHtml
+    .replace('<html lang="en">', () => `<html lang="${htmlLang(f.theme?.lang)}">`) // the page's own language (screen readers, search, the browser's translate offer)
     .replace('<title>FunnelHive</title>', '')
     .replace(/<link id="ff-app-font"[^>]*>/, '') // the dashboard's Inter: a live page loads only its theme's fonts (above)
     // functions, not strings: a seller's "$$" or "$'" would otherwise be read as a replacement pattern

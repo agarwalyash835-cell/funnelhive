@@ -19,7 +19,7 @@ test('the server knows exactly the section types the editor and the renderer kno
 });
 
 test('the section layouts and fonts the AI is told about are the ones the renderer has', async () => {
-  const { VARIANTS, FONT_NAMES } = await import('../page-styles.js');
+  const { VARIANTS, FONT_NAMES, SCRIPT_FONT_NAMES } = await import('../page-styles.js');
   const start = src.indexOf('export const VARIANTS');
   const body = src.slice(start, src.indexOf('\n};', start));
   const client = Object.fromEntries([...body.matchAll(/^ {2}(\w+): \[(.*)\],$/gm)].map((m) => [m[1], [...m[2].matchAll(/\['(\w+)', /g)].map((x) => x[1])]));
@@ -27,7 +27,7 @@ test('the section layouts and fonts the AI is told about are the ones the render
   const fonts = fs.readFileSync(new URL('../../client/src/fonts.js', import.meta.url), 'utf8');
   const fb = fonts.slice(fonts.indexOf('export const FONT_CHOICES'));
   const names = [...fb.slice(0, fb.indexOf('\n};')).matchAll(/^ {2}(?:'([^']+)'|(\w+)):/gm)].map((m) => m[1] || m[2]);
-  assert.deepEqual(names, FONT_NAMES);
+  assert.deepEqual(names, [...FONT_NAMES, ...SCRIPT_FONT_NAMES]);
 });
 
 test('made-up section types are dropped and reported', () => {

@@ -39,6 +39,9 @@ export const VARIANTS = {
 };
 // site-wide fonts a theme may name (the same list as client/src/fonts.js FONT_CHOICES), corner and text sizes
 export const FONT_NAMES = ['Plus Jakarta Sans', 'Inter', 'Poppins', 'Mukta', 'Hind', 'Noto Sans', 'DM Sans', 'Montserrat', 'Outfit', 'Sora', 'Playfair Display', 'Lora'];
+// fonts for the other Indian scripts (after FONT_NAMES in FONT_CHOICES): set by the page's language (page-langs.js),
+// not offered to the AI's theme choice
+export const SCRIPT_FONT_NAMES = ['Mukta Vaani', 'Hind Vadodara', 'Hind Siliguri', 'Noto Sans Bengali', 'Mukta Malar', 'Hind Madurai', 'Hind Guntur', 'Noto Sans Telugu', 'Baloo Tamma 2', 'Noto Sans Kannada', 'Baloo Chettan 2', 'Noto Sans Malayalam', 'Mukta Mahee', 'Noto Sans Gurmukhi', 'Baloo Bhaina 2', 'Noto Sans Oriya'];
 export const RADII = ['sharp', 'soft', 'round', 'pill'];
 export const TEXT_SIZES = ['sm', 'md', 'lg'];
 export const variantsText = () => Object.entries(VARIANTS).map(([t, v]) => `${t}: ${v.join('|')}`).join('; ');

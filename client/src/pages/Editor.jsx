@@ -7,7 +7,7 @@ import { api } from '../api';
 import { BLOCK_TYPES, BLOCK_GROUPS, STYLES, ELEMENT_TYPES, STYLE_DEFAULTS, FORM_FIELD_TYPES, Page, newElement, freshIds, applyLayout, defaultSection, withCopy, POPUP_SIZES, POPUP_TRIGGERS, POPUP_FREQ, POPUP_BLOCKS, POPUP_MAX, POPUP_MAX_BLOCKS } from '../blocks';
 import { BlockIcon, ElementIcon, StepIcon } from '../blockIcons';
 import { Icon, toast, Modal, ago, confirmDialog, promptDialog } from '../ui';
-import { LANGS } from '../i18n';
+import { LANG_GROUPS, themeForLang } from '../i18n';
 import { FONT_CHOICES } from '../fonts';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -1136,9 +1136,9 @@ export default function Editor() {
                   <label>Secondary<input type="color" value={f.theme?.secondary || '#ec4899'} onChange={(e) => patch({ theme: { ...f.theme, secondary: e.target.value } }, true)} /></label>
                 </div>
                 <h5>Typography & shape <small>· applies to the whole funnel</small></h5>
-                <div className="fld"><label>Page language <small className="muted">· buttons, form labels, checkout &amp; booking text</small></label><select value={f.theme?.lang || 'en'} onChange={(e) => patch({ theme: { ...f.theme, lang: e.target.value === 'en' ? undefined : e.target.value } })}>{LANGS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
-                <div className="fld"><label>Heading font</label><select value={f.theme?.headingFont || ''} onChange={(e) => patch({ theme: { ...f.theme, headingFont: e.target.value || undefined } })}><option value="">Style default</option>{Object.entries(FONT_CHOICES).map(([k, v]) => <option key={k} value={k}>{k}{v.indic ? ' · हिन्दी ✓' : ''}</option>)}</select></div>
-                <div className="fld"><label>Body font</label><select value={f.theme?.bodyFont || ''} onChange={(e) => patch({ theme: { ...f.theme, bodyFont: e.target.value || undefined } })}><option value="">Style default</option>{Object.entries(FONT_CHOICES).map(([k, v]) => <option key={k} value={k}>{k}{v.indic ? ' · हिन्दी ✓' : ''}</option>)}</select></div>
+                <div className="fld"><label>Page language <small className="muted">· buttons, form labels, checkout &amp; booking text</small></label><select value={f.theme?.lang || 'en'} onChange={(e) => patch({ theme: themeForLang(f.theme, e.target.value) })}>{LANG_GROUPS.map(([g, list]) => <optgroup key={g} label={g}>{list.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</optgroup>)}</select></div>
+                <div className="fld"><label>Heading font</label><select value={f.theme?.headingFont || ''} onChange={(e) => patch({ theme: { ...f.theme, headingFont: e.target.value || undefined } })}><option value="">Style default</option>{Object.entries(FONT_CHOICES).map(([k, v]) => <option key={k} value={k}>{k}{v.indic ? ` · ${v.indic === true ? 'हिन्दी' : v.indic} ✓` : ''}</option>)}</select></div>
+                <div className="fld"><label>Body font</label><select value={f.theme?.bodyFont || ''} onChange={(e) => patch({ theme: { ...f.theme, bodyFont: e.target.value || undefined } })}><option value="">Style default</option>{Object.entries(FONT_CHOICES).map(([k, v]) => <option key={k} value={k}>{k}{v.indic ? ` · ${v.indic === true ? 'हिन्दी' : v.indic} ✓` : ''}</option>)}</select></div>
                 <div className="form2c">
                   <div className="fld"><label>Corners</label><select value={f.theme?.radius || ''} onChange={(e) => patch({ theme: { ...f.theme, radius: e.target.value || undefined } })}><option value="">Style default</option><option value="sharp">Sharp</option><option value="soft">Soft</option><option value="round">Round</option><option value="pill">Pill buttons</option></select></div>
                   <div className="fld"><label>Text size</label><select value={f.theme?.textSize || ''} onChange={(e) => patch({ theme: { ...f.theme, textSize: e.target.value || undefined } })}><option value="">Normal</option><option value="sm">Compact</option><option value="lg">Large</option></select></div>
