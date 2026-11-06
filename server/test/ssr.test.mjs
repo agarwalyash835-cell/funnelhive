@@ -51,6 +51,30 @@ test('the live page hides slots the seller hasn’t filled; the sticky bar shows
   await api(`/funnels/${f.id}`, 'PUT', { steps: f.steps }, T);
 });
 
+test('line icons: icon slots and leading emoji are drawn as brand-coloured icons; emoji pages stay emoji', { skip: !built && 'client not built' }, async () => {
+  const steps = structuredClone(f.steps);
+  steps[0].blocks.push(
+    { id: 'ic1', type: 'features', props: { title: 'Why it works', items: [{ icon: 'truck', title: 'Fast delivery', text: 'Across India' }, { icon: '💪', title: 'Strength', text: 'Daily' }, { icon: '🦄', title: 'Unmapped', text: 'stays an emoji' }] } },
+    { id: 'ic2', type: 'cta', props: { headline: 'Join today', buttonText: 'Join', note: '🔒 Secure UPI payments' } },
+  );
+  const markupOf = async (theme) => {
+    await api(`/funnels/${f.id}`, 'PUT', { steps, theme: { ...f.theme, ...theme } }, T);
+    const { html } = await page(`/f/${f.slug}`);
+    return html.slice(html.indexOf('<div id="root">'), html.indexOf('window.__FUNNEL__')).replace(/<!-- -->/g, '');
+  };
+  const line = await markupOf({ icons: 'line' });
+  assert.match(line, /<span class="ic is-icon"><svg[^>]*class="lucide lucide-truck[^"]*\bpi\b/, 'an icon name is drawn as that icon');
+  assert.match(line, /<span class="ic is-icon"><svg[^>]*class="lucide lucide-dumbbell/, 'a mapped emoji is drawn as its icon');
+  assert.match(line, /🦄/, 'an emoji the library has no icon for stays');
+  assert.match(line, /<svg[^>]*lucide-lock[^>]*pi-lead[^>]*>.*?<\/svg>Secure UPI payments/s, 'a label’s leading emoji becomes its icon');
+  assert.doesNotMatch(line, /🔒 Secure|💪/);
+  const emoji = await markupOf({ icons: undefined });
+  assert.match(emoji, /<svg[^>]*lucide-truck/, 'an icon name is always an icon');
+  assert.match(emoji, /💪/, 'with emoji on, emoji stay emoji');
+  assert.match(emoji, /🔒 Secure UPI payments/);
+  await api(`/funnels/${f.id}`, 'PUT', { steps: f.steps, theme: f.theme }, T);
+});
+
 test('step SEO title/description override, and step URLs work', { skip: !built && 'client not built' }, async () => {
   const steps = structuredClone(f.steps);
   steps[1].seo = { title: 'Secure checkout', description: 'Pay with UPI' };

@@ -948,6 +948,24 @@ body:has(#root > .page:is(.s-aurora, .s-fresh, .s-clean)) { background: color-mi
 .stickybar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--line); padding: 12px 20px; display: flex; justify-content: center; align-items: center; gap: 24px; box-shadow: 0 -10px 30px -10px rgba(0,0,0,.15); transform: translateY(110%); transition: transform .35s; }
 .stickybar.on { transform: none; }
 .stickybar span { font-weight: 600; }
+/* page icons (page-icons.jsx): brand-coloured line icons in the icon slots and at the start of short labels */
+.pi { display: inline-block; width: 1em; height: 1em; vertical-align: -0.14em; flex: none; }
+.is-icon { color: var(--primary); }
+.is-icon > .pi { width: .86em; height: .86em; }
+.bonus .bic.is-icon, .v-dark .is-icon { color: color-mix(in srgb, var(--primary) 70%, #fff); }
+.pi-lead { margin-right: .4em; width: 1.05em; height: 1.05em; }
+.m-emoji .pi { color: var(--primary); }
+.ico-edit { cursor: pointer; }
+.ico-edit:hover { outline: 2px dashed color-mix(in srgb, var(--primary) 55%, transparent); outline-offset: 3px; }
+.ip-shade { position: fixed; inset: 0; z-index: 2000; background: rgba(20, 20, 18, .35); display: grid; place-items: center; padding: 16px; }
+.ip-pop { width: min(520px, 100%); max-height: min(560px, 90vh); display: grid; grid-template-rows: auto 1fr auto; background: #fff; color: #1e1e1c; border-radius: 14px; box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .45); font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif; overflow: hidden; }
+.ip-head, .ip-foot { display: flex; gap: 8px; padding: 12px; }
+.ip-head input, .ip-foot input { flex: 1; min-width: 0; padding: 9px 11px; border: 1px solid #d8d4cc; border-radius: 9px; font: inherit; color: inherit; background: #fff; }
+.ip-head button, .ip-foot button { border: 0; background: #efece6; border-radius: 9px; padding: 0 14px; font: inherit; cursor: pointer; color: inherit; }
+.ip-grid { overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; padding: 0 12px 4px; align-content: start; }
+.ip-grid button { aspect-ratio: 1; border: 0; background: transparent; border-radius: 9px; display: grid; place-items: center; cursor: pointer; color: #2b2b2b; font-size: 22px; }
+.ip-grid button:hover, .ip-grid button.on { background: #efece6; color: var(--primary, #9c4a2f); }
+.ip-grid small { grid-column: 1 / -1; color: #6b6b6b; padding: 8px 0; }
 .stickybar .sb-timer { display: block; font-size: .8em; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; margin-top: 2px; }
 .stickybar .btn { padding: 12px 24px; }
 .wa { position: fixed; right: 18px; bottom: 90px; z-index: 55; background: #25d366; color: #fff !important; padding: 13px 20px 13px 16px; border-radius: 99px; font-weight: 700; display: flex; gap: 8px; align-items: center; box-shadow: 0 12px 30px -8px rgba(37,211,102,.7); font-family: var(--bf); transition: transform .2s; }

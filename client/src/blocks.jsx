@@ -3,6 +3,7 @@ import { useViewerTz, dayKey, fmtDay, fmtTime, zoneLabel, zoneCity, fmtWhenShort
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ensureFonts, FONT_CHOICES } from './fonts';
 import { GripVertical, Copy as CopyIcon, Trash2 } from 'lucide-react';
+import { PageIcon, iconName, splitLead, IconPicker } from './page-icons';
 // a paid call's price in its own currency (₹ by default)
 const callPrice = (cal) => { const iso = cal?.currency || 'INR'; try { return new Intl.NumberFormat(iso === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency: iso, minimumFractionDigits: 0 }).format(Number(cal?.price || 0)); } catch { return `${iso} ${cal?.price}`; } };
 
@@ -158,9 +159,34 @@ const readText = (el) => {
   return c.textContent;
 };
 const caretToEnd = (el) => { const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); };
+// an icon slot (a feature's icon, a bonus, the hero card, an offer): an icon name or an emoji. Drawn as a brand-coloured
+// line icon when it is one (or, with line icons on, an emoji the library has); in the editor a click opens the picker.
+function Ico({ ctx, k, v, as: Tag = 'span', className = '' }) {
+  const [open, setOpen] = useState(false);
+  const name = iconName(v, ctx?.icons === 'line');
+  if (!ctx?.editable) return name ? <Tag className={`${className} is-icon`}><PageIcon name={name} /></Tag> : <E ctx={ctx} k={k} v={v} as={Tag} className={className} />;
+  return (
+    <Tag className={`${className} ico-edit${name ? ' is-icon' : ''}`} title="Change icon" role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setOpen(true); }} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(true); }}>
+      {name ? <PageIcon name={name} /> : v}
+      {open && <IconPicker value={v} onPick={(x) => { ctx.onEdit?.(k, x); setOpen(false); }} onClose={() => setOpen(false)} />}
+    </Tag>
+  );
+}
+// a short label's leading emoji as its icon, with line icons on ("🔒 Secure checkout" → [lock] Secure checkout)
+function Lead({ ctx, text }) {
+  const lead = ctx?.icons === 'line' ? splitLead(text) : null;
+  return lead ? <><PageIcon name={lead.name} className="pi-lead" />{lead.rest}</> : text;
+}
+
 function E({ ctx, k, v, as: Tag = 'span', className, isRich, multiline, style, num, fmt, keep }) {
   const [n, setN] = useState(0);
   if ((v === '' || v == null) && !keep) return null; // removed
+  // with line icons on, a leading emoji is drawn as its icon; editing changes the words, the emoji is kept
+  const lead = ctx?.icons === 'line' && !isRich && !fmt && !num ? splitLead(v) : null;
+  if (lead) {
+    if (!ctx?.editable) return <Tag className={className} style={style}><PageIcon name={lead.name} className="pi-lead" />{lead.rest}</Tag>;
+    return <Tag className={className} style={style}><PageIcon name={lead.name} className="pi-lead" /><E ctx={{ ...ctx, icons: undefined, onEdit: (kk, val) => ctx.onEdit?.(kk, `${lead.emoji} ${val}`) }} k={k} v={lead.rest} keep={keep} multiline={multiline} /></Tag>;
+  }
   const content = isRich ? rich(v) : fmt ? fmt(v) : v;
   if (!ctx?.editable) return <Tag className={className} style={style}>{content}</Tag>;
   return (
@@ -312,7 +338,7 @@ function Hero({ p, ctx }) {
         {((p.image && !banner) || p.showCard !== false || p.chip1 || p.chip2) && <div className="hero-visual">
           {p.image && !banner ? <Img src={p.image} alt={p.alt || ''} className="hero-img" priority sizes="(max-width: 760px) 100vw, 600px" /> : p.showCard !== false && (
             <div className="hcard" data-rm="showCard" data-rm-label="product card">
-              <div className="hc-top"><E ctx={ctx} k="cardEmoji" v={p.cardEmoji} className="hc-emoji" />{p.cardTag && <span className="hc-tag"><i className="dot" /> <E ctx={ctx} k="cardTag" v={p.cardTag} /></span>}</div>
+              <div className="hc-top"><Ico ctx={ctx} k="cardEmoji" v={p.cardEmoji} className="hc-emoji" />{p.cardTag && <span className="hc-tag"><i className="dot" /> <E ctx={ctx} k="cardTag" v={p.cardTag} /></span>}</div>
               <E ctx={ctx} k="cardTitle" v={p.cardTitle} as="h3" />
               {p.rating ? <div className="stars sm">★★★★★ <b>{p.rating}</b></div> : null}
               {p.cardPrice && <div className="hc-price"><E ctx={ctx} k="cardPrice" v={p.cardPrice} as="b" />{p.cardMrp && <E ctx={ctx} k="cardMrp" v={p.cardMrp} as="s" />}</div>}
@@ -532,7 +558,7 @@ function HeroBento({ p, ctx }) {
           <div className="hero-ctas"><Btn big onClick={go(ctx)} ctx={ctx} k="ctaText" link={link}>{p.ctaText}</Btn></div>
         </div>
         <div className="bt bt-buy">
-          <E ctx={ctx} k="cardEmoji" v={p.cardEmoji} className="hc-emoji" />
+          <Ico ctx={ctx} k="cardEmoji" v={p.cardEmoji} className="hc-emoji" />
           <div><E ctx={ctx} k="cardTitle" v={p.cardTitle} as="h3" />{p.cardPrice && <div className="hc-price"><E ctx={ctx} k="cardPrice" v={p.cardPrice} as="b" />{p.cardMrp && <E ctx={ctx} k="cardMrp" v={p.cardMrp} as="s" />}</div>}</div>
         </div>
         {p.rating ? <div className="bt bt-rate"><b><E ctx={ctx} k="rating" v={p.rating} num /></b><span className="stars">★★★★★</span>{p.reviews && <small><E ctx={ctx} k="reviews" v={p.reviews} /> reviews</small>}</div> : null}
@@ -565,7 +591,7 @@ const Features = ({ p, ctx }) => (
       {(p.items || []).map((i, k) => (
         <div className="pc feat" key={k} data-item={`items.${k}`}>
           <span className="fnum" aria-hidden="true">{pad(k + 1)}</span>
-          <E ctx={ctx} k={`items.${k}.icon`} v={i.icon || '✓'} className="ic" />
+          <Ico ctx={ctx} k={`items.${k}.icon`} v={i.icon || '✓'} className="ic" />
           <div><E ctx={ctx} k={`items.${k}.title`} v={i.title} as="h3" /><E ctx={ctx} k={`items.${k}.text`} v={i.text} as="p" /></div>
         </div>
       ))}
@@ -660,7 +686,7 @@ const Bonuses = ({ p, ctx }) => (
       {(p.items || []).map((b, i) => (
         <div className="bonus" key={i} data-item={`items.${i}`}>
           {p.freeLabel && <span className="free">{p.freeLabel}</span>}
-          <E ctx={ctx} k={`items.${i}.icon`} v={b.icon} className="bic" />
+          <Ico ctx={ctx} k={`items.${i}.icon`} v={b.icon} className="bic" />
           {p.itemLabel && <small>{p.itemLabel}{/#\s*$/.test(p.itemLabel) ? i + 1 : ''}</small>}
           <E ctx={ctx} k={`items.${i}.title`} v={b.title} as="h3" />
           {b.value && <div className="worth">{p.worthLabel} <E ctx={ctx} k={`items.${i}.value`} v={b.value} as="s" /></div>}
@@ -774,7 +800,7 @@ function HelloBar({ p, ctx }) {
   const [i, setI] = useState(0);
   useTick(() => setI((x) => x + 1), ctx.live && msgs.length > 1);
   if (ctx.editable) { const j = (p.messages || []).findIndex((m) => m.text); return <div className="hellobar">{j >= 0 ? <E ctx={ctx} k={`messages.${j}.text`} v={p.messages[j].text} /> : <span>Add a message in the panel</span>}{msgs.length > 1 && <small className="hb-more"> +{msgs.length - 1} more · rotates every 9–10s</small>}</div>; }
-  return <div className={`hellobar ${ctx.live ? 'live' : ''}`}><span key={i}>{msgs[i % (msgs.length || 1)]?.text}</span></div>;
+  return <div className={`hellobar ${ctx.live ? 'live' : ''}`}><span key={i}><Lead ctx={ctx} text={msgs[i % (msgs.length || 1)]?.text} /></span></div>;
 }
 
 // Real visitors to this step in the last 30 minutes (from the page's analytics); hidden while it's quiet
@@ -857,7 +883,7 @@ function ExitPopup({ p, ctx }) {
     return (
       <FloatPreview label="🚪 Exit-intent popup" hint="Shown once when a visitor is about to leave (after 40 seconds on phones)">
         <div className="modal static">
-          <div className="m-emoji">🎁</div>
+          <div className="m-emoji">{ctx.icons === 'line' ? <PageIcon name="gift" /> : '🎁'}</div>
           <E ctx={ctx} k="title" v={p.title} as="h2" /><E ctx={ctx} k="body" v={p.body} as="p" />
           <E ctx={ctx} k="code" v={p.code} as="div" className="code" />
           <Btn big block ctx={ctx} k="buttonText">{p.buttonText}</Btn>
@@ -871,7 +897,7 @@ function ExitPopup({ p, ctx }) {
     <div className="overlay" onClick={() => setOpen(false)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <button className="mx" onClick={() => setOpen(false)}>×</button>
-        <div className="m-emoji">🎁</div>
+        <div className="m-emoji">{ctx.icons === 'line' ? <PageIcon name="gift" /> : '🎁'}</div>
         <h2>{p.title}</h2><p>{p.body}</p>
         <div className="code">{p.code}</div>
         <Btn big block onClick={() => { setOpen(false); ctx.onClaim?.(p.code); ctx.onNext(); }}>{p.buttonText}</Btn>
@@ -1301,7 +1327,7 @@ function Offer({ p, ctx }) {
       <div className="offer-grid">
         <div className="pc offer-visual">
           {p.tag && <E ctx={ctx} k="tag" v={p.tag} className="ov-tag" />}
-          <E ctx={ctx} k="emoji" v={p.emoji ?? '🎁'} as="div" className="ov-emoji" />
+          <Ico ctx={ctx} k="emoji" v={p.emoji ?? '🎁'} as="div" className="ov-emoji" />
           <E ctx={ctx} k="productName" v={p.productName} as="h3" />
           <div className="pprice">{(off > 0 || ctx.editable) && <E ctx={ctx} k="mrp" v={p.mrp} as="s" num fmt={(v) => money(p.currency, v)} />}<E ctx={ctx} k="price" v={p.price} as="b" num fmt={(v) => money(p.currency, v)} /></div>
           {off > 0 && <span className="off">Save {off}% — only on this page</span>}
@@ -1355,7 +1381,7 @@ function CrossSell({ p, ctx }) {
       <div className="xs-grid">
         {(p.items || []).map((it, i) => (
           <div className={`pc xs ${added[i] ? 'added' : ''}`} key={i} data-item={`items.${i}`}>
-            <E ctx={ctx} k={`items.${i}.emoji`} v={it.emoji ?? '🎁'} className="xs-emoji" />
+            <Ico ctx={ctx} k={`items.${i}.emoji`} v={it.emoji ?? '🎁'} className="xs-emoji" />
             <E ctx={ctx} k={`items.${i}.name`} v={it.name} as="h3" />
             <E ctx={ctx} k={`items.${i}.desc`} v={it.desc} as="p" />
             <div className="xs-foot">
@@ -2106,13 +2132,14 @@ export function Page({ blocks, theme, ctx, popups, popupPreview, onClosePreview 
   if (TEXT_SCALE[theme?.textSize]) vars['--ts'] = TEXT_SCALE[theme.textSize];
   // the page's real deadline (a countdown set to a fixed date and time) — the sticky buy bar shows it too
   const cd = blocks.find((b) => b.type === 'countdown' && cdMode(b.props || {}) === 'fixed' && Number(b.props?.endsAt) > 0);
-  const pctx = cd && ctx ? { ...ctx, pageEndsAt: Number(cd.props.endsAt) } : ctx;
+  // and the page's icon style: line icons (brand-coloured, page-icons.jsx) or emoji
+  const pctx = ctx ? { ...ctx, ...(cd ? { pageEndsAt: Number(cd.props.endsAt) } : {}), ...(theme?.icons === 'line' ? { icons: 'line' } : {}) } : ctx;
   return (
     <div className={`page s-${style}`} style={vars}>
       {blocks.map((b) => <Block key={b.id} block={b} ctx={pctx} />)}
       {ctx?.seller && ctx.live && !ctx.editable && <SellerFooter s={ctx.seller} lang={ctx.lang} />}
-      {popups?.length > 0 && ctx?.live && !ctx.editable && <PopupHost popups={popups} ctx={ctx} />}
-      {popupPreview && <PopupView popup={popupPreview} ctx={{ ...ctx, inPopup: true, popupId: popupPreview.id }} onClose={onClosePreview || (() => {})} />}
+      {popups?.length > 0 && ctx?.live && !ctx.editable && <PopupHost popups={popups} ctx={pctx} />}
+      {popupPreview && <PopupView popup={popupPreview} ctx={{ ...pctx, inPopup: true, popupId: popupPreview.id }} onClose={onClosePreview || (() => {})} />}
     </div>
   );
 }

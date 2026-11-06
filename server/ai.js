@@ -6,6 +6,10 @@ import { knownBlocks } from './block-types.js';
 import { isOutOfCredit, outOfCredit, PAUSED } from './kie-credit.js';
 import { PAGE_STYLES, STYLE_HINTS, variantsText, FONT_NAMES, RADII, TEXT_SIZES } from './page-styles.js';
 import { briefNeeds, needsText, unmet, applyNeeds, applyHonesty, honestAny } from './brief.js';
+import { PAGE_ICON_NAMES } from './page-icons.js';
+// icon fields hold an icon name the page draws as a brand-coloured line icon (client page-icons.jsx) — emoji are
+// what make a page read as AI-made, and they look different on every phone
+const ICON_RULE = `ICONS: the icon fields — features items "icon", bonuses items "icon", hero "cardEmoji", offer "emoji", crosssell items "emoji" — each take ONE icon name from this list, never an emoji: ${PAGE_ICON_NAMES.join(', ')}. Pick the one that says what that item is about (delivery → truck, refund → rotate-ccw, an ebook → book-open, a video course → circle-play, chai → coffee). Don't start any other text (badges, chips, buttons, notes) with an emoji.`;
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
@@ -380,6 +384,7 @@ export async function generateFunnel(prompt, { length = 'standard', style, prima
 {"name": string, "theme": {"style": string, "primary": "#hex", "secondary": "#hex"}, "steps": [{"name": string, "type": string, "slug": string, "blocks": [{"type": string, "props": {...}}]}]}
 Write persuasive, specific copy for THIS business (never generic), realistic Indian prices, Indian names and cities.
 ${BLOCK_SPEC}
+${ICON_RULE}
 
 EXAMPLE — a complete funnel from our template library for a similar business ("${closest.name}"). It shows the quality bar: the depth, specificity and tone to match. Use its structure as the starting point, but write completely new copy, names, prices and offers for the user's business — and reshape it (add pages, add sections, pick other layouts, build custom html sections) wherever the seller's brief asks for something it doesn't have. The seller's request always wins over the example:
 ${exampleFunnel(closest)}

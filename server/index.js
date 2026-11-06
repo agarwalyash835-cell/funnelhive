@@ -1225,6 +1225,8 @@ ${langInstruction(lang)}`;
   if (opts.style) gen.theme = { ...gen.theme, style: opts.style };
   if (opts.primary) gen.theme = { ...gen.theme, primary: opts.primary };
   if (lang !== 'en') gen.theme = langTheme(lang, gen.theme || {});
+  // new funnels draw their icons as brand-coloured line icons (the seller can switch back to emoji in Design)
+  gen.theme = { ...(gen.theme || {}), icons: 'line' };
   const usedAI = aiEnabled() && !gen.fallback;
   // the AI couldn't write it (timeout, bad answer, AI unavailable): the seller starts from the closest template,
   // is told so, and no credits are taken
