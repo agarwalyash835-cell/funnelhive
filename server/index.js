@@ -1211,7 +1211,15 @@ app.post('/api/ai/generate', auth, funnelCap, aiLimiter, credits('generate'), wr
   const ask = hindi ? `${prompt}
 
 Write every word of the page copy in Hindi (Devanagari script) — natural, conversational Hindi a buyer in India would use. Keep brand names, prices, numbers and units as they are.` : prompt;
-  const gen = aiEnabled() ? await generateFunnel(ask, opts) : trimTemplate(matchTemplate(prompt), opts.length);
+  let gen;
+  try { gen = aiEnabled() ? await generateFunnel(ask, opts) : trimTemplate(matchTemplate(prompt), opts.length); } catch (e) {
+    // nothing made, nothing charged, and a plain reason — never a stack-trace message in the dialog
+    res.locals.aiFailed = true;
+    if (e.code === 'AI_FAILED') return res.status(503).json({ error: e.message, retry: true });
+    console.error('funnel generation crashed:', e);
+    reportError(e, { route: 'POST /api/ai/generate', userId: req.user?.id });
+    return res.status(500).json({ error: 'Something went wrong while building your funnel — nothing was made and no credits were used. Please try again.', retry: true });
+  }
   if (opts.style) gen.theme = { ...gen.theme, style: opts.style };
   if (opts.primary) gen.theme = { ...gen.theme, primary: opts.primary };
   if (hindi) gen.theme = { ...gen.theme, lang: 'hi', headingFont: gen.theme?.headingFont || 'Mukta', bodyFont: gen.theme?.bodyFont || 'Hind' };

@@ -57,7 +57,7 @@ test('the seller’s own product reaches the model and is what the funnel sells'
   // the brief reached the model word for word
   const first = seen.slice(n).find((x) => /funnel strategist and copywriter/.test(x.instructions));
   assert.ok(first, 'the funnel model was called');
-  assert.equal(first.input.at(-1).content, PROMPT);
+  assert.ok(first.input.at(-1).content.includes(PROMPT), 'the brief reaches the model word for word');
   assert.equal(f.usedAI, true);
   // the first page the visitor sees is the seller's own page about their product
   const page = f.steps[0];

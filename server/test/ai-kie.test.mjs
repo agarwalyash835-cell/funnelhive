@@ -65,17 +65,20 @@ test('chat edits and marketing agents carry the template reference too', async (
   assert.deepEqual(a.outputs, ['Ad one', 'Ad two']);
 });
 
-test('broken JSON is retried; failures fall back to the closest template (never a broken funnel)', async () => {
+test('broken JSON is retried; when it still fails nothing is made (never a broken funnel, never another business’s template)', async () => {
   mode = 'broken';
-  const n = seen.length;
-  const r = (await api('/ai/generate', 'POST', { prompt: 'Yoga classes for busy professionals' }, T)).data;
-  assert.equal(r.usedAI, false, 'reported honestly as a template, not AI');
-  assert.ok(r.steps[0].blocks.some((b) => b.type === 'hero'));
+  const n = seen.length, before = (await api('/funnels', 'GET', null, T)).data.length;
+  const r = await api('/ai/generate', 'POST', { prompt: 'Yoga classes for busy professionals' }, T);
+  assert.equal(r.status, 503);
+  assert.match(r.data.error, /couldn’t write your funnel/);
   assert.ok(seen.length - n >= 2, 'retried before giving up');
   mode = 'unauthorized';
-  const u = (await api('/ai/generate', 'POST', { prompt: 'Spoken English course' }, T)).data;
-  assert.equal(u.usedAI, false);
-  const chat = await api('/ai/chat', 'POST', { funnelId: u.id, stepId: u.steps[0].id, message: 'hi' }, T);
+  const u = await api('/ai/generate', 'POST', { prompt: 'Spoken English course' }, T);
+  assert.equal(u.status, 503);
+  assert.doesNotMatch(u.data.error, /kie|deepseek|authorized/i);
+  assert.equal((await api('/funnels', 'GET', null, T)).data.length, before);
+  const f = (await api('/funnels', 'POST', { name: 'Chat while the AI is down' }, T)).data;
+  const chat = await api('/ai/chat', 'POST', { funnelId: f.id, stepId: f.steps[0].id, message: 'hi' }, T);
   assert.equal(chat.status, 500);
   assert.match(chat.data.error, /AI is busy/, 'the vendor’s own error stays in the server log');
   assert.doesNotMatch(chat.data.error, /kie|deepseek|authorized/i);

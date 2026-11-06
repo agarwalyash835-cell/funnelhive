@@ -21,7 +21,9 @@ const fresh = async () => {
   return { T, tok: (await api('/hive/tokens', 'POST', { name: 'test' }, T)).data.token };
 };
 before(async () => {
-  // the brief check gets ai.clarify; funnel generation gets nothing usable, so it falls back to the (trimmed) template
+  // the brief check gets ai.clarify; funnel generation gets the closest template back as the AI's draft (the builder
+  // trims it to the length asked for)
+  const draft = JSON.stringify(getTemplate(similarTemplates('PCOD healing programme for women in Pune, ₹2,999', 1)[0].id));
   model = http.createServer((req, res) => {
     let b = '';
     req.on('data', (d) => { b += d; });
@@ -30,7 +32,7 @@ before(async () => {
       ai.calls++;
       const brief = /You ask ONE question at a time/.test(j.instructions);
       if (brief) ai.asked = String(j.input?.at(-1)?.content || '');
-      const text = brief ? JSON.stringify(typeof ai.clarify === 'function' ? ai.clarify(ai.asked) : ai.clarify) : 'no json here';
+      const text = brief ? JSON.stringify(typeof ai.clarify === 'function' ? ai.clarify(ai.asked) : ai.clarify) : /funnel strategist and copywriter/.test(j.instructions) ? draft : 'no json here';
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ output: [{ type: 'message', content: [{ type: 'output_text', text }] }] }));
     });

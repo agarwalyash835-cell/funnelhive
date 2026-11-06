@@ -11,7 +11,8 @@ const say = (text) => ({ status: 'completed', output: [{ type: 'message', conten
 
 // A tiny "model": decides the next tool from the conversation so far
 function brain(body) {
-  if (!body.tools) return say('not json'); // funnel generation request → forces the template fallback
+  // funnel generation request → a small funnel (the builder tops it up to the bar)
+  if (!body.tools) return say(JSON.stringify({ name: 'Pune Yoga Studio', theme: { style: 'clean', primary: '#4a5560', secondary: '#b5654a' }, steps: [{ name: 'Yoga in Pune', type: 'sales', slug: 'start', blocks: [{ type: 'hero', props: { headline: 'Morning yoga in *Pune*', subheadline: 'Small batches near you.', ctaText: 'Join now' } }] }, { name: 'Checkout', type: 'checkout', slug: 'checkout', blocks: [{ type: 'checkout', props: { productName: 'Pune Yoga Studio — monthly', price: 999, currency: '₹' } }] }, { name: 'Thank you', type: 'thankyou', slug: 'thanks', blocks: [{ type: 'thankyou', props: { headline: 'See you on the mat' } }] }] }));
   const input = body.input;
   const user = [...input].reverse().find((x) => x.role === 'user')?.content || '';
   const calls = input.filter((x) => x.type === 'function_call').map((x) => x.name);

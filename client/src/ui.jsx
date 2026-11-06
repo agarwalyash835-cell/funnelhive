@@ -686,8 +686,10 @@ export const RangePicker = ({ value, onChange }) => (
 
 // ---------- Create funnel (AI / template / blank) ----------
 const EXAMPLES = ['Online yoga classes for working women, ₹499', 'Homemade mango pickles delivered across India', 'UPSC coaching with personal mentorship', 'Rooftop solar installation in Pune', 'Bridal makeup artist in Jaipur', 'Stock market course for beginners'];
-// Drafting a funnel with AI (about a minute): stage, seconds and progress — used by the "New funnel" dialog and the dashboard prompt
-const DRAFT_STAGES = [[0, 'Understanding your offer'], [6, 'Planning the funnel steps'], [14, 'Writing the sales page'], [26, 'Writing checkout, bump & upsell'], [38, 'Writing the thank-you page'], [48, 'Quality-checking every section'], [62, 'Almost there — polishing the copy']];
+// Drafting a funnel with AI (usually 1–3 minutes): stage, seconds and progress — used by the "New funnel" dialog and the
+// dashboard prompt. The stages follow how long a real draft takes, so the bar doesn't sit at "almost there" for minutes.
+const DRAFT_STAGES = [[0, 'Understanding your offer'], [8, 'Planning the funnel steps'], [20, 'Writing the sales page'], [55, 'Writing checkout, bump & upsell'], [85, 'Writing the thank-you page'], [110, 'Quality-checking every section'], [145, 'Almost there — polishing the copy'], [200, 'Still writing — a detailed brief takes a little longer']];
+const DRAFT_SECS = 180;
 // Before drafting, a vague brief ("free guide that grows my email list") gets a few quick questions so the page
 // is about the seller's business, not the nearest template. `asking` holds them until answered or skipped.
 export function useFunnelDraft() {
@@ -699,7 +701,7 @@ export function useFunnelDraft() {
   const [secs, setSecs] = useState(0);
   useEffect(() => { if (!busy) return undefined; setSecs(0); const t = setInterval(() => setSecs((s) => s + 1), 1000); return () => clearInterval(t); }, [busy]);
   const stage = [...DRAFT_STAGES].reverse().find(([s]) => secs >= s)[1];
-  const progress = Math.min(95, Math.round((secs / 70) * 100));
+  const progress = Math.min(95, Math.round((secs / DRAFT_SECS) * 100));
   const build = async (prompt, lang, design) => {
     setAsking(null); setBusy(true); setErr('');
     try {
@@ -788,8 +790,8 @@ export function CreateFunnel({ onClose, aiEnabled }) {
       {draft.asking && !busy ? <div className="create-ai"><BriefQuestions draft={draft} /></div> : (
       <form className="create-ai" onSubmit={gen}>
         <div className="ca-badge"><Icon name="sparkles" size={14} /> {t('AI funnel builder')}</div>
-        <h2>{t('Describe your business in one line')}</h2>
-        <p className="muted">{t('We’ll build the landing page, checkout, upsell, downsell, cross-sells and thank-you page — with copy, FOMO and pricing.')}</p>
+        <h2>{t('Describe your business')}</h2>
+        <p className="muted">{t('What you sell, who it’s for, the price and the offer — a line or a few. We’ll build the landing page, checkout, upsell, downsell, cross-sells and thank-you page with copy and pricing. (Ads, DM flows and message sequences are made elsewhere — Hive AI and Automations.)')}</p>
         <textarea ref={ref} rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t('e.g. Online yoga classes for working women, ₹499')} />
         <label className="lang-pick">{t('Page language')} <select value={lang} onChange={(e) => setLang(e.target.value)}><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></label>
         <DesignPicker value={design} onChange={setDesign} />
@@ -797,7 +799,7 @@ export function CreateFunnel({ onClose, aiEnabled }) {
         {err && <div className="err">{err}</div>}
         <button className="btn primary lg" disabled={busy || checking || prompt.length < 5}>{busy ? <><span className="spin" /> {stage}… <small className="gen-secs">{secs}s</small></> : checking ? <><span className="spin" /> {t('Reading your description…')}</> : <><Icon name="wand" /> {t('Generate my funnel')}</>}</button>
         {busy && <div className="gen-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>}
-        {busy && <p className="hint">{t('Hive AI writes every page, then checks each one against our template quality bar — about a minute. Keep this window open.')}</p>}
+        {busy && <p className="hint">{t('Hive AI writes every page, then checks each one against our template quality bar — usually 1–3 minutes. Keep this window open.')}</p>}
         {!aiEnabled && <p className="hint">{t('Running offline: we’ll match your description to the best of our 100+ expert templates. Fully custom AI copy turns on when full AI is enabled.')}</p>}
       </form>
       )}

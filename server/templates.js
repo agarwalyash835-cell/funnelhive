@@ -489,8 +489,20 @@ const SMALL = new Set(['for', 'and', 'of', 'in', 'to', 'with', 'the', 'a', 'an',
 const titleCase = (s) => s.split(/\s+/).map((w, i) => (i && SMALL.has(w.toLowerCase()) ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1))).join(' ');
 const nine = (n) => Math.max(49, Math.round(n / 10) * 10 - 1);
 
+// lines that talk to the AI rather than about the business ("You are a world-class…", "Act as…", "# MASTER PROMPT",
+// "Your task is…") never become the business's name
+const INSTRUCTION_LINE = /^\s*(?:[#>*-]+\s*)?(?:you are\b|you're\b|act as\b|acting as\b|your (?:task|role|job|goal)\b|role\s*:|(?:master\s+)?prompt\b|master prompt|important\b|instructions?\b|i want you\b|as an? (?:expert|world|senior)\b)/i;
+const cleanName = (s) => s.replace(/["“”‘’`*_#]/g, '').replace(/\s+/g, ' ').replace(/[\s,.;:–—-]+$/, '').trim();
 export function parsePrompt(prompt) {
-  const raw = prompt.replace(/\s+/g, ' ').trim();
+  const lines = String(prompt || '').split(/\n+/);
+  const kept = lines.filter((l) => !INSTRUCTION_LINE.test(l) && !/^\s*#{1,6}\s/.test(l));
+  // written as a prompt for an AI (role lines, headings): its first clause is an instruction, never the business
+  const prompty = kept.length < lines.length;
+  const about = kept.join('\n') || String(prompt || '');
+  const raw = about.replace(/\s+/g, ' ').trim();
+  // a name the brief states outright: "Name: …", "Product name: …", or the brief opening on a quoted title followed by
+  // a dash or colon ("“Grahak Ka Dimaag” — an ebook…")
+  const stated = /^\s*[-*•]?\s*(?:product\s+|brand\s+|business\s+)?name\s*[:：]\s*(.{3,90})$/im.exec(about)?.[1] || /^\s*["“]([^"”]{3,90})["”]\s*[—–:-]/.exec(raw)?.[1];
   const pm = raw.match(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s*(k|l|lakh)?/i) || raw.match(/([\d,]+)\s*(k)?\s*(?:rs\.?|rupees|inr|\/-)/i);
   const mult = (u) => (!u ? 1 : /^k$/i.test(u) ? 1000 : 100000);
   const price = pm ? Math.round(Number(pm[1].replace(/,/g, '')) * mult(pm[2])) : null;
@@ -514,9 +526,12 @@ export function parsePrompt(prompt) {
     .replace(/[,.!?]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  let words = name.split(' ').filter(Boolean).slice(0, 6);
+  let words = cleanName(name).split(' ').filter(Boolean).slice(0, 6);
   while (words.length && SMALL.has(words.at(-1).toLowerCase())) words.pop(); // no "Candles at" / "Coaching for"
   name = words.length >= 1 && words.join('').length >= 4 ? titleCase(words.join(' ')) : null;
+  // a long brief (a full prompt with sections and rules) has no "first clause" that is its name: only a stated one
+  if (stated && cleanName(stated).length >= 3) name = cleanName(stated).slice(0, 80);
+  else if (prompty || raw.length > 400) name = null;
   return { name, price, city, audience };
 }
 
@@ -532,11 +547,18 @@ function swapEverywhere(obj, from, to) {
   return obj;
 }
 
+// one exact phrase replaced in every piece of copy (inside each string — a name with quote marks or backslashes in
+// it can never break the template's data)
+function swapText(obj, from, to) {
+  if (typeof obj === 'string') return obj.split(from).join(to);
+  if (Array.isArray(obj)) return obj.map((x) => swapText(x, from, to));
+  if (obj && typeof obj === 'object') return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, swapText(v, from, to)]));
+  return obj;
+}
 function personalize(f, templateName, prompt) {
   const { name, price, city, audience } = parsePrompt(prompt);
-  let json = JSON.stringify(f);
-  if (name && name.toLowerCase() !== templateName.toLowerCase()) json = json.split(templateName).join(name);
-  f = JSON.parse(json);
+  f = structuredClone(f);
+  if (name && name.toLowerCase() !== templateName.toLowerCase()) f = swapText(f, templateName, name);
   f.name = name || templateName;
   const blocks = () => f.steps.flatMap((s) => s.blocks);
   const main = blocks().find((b) => b.type === 'checkout') || blocks().find((b) => b.type === 'pricing');
