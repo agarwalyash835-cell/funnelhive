@@ -59,7 +59,15 @@ export default function Library() {
   );
 }
 
-function FileRow({ f }) {
+// a read-only PDF has no link here: it opens in the members area's reader (signed in, the buyer's email on every page)
+function FileRow({ f, reader }) {
+  if (f.readOnly) return (
+    <div className="lib-file">
+      <span className="lib-fic">PDF</span>
+      <div><b>{f.name}</b><small>{bytes(f.size)} · read-only — opens in the members area</small></div>
+      {reader ? <a className="lib-btn" href={reader}>Read</a> : <span className="lib-mute sm">Read-only</span>}
+    </div>
+  );
   return (
     <div className="lib-file">
       <span className="lib-fic">{/^video/.test(f.type) ? '▶' : /pdf/.test(f.type) ? 'PDF' : '⬇'}</span>
@@ -71,6 +79,8 @@ function FileRow({ f }) {
 }
 
 function ProductView({ token, school, p, onBack, onChange }) {
+  // read-only PDFs open in the members area (the library link signs straight in there)
+  const reader = school ? (/^L/.test(token) ? `${school}?t=${encodeURIComponent(token)}` : school) : null;
   const lessons = p.lessons || [];
   const [cur, setCur] = useState(() => lessons.find((l) => !l.done && !l.locked)?.id || lessons[0]?.id);
   const lesson = lessons.find((l) => l.id === cur);
@@ -109,7 +119,7 @@ function ProductView({ token, school, p, onBack, onChange }) {
                 : null}
               <div className="lib-lh"><h2>{lesson.title}</h2><button className={`lib-btn ${lesson.done ? 'ghost' : ''}`} onClick={() => mark(lesson, !lesson.done)}>{lesson.done ? '✓ Completed' : 'Mark as complete'}</button></div>
               {lesson.body && <div className="lib-body">{linkify(lesson.body)}</div>}
-              {lesson.files?.length > 0 && <div className="lib-files"><h4>Downloads</h4>{lesson.files.map((f) => <FileRow key={f.id} f={f} />)}</div>}
+              {lesson.files?.length > 0 && <div className="lib-files"><h4>Downloads</h4>{lesson.files.map((f) => <FileRow key={f.id} f={f} reader={reader} />)}</div>}
             </>}
           </section>
         </div>
@@ -117,7 +127,7 @@ function ProductView({ token, school, p, onBack, onChange }) {
       {(p.files?.length > 0 || p.links?.length > 0) && (
         <div className="lib-files">
           {lessons.length > 0 && <h4>Resources</h4>}
-          {p.files.map((f) => <FileRow key={f.id} f={f} />)}
+          {p.files.map((f) => <FileRow key={f.id} f={f} reader={reader} />)}
           {p.links.map((l, i) => <div key={i} className="lib-file"><span className="lib-fic">🔗</span><div><b>{l.label}</b><small>{l.url.replace(/^https?:\/\//, '').slice(0, 60)}</small></div><a className="lib-btn" href={l.url} target="_blank" rel="noreferrer">Open</a></div>)}
           {p.downloadLimit > 0 && <p className="lib-mute sm">Each file can be downloaded {p.downloadLimit} time{p.downloadLimit > 1 ? 's' : ''}. Save it somewhere safe.</p>}
         </div>

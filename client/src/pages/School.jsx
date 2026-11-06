@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { Layout, Panel, Icon, Empty, Modal, toast, ago, confirmDialog, promptDialog, loadFailed } from '../ui';
+import { LEARN_LANGS } from '../i18n-learn.js';
 
 const TABS = [['overview', 'Overview'], ['community', 'Community'], ['questions', 'Questions'], ['students', 'Students'], ['settings', 'Settings']];
 const ACCESS = { open: 'Anyone who joins', buyers: 'Anyone who bought something', products: 'Buyers of chosen products' };
@@ -279,6 +280,7 @@ function SettingsTab({ d, reload }) {
       <Panel title="Access">
         <label className="tog sc-tog"><input type="checkbox" checked={!!v.openJoin} onChange={(e) => setV({ ...v, openJoin: e.target.checked })} /><span /><div><b>Open sign-up</b> — anyone can join free with their email (they see “open” spaces; paid spaces and courses stay locked)</div></label>
         <label className="tog sc-tog"><input type="checkbox" checked={!!v.tutor} disabled={!d.aiEnabled} onChange={(e) => setV({ ...v, tutor: e.target.checked })} /><span /><div><b>AI tutor</b> — students ask questions and get answers from your lessons (1 AI credit each, up to 30 a day per student){!d.aiEnabled && ' · needs AI on this server'}</div></label>
+        <label className="fld" style={{ maxWidth: 320, marginTop: 10 }}><span>Members area language</span><select value={v.lang || 'en'} onChange={(e) => setV({ ...v, lang: e.target.value })}>{LEARN_LANGS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select><small className="hint">Sign-in, lessons, the community, quizzes and certificates use this language. Each student can switch to another. Your own lesson text stays as you wrote it.</small></label>
         <label className="fld" style={{ maxWidth: 260, marginTop: 10 }}><span>Devices per student</span><select value={v.deviceLimit} onChange={(e) => setV({ ...v, deviceLimit: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select><small className="hint">Signing in on one more device signs out the oldest — stops a login being shared.</small></label>
       </Panel>
       <Panel title="Levels">

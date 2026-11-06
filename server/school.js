@@ -7,7 +7,7 @@ import { T, q, tx, uid, contactKey } from './db.js';
 import { hashToken, randomToken } from './security.js';
 import { sendEmail } from './messaging.js';
 import { handleOf } from './bookings.js';
-import { studentLibrary, accessActive, cleanQuiz } from './products.js';
+import { studentLibrary, accessActive, cleanQuiz, isPdf, readerTicket, checkReaderTicket, sendReader } from './products.js';
 import { fire as fireAutomation } from './automations.js';
 import { ensureContact } from './crm.js';
 import { aiEnabled, aiText, aiJson } from './ai.js';
@@ -25,7 +25,9 @@ const first = (name) => String(name || '').trim().split(/\s+/)[0] || '';
 const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 
 // ---------- the school's settings (on the seller's account) ----------
-export const SCHOOL_DEFAULTS = { name: '', tagline: '', logo: '', cover: '', color: '', openJoin: false, deviceLimit: 3, tutor: true, levels: ['Newcomer', 'Learner', 'Regular', 'Contributor', 'Achiever', 'Expert', 'Mentor', 'Master', 'Legend'], welcome: '' };
+export const SCHOOL_DEFAULTS = { name: '', tagline: '', logo: '', cover: '', color: '', openJoin: false, deviceLimit: 3, tutor: true, levels: ['Newcomer', 'Learner', 'Regular', 'Contributor', 'Achiever', 'Expert', 'Mentor', 'Master', 'Legend'], welcome: '', lang: 'en' };
+// the members area's own words (sign-in, lessons, community, quizzes, certificates) in one of these; students can switch
+export const SCHOOL_LANGS = ['en', 'hi', 'mr', 'gu', 'bn', 'ta', 'te', 'kn', 'ml', 'pa', 'or', 'hinglish'];
 export const schoolOf = (u) => ({ ...SCHOOL_DEFAULTS, ...(u?.settings?.school || {}) });
 const schoolName = (u) => schoolOf(u).name || u?.settings?.businessName || u?.name || brand();
 
@@ -190,7 +192,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   const meView = (owner, s) => ({ id: s.id, email: s.email, name: s.name, bio: s.bio || '', alerts: !s.alertsOff, initials: initials(s.name || s.email), ...levelView(owner, s.points || 0) });
   const publicSchool = (owner) => {
     const sc = schoolOf(owner);
-    return { name: schoolName(owner), tagline: sc.tagline, logo: sc.logo, cover: sc.cover, color: sc.color || owner.settings?.brandColor || '#6366f1', openJoin: !!sc.openJoin, tutor: !!sc.tutor && aiEnabled(), levels: sc.levels, levelPoints: LEVELS, welcome: sc.welcome };
+    return { name: schoolName(owner), tagline: sc.tagline, logo: sc.logo, cover: sc.cover, color: sc.color || owner.settings?.brandColor || '#6366f1', openJoin: !!sc.openJoin, tutor: !!sc.tutor && aiEnabled(), levels: sc.levels, levelPoints: LEVELS, welcome: sc.welcome, lang: SCHOOL_LANGS.includes(sc.lang) ? sc.lang : 'en' };
   };
 
   // --- public: the school's front door ---
@@ -315,6 +317,8 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
       else if (req.body.done === true && !x.progress[lesson.id]) { x.progress[lesson.id] = Date.now(); firstTime = true; }
       // where they left off: this lesson (and the video position)
       x.resume = { lessonId: lesson.id, t: Math.max(0, Math.round(Number(req.body.t) || 0)), at: Date.now() };
+      // each lesson's own position too (an audiobook resumes every chapter where it stopped)
+      if (Number(req.body.t) > 0) { x.pos ||= {}; x.pos[lesson.id] = x.resume.t; }
       x.lastSeenAt = Date.now();
     });
     if (firstTime) award(s, 1, 'lesson', `${p.id}:${lesson.id}`);
@@ -364,6 +368,34 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     if (f.hls?.status !== 'ready') return res.status(409).json({ error: 'This video is still being prepared — try again in a few minutes' });
     res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, mark: p.watermark === false ? '' : s.email });
   });
+  // a PDF in the in-page reader: a 10-minute ticket for this student; the file itself comes encrypted (see products.js)
+  app.post('/api/learn/:handle/reader', limiter, (req, res) => {
+    const owner = school(req, res); if (!owner) return;
+    const s = student(req, res, owner); if (!s) return;
+    const a = ownAccess(s, req.body?.accessId);
+    const p = a && T.products.get(a.productId);
+    const f = p?.files.find((x) => x.id === req.body?.fileId);
+    if (!f || !isPdf(f)) return res.status(404).json({ error: 'File not found' });
+    // in a lesson: that lesson has to be open to this student; otherwise it's one of the product's own files
+    const lesson = p.lessons.find((l) => l.fileIds?.includes(f.id));
+    if (lesson && (dripLocked(a, lesson) || lessonGate(s, p, lesson.id))) return res.status(403).json({ error: 'This lesson isn’t open yet' });
+    const { t, key, iv } = readerTicket(a.id, f.id, s.id);
+    res.set('Cache-Control', 'no-store').json({ src: `/api/learn/${req.params.handle}/reader/${encodeURIComponent(t)}`, key, iv, mark: s.email, name: f.name, readOnly: !!f.readOnly });
+  });
+  // only the student the ticket was made for, signed in, before it runs out
+  app.get('/api/learn/:handle/reader/:t', limiter, wrap(async (req, res) => {
+    const owner = school(req, res); if (!owner) return;
+    const s = student(req, res, owner); if (!s) return;
+    const k = checkReaderTicket(req.params.t);
+    if (k.error) return res.status(k.status).json({ error: k.error, expired: !!k.expired });
+    if (k.studentId !== s.id) return res.status(403).json({ error: 'This reading link belongs to another member' });
+    const a = ownAccess(s, k.accessId);
+    const p = a && T.products.get(a.productId);
+    const f = p?.files.find((x) => x.id === k.fileId);
+    if (!f || !isPdf(f)) return res.status(404).json({ error: 'File not found' });
+    T.access.update(a.id, (x) => { x.lastSeenAt = Date.now(); });
+    await sendReader(res, req.params.t, owner.id, f);
+  }));
   app.get('/api/learn/:handle/certificate/:pid', limiter, (req, res) => {
     const owner = school(req, res); if (!owner) return;
     const s = student(req, res, owner); if (!s) return;
@@ -517,7 +549,8 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   app.get('/api/cert/:id', limiter, (req, res) => {
     const c = /^[0-9a-f]{16}$/.test(req.params.id) && T.certs.get(req.params.id);
     if (!c) return res.status(404).json({ error: 'No certificate with this number' });
-    res.set('Cache-Control', 'public, max-age=300').json(certView(c));
+    const sc = schoolOf(T.users.get(c.userId));
+    res.set('Cache-Control', 'public, max-age=300').json({ ...certView(c), lang: SCHOOL_LANGS.includes(sc.lang) ? sc.lang : 'en' });
   });
 
   // --- AI: a whole course from a topic, and quizzes for a lesson ---
@@ -571,6 +604,7 @@ Rules: modules (sections) in a sensible order, 3-6 lessons each; add a quiz (3-5
     if ('color' in b) out.color = /^#[0-9a-f]{6}$/i.test(b.color || '') ? b.color : '';
     if ('openJoin' in b) out.openJoin = !!b.openJoin;
     if ('tutor' in b) out.tutor = !!b.tutor;
+    if ('lang' in b) out.lang = SCHOOL_LANGS.includes(b.lang) ? b.lang : 'en';
     if ('deviceLimit' in b) out.deviceLimit = Math.max(1, Math.min(10, Math.round(Number(b.deviceLimit)) || 3));
     if (Array.isArray(b.levels)) out.levels = SCHOOL_DEFAULTS.levels.map((d, i) => clip(b.levels[i], 30) || d);
     const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, school: out }; });

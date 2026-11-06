@@ -45,6 +45,7 @@ label.fld input, label.fld textarea, label.fld select { width: 100%; }
 .pr-up { display: grid; grid-template-columns: minmax(0, 1fr) 140px 40px; gap: 10px; align-items: center; margin-top: 10px; font-size: 13px; }
 .pr-up span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-files { margin-top: 12px; }
+.pr-ro { display: block; margin-top: 4px; font-size: 12px; padding: 2px 6px; border-radius: 8px; border: 1px solid var(--line, #e5e7eb); background: transparent; }
 .pr-files td:first-child { display: flex; gap: 8px; align-items: center; word-break: break-all; }
 .pr-link { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; margin-bottom: 8px; }
 .pr-lessons { display: grid; gap: 8px; }
