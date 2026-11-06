@@ -55,12 +55,13 @@ export const KITS = [
     note: 'Health details are personal data: record only what you need for care, and patients can ask you to erase them.',
   },
   {
-    id: 'consultant', name: 'Consultant / agency / B2B', icon: '💼', desc: 'Companies, decision makers, proposals and deal values.',
+    // also the home of software / SaaS sellers (the separate SaaS style was folded in here: see RETIRED_KITS)
+    id: 'consultant', name: 'Consultant / agency / B2B / SaaS', icon: '💼', desc: 'Companies, decision makers, demos, proposals, deal values and renewals.',
     labels: { title: 'Clients', one: 'client', customers: 'Clients', leads: 'Prospects', value: 'Deal value' },
     fields: [
       f('co_company', 'Company'), f('co_role', 'Role / designation'), sel('co_industry', 'Industry', 'IT & software, Manufacturing, Retail, Healthcare, Education, Finance, Real estate, Hospitality, Other'),
-      sel('co_size', 'Company size', '1–10, 11–50, 51–200, 201–1000, 1000+'), sel('co_service', 'Interested in', 'Strategy, Marketing, Sales, Finance, HR, Technology, Operations'),
-      f('co_value', 'Deal value (₹)', 'money'), f('co_proposal', 'Proposal sent', 'date'), f('co_close', 'Expected close', 'date'), f('co_site', 'Website', 'url'),
+      sel('co_size', 'Company size', '1–10, 11–50, 51–200, 201–1000, 1000+'), sel('co_service', 'Interested in', 'Strategy, Marketing, Sales, Finance, HR, Technology, Operations, Software / SaaS'),
+      f('co_value', 'Deal value (₹)', 'money'), f('co_proposal', 'Proposal sent', 'date'), f('co_close', 'Expected close', 'date'), f('co_renew', 'Renewal / contract end', 'date'), f('co_site', 'Website', 'url'),
     ],
     pipeline: { name: 'B2B sales', stages: [S('Lead', '#6366f1'), S('Discovery call', '#0ea5e9'), S('Proposal sent', '#f59e0b'), S('Negotiation', '#ec4899'), S('Won', '#16a34a', 'won'), S('Lost', '#94a3b8', 'lost')] },
     columns: ['co_company', 'co_service', 'co_value', 'co_close'], cardFields: ['co_company', 'co_value'], filters: ['co_industry', 'co_size', 'co_service'], valueField: 'co_value', showSales: false,
@@ -77,7 +78,7 @@ export const KITS = [
     columns: ['ed_course', 'ed_demo', 'ed_batch', 'ed_fee'], cardFields: ['ed_course', 'ed_demo'], filters: ['ed_course', 'ed_mode', 'ed_from'], valueField: 'ed_fee', showSales: false,
   },
   {
-    id: 'fitness', name: 'Gym, salon & wellness', icon: '💪', desc: 'Trials, memberships, plans and renewals.',
+    id: 'fitness', name: 'Gym, salon & spa', icon: '💪', desc: 'Trials, memberships, plans and renewals.',
     labels: { title: 'Members', one: 'member', customers: 'Members', leads: 'Enquiries', value: 'Plan value' },
     fields: [
       sel('fi_goal', 'Goal', 'Weight loss, Muscle gain, General fitness, Flexibility, Skin & hair, Relaxation'),
@@ -88,7 +89,7 @@ export const KITS = [
     columns: ['fi_goal', 'fi_plan', 'fi_renew', 'fi_trainer'], cardFields: ['fi_plan', 'fi_renew'], filters: ['fi_goal', 'fi_plan'], valueField: 'fi_value', showSales: false,
   },
   {
-    id: 'finance', name: 'Financial advisor / insurance / loans', icon: '📈', desc: 'Products, ticket sizes, documents and follow-ups.',
+    id: 'finance', name: 'Financial advisor / insurance', icon: '📈', desc: 'Mutual funds, insurance and tax — products, ticket sizes, documents and follow-ups.',
     labels: { title: 'Clients', one: 'client', customers: 'Clients', leads: 'Leads', value: 'Ticket size' },
     fields: [
       sel('fa_product', 'Product', 'Mutual funds / SIP, Life insurance, Health insurance, Home loan, Personal loan, Business loan, Tax filing, Wealth management'),
@@ -175,7 +176,7 @@ export const KITS = [
     columns: ['hs_service', 'hs_survey', 'hs_value', 'hs_amc'], cardFields: ['hs_service', 'hs_value'], filters: ['hs_service', 'hs_prop'], valueField: 'hs_value', showSales: false,
   },
   {
-    id: 'hospitality', name: 'Hotel / homestay / restaurant', icon: '🏨', desc: 'Check-ins, guests, room or event bookings and repeat visits.',
+    id: 'hospitality', name: 'Hotel / homestay / banquet', icon: '🏨', desc: 'Check-ins, guests, room or event bookings and repeat visits.',
     labels: { title: 'Guests', one: 'guest', customers: 'Guests', leads: 'Enquiries', value: 'Booking value' },
     fields: [
       sel('ho_kind', 'Booking for', 'Stay, Table, Banquet / party, Corporate event, Catering'), f('ho_in', 'Check-in / date', 'date'), f('ho_out', 'Check-out', 'date'),
@@ -230,7 +231,7 @@ export const KITS = [
     columns: ['ds_area', 'ds_type', 'ds_value', 'ds_payment'], cardFields: ['ds_area', 'ds_value'], filters: ['ds_type', 'ds_from'], valueField: 'ds_value', showSales: false,
   },
   {
-    id: 'abroad', name: 'Study abroad / immigration', icon: '🎓', desc: 'Countries, courses, test scores, applications and visas.',
+    id: 'abroad', name: 'Study abroad / immigration', icon: '🌍', desc: 'Countries, courses, test scores, applications and visas.',
     labels: { title: 'Students', one: 'student', customers: 'Enrolled', leads: 'Enquiries', value: 'Service fee' },
     fields: [
       sel('ab_country', 'Country', 'Canada, UK, USA, Australia, Germany, Ireland, New Zealand, Dubai, Other'), f('ab_course', 'Course / visa type'),
@@ -253,17 +254,6 @@ export const KITS = [
     columns: ['we_service', 'we_session', 'we_package', 'we_value'], cardFields: ['we_service', 'we_session'], filters: ['we_service', 'we_package'], valueField: 'we_value', showSales: false,
   },
   {
-    id: 'saas', name: 'SaaS / software', icon: '💻', desc: 'Demos, trials, plans, seats and renewals.',
-    labels: { title: 'Accounts', one: 'account', customers: 'Customers', leads: 'Trials & leads', value: 'Annual value' },
-    fields: [
-      f('sa_company', 'Company'), sel('sa_size', 'Team size', '1–10, 11–50, 51–200, 201–1000, 1000+'), f('sa_demo', 'Demo', 'date'),
-      f('sa_trial', 'Trial ends', 'date'), sel('sa_plan', 'Plan', 'Free, Starter, Growth, Pro, Enterprise'), f('sa_seats', 'Seats', 'number'),
-      f('sa_value', 'Annual value (₹)', 'money'), f('sa_renew', 'Renewal date', 'date'),
-    ],
-    pipeline: { name: 'SaaS sales', stages: [S('Lead', '#6366f1'), S('Demo booked', '#0ea5e9'), S('Trial', '#8b5cf6'), S('Proposal', '#f59e0b'), S('Customer', '#16a34a', 'won'), S('Churned / lost', '#94a3b8', 'lost')] },
-    columns: ['sa_company', 'sa_plan', 'sa_trial', 'sa_value'], cardFields: ['sa_company', 'sa_plan'], filters: ['sa_size', 'sa_plan'], valueField: 'sa_value', showSales: false,
-  },
-  {
     id: 'ngo', name: 'NGO / donations', icon: '🤝', desc: 'Donors, causes, recurring gifts, 80G receipts and volunteers.',
     labels: { title: 'Supporters', one: 'supporter', customers: 'Donors', leads: 'Supporters', value: 'Donated' },
     fields: [
@@ -274,8 +264,163 @@ export const KITS = [
     pipeline: { name: 'Donor journey', stages: [S('New supporter', '#6366f1'), S('First gift', '#16a34a', 'won'), S('Monthly donor', '#14b8a6'), S('Lapsed', '#f59e0b'), S('Not interested', '#94a3b8', 'lost')] },
     columns: ['ng_cause', 'ng_amount', 'ng_type', 'ng_80g'], cardFields: ['ng_cause', 'ng_amount'], filters: ['ng_cause', 'ng_type', 'ng_80g'], valueField: 'ng_amount', showSales: true,
   },
+  {
+    id: 'lab', name: 'Diagnostic lab / pharmacy', icon: '🧪', desc: 'Test bookings, home sample collection, reports and repeat refills.',
+    labels: { title: 'Patients', one: 'patient', customers: 'Patients', leads: 'Enquiries', value: 'Bill value' },
+    fields: [
+      sel('lb_test', 'Test / package', 'Full body check-up, Blood test, Thyroid profile, Diabetes (HbA1c), Vitamin D & B12, X-ray / scan, Medicines, Other'),
+      sel('lb_mode', 'Collection', 'Home collection, Walk-in at lab, Pharmacy pickup, Home delivery'), f('lb_slot', 'Collection date', 'date'), f('lb_area', 'Area / pincode'),
+      f('lb_doctor', 'Referred by doctor'), f('lb_value', 'Bill value (₹)', 'money'), sel('lb_report', 'Report', 'Pending, Ready, Shared on WhatsApp'),
+      f('lb_refill', 'Next refill / repeat test', 'date'), sel('lb_from', 'Found us via', 'Doctor referral, Google, Practo, WhatsApp, Walk-in, Corporate tie-up, Website'),
+    ],
+    pipeline: { name: 'Test bookings', stages: [S('Enquiry', '#6366f1'), S('Slot booked', '#0ea5e9'), S('Sample collected', '#8b5cf6'), S('Report ready', '#f59e0b'), S('Report shared', '#16a34a', 'won'), S('Repeat due', '#14b8a6'), S('Not booked', '#94a3b8', 'lost')] },
+    columns: ['lb_test', 'lb_slot', 'lb_report', 'lb_value'], cardFields: ['lb_test', 'lb_slot'], filters: ['lb_test', 'lb_mode', 'lb_report', 'lb_from'], valueField: 'lb_value', showSales: false,
+    note: 'Test results are health data: record only what you need, share reports only with the patient or their doctor, and erase them when asked.',
+  },
+  {
+    id: 'jewellery', name: 'Jewellery store', icon: '💎', desc: 'Gold savings schemes, custom orders, occasion dates and repeat buyers.',
+    labels: { title: 'Customers', one: 'customer', customers: 'Customers', leads: 'Enquiries', value: 'Budget' },
+    fields: [
+      sel('jw_need', 'Looking for', 'Gold jewellery, Diamond jewellery, Silver, Bridal set, Coins / bars, Custom design, Repair / polish, Old gold exchange'),
+      sel('jw_metal', 'Metal / purity', '22K gold, 18K gold, 24K gold, Silver, Platinum'), f('jw_budget', 'Budget (₹)', 'money'),
+      sel('jw_occ', 'Occasion', 'Wedding, Engagement, Birthday, Anniversary, Akshaya Tritiya, Dhanteras / Diwali, Gift, Other'), f('jw_occasion', 'Occasion date', 'date'),
+      sel('jw_scheme', 'Gold savings scheme', 'Not joined, Joined, Instalment due, Matured'), f('jw_ready', 'Custom order ready by', 'date'),
+      sel('jw_from', 'Came from', 'Walk-in, Instagram, WhatsApp, Google Maps, Referral, Wedding fair, Newspaper'),
+    ],
+    pipeline: { name: 'Jewellery sales', stages: [S('Enquiry', '#6366f1'), S('Store visit', '#0ea5e9'), S('Design / estimate shared', '#f59e0b'), S('Order placed', '#16a34a', 'won'), S('Ready for pickup', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['jw_need', 'jw_budget', 'jw_occasion', 'jw_scheme'], cardFields: ['jw_need', 'jw_budget'], filters: ['jw_need', 'jw_metal', 'jw_occ', 'jw_scheme'], valueField: 'jw_budget', showSales: true,
+  },
+  {
+    id: 'school', name: 'School / preschool admissions', icon: '🏫', desc: 'Admission enquiries, campus visits, interactions, forms and fees.',
+    labels: { title: 'Admissions', one: 'student', customers: 'Admitted', leads: 'Enquiries', value: 'Annual fee' },
+    fields: [
+      f('sc_child', 'Child name'), sel('sc_grade', 'Admission for', 'Playgroup, Nursery, LKG, UKG, Class 1–5, Class 6–8, Class 9–10, Class 11–12'),
+      f('sc_dob', 'Child date of birth', 'date'), f('sc_parent', 'Parent / guardian'), sel('sc_board', 'Board', 'CBSE, ICSE, State board, IB, Cambridge (IGCSE), Montessori / play school'),
+      f('sc_visit', 'Campus visit', 'date'), sel('sc_form', 'Admission form', 'Not taken, Taken, Submitted'), f('sc_fee', 'Annual fee (₹)', 'money'),
+      sel('sc_bus', 'School bus', 'Needed, Not needed'), sel('sc_from', 'Enquiry from', 'Walk-in, Google, Instagram, Facebook ads, Referral, Hoarding / pamphlet, Website'),
+    ],
+    pipeline: { name: 'School admissions', stages: [S('Enquiry', '#6366f1'), S('Campus visit', '#0ea5e9'), S('Interaction / test', '#8b5cf6'), S('Form submitted', '#f59e0b'), S('Fee paid', '#16a34a', 'won'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['sc_grade', 'sc_visit', 'sc_form', 'sc_fee'], cardFields: ['sc_grade', 'sc_visit'], filters: ['sc_grade', 'sc_board', 'sc_form', 'sc_from'], valueField: 'sc_fee', showSales: false,
+  },
+  {
+    id: 'pg', name: 'PG / hostel / co-living / rentals', icon: '🛏️', desc: 'Room and bed enquiries, visits, deposits, move-ins and rent due dates.',
+    labels: { title: 'Tenants', one: 'tenant', customers: 'Tenants', leads: 'Enquiries', value: 'Monthly rent' },
+    fields: [
+      sel('pg_type', 'Looking for', 'Single room, Twin sharing, Triple sharing, Dormitory bed, 1 RK / studio, 1 BHK, 2 BHK'),
+      sel('pg_for', 'For', 'Students, Working professionals, Girls only, Boys only, Family'), f('pg_property', 'Property / room no.'),
+      f('pg_rent', 'Monthly rent (₹)', 'money'), f('pg_deposit', 'Deposit (₹)', 'money'), f('pg_visit', 'Visit', 'date'), f('pg_movein', 'Move-in date', 'date'),
+      f('pg_due', 'Rent due', 'date'), sel('pg_food', 'Food', 'With meals, Without meals'),
+      sel('pg_from', 'Enquiry from', 'NoBroker, Housing.com, MagicBricks, Google Maps, Instagram, Referral, Walk-in, College / office tie-up'),
+    ],
+    pipeline: { name: 'Occupancy', stages: [S('Enquiry', '#6366f1'), S('Visit scheduled', '#0ea5e9'), S('Visited', '#f59e0b'), S('Deposit paid', '#16a34a', 'won'), S('Moved in', '#14b8a6'), S('Notice given', '#ec4899'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['pg_type', 'pg_rent', 'pg_movein', 'pg_due'], cardFields: ['pg_property', 'pg_due'], filters: ['pg_type', 'pg_for', 'pg_food', 'pg_from'], valueField: 'pg_rent', showSales: false,
+  },
+  {
+    id: 'agri', name: 'Agri inputs / tractor dealer', icon: '🚜', desc: 'Farmers by village, crop and season — seeds, fertiliser, equipment, field demos and credit.',
+    labels: { title: 'Farmers', one: 'farmer', customers: 'Buyers', leads: 'Enquiries', value: 'Order value' },
+    fields: [
+      f('ag_village', 'Village / taluka'), sel('ag_crop', 'Main crop', 'Paddy, Wheat, Cotton, Sugarcane, Soybean, Maize, Pulses, Vegetables, Fruits / orchard, Other'),
+      sel('ag_season', 'Season', 'Kharif, Rabi, Zaid / summer'), f('ag_land', 'Land (acres)', 'number'),
+      sel('ag_need', 'Interested in', 'Seeds, Fertiliser, Pesticide, Drip / sprinkler, Tractor, Implements, Spare parts / service'),
+      f('ag_value', 'Order value (₹)', 'money'), f('ag_demo', 'Field demo / visit', 'date'), sel('ag_pay', 'Payment', 'Cash, UPI, Credit till harvest, Tractor loan, Subsidy'),
+      f('ag_credit', 'Credit due', 'date'), sel('ag_from', 'Came from', 'Shop visit, Field demo, Krishi mela, Village meeting, WhatsApp, Referral, Facebook ads'),
+    ],
+    pipeline: { name: 'Farmer sales', stages: [S('Enquiry', '#6366f1'), S('Field demo', '#0ea5e9'), S('Quotation', '#f59e0b'), S('Order placed', '#16a34a', 'won'), S('Credit pending', '#ec4899'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['ag_village', 'ag_crop', 'ag_need', 'ag_credit'], cardFields: ['ag_village', 'ag_need'], filters: ['ag_crop', 'ag_season', 'ag_need', 'ag_pay'], valueField: 'ag_value', showSales: false,
+  },
+  {
+    id: 'caterer', name: 'Caterer / tiffin / cloud kitchen', icon: '🍱', desc: 'Party and wedding catering, tiffin subscriptions, menus, plates and advances.',
+    labels: { title: 'Orders', one: 'customer', customers: 'Customers', leads: 'Enquiries', value: 'Order value' },
+    fields: [
+      sel('ct_kind', 'Order type', 'Wedding / party catering, Corporate lunch, Tiffin subscription, Bulk order, Cloud kitchen order'), f('ct_date', 'Event / start date', 'date'),
+      f('ct_plates', 'Plates / tiffins', 'number'), sel('ct_food', 'Food', 'Veg, Non-veg, Jain, Both'),
+      sel('ct_menu', 'Cuisine', 'North Indian, South Indian, Gujarati / Rajasthani, Bengali, Chinese, Continental, Mixed'), f('ct_venue', 'Venue / delivery area'),
+      f('ct_value', 'Order value (₹)', 'money'), f('ct_advance', 'Advance paid (₹)', 'money'), f('ct_renew', 'Tiffin renewal due', 'date'),
+      sel('ct_from', 'Came from', 'Instagram, WhatsApp, Google, Zomato / Swiggy, Referral, Society group, Walk-in'),
+    ],
+    pipeline: { name: 'Catering orders', stages: [S('Enquiry', '#6366f1'), S('Menu & quote sent', '#0ea5e9'), S('Tasting', '#8b5cf6'), S('Advance paid', '#16a34a', 'won'), S('Delivered', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['ct_kind', 'ct_date', 'ct_plates', 'ct_value'], cardFields: ['ct_date', 'ct_plates'], filters: ['ct_kind', 'ct_food', 'ct_menu', 'ct_from'], valueField: 'ct_value', showSales: true,
+  },
+  {
+    id: 'franchise', name: 'Franchise sales', icon: '🏬', desc: 'Investor enquiries by city, investment capacity, discovery meetings, tokens and agreements.',
+    labels: { title: 'Investors', one: 'investor', customers: 'Franchisees', leads: 'Enquiries', value: 'Franchise fee' },
+    fields: [
+      f('fr_city', 'City / territory'), sel('fr_model', 'Model', 'Kiosk, Express / small outlet, Standard outlet, Master franchise, Distributor'),
+      sel('fr_invest', 'Can invest', 'Under ₹5L, ₹5L–15L, ₹15L–50L, ₹50L–1Cr, Over ₹1Cr'), sel('fr_space', 'Property', 'Own space, Will rent, Looking for space'),
+      f('fr_fee', 'Franchise fee (₹)', 'money'), f('fr_meet', 'Discovery meeting', 'date'),
+      sel('fr_bg', 'Background', 'Business owner, Salaried, First-time entrepreneur, Existing franchisee, NRI'), f('fr_launch', 'Planned launch', 'date'),
+      sel('fr_from', 'Enquiry from', 'Franchise portal, Website, Facebook ads, Google ads, Franchise expo, Referral, LinkedIn'),
+    ],
+    pipeline: { name: 'Franchise sales', stages: [S('Enquiry', '#6366f1'), S('Qualified', '#0ea5e9'), S('Discovery meeting', '#8b5cf6'), S('Outlet / site visit', '#f59e0b'), S('LOI / token', '#ec4899'), S('Agreement signed', '#16a34a', 'won'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['fr_city', 'fr_model', 'fr_invest', 'fr_meet'], cardFields: ['fr_city', 'fr_invest'], filters: ['fr_model', 'fr_invest', 'fr_space', 'fr_from'], valueField: 'fr_fee', showSales: false,
+  },
+  {
+    id: 'movers', name: 'Packers & movers / transport', icon: '🚚', desc: 'Shifting and transport enquiries, surveys, quotes, moving dates and delivery.',
+    labels: { title: 'Moves', one: 'customer', customers: 'Customers', leads: 'Enquiries', value: 'Quote value' },
+    fields: [
+      sel('mv_kind', 'Service', 'Home shifting, Office shifting, Vehicle transport, Part load, Full truck load, Storage, International move'),
+      f('mv_from', 'Moving from'), f('mv_to', 'Moving to'), sel('mv_size', 'Size', '1 RK / 1 BHK, 2 BHK, 3 BHK, 4+ BHK / villa, Office, Few items'),
+      f('mv_survey', 'Survey', 'date'), f('mv_date', 'Moving date', 'date'), f('mv_value', 'Quote value (₹)', 'money'),
+      sel('mv_insure', 'Transit insurance', 'Needed, Not needed'), sel('mv_src', 'Enquiry from', 'Google, JustDial, Sulekha, NoBroker, Facebook ads, Referral, Website'),
+    ],
+    pipeline: { name: 'Moves', stages: [S('Enquiry', '#6366f1'), S('Survey', '#0ea5e9'), S('Quote sent', '#f59e0b'), S('Move booked', '#16a34a', 'won'), S('In transit', '#8b5cf6'), S('Delivered', '#14b8a6'), S('Lost', '#94a3b8', 'lost')] },
+    columns: ['mv_kind', 'mv_from', 'mv_to', 'mv_date'], cardFields: ['mv_date', 'mv_value'], filters: ['mv_kind', 'mv_size', 'mv_insure', 'mv_src'], valueField: 'mv_value', showSales: false,
+  },
+  {
+    id: 'matrimony', name: 'Matrimony / marriage bureau', icon: '💞', desc: 'Profiles, partner preferences, matches shared, family meetings and membership plans.',
+    labels: { title: 'Members', one: 'member', customers: 'Members', leads: 'Enquiries', value: 'Plan value' },
+    fields: [
+      sel('mt_for', 'Profile for', 'Self, Son, Daughter, Brother, Sister, Relative'), sel('mt_gender', 'Looking for', 'Bride, Groom'),
+      f('mt_community', 'Community / religion'), f('mt_city', 'City'), sel('mt_edu', 'Education', 'Graduate, Post-graduate, Doctor, Engineer, CA / MBA, Other'),
+      sel('mt_plan', 'Plan', 'Free, Silver, Gold, Premium / personalised'), f('mt_value', 'Plan value (₹)', 'money'), f('mt_meet', 'Next meeting', 'date'),
+      f('mt_pref', 'Partner preferences', 'longtext'), sel('mt_from', 'Came from', 'Referral, Instagram, Facebook ads, Google, Walk-in, Community event, Website'),
+    ],
+    pipeline: { name: 'Matchmaking', stages: [S('Enquiry', '#6366f1'), S('Profile created', '#0ea5e9'), S('Plan bought', '#16a34a', 'won'), S('Matches shared', '#8b5cf6'), S('Families met', '#f59e0b'), S('Married / settled', '#14b8a6'), S('Not interested', '#94a3b8', 'lost')] },
+    columns: ['mt_gender', 'mt_community', 'mt_city', 'mt_plan'], cardFields: ['mt_community', 'mt_plan'], filters: ['mt_gender', 'mt_edu', 'mt_plan', 'mt_from'], valueField: 'mt_value', showSales: false,
+    note: 'Profiles hold personal details: share them only with the member’s consent, and remove a profile when they ask.',
+  },
+  {
+    id: 'loans', name: 'Loan DSA / connector', icon: '🏦', desc: 'Loan type, bank, CIBIL and documents — from login to sanction to disbursal.',
+    labels: { title: 'Loan cases', one: 'applicant', customers: 'Disbursed', leads: 'Leads', value: 'Loan amount' },
+    fields: [
+      sel('ln_type', 'Loan type', 'Home loan, Loan against property, Personal loan, Business loan, Car loan, Education loan, Gold loan, Credit card'),
+      f('ln_amount', 'Loan amount (₹)', 'money'), f('ln_bank', 'Bank / NBFC'), sel('ln_cibil', 'CIBIL score', '750+, 700–749, 650–699, Below 650, No history'),
+      sel('ln_income', 'Income type', 'Salaried, Self-employed, Business owner, Professional'), sel('ln_docs', 'Documents', 'Pending, Partly received, Complete'),
+      f('ln_login', 'Login date', 'date'), f('ln_follow', 'Next follow-up', 'date'), f('ln_payout', 'Payout / commission (₹)', 'money'), f('ln_city', 'City'),
+    ],
+    pipeline: { name: 'Loan cases', stages: [S('Lead', '#6366f1'), S('Documents collection', '#0ea5e9'), S('Login', '#8b5cf6'), S('Sanctioned', '#f59e0b'), S('Disbursed', '#16a34a', 'won'), S('Rejected / dropped', '#94a3b8', 'lost')] },
+    columns: ['ln_type', 'ln_amount', 'ln_bank', 'ln_follow'], cardFields: ['ln_type', 'ln_amount'], filters: ['ln_type', 'ln_cibil', 'ln_income', 'ln_docs'], valueField: 'ln_amount', showSales: false,
+    note: 'Keep only the documents the bank needs, never store passwords or OTPs, and delete a file’s papers once the case is closed.',
+  },
 ];
-const kitById = (id) => KITS.find((k) => k.id === id) || null;
+// how the styles are grouped in the picker (every style in exactly one group)
+export const KIT_GROUPS = [
+  { name: 'Coaches, services & causes', ids: ['general', 'consultant', 'professional', 'recruitment', 'franchise', 'ngo'] },
+  { name: 'Health & wellness', ids: ['clinic', 'lab', 'fitness', 'wellness'] },
+  { name: 'Education', ids: ['education', 'school', 'abroad'] },
+  { name: 'Property & home', ids: ['realestate', 'interior', 'homeservices', 'pg', 'movers'] },
+  { name: 'Shops & trade', ids: ['store', 'retailer', 'jewellery', 'auto', 'distributor', 'manufacturer', 'agri'] },
+  { name: 'Food, travel & events', ids: ['hospitality', 'caterer', 'travel', 'events', 'matrimony'] },
+  { name: 'Money', ids: ['finance', 'loans'] },
+];
+// styles no longer offered, kept so accounts that picked them keep working: their saved style, automations, booking
+// and dashboard stay as they were; picking the old id again gives the style it was folded into
+export const RETIRED_KITS = [
+  {
+    id: 'saas', name: 'SaaS / software', icon: '💻', desc: 'Demos, trials, plans, seats and renewals.', movedTo: 'consultant',
+    labels: { title: 'Accounts', one: 'account', customers: 'Customers', leads: 'Trials & leads', value: 'Annual value' },
+    fields: [
+      f('sa_company', 'Company'), sel('sa_size', 'Team size', '1–10, 11–50, 51–200, 201–1000, 1000+'), f('sa_demo', 'Demo', 'date'),
+      f('sa_trial', 'Trial ends', 'date'), sel('sa_plan', 'Plan', 'Free, Starter, Growth, Pro, Enterprise'), f('sa_seats', 'Seats', 'number'),
+      f('sa_value', 'Annual value (₹)', 'money'), f('sa_renew', 'Renewal date', 'date'),
+    ],
+    pipeline: { name: 'SaaS sales', stages: [S('Lead', '#6366f1'), S('Demo booked', '#0ea5e9'), S('Trial', '#8b5cf6'), S('Proposal', '#f59e0b'), S('Customer', '#16a34a', 'won'), S('Churned / lost', '#94a3b8', 'lost')] },
+    columns: ['sa_company', 'sa_plan', 'sa_trial', 'sa_value'], cardFields: ['sa_company', 'sa_plan'], filters: ['sa_size', 'sa_plan'], valueField: 'sa_value', showSales: false,
+  },
+];
+export const ALL_KITS = [...KITS, ...RETIRED_KITS];
+// a style by id; a retired id gives the style it was folded into
+export const kitById = (id) => KITS.find((k) => k.id === id) || KITS.find((k) => k.id === RETIRED_KITS.find((r) => r.id === id)?.movedTo) || null;
 
 // ---------- a kit from anywhere (AI, the user) is cleaned before it's used ----------
 const str = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -309,8 +454,8 @@ export function cleanKit(k) {
 // styles never leaves the new one half shown, and no data goes
 const FIELD_CAP = 30, PIPE_CAP = 20;
 function unusedOtherKitItems(userId, kit) {
-  const kitFields = new Set(KITS.filter((k) => k.id !== kit.id).flatMap((k) => k.fields.map((f) => f.id)));
-  const kitPipes = new Set(KITS.filter((k) => k.id !== kit.id && k.pipeline).map((k) => k.pipeline.name.toLowerCase()));
+  const kitFields = new Set(ALL_KITS.filter((k) => k.id !== kit.id).flatMap((k) => k.fields.map((f) => f.id)));
+  const kitPipes = new Set(ALL_KITS.filter((k) => k.id !== kit.id && k.pipeline).map((k) => k.pipeline.name.toLowerCase()));
   const valued = new Set(), staged = new Set();
   for (const m of T.crm.iter({ userId })) {
     for (const [id, v] of Object.entries(m.custom || {})) if (v != null && v !== '' && v !== false) valued.add(id);
@@ -331,7 +476,8 @@ export function applyKit(userId, kit) {
   if (have.length + missing.length > FIELD_CAP) {
     unused = unusedOtherKitItems(userId, kit);
     let over = have.length + missing.length - FIELD_CAP;
-    have = have.filter((f) => !(over > 0 && unused.field(f) && over--));
+    // never one this style is about to share by name (it would then find neither that field nor room for its own)
+    have = have.filter((f) => !(over > 0 && unused.field(f) && !kit.fields.some((x) => sameName(x)(f)) && over--));
   }
   const fields = [...have], idMap = {};
   for (const x of kit.fields) {
@@ -419,6 +565,16 @@ export const KIT_AUTOMATIONS = {
   abroad: { date: ['ab_deadline', -7, 'Application deadline coming up', 'a week before an application deadline', 'the application deadline is {{f_ab_deadline}}. Please send any pending documents this week.'], stuck: ['Documents', 5, 'Documents pending too long'] },
   wellness: { date: ['we_session', -1, 'Session reminder', 'the day before a session', 'your session is tomorrow ({{f_we_session}}). Please keep your questions ready.'], stuck: ['Consulted', 4, 'Consulted but no package yet'] },
   saas: { date: ['sa_trial', -3, 'Trial ending soon', '3 days before a trial ends', 'your trial ends on {{f_sa_trial}}. Want a quick call to set things up for your team?'], stuck: ['Proposal', 5, 'Proposal not answered'] },
+  lab: { date: ['lb_slot', -1, 'Sample collection reminder', 'the day before a sample collection', 'our technician comes for your sample tomorrow ({{f_lb_slot}}). If your test needs fasting, please don’t eat for 10–12 hours before, and keep your prescription handy.'], stuck: ['Report ready', 1, 'Report ready but not shared'] },
+  jewellery: { date: ['jw_occasion', -15, 'Occasion coming up', '15 days before an occasion', 'your special day on {{f_jw_occasion}} is coming up. Visit us this week to see the new designs — custom pieces take about two weeks.'], stuck: ['Design / estimate shared', 4, 'Estimate shared, no order yet'] },
+  school: { date: ['sc_visit', -1, 'Campus visit reminder', 'the day before a campus visit', 'your campus visit is tomorrow ({{f_sc_visit}}). Please bring your child along with the last report card and birth certificate.'], stuck: ['Form submitted', 5, 'Form submitted, fee not paid'] },
+  pg: { date: ['pg_due', -2, 'Rent due reminder', '2 days before rent is due', 'a gentle reminder that your rent is due on {{f_pg_due}}. You can pay by UPI — reply with the UTR once paid.'], stuck: ['Visited', 2, 'Visited but no deposit yet'] },
+  agri: { date: ['ag_credit', -3, 'Credit due reminder', '3 days before a credit payment is due', 'a reminder that your credit payment is due on {{f_ag_credit}}. Pay at the shop or by UPI — call us if you need a few days after harvest.'], stuck: ['Quotation', 4, 'Quotation not answered'] },
+  caterer: { date: ['ct_date', -3, 'Menu and head count confirmation', '3 days before an event or start date', 'your order on {{f_ct_date}} is coming up. Please confirm the final menu and head count today so we can plan the cooking.'], stuck: ['Menu & quote sent', 3, 'Menu quote not answered'] },
+  franchise: { date: ['fr_meet', -1, 'Discovery meeting reminder', 'the day before a discovery meeting', 'our discovery meeting is tomorrow ({{f_fr_meet}}). We’ll walk you through the investment, returns and support — keep your questions ready.'], stuck: ['LOI / token', 7, 'Token paid, agreement pending'] },
+  movers: { date: ['mv_date', -2, 'Moving day reminder', '2 days before a move', 'your move is on {{f_mv_date}}. Our team arrives in the morning — please keep valuables and documents aside, and reply if the timing changes.'], stuck: ['Quote sent', 2, 'Moving quote not answered'] },
+  matrimony: { date: ['mt_meet', -1, 'Meeting reminder', 'the day before a meeting', 'a reminder about the meeting tomorrow ({{f_mt_meet}}). Reply if the time or place needs to change.'], stuck: ['Profile created', 5, 'Profile created, no plan yet'] },
+  loans: { date: ['ln_follow', 0, 'Loan follow-up day', 'on the follow-up date', 'following up on your loan file — please share any pending documents today so the bank can move it ahead.'], stuck: ['Documents collection', 4, 'Documents pending too long'] },
   ngo: { date: ['ng_next', -1, 'Giving reminder', 'the day before a planned gift', 'thank you for standing with us. Your next gift is planned for {{f_ng_next}} — every rupee helps.'], stuck: ['Lapsed', 30, 'Lapsed donor — win back'] },
 };
 // the current CRM style's automations, with this seller's own pipeline, stage and field ids (null when it has none)
@@ -474,6 +630,16 @@ export const KIT_BOOKING = {
   abroad: { name: 'Counselling session', duration: 30, where: '', booked: 'Counselling', done: 'Documents', ask: ['ab_country', 'ab_intake', 'ab_test'] },
   wellness: { name: 'Consultation', duration: 30, where: '', date: 'we_session', booked: 'Consultation booked', done: 'Consulted', ask: ['we_service', 'we_concern'] },
   saas: { name: 'Product demo', duration: 30, where: '', date: 'sa_demo', booked: 'Demo booked', done: 'Trial', ask: ['sa_company', 'sa_size'] },
+  lab: { name: 'Home sample collection', duration: 30, where: 'At your home — share your full address', date: 'lb_slot', booked: 'Slot booked', done: 'Sample collected', ask: ['lb_test', 'lb_mode', 'lb_area'] },
+  jewellery: { name: 'Store appointment', duration: 45, where: 'At our showroom', booked: 'Store visit', ask: ['jw_need', 'jw_occ', 'jw_budget'] },
+  school: { name: 'Campus visit', duration: 45, where: 'At our school campus', date: 'sc_visit', booked: 'Campus visit', done: 'Interaction / test', ask: ['sc_child', 'sc_grade', 'sc_parent'] },
+  pg: { name: 'Property visit', duration: 30, where: 'At the property — we’ll WhatsApp you the location', date: 'pg_visit', booked: 'Visit scheduled', done: 'Visited', ask: ['pg_type', 'pg_for', 'pg_food'] },
+  agri: { name: 'Field demo', duration: 60, where: 'At your farm', date: 'ag_demo', booked: 'Field demo', done: 'Quotation', ask: ['ag_village', 'ag_crop', 'ag_need'] },
+  caterer: { name: 'Food tasting', duration: 45, where: 'At our kitchen', booked: 'Tasting', ask: ['ct_kind', 'ct_plates', 'ct_food'] },
+  franchise: { name: 'Discovery meeting', duration: 45, where: '', date: 'fr_meet', booked: 'Discovery meeting', done: 'Outlet / site visit', ask: ['fr_city', 'fr_model', 'fr_invest'] },
+  movers: { name: 'Pre-move survey', duration: 30, where: 'At your home or office', date: 'mv_survey', booked: 'Survey', done: 'Quote sent', ask: ['mv_kind', 'mv_size', 'mv_from'] },
+  matrimony: { name: 'Profile consultation', duration: 30, where: '', ask: ['mt_for', 'mt_gender', 'mt_community'] },
+  loans: { name: 'Loan eligibility call', duration: 20, where: '', ask: ['ln_type', 'ln_income', 'ln_city'] },
 };
 const QTYPE = { select: 'select', longtext: 'long', phone: 'phone' };
 // the current style's booking setup, resolved against this seller's own fields and pipeline (null: a plain call)
@@ -505,6 +671,9 @@ const HOURS = {
   realestate: { sun: SUN, sat: [['10:00', '18:00']] }, auto: { sun: SUN, sat: [['10:00', '18:00']] }, hospitality: { sat: [['10:00', '20:00']], sun: [['10:00', '20:00']] },
   fitness: Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((d) => [d, [['06:00', '10:00'], ['16:00', '20:00']]])), clinic: Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((d) => [d, [['10:00', '13:00'], ['17:00', '20:00']]])),
   education: { sat: [['10:00', '17:00']], sun: [['10:00', '13:00']] },
+  lab: Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, [['07:00', '13:00']]])), // fasting samples are taken early
+  jewellery: { sun: SUN, sat: [['10:00', '19:00']] }, pg: { sun: SUN, sat: [['10:00', '18:00']] }, movers: { sun: SUN, sat: [['10:00', '18:00']] }, agri: { sun: [['08:00', '13:00']] },
+  school: { sat: [['09:00', '13:00']] },
 };
 // → [{ id (the industry), industry, icon, mine, name, duration, location, description, hours, questions, crm }] —
 // questions linked to the seller's CRM fields when they have them (answers then land in those fields)
@@ -604,14 +773,14 @@ export function registerCrmKits(app, { auth, wrap, rateLimit, isTest, credits })
     try { res.json({ draft: cleanDraft(await draftCalendar(T.users.get(req.user.id), prompt)) }); } catch (e) { res.locals.aiFailed = true; res.status(503).json({ error: e.message }); }
   }));
   app.get('/api/crm/kit-automations', auth, (req, res) => res.json(kitAutomations(T.users.get(req.user.id)) || { kit: null, recipes: [] }));
-  const view = (u) => ({ current: currentKit(u), kits: KITS });
+  const view = (u) => ({ current: currentKit(u), kits: KITS, groups: KIT_GROUPS });
   app.get('/api/crm/kits', auth, (req, res) => res.json(view(req.user)));
   // switch to a built-in kit ({ id }) or a designed one ({ kit })
   app.post('/api/crm/kit', auth, (req, res) => {
     const kit = req.body?.id ? kitById(String(req.body.id)) : cleanKit(req.body?.kit);
     if (!kit) return res.status(400).json({ error: 'Pick a CRM style' });
     const r = applyKit(req.user.id, kit);
-    res.json({ ...r, kits: KITS });
+    res.json({ ...r, kits: KITS, groups: KIT_GROUPS });
   });
   // AI: a kit designed from a description of the business — returned for a preview, not applied
   app.post('/api/ai/crm-kit', auth, rateLimit({ windowMs: 60000, max: isTest ? 100 : 6, key: (req) => req.user.id }), credits('edit'), wrap(async (req, res) => {

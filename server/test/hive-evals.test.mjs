@@ -13,7 +13,7 @@ test('the bank: unique ids, real tools and CRM styles, valid checks', async () =
   process.env.DATA_DIR ||= fs.mkdtempSync(path.join(os.tmpdir(), 'fh-evals-bank-'));
   await import('../sales.js');
   const { TOOLS } = await import('../hive.js');
-  const { KITS } = await import('../crmkits.js').catch(() => ({}));
+  const { ALL_KITS: KITS } = await import('../crmkits.js').catch(() => ({}));
   const names = new Set(TOOLS.map((t) => t.name));
   const cases = loadBank();
   assert.ok(cases.length >= 150, `${cases.length} cases`);

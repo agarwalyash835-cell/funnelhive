@@ -6,7 +6,7 @@
 // number counted here: people who reached a pipeline stage, who are in one now, bookings, WhatsApp chats, webinar
 // sign-ups, quotes, students, COD orders, abandoned carts, repeat buyers.
 import { T, paidOrder } from './db.js';
-import { KITS } from './crmkits.js';
+import { KITS, ALL_KITS } from './crmkits.js';
 import { pipelinesFor, stageFor } from './crm.js';
 
 const DAY = 86400000;
@@ -38,12 +38,22 @@ const LAYOUT = {
   abroad: [S('Counselling', 'Counselling sessions'), B('leads', 'Enquiries'), S('Applied', 'Applications'), S('Offer letter', 'Offer letters'), S('Visa approved', 'Visas approved'), K('wa', 'WhatsApp chats')],
   wellness: [K('bookings', 'Consultations'), B('leads', 'Enquiries'), S('Consulted'), S('Package bought', 'Packages bought'), B('revenue'), K('wa', 'WhatsApp chats')],
   saas: [K('bookings', 'Demos booked'), B('leads', 'Sign-ups'), S('Trial', 'Trials'), S('Customer', 'New customers'), B('revenue'), K('wa', 'WhatsApp chats')],
+  lab: [K('bookings', 'Collections booked'), B('leads', 'Enquiries'), S('Sample collected', 'Samples collected'), S('Report shared', 'Reports shared'), NOW('Repeat due', 'Repeats due'), K('wa', 'WhatsApp chats')],
+  jewellery: [S('Order placed', 'Orders placed'), B('leads', 'Enquiries'), S('Store visit', 'Store visits'), S('Design / estimate shared', 'Estimates shared'), NOW('Ready for pickup', 'Ready for pickup'), K('wa', 'WhatsApp chats')],
+  school: [S('Campus visit', 'Campus visits'), B('leads', 'Enquiries'), S('Form submitted', 'Forms submitted'), S('Fee paid', 'Admissions'), NOW('Interaction / test', 'Interactions due'), K('wa', 'WhatsApp chats')],
+  pg: [S('Visit scheduled', 'Visits booked'), B('leads', 'Enquiries'), S('Deposit paid', 'Deposits'), S('Moved in', 'Move-ins'), NOW('Notice given', 'On notice'), K('wa', 'WhatsApp chats')],
+  agri: [S('Order placed', 'Orders'), B('leads', 'Enquiries'), S('Field demo', 'Field demos'), S('Quotation', 'Quotations'), NOW('Credit pending', 'Credit pending'), K('wa', 'WhatsApp chats')],
+  caterer: [S('Advance paid', 'Orders confirmed'), B('leads', 'Enquiries'), S('Menu & quote sent', 'Quotes sent'), S('Tasting', 'Tastings'), S('Delivered', 'Delivered'), K('wa', 'WhatsApp chats')],
+  franchise: [K('bookings', 'Discovery meetings'), B('leads', 'Enquiries'), S('Qualified', 'Qualified investors'), S('LOI / token', 'Tokens received'), S('Agreement signed', 'Franchises sold'), K('wa', 'WhatsApp chats')],
+  movers: [S('Move booked', 'Moves booked'), B('leads', 'Enquiries'), S('Survey', 'Surveys'), S('Quote sent', 'Quotes sent'), S('Delivered', 'Delivered'), K('wa', 'WhatsApp chats')],
+  matrimony: [S('Plan bought', 'Plans sold'), B('leads', 'Enquiries'), S('Profile created', 'Profiles created'), S('Families met', 'Family meetings'), S('Married / settled', 'Marriages'), K('wa', 'WhatsApp chats')],
+  loans: [S('Disbursed', 'Disbursals'), B('leads', 'Leads'), S('Login', 'Files logged in'), S('Sanctioned', 'Sanctions'), NOW('Documents collection', 'Awaiting documents'), K('wa', 'WhatsApp chats')],
   ngo: [B('revenue', 'Donations'), B('orders', 'Gifts'), S('First gift', 'First-time donors'), S('Monthly donor', 'New monthly donors'), B('leads', 'New supporters'), K('wa', 'WhatsApp chats')],
 };
 // where each tile leads when tapped
 const LINKS = { stage: '/contacts', now: '/contacts', bookings: '/bookings', wa: '/inbox', webinar: '/webinars', quotes: '/quotes', cod: '/orders', abandoned: '/orders', repeat: '/contacts', students: '/school' };
 
-export const kitOf = (u) => KITS.find((k) => k.id === (u.settings?.dashKit || u.settings?.crmKit?.id)) || KITS[0];
+export const kitOf = (u) => ALL_KITS.find((k) => k.id === (u.settings?.dashKit || u.settings?.crmKit?.id)) || KITS[0];
 const inRange = (t, from, to) => t >= from && t < to;
 
 function counter(u, days) {

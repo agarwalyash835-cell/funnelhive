@@ -5,6 +5,7 @@ import {
   ClipboardList, ListTodo, CreditCard, CircleArrowUp, CircleArrowDown, ShoppingBag, PartyPopper, PanelTop, Timer, Eye, Package, BellRing, DoorOpen,
   Pin, MessageCircle, Heading, Pilcrow, MousePointerClick, ListChecks, IndianRupee, House, FileText, Presentation, Box,
   Target, Building2, Stethoscope, BriefcaseBusiness, GraduationCap, Dumbbell, Landmark, Sofa, Gem, Plane, Car, UserSearch, SunMedium, Hotel, Store as StoreIcon, Earth, Moon, Monitor, HandHeart, Factory, ShoppingBasket, Truck,
+  FlaskConical, Diamond, School, BedDouble, Tractor, ChefHat, Network, Forklift, HeartHandshake, HandCoins,
 } from 'lucide-react';
 
 const BLOCKS = {
@@ -20,7 +21,8 @@ const STEPS = { landing: House, optin: FileText, sales: Presentation, checkout: 
 // CRM styles (industry kits); a custom AI-designed CRM gets the sparkle
 const KITS = {
   general: Target, realestate: Building2, clinic: Stethoscope, consultant: BriefcaseBusiness, education: GraduationCap, fitness: Dumbbell, finance: Landmark,
-  interior: Sofa, events: Gem, travel: Plane, auto: Car, professional: Scale, recruitment: UserSearch, homeservices: SunMedium, hospitality: Hotel, store: StoreIcon, manufacturer: Factory, retailer: ShoppingBasket, distributor: Truck, abroad: Earth, wellness: Moon, saas: Monitor, ngo: HandHeart, custom: Sparkles,
+  interior: Sofa, events: Gem, travel: Plane, auto: Car, professional: Scale, recruitment: UserSearch, homeservices: SunMedium, hospitality: Hotel, store: StoreIcon, manufacturer: Factory, retailer: ShoppingBasket, distributor: Truck, abroad: Earth, wellness: Moon, saas: Monitor, ngo: HandHeart,
+  lab: FlaskConical, jewellery: Diamond, school: School, pg: BedDouble, agri: Tractor, caterer: ChefHat, franchise: Network, movers: Forklift, matrimony: HeartHandshake, loans: HandCoins, custom: Sparkles,
 };
 
 const make = (map) => function TypeIcon({ type, size = 16, className = '' }) {

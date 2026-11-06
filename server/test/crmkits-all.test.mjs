@@ -25,7 +25,7 @@ const SAMPLE = { text: ['Andheri West', 'Andheri West'], longtext: ['Line one\nL
 const sampleFor = (f) => (f.type === 'select' ? [f.options.split(',')[0].trim(), f.options.split(',')[0].trim()] : SAMPLE[f.type]);
 
 test('every style is consistent: its columns, filters, money field, stages, automations and bookings point at real things', () => {
-  assert.ok(KITS.length >= 23, `${KITS.length} styles`);
+  assert.ok(KITS.length >= 32, `${KITS.length} styles`);
   for (const kit of KITS) {
     const ids = new Map(kit.fields.map((f) => [f.id, f]));
     assert.equal(ids.size, kit.fields.length, `${kit.id}: field ids are unique`);

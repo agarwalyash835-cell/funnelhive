@@ -100,7 +100,7 @@ export const waParams = (w) => (w.vars || []).map((v) => (v.key ? `{{${v.key}}}`
 const VOICE_FIELD = { customer_name: 'first_name', name: 'name', first_name: 'first_name', business_name: 'business', business: 'business' };
 
 export async function registerCampaignTemplates(app, { auth, wrap, credits }) {
-  const [{ T, uid }, { KITS }, { cleanSegment }, { aiEnabled, aiJson }] = await Promise.all([import('./db.js'), import('./crmkits.js'), import('./broadcasts.js'), import('./ai.js')]);
+  const [{ T, uid }, { ALL_KITS: KITS }, { cleanSegment }, { aiEnabled, aiJson }] = await Promise.all([import('./db.js'), import('./crmkits.js'), import('./broadcasts.js'), import('./ai.js')]);
   const kitName = (id) => KITS.find((k) => k.id === id)?.name || id;
   const summary = (t) => ({ id: t.id, industry: t.industry, name: t.name, goal: t.goal, when: t.when, wa: t.whatsapp.category });
   const findT = async (id) => Object.values((await catalog()).byIndustry).flat().find((t) => t.id === id) || null;

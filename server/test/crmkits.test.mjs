@@ -132,3 +132,31 @@ test('Hive reads and updates the CRM: field and stage search, field updates, sta
   assert.equal(neg.contacts[0].fields['Site visit'], '2026-10-30');
   assert.ok((await call('update_contact', { key: 'b@example.com', stage: 'Moon' })).error);
 });
+
+test('Indian SMB styles: the new ones are offered and grouped, SaaS now lives in Consultant, an old "saas" pick still works', async () => {
+  const T3 = (await register(api)).token;
+  const d = (await api('/crm/kits', 'GET', null, T3)).data;
+  const ids = d.kits.map((x) => x.id);
+  for (const id of ['lab', 'jewellery', 'school', 'pg', 'agri', 'caterer', 'franchise', 'movers', 'matrimony', 'loans', 'finance']) assert.ok(ids.includes(id), id);
+  assert.ok(!ids.includes('saas'), 'SaaS is no longer offered on its own');
+  assert.match(d.kits.find((x) => x.id === 'consultant').name, /SaaS/);
+  assert.equal(d.kits.find((x) => x.id === 'fitness').name, 'Gym, salon & spa');
+  assert.equal(d.kits.find((x) => x.id === 'abroad').icon, '🌍');
+  assert.doesNotMatch(d.kits.find((x) => x.id === 'hospitality').name, /restaurant/i);
+  // every style sits in exactly one picker group
+  const grouped = d.groups.flatMap((g) => g.ids);
+  assert.deepEqual([...grouped].sort(), [...ids].sort());
+  // a seller (or Hive) asking for the old id gets the style it was folded into
+  const r = await api('/crm/kit', 'POST', { id: 'saas' }, T3);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.current.id, 'consultant');
+  // switching between new styles keeps a contact's data from the earlier one
+  await api('/crm/kit', 'POST', { id: 'loans' }, T3);
+  await api('/contacts', 'POST', { email: 'dsa@example.com', name: 'Ravi' }, T3);
+  await api(`/contacts/${k('dsa@example.com')}`, 'PATCH', { custom: { ln_amount: '2500000', ln_type: 'Home loan' } }, T3);
+  const pg = (await api('/crm/kit', 'POST', { id: 'pg' }, T3)).data.current;
+  assert.equal(pg.valueField, 'pg_rent');
+  const c = (await api(`/contacts/${k('dsa@example.com')}`, 'GET', null, T3)).data;
+  assert.deepEqual([c.custom.ln_amount, c.custom.ln_type], [2500000, 'Home loan']);
+  assert.equal((await api('/crm/kit-automations', 'GET', null, T3)).data.recipes[0].title, 'Rent due reminder');
+});

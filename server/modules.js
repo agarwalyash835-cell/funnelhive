@@ -37,6 +37,16 @@ export const INDUSTRY_MODULES = {
   wellness: ['/orders', '/products', '/store', '/school', '/bookings', '/webinars'],
   saas: ['/orders', '/products', '/quotes', '/affiliates', '/bookings', '/webinars'],
   ngo: ['/orders', '/products', '/webinars'],
+  lab: ['/orders', '/products', '/store', '/bookings'],
+  jewellery: ['/orders', '/products', '/store', '/quotes', '/bookings'],
+  school: ['/orders', '/products', '/bookings', '/webinars'],
+  pg: ['/orders', '/quotes', '/bookings'],
+  agri: ['/orders', '/products', '/quotes', '/bookings'],
+  caterer: ['/orders', '/products', '/store', '/quotes', '/bookings'],
+  franchise: ['/orders', '/quotes', '/bookings', '/webinars'],
+  movers: ['/orders', '/quotes', '/bookings'],
+  matrimony: ['/orders', '/products', '/bookings'],
+  loans: ['/orders', '/quotes', '/bookings'],
 };
 
 export const cleanModules = (pages) => [...new Set((Array.isArray(pages) ? pages : []).filter((p) => MODULES[p]))];

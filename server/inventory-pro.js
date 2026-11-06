@@ -26,6 +26,8 @@ const ORDER = {
   distributor: ['batches', 'schemes', 'rates', 'credit', 'counter', 'bom', 'variants'],
   retailer: ['counter', 'variants', 'schemes', 'batches', 'rates', 'credit', 'bom'],
   store: ['variants', 'counter', 'schemes', 'batches', 'rates', 'credit', 'bom'],
+  jewellery: ['variants', 'counter', 'schemes', 'rates', 'credit', 'batches', 'bom'],
+  agri: ['batches', 'credit', 'schemes', 'rates', 'counter', 'variants', 'bom'],
 };
 export const industryOf = (u) => (ORDER[u?.settings?.crmKit?.id] ? u.settings.crmKit.id : null);
 

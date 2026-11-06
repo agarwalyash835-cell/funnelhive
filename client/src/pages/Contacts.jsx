@@ -782,12 +782,13 @@ function KitPreview({ kit }) {
 }
 function KitPicker({ current, onClose, onApplied }) {
   const [kits, setKits] = useState(null);
+  const [groups, setGroups] = useState([]);
   const [sel, setSel] = useState(current?.id && current.id !== 'custom' ? current.id : null);
   const [tab, setTab] = useState(current?.id === 'custom' ? 'ai' : 'ready');
   const [desc, setDesc] = useState('');
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { api('/crm/kits').then((d) => setKits(d.kits)).catch((e) => toast(e.message)); }, []);
+  useEffect(() => { api('/crm/kits').then((d) => { setKits(d.kits); setGroups(d.groups || []); }).catch((e) => toast(e.message)); }, []);
   const chosen = tab === 'ai' ? draft : kits?.find((k) => k.id === sel);
   const design = async () => {
     setBusy(true);
@@ -811,13 +812,25 @@ function KitPicker({ current, onClose, onApplied }) {
         </div>
         {tab === 'ready' ? (
           !kits ? <div className="spinner" /> : (
-            <div className="kit-grid">{kits.map((k) => (
-              <button key={k.id} className={`kit-card ${sel === k.id ? 'on' : ''}`} onClick={() => setSel(k.id)} aria-pressed={sel === k.id}>
-                <span className="ti-box lg kit-ic"><KitIcon type={k.id} size={20} /></span>
-                <b>{k.name}{current?.id === k.id && <span className="pill ok">Current</span>}</b>
-                <small>{k.desc}</small>
-              </button>
-            ))}</div>
+            <>
+              {current?.id && current.id !== 'custom' && !kits.some((k) => k.id === current.id) && <p className="hint">You’re using “{current.name}”, which is now part of another style below. Your fields, pipeline and reminders keep working as they are.</p>}
+              {/* grouped by kind of business (any style not in a group still shows, under Other) */}
+              {[...groups, { name: 'Other', ids: kits.map((k) => k.id).filter((id) => !groups.some((g) => g.ids.includes(id))) }].map((g) => {
+                const list = g.ids.map((id) => kits.find((k) => k.id === id)).filter(Boolean);
+                return list.length > 0 && (
+                  <section key={g.name} className="kit-group">
+                    <h5 className="kit-group-h">{g.name}</h5>
+                    <div className="kit-grid">{list.map((k) => (
+                      <button key={k.id} className={`kit-card ${sel === k.id ? 'on' : ''}`} onClick={() => setSel(k.id)} aria-pressed={sel === k.id}>
+                        <span className="ti-box lg kit-ic"><KitIcon type={k.id} size={20} /></span>
+                        <b>{k.name}{current?.id === k.id && <span className="pill ok">Current</span>}</b>
+                        <small>{k.desc}</small>
+                      </button>
+                    ))}</div>
+                  </section>
+                );
+              })}
+            </>
           )
         ) : (
           <div className="kit-ai">
