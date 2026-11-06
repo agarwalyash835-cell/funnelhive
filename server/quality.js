@@ -25,7 +25,11 @@ import { PAGE_STYLES as STYLES, VARIANTS } from './page-styles.js';
 const HEX = /^#[0-9a-f]{6}$/i;
 const PLACEHOLDER = /lorem|ipsum|\byour product\b|\bproduct name\b|\bbenefit (one|two|three|1|2|3)\b|\bproblem (one|two|three)\b|\bbonus (one|two)\b|\bquestion\?|\btbd\b|\bxxx+\b|\[(link|name|city|product|price|insert)[^\]]*\]|\{(link|name)\}|example\.com|placeholder|expert name/i;
 // names that are obviously stand-ins
-const FAKE_NAME = /^(happy |satisfied |verified )?(customer|client|student|user)s?(\b|,|$)|^name$|^full name$|^expert name$|^john doe/i;
+// the seller's own facts left for them to fill ("[PLACEHOLDER — a real customer's words]", "[DATE]") — accepted, not
+// filler, when the brief's honesty rules ask for them (brief.js honest); the live page hides them until filled
+const SELLER_SLOT = /\[(?:PLACEHOLDER|Add your|DATE)\b[^\]]*\]/gi;
+const isFiller = (x, marks) => PLACEHOLDER.test(marks ? String(x).replace(SELLER_SLOT, '') : String(x));
+const FAKE_NAME =/^(happy |satisfied |verified )?(customer|client|student|user)s?(\b|,|$)|^name$|^full name$|^expert name$|^john doe/i;
 // optional in every template: an image, and a "was" price (only a real one — never made up to look like a discount)
 const IMAGE_OK = new Set(['image', 'mrp', 'cardMrp']);
 
@@ -82,16 +86,17 @@ export function trimTemplate(t, length = 'standard') {
 }
 
 // The bar written out for the model (first pass)
-export function barText(blueprint) {
+// sellerMarks: the brief has honesty rules — its own facts are left as marked slots, never invented
+export function barText(blueprint, { sellerMarks = false } = {}) {
   const { mins } = qualityBar();
   const lists = Object.entries(mins).filter(([k]) => blueprint.some((s) => s.blocks.includes(k.split('.')[0]))).map(([k, n]) => `${k} ≥ ${n}`).join(', ');
   return `QUALITY BAR — the funnel is rejected unless ALL of these hold:
 1. At least these steps, in this order, each with at least these blocks in this order (you may add other pages and sections between them when the business or the seller's request calls for it — e.g. a quiz, a countdown, a custom section — but never repeat a section's job):
 ${blueprint.map((s, i) => `   ${i + 1}. ${s.type}: ${s.blocks.join(', ')}`).join('\n')}
 2. Every block has all its fields filled with specific copy (as in the example). Minimum list sizes: ${lists}.
-3. No placeholders anywhere ("Your Product", "Benefit one", "[link]", "lorem", "Expert Name"…). Be specific about the offer itself, but never invent facts about the seller: no customer / attendee counts, ratings, review counts, "only N left" or "price goes up tonight" lines. stats values stay "[Add your real number]" for the seller to fill in. Sample testimonials use realistic Indian names with cities.
+3. No placeholders anywhere ("Your Product", "Benefit one", "[link]", "lorem", "Expert Name"…). Be specific about the offer itself, but never invent facts about the seller: no customer / attendee counts, ratings, review counts, "only N left" or "price goes up tonight" lines. stats values stay "[Add your real number]" for the seller to fill in. ${sellerMarks ? 'The seller\'s own facts they forbid you to invent — real reviews, their refund policy, a real end date — are left as marked slots exactly as the seller\'s rules below say ("[PLACEHOLDER — …]", "[DATE]"); those slots are not placeholders in this sense.' : 'Sample testimonials use realistic Indian names with cities.'}
 4. One price everywhere: checkout.price = pricing.price, and any hero.cardPrice / stickybar.price that shows a price shows that same amount (e.g. "₹1,999"). A free registration page (webinar, lead magnet) says "FREE" instead; an application funnel says "By application". An mrp ("was" price) only when the seller gave a real one, and then higher than the price — otherwise leave mrp "". Upsell and downsell offers have their own lower prices.
-5. Hero headline has one *highlighted phrase* in stars (the words that carry the promise). Testimonials use "Name, City" style Indian names. stock.label contains {n}. proof.intervalSec ≥ 9.
+5. Hero headline has one *highlighted phrase* in stars (the words that carry the promise).${sellerMarks ? '' : ' Testimonials use "Name, City" style Indian names.'} stock.label contains {n}. proof.intervalSec ≥ 9.
 6. theme.style is one of ${STYLES.join('|')}; primary and secondary are #rrggbb colours.`;
 }
 
@@ -111,7 +116,7 @@ export function alignSteps(steps, blueprint) {
 }
 
 // → [{ s: stepIndex, b: blockIndex | null, type, msg }]
-export function audit(f, blueprint) {
+export function audit(f, blueprint, { sellerMarks = false } = {}) {
   const issues = [];
   const { mins, keys } = qualityBar();
   const add = (s, b, type, msg) => issues.push({ s, b, type, msg });
@@ -135,7 +140,7 @@ export function audit(f, blueprint) {
     const p = b.props || {};
     for (const k of keys[b.type] || []) if (empty(p[k]) && typeof p[k] !== 'boolean' && typeof p[k] !== 'number') add(b.si, b.bi, b.type, `${k} is empty`);
     for (const [k, v] of Object.entries(p)) if (Array.isArray(v) && !OWN_LISTS.has(`${b.type}.${k}`) && mins[`${b.type}.${k}`] && v.length < mins[`${b.type}.${k}`]) add(b.si, b.bi, b.type, `${k} needs at least ${mins[`${b.type}.${k}`]} items (has ${v.length})`);
-    const bad = strings(Object.fromEntries(Object.entries(p).filter(([k]) => !OWN_LISTS.has(`${b.type}.${k}`)))).find((x) => PLACEHOLDER.test(x));
+    const bad = strings(Object.fromEntries(Object.entries(p).filter(([k]) => !OWN_LISTS.has(`${b.type}.${k}`)))).find((x) => isFiller(x, sellerMarks));
     if (bad) add(b.si, b.bi, b.type, `placeholder text: "${bad.slice(0, 60)}"`);
     if (!empty(p.mrp) && 'price' in p && !(num(p.mrp) > num(p.price))) add(b.si, b.bi, b.type, 'mrp must be higher than price (or "" when there is no real "was" price)');
     if (['checkout', 'pricing', 'offer'].includes(b.type) && !(num(p.price) > 0)) add(b.si, b.bi, b.type, 'price must be a positive number');
@@ -145,7 +150,8 @@ export function audit(f, blueprint) {
     if (p.variant != null && !(VARIANTS[b.type] || []).includes(p.variant)) add(b.si, b.bi, b.type, `variant must be one of ${(VARIANTS[b.type] || ['(none)']).join(', ')}`);
     if (b.type === 'proof' && num(p.intervalSec) < 9) add(b.si, b.bi, b.type, 'intervalSec must be ≥ 9');
     if (b.type === 'testimonials' && (p.items || []).some((x) => empty(x?.name) || empty(x?.quote))) add(b.si, b.bi, b.type, 'every testimonial needs name and quote');
-    if (b.type === 'testimonials' && new Set((p.items || []).map((x) => x?.quote)).size < (p.items || []).length) add(b.si, b.bi, b.type, 'testimonials repeat the same quote');
+    const quotes = (p.items || []).map((x) => x?.quote).filter((q) => !(sellerMarks && /^\s*\[(?:PLACEHOLDER|Add your)\b/i.test(String(q || '')))); // empty slots for real reviews may match
+    if (b.type === 'testimonials' && new Set(quotes).size < quotes.length) add(b.si, b.bi, b.type, 'testimonials repeat the same quote');
     if (b.type === 'faq' && (p.items || []).some((x) => empty(x?.q) || empty(x?.a))) add(b.si, b.bi, b.type, 'every FAQ needs a question and an answer');
     if (b.type === 'checkout' && p.bumpEnabled && !(num(p.bumpPrice) > 0)) add(b.si, b.bi, b.type, 'order bump needs a price');
     if (b.type === 'countdown' && perVisitor(p) && !(num(p.minutes) > 0)) add(b.si, b.bi, b.type, 'countdown minutes must be positive');
@@ -169,7 +175,7 @@ export function audit(f, blueprint) {
 // mechanical fixes (prices in sync, valid layouts) are made, and what's still short stays in the quality report.
 // The AI's main page always keeps its place: a "landing" page fills the template's "sales" slot and vice versa.
 const SAME_JOB = { sales: 'landing', landing: 'sales' };
-export function enforce(f, tpl, blueprint, { borrow = true } = {}) {
+export function enforce(f, tpl, blueprint, { borrow = true, sellerMarks = false } = {}) {
   const filled = [];
   const { keys, mins } = qualityBar();
   f.theme = { ...tpl.theme, ...(STYLES.includes(f.theme?.style) ? { style: f.theme.style } : {}), ...(HEX.test(f.theme?.primary || '') ? { primary: f.theme.primary } : {}), ...(HEX.test(f.theme?.secondary || '') ? { secondary: f.theme.secondary } : {}),
@@ -209,7 +215,7 @@ export function enforce(f, tpl, blueprint, { borrow = true } = {}) {
         if (Array.isArray(v) && min && v.length < min && Array.isArray(ref?.props?.[k])) { b.props[k] = [...v, ...structuredClone(ref.props[k]).slice(v.length)]; filled.push(`${t}.${k}`); }
       }
       // placeholder text → the template's wording for that field
-      for (const [k, v] of Object.entries(b.props)) if (!OWN_LISTS.has(`${t}.${k}`) && strings(v).some((x) => PLACEHOLDER.test(x)) && ref?.props?.[k] != null) { b.props[k] = structuredClone(ref.props[k]); filled.push(`${t}.${k}`); }
+      for (const [k, v] of Object.entries(b.props)) if (!OWN_LISTS.has(`${t}.${k}`) && strings(v).some((x) => isFiller(x, sellerMarks)) && ref?.props?.[k] != null) { b.props[k] = structuredClone(ref.props[k]); filled.push(`${t}.${k}`); }
       return b;
     });
     // keep valid extra sections the AI added (before the closing call to action)

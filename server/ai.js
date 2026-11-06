@@ -5,7 +5,7 @@ import { uid } from './db.js';
 import { knownBlocks } from './block-types.js';
 import { isOutOfCredit, outOfCredit, PAUSED } from './kie-credit.js';
 import { PAGE_STYLES, STYLE_HINTS, variantsText, FONT_NAMES, RADII, TEXT_SIZES } from './page-styles.js';
-import { briefNeeds, needsText, unmet, applyNeeds } from './brief.js';
+import { briefNeeds, needsText, unmet, applyNeeds, applyHonesty, honestAny } from './brief.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
@@ -372,6 +372,7 @@ export async function generateFunnel(prompt, { length = 'standard', style, prima
   const blueprint = blueprintOf(closest);
   // what the seller asked for in their own words: must-haves the gate checks (brief.js)
   const needs = briefNeeds(prompt);
+  const marks = honestAny(needs); // the brief forbids invented reviews / policies / deadlines: their slots are allowed
   if (!style && needs.style) style = needs.style;
   const asks = needsText(needs);
   const design = [style && `theme.style must be "${style}"`, primary && `theme.primary must be "${primary}" (pick a secondary that goes with it)`].filter(Boolean).join('; ');
@@ -383,7 +384,7 @@ ${BLOCK_SPEC}
 EXAMPLE — a complete funnel from our template library for a similar business ("${closest.name}"). It shows the quality bar: the depth, specificity and tone to match. Use its structure as the starting point, but write completely new copy, names, prices and offers for the user's business — and reshape it (add pages, add sections, pick other layouts, build custom html sections) wherever the seller's brief asks for something it doesn't have. The seller's request always wins over the example:
 ${exampleFunnel(closest)}
 
-${barText(blueprint)}
+${barText(blueprint, { sellerMarks: marks })}
 Every section has its own job — never repeat a point, benefit, list or claim another section already makes; a reader should never feel they've read it before.${asks ? `\n\n${asks}` : ''}${design ? `
 The seller chose their design: ${design}.` : ''}`;
   const report = { model: aiProvider(), template: closest.id, firstDraftIssues: null, repairPasses: 0, filledFromTemplate: [], finalIssues: null };
@@ -394,7 +395,7 @@ The seller chose their design: ${design}.` : ''}`;
   const budget = (frontier ? Math.max(FUNNEL_BUDGET_MS, FRONTIER_BUDGET_MS) : FUNNEL_BUDGET_MS) + (detailed ? DETAILED_EXTRA_MS : 0);
   const backupShare = detailed ? 150000 : 100000;
   const deadline = Date.now() + budget, left = () => deadline - Date.now();
-  const check = (f) => [...audit(f, blueprint), ...unmet(f, needs)];
+  const check = (f) => [...audit(f, blueprint, { sellerMarks: marks }), ...unmet(f, needs)];
   let best = null, bestIssues = null;
   const consider = (f) => {
     if (!f || !Array.isArray(f.steps)) return;
@@ -441,7 +442,10 @@ The seller chose their design: ${design}.` : ''}`;
   const f = structuredClone(best);
   // the template only tops up a funnel for its own kind of business — a seller's own product never gets another
   // business's pages and copy pasted in (templates.js sameNiche)
-  if (bestIssues.length) report.filledFromTemplate = [...enforce(f, trimTemplate(matchTemplate(prompt), length), blueprint, { borrow: sameNiche(prompt, closest) }), ...applyNeeds(f, needs, uid)];
+  if (bestIssues.length) report.filledFromTemplate = [...enforce(f, trimTemplate(matchTemplate(prompt), length), blueprint, { borrow: sameNiche(prompt, closest), sellerMarks: marks }), ...applyNeeds(f, needs, uid)];
+  // the brief's honesty rules hold whatever the AI wrote (and whatever a template top-up brought in)
+  const honesty = applyHonesty(f, needs, prompt);
+  if (honesty.length) report.honesty = [...new Set(honesty)];
   const final = check(f);
   report.finalIssues = final.length;
   report.remaining = final.map((i) => `${i.type}: ${i.msg}`);

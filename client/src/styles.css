@@ -948,6 +948,7 @@ body:has(#root > .page:is(.s-aurora, .s-fresh, .s-clean)) { background: color-mi
 .stickybar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--line); padding: 12px 20px; display: flex; justify-content: center; align-items: center; gap: 24px; box-shadow: 0 -10px 30px -10px rgba(0,0,0,.15); transform: translateY(110%); transition: transform .35s; }
 .stickybar.on { transform: none; }
 .stickybar span { font-weight: 600; }
+.stickybar .sb-timer { display: block; font-size: .8em; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; margin-top: 2px; }
 .stickybar .btn { padding: 12px 24px; }
 .wa { position: fixed; right: 18px; bottom: 90px; z-index: 55; background: #25d366; color: #fff !important; padding: 13px 20px 13px 16px; border-radius: 99px; font-weight: 700; display: flex; gap: 8px; align-items: center; box-shadow: 0 12px 30px -8px rgba(37,211,102,.7); font-family: var(--bf); transition: transform .2s; }
 .wa:hover { transform: scale(1.05); }

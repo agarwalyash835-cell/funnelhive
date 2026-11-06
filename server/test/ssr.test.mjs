@@ -31,6 +31,26 @@ test('live page is server-rendered with SEO + link-preview tags', { skip: !built
   assert.doesNotMatch(html, /noindex/);
 });
 
+test('the live page hides slots the seller hasn’t filled; the sticky bar shows the real countdown', { skip: !built && 'client not built' }, async () => {
+  const steps = structuredClone(f.steps);
+  const end = Date.now() + 3 * 864e5;
+  steps[0].blocks.push(
+    { id: 'hz1', type: 'testimonials', props: { title: 'Readers', items: [{ name: '[PLACEHOLDER — customer name, city]', quote: '[PLACEHOLDER — a real customer’s words]' }, { name: 'Meera Joshi, Pune', quote: 'A real review from a real reader' }] } },
+    { id: 'hz2', type: 'guarantee', props: { title: 'Refund policy', body: '[PLACEHOLDER — your refund policy]', days: 0 } },
+    { id: 'hz3', type: 'hellobar', props: { messages: [{ text: 'Launch price ends [DATE]' }, { text: 'Pay by UPI' }] } },
+    { id: 'hz4', type: 'countdown', props: { label: 'Launch price ends in', mode: 'fixed', endsAt: end } },
+    { id: 'hz5', type: 'stickybar', props: { text: 'Launch price', price: '₹1,499', buttonText: 'Buy' } },
+  );
+  await api(`/funnels/${f.id}`, 'PUT', { steps }, T);
+  const { html } = await page(`/f/${f.slug}`);
+  const markup = html.slice(html.indexOf('<div id="root">'), html.indexOf('window.__FUNNEL__')).replace(/<!-- -->/g, ''); // React's text separators
+  assert.doesNotMatch(markup, /\[PLACEHOLDER|\[DATE\]|\[Add your/, 'no unfilled slot is shown to visitors');
+  assert.match(markup, /A real review from a real reader/, 'a real review is shown');
+  assert.match(markup, /Pay by UPI/);
+  assert.match(markup, /class="sb-timer"[^>]*>⏳ Ends in [23]d \d\d:\d\d:\d\d/, 'the sticky bar counts to the page’s real deadline');
+  await api(`/funnels/${f.id}`, 'PUT', { steps: f.steps }, T);
+});
+
 test('step SEO title/description override, and step URLs work', { skip: !built && 'client not built' }, async () => {
   const steps = structuredClone(f.steps);
   steps[1].seo = { title: 'Secure checkout', description: 'Pay with UPI' };

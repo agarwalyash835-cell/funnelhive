@@ -85,7 +85,7 @@ export const BLOCK_TYPES = {
   stock: { label: 'FOMO: Seats / stock left', fields: [['label', T, null, '{n} is replaced by the real number left'], ['left', NUM, null, 'How many you really have — goes down by one with each real order. 0 hides the block'], ['total', NUM, null, 'Optional: how many you started with (shows a bar)']], defaults: { label: 'Only {n} left in stock', left: 0, total: 0 } },
   proof: { label: 'FOMO: Recent buyers popup', fields: [['intervalSec', NUM]], defaults: { intervalSec: 9 } },
   exitpopup: { label: 'FOMO: Exit-intent popup', fields: [['title', T], ['body', T], ['code', T], ['buttonText', T]], defaults: { title: 'Wait! Don’t go yet', body: 'Grab an extra 10% OFF on your order.', code: 'STAY10', buttonText: 'Claim my discount' } },
-  stickybar: { label: 'Sticky buy bar', fields: [['text', T], ['price', T], ['buttonText', T], ['buttonAction', 'select', BTN_ACTIONS], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab']], defaults: { text: 'Offer ends soon', price: '₹499', buttonText: 'Buy Now' } },
+  stickybar: { label: 'Sticky buy bar', fields: [['text', T], ['price', T], ['buttonText', T], ['buttonAction', 'select', BTN_ACTIONS], ['buttonUrl', T, null, 'https://…, WhatsApp (https://wa.me/…), tel:… or mailto:… — or a section id like pricing'], ['buttonNewTab', B, null, 'Open the link in a new tab'], ['showTimer', B, null, 'Show the time left when this page has a countdown set to a real date']], defaults: { text: 'Offer ends soon', price: '₹499', buttonText: 'Buy Now', showTimer: true } },
   whatsapp: { label: 'WhatsApp chat button', fields: [['number', T, null, 'Leave 919999999999 to use the Support WhatsApp from Settings'], ['message', T], ['label', T]], defaults: { number: '919999999999', message: 'Hi! I have a question.', label: 'Chat with us' } },
 };
 
@@ -881,7 +881,18 @@ function ExitPopup({ p, ctx }) {
   );
 }
 
+// the sticky bar's timer: the same real deadline as the page's countdown, "2d 04:12:09"; nothing once it has passed
+function StickyTimer({ end, lang }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const left = Math.max(0, Math.round((end - now) / 1000));
+  if (!left) return null;
+  const d = Math.floor(left / 86400), hms = [Math.floor((left % 86400) / 3600), Math.floor((left % 3600) / 60), left % 60].map(pad).join(':');
+  return <small className="sb-timer" aria-label={tr(lang, 'Ends in')}>⏳ {tr(lang, 'Ends in')} {d ? `${d}d ` : ''}{hms}</small>;
+}
+
 function StickyBar({ p, ctx }) {
+  const timer = p.showTimer !== false && Number(ctx.pageEndsAt) > 0 ? <StickyTimer end={Number(ctx.pageEndsAt)} lang={ctx.lang} /> : null;
   const [show, setShow] = useState(false);
   useEffect(() => {
     if (!ctx.live) return;
@@ -892,11 +903,11 @@ function StickyBar({ p, ctx }) {
   if (!ctx.live) {
     return (
       <FloatPreview label="📌 Sticky buy bar" hint="Slides up at the bottom once the visitor scrolls past the first screen">
-        <div className="stickybar on static"><span><E ctx={ctx} k="text" v={p.text} /> <E ctx={ctx} k="price" v={p.price} as="b" /></span><Btn ctx={ctx} k="buttonText">{p.buttonText}</Btn></div>
+        <div className="stickybar on static"><span><E ctx={ctx} k="text" v={p.text} /> <E ctx={ctx} k="price" v={p.price} as="b" />{timer}</span><Btn ctx={ctx} k="buttonText">{p.buttonText}</Btn></div>
       </FloatPreview>
     );
   }
-  return <div className={`stickybar ${show ? 'on' : ''}`}><span>{p.text} <b>{p.price}</b></span><Btn onClick={ctx.onNext} ctx={ctx} link={buttonLink(p.buttonAction, p.buttonUrl, p.buttonNewTab)}>{p.buttonText}</Btn></div>;
+  return <div className={`stickybar ${show ? 'on' : ''}`}><span>{p.text} <b>{p.price}</b>{timer}</span><Btn onClick={ctx.onNext} ctx={ctx} link={buttonLink(p.buttonAction, p.buttonUrl, p.buttonNewTab)}>{p.buttonText}</Btn></div>;
 }
 
 function WhatsApp({ p, ctx }) {
@@ -1804,8 +1815,26 @@ export function Block({ block, ctx }) {
   return <div className={cls.join(' ')} style={vars} id={cleanAnchor(st.anchor) || undefined}>{content}</div>;
 }
 
+// a slot the seller still has to fill: "[PLACEHOLDER — a real review]", "[Add your real number]", "[DATE]"
+export const unfilled = (v) => typeof v === 'string' && /\[(?:PLACEHOLDER|Add your|DATE)\b[^\]]*\]/i.test(v);
+// on the live page an unfilled slot is never shown (a visitor would read "[PLACEHOLDER]"); in the editor it stays,
+// so the seller sees what to fill. A section left with nothing real in it isn't shown at all.
+const LIST_OF = { testimonials: 'items', stats: 'items', faq: 'items', hellobar: 'messages' };
+function liveProps(type, p) {
+  const out = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (Array.isArray(v)) out[k] = v.filter((x) => !(x && typeof x === 'object' ? Object.values(x).some(unfilled) : unfilled(x)));
+    else out[k] = unfilled(v) ? '' : v;
+  }
+  const list = LIST_OF[type];
+  if (list && Array.isArray(p[list]) && p[list].length && !out[list].length) return null; // nothing real left in it
+  if (type === 'guarantee' && unfilled(p.body)) return null;
+  return out;
+}
+
 function renderBlock(block, ctx) {
-  const p = withCopy(block.type, block.props || {});
+  let p = withCopy(block.type, block.props || {});
+  if (ctx?.live) { p = liveProps(block.type, p); if (!p) return null; }
   switch (block.type) {
     case 'section': return <CustomSection p={p} ctx={ctx} block={block} />;
     case 'image': return <ImageBlock p={p} ctx={ctx} />;
@@ -2075,9 +2104,12 @@ export function Page({ blocks, theme, ctx, popups, popupPreview, onClosePreview 
   if (TEXT_SIZES[theme?.textSize]) vars.fontSize = TEXT_SIZES[theme.textSize];
   // body text in every section scales with the chosen size (section styles multiply their sizes by --ts)
   if (TEXT_SCALE[theme?.textSize]) vars['--ts'] = TEXT_SCALE[theme.textSize];
+  // the page's real deadline (a countdown set to a fixed date and time) — the sticky buy bar shows it too
+  const cd = blocks.find((b) => b.type === 'countdown' && cdMode(b.props || {}) === 'fixed' && Number(b.props?.endsAt) > 0);
+  const pctx = cd && ctx ? { ...ctx, pageEndsAt: Number(cd.props.endsAt) } : ctx;
   return (
     <div className={`page s-${style}`} style={vars}>
-      {blocks.map((b) => <Block key={b.id} block={b} ctx={ctx} />)}
+      {blocks.map((b) => <Block key={b.id} block={b} ctx={pctx} />)}
       {ctx?.seller && ctx.live && !ctx.editable && <SellerFooter s={ctx.seller} lang={ctx.lang} />}
       {popups?.length > 0 && ctx?.live && !ctx.editable && <PopupHost popups={popups} ctx={ctx} />}
       {popupPreview && <PopupView popup={popupPreview} ctx={{ ...ctx, inPopup: true, popupId: popupPreview.id }} onClose={onClosePreview || (() => {})} />}
