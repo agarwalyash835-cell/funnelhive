@@ -15,7 +15,7 @@ import { INDUSTRY, industryOf } from './waindustry.js';
 import { hasKnowledge, searchKnowledge, knowledgeBlock, customerProfile, rememberFacts, refreshMemory, learnFromChat, pdfPages, pageLabel } from './waknow.js';
 import { vaultBytes } from './vault.js';
 import { sarvamReady, transcribe, oggSeconds } from './sarvam.js';
-import { KITS } from './crmkits.js';
+import { ALL_KITS } from './crmkits.js';
 import { webchatOf } from './webchat-key.js';
 import { ensureMeta, ensureContact, logActivity, pipelinesFor, stageFor } from './crm.js';
 import { notify } from './notify.js';
@@ -1227,7 +1227,8 @@ function industryFlows(kit) {
 }
 const INDUSTRY_FLOWS = Object.fromEntries(Object.keys(INDUSTRY).map((k) => [k, industryFlows(k)]));
 const templateById = (id) => FLOW_TEMPLATES.find((t) => t.id === id) || Object.values(INDUSTRY_FLOWS).flat().find((t) => t.id === id) || null;
-const kitName = (id) => KITS.find((k) => k.id === id) || { id, name: id, icon: '' };
+// retired styles (saas) keep their name and icon for accounts that still use them
+const kitName = (id) => ALL_KITS.find((k) => k.id === id) || { id, name: id, icon: '' };
 // the AI agent's starting point for an industry (the seller fills in the [brackets])
 const agentPreset = (kit) => { const a = industryOf(kit).agent; return { name: a.name, tone: 'friendly', knowledge: a.knowledge, faqs: a.faqs.map(([q, ans]) => ({ q, a: ans })), handoff: a.handoff, role: a.role }; };
 
