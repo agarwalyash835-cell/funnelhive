@@ -29,7 +29,26 @@ test('the stream reader: Claude, Responses API, chat-completions, a completed-on
   const chat = `${parts.map((p) => `data: ${JSON.stringify({ choices: [{ delta: { content: p } }] })}`).join('\n\n')}\n\ndata: [DONE]\n`;
   assert.equal(readSse(chat, () => '').text, text);
   const err = readSse(sse([{ type: 'error', error: { message: 'Overloaded' } }]), () => '');
-  assert.deepEqual(err, { text: '', error: 'Overloaded' });
+  assert.deepEqual([err.text, err.error], ['', 'Overloaded']);
+});
+
+test('the model’s thinking is never taken as the answer; a stream with only the finished text works too', () => {
+  const sse = (events) => events.map((e) => `data: ${JSON.stringify(e)}\n`).join('\n');
+  const parts = pieces(text);
+  // a reasoning model on the Responses API: thinking deltas first, then the answer
+  const reasoning = sse([{ type: 'response.reasoning_summary_text.delta', delta: 'Let me plan the funnel…' }, { type: 'response.reasoning_text.delta', delta: 'thinking' }, ...parts.map((p) => ({ type: 'response.output_text.delta', delta: p })), { type: 'response.output_text.done', text }]);
+  assert.equal(readSse(reasoning, () => '').text, text);
+  // chat-completions with reasoning_content (DeepSeek style)
+  const ds = sse([{ object: 'chat.completion.chunk', choices: [{ delta: { reasoning_content: 'hmm' } }] }, ...parts.map((p) => ({ object: 'chat.completion.chunk', choices: [{ delta: { content: p } }] }))]);
+  assert.equal(readSse(ds, () => '').text, text);
+  // only the finished text, at the end
+  const only = readSse(sse([{ type: 'response.in_progress' }, { type: 'response.output_text.done', text }]), () => '');
+  assert.equal(only.text, text);
+  assert.deepEqual(only.types, ['response.in_progress', 'response.output_text.done']);
+  // a stream of events with no answer: empty text and the event names for the log
+  const none = readSse(sse([{ type: 'response.created', response: { output: [] } }, { type: 'response.reasoning_text.delta', delta: 'x' }]), () => '');
+  assert.equal(none.text, '');
+  assert.deepEqual(none.types, ['response.created', 'response.reasoning_text.delta']);
 });
 
 // a provider that streams slowly, in pieces (as a long draft really arrives)

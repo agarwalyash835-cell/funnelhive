@@ -21,20 +21,30 @@ export const aiProvider = () => (KIE_KEY ? `kie.ai · ${KIE_MODEL}` : client ? `
 // for ~100 s (HTTP 524), and a detailed funnel takes longer than that to write: streamed, the words arrive as they're
 // written, so a long draft is never cut off. Reads the formats a stream can come in — Claude's (content_block_delta),
 // the Responses API's (response.output_text.delta / response.completed) and chat-completions style (choices[].delta).
+// Any piece of answer text counts (the provider's stream names vary by model); the model's thinking ("reasoning"
+// events, reasoning_content) never does. types: every event type seen, for the log when a stream gives no text.
 export function readSse(raw, pick) {
-  let text = '', done = null, error = null;
+  let text = '', done = null, doneAlt = null, error = null;
+  const types = new Set();
+  const thinking = (t) => /reason|thinking|summary/i.test(t || '');
   for (const line of String(raw).split(/\r?\n/)) {
     const m = /^data:\s?(.*)$/.exec(line);
     if (!m || !m[1] || m[1] === '[DONE]') continue;
     let e;
     try { e = JSON.parse(m[1]); } catch { continue; }
-    if (e.type === 'content_block_delta' && typeof e.delta?.text === 'string') text += e.delta.text;
-    else if (e.type === 'response.output_text.delta' && typeof e.delta === 'string') text += e.delta;
-    else if (e.type === 'response.completed' && e.response) done = pick(e.response);
-    else if (Array.isArray(e.choices) && typeof e.choices[0]?.delta?.content === 'string') text += e.choices[0].delta.content;
-    else if (e.type === 'error' || e.type === 'response.failed' || e.error) error = e.error?.message || e.response?.error?.message || e.message || 'stream error';
+    const t = e.type || e.event || e.object || '';
+    if (t) types.add(t);
+    if (t === 'error' || t === 'response.failed' || (e.error && !e.choices)) { error = e.error?.message || e.response?.error?.message || (typeof e.error === 'string' ? e.error : '') || e.message || 'stream error'; continue; }
+    if (thinking(t)) continue;
+    if (typeof e.delta === 'string') text += e.delta; // Responses API: response.output_text.delta (and kin)
+    else if (typeof e.delta?.text === 'string' && !thinking(e.delta.type)) text += e.delta.text; // Claude: content_block_delta
+    else if (Array.isArray(e.choices)) { const c = e.choices[0] || {}; const piece = c.delta?.content ?? c.message?.content ?? c.text; if (typeof piece === 'string') text += piece; } // chat completions
+    // the whole answer at the end of a stream: response.completed, response.output_text.done, a final message
+    if (e.response) done = pick(e.response) || done;
+    else if (typeof e.text === 'string' && /done|completed/i.test(t)) doneAlt = e.text;
+    else if (Array.isArray(e.output) || Array.isArray(e.content)) done = pick(e) || done;
   }
-  return { text: text || done || '', error };
+  return { text: text || done || doneAlt || '', error, types: [...types] };
 }
 // One call to whichever model is configured → the model's text. stream: read the reply as it's written (funnels).
 async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODEL, stream = false) {
@@ -59,7 +69,11 @@ async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODE
   // a streamed reply, or a plain JSON one (a provider that ignores stream:true answers in one piece)
   const sse = stream && (/event-stream/i.test(r.headers.get('content-type') || '') || /^\s*(?:event|data):/m.test(raw.slice(0, 200)));
   let d = {}, text = '';
-  if (sse) { const s = readSse(raw, pick); text = s.text; if (s.error) d = { msg: s.error }; } else { try { d = JSON.parse(raw); } catch { d = {}; } text = pick(d); }
+  if (sse) {
+    const s = readSse(raw, pick); text = s.text; if (s.error) d = { msg: s.error };
+    // a stream with no answer in it: what it held, so the next fix needs no guessing (no secrets in a model's stream)
+    if (!text && !s.error) console.error('AI stream gave no text:', m, `events=${s.types.join(',') || 'none'}`, `bytes=${raw.length}`, `start=${JSON.stringify(raw.slice(0, 300))}`);
+  } else { try { d = JSON.parse(raw); } catch { d = {}; } text = pick(d); }
   // a provider that won't stream this model: the same request once more, in one piece
   if (stream && !r.ok && r.status === 400 && /stream/i.test(d.msg || d.error?.message || raw.slice(0, 300))) return kie(system, messages, json, timeoutMs, model, false);
   // kie.ai reports some errors with HTTP 200 and { code, msg }
