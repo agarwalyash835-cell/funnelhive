@@ -147,3 +147,22 @@ test('No downloads: nothing has a link, old links stop working, audio only as a 
   await api(`/products/${book.id}`, 'PUT', { watermark: true }, T);
   await api('/school/settings', 'PUT', { noDownloads: false }, T);
 });
+
+test('App only on Android: Android browsers are sent to the app; the app, iPhones and computers still open lessons', async () => {
+  const PHONE = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
+  const as = (ua) => async (path, body, tok) => { const r = await fetch(`${srv.base}/api/learn/${handle}${path}`, { method: 'POST', headers: { ...H(tok), 'user-agent': ua }, body: JSON.stringify(body) }); return { status: r.status, data: await r.json().catch(() => ({})) }; };
+  const c = await courseOf(asha);
+  const ask = { accessId: c.accessId, fileId: pdfFile.id };
+  assert.equal((await as(PHONE)('/reader', ask, asha)).status, 200, 'switched off: an Android browser opens it');
+
+  assert.equal((await api('/school/settings', 'PUT', { appOnly: true }, T)).data.appOnly, true);
+  assert.equal((await L('')).data.school.appOnly, true, 'the members area knows, to point Android members to the app');
+  const browser = await as(PHONE)('/reader', ask, asha);
+  assert.equal(browser.status, 403);
+  assert.deepEqual([browser.data.app, browser.data.error], [true, 'Open this course in the AiHive Academy app to watch it']);
+  assert.equal((await as(PHONE)('/audio', { accessId: c.accessId, fileId: mp3.id }, asha)).status, 403, 'audio too');
+  assert.equal((await as(`${PHONE} AiHiveAcademy/1.0`)('/reader', ask, asha)).status, 200, 'inside the app it opens');
+  assert.equal((await as('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1')('/reader', ask, asha)).status, 200, 'iPhones aren’t affected');
+  assert.equal((await as('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0 Safari/537.36')('/reader', ask, asha)).status, 200, 'nor computers');
+  await api('/school/settings', 'PUT', { appOnly: false }, T);
+});

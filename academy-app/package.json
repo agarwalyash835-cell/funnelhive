@@ -1,0 +1,27 @@
+{
+  "name": "aihive-academy-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AiHive Academy: the members' Android app (Capacitor). Courses play here with screenshots and screen recording blocked.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "fonts": "node scripts/copy-fonts.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "sync": "npm run fonts && npx cap sync android",
+    "aab": "npm run sync && cd android && gradlew.bat bundleRelease",
+    "apk": "npm run sync && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/haptics": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
+    "@fontsource-variable/inter": "^5.2.5",
+    "@fontsource-variable/space-grotesk": "^5.2.5",
+    "sharp": "^0.34.1"
+  }
+}

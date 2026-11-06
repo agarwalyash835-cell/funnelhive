@@ -1,0 +1,24 @@
+{
+  "appId": "in.getaihive.academy",
+  "appName": "AiHive Academy",
+  "webDir": "www",
+  "backgroundColor": "#07070c",
+  "loggingBehavior": "none",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost",
+    "allowNavigation": ["app.getaihive.in"],
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "appendUserAgent": "AiHiveAcademy/1.0",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false,
+    "backgroundColor": "#07070c"
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true },
+    "StatusBar": { "overlaysWebView": true, "style": "DARK", "backgroundColor": "#00000000" }
+  }
+}

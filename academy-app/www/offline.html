@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>You’re offline</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+  <main id="app">
+    <section class="screen rise" style="display:grid;align-content:center;text-align:center">
+      <div class="orb" style="width:180px;margin:0 auto 28px"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0"/><path d="M3 3l18 18"/></svg></span></div>
+      <h1 class="display" style="font-size:32px">You’re offline</h1>
+      <p class="mute" style="max-width:28ch;margin:10px auto 28px">Your lessons stream securely, so they need the internet. Connect and try again.</p>
+      <button class="cta" onclick="history.length > 1 ? location.reload() : (location.href = '/')"><span>Try again</span></button>
+      <button class="ghost" style="margin-top:12px;width:100%" onclick="location.href = '/'">My academies</button>
+    </section>
+  </main>
+</body>
+</html>

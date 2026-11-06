@@ -290,6 +290,7 @@ function SettingsTab({ d, reload }) {
           <option value="strong">Strong — clearly visible, moves often</option>
           <option value="off">Off</option>
         </select></label>
+        <label className="tog sc-tog" style={{ marginTop: 12 }}><input type="checkbox" checked={!!v.appOnly} onChange={(e) => setV({ ...v, appOnly: e.target.checked })} /><span /><div><b>App only on Android</b> — on Android phones, lessons play only in the free AiHive Academy app, which blocks screenshots and screen recording. Members on Android browsers are sent to the app. iPhones and computers still play in the browser.</div></label>
         <p className="hint">The member’s email{v.watermark === 'strong' ? ' and the last 4 digits of their phone' : ''} moves over videos, the audio player and every PDF page, so a screen recording or photo shows whose copy it was. No website can stop screen recording itself — the watermark is what stops people sharing.</p>
       </Panel>
       <Panel title="Levels">

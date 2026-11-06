@@ -25,7 +25,7 @@ const first = (name) => String(name || '').trim().split(/\s+/)[0] || '';
 const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 
 // ---------- the school's settings (on the seller's account) ----------
-export const SCHOOL_DEFAULTS = { name: '', tagline: '', logo: '', cover: '', color: '', openJoin: false, deviceLimit: 3, tutor: true, levels: ['Newcomer', 'Learner', 'Regular', 'Contributor', 'Achiever', 'Expert', 'Mentor', 'Master', 'Legend'], welcome: '', lang: 'en', noDownloads: false, watermark: 'subtle' };
+export const SCHOOL_DEFAULTS = { name: '', tagline: '', logo: '', cover: '', color: '', openJoin: false, deviceLimit: 3, tutor: true, levels: ['Newcomer', 'Learner', 'Regular', 'Contributor', 'Achiever', 'Expert', 'Mentor', 'Master', 'Legend'], welcome: '', lang: 'en', noDownloads: false, watermark: 'subtle', appOnly: false };
 // the members area's own words (sign-in, lessons, community, quizzes, certificates) in one of these; students can switch
 // the moving watermark: off, subtle (faint, near the edges, moves every ~40 s) or strong (clearer, anywhere, every ~10 s)
 export const WATERMARKS = ['off', 'subtle', 'strong'];
@@ -37,6 +37,12 @@ export function markFor(owner, product, s) {
   const phone = String(s.phone || '').replace(/\D/g, '');
   return { mark: style === 'strong' && phone.length >= 4 ? `${s.email} · …${phone.slice(-4)}` : s.email, markStyle: style };
 }
+// "App only on Android": on an Android phone, lessons play only inside the AiHive Academy app (which blocks
+// screenshots and screen recording), not in a browser. Phones and browsers can be faked, so this keeps honest
+// members in the safe app; the watermark is still what stops a determined copier.
+export const inAcademyApp = (req) => /AiHiveAcademy\//.test(req.get('user-agent') || '');
+export const appOnlyBlocks = (owner, req) => !!schoolOf(owner).appOnly && /Android/i.test(req.get('user-agent') || '') && !inAcademyApp(req);
+const APP_ONLY = { error: 'Open this course in the AiHive Academy app to watch it', app: true };
 export const SCHOOL_LANGS = ['en', 'hi', 'mr', 'gu', 'bn', 'ta', 'te', 'kn', 'ml', 'pa', 'or', 'hinglish'];
 export const schoolOf = (u) => ({ ...SCHOOL_DEFAULTS, ...(u?.settings?.school || {}) });
 const schoolName = (u) => schoolOf(u).name || u?.settings?.businessName || u?.name || brand();
@@ -202,7 +208,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   const meView = (owner, s) => ({ id: s.id, email: s.email, name: s.name, bio: s.bio || '', alerts: !s.alertsOff, initials: initials(s.name || s.email), ...levelView(owner, s.points || 0) });
   const publicSchool = (owner) => {
     const sc = schoolOf(owner);
-    return { name: schoolName(owner), tagline: sc.tagline, logo: sc.logo, cover: sc.cover, color: sc.color || owner.settings?.brandColor || '#6366f1', openJoin: !!sc.openJoin, tutor: !!sc.tutor && aiEnabled(), levels: sc.levels, levelPoints: LEVELS, welcome: sc.welcome, lang: SCHOOL_LANGS.includes(sc.lang) ? sc.lang : 'en', noDownloads: !!sc.noDownloads };
+    return { name: schoolName(owner), tagline: sc.tagline, logo: sc.logo, cover: sc.cover, color: sc.color || owner.settings?.brandColor || '#6366f1', openJoin: !!sc.openJoin, tutor: !!sc.tutor && aiEnabled(), levels: sc.levels, levelPoints: LEVELS, welcome: sc.welcome, lang: SCHOOL_LANGS.includes(sc.lang) ? sc.lang : 'en', noDownloads: !!sc.noDownloads, appOnly: !!sc.appOnly };
   };
 
   // --- public: the school's front door ---
@@ -375,6 +381,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const f = lesson && p.files.find((x) => x.id === lesson.videoFileId);
     if (!f || a.at + (lesson.dripDays || 0) * DAY > Date.now()) return res.status(404).json({ error: 'Video not found' });
     if (lessonGate(s, p, lesson.id)) return res.status(403).json({ error: `Reach level ${lesson.minLevel} to unlock this lesson` });
+    if (appOnlyBlocks(owner, req)) return res.status(403).json(APP_ONLY);
     if (f.hls?.status !== 'ready') return res.status(409).json({ error: 'This video is still being prepared — try again in a few minutes' });
     res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, ...markFor(owner, p, s) });
   });
@@ -389,6 +396,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     // in a lesson: that lesson has to be open to this member; otherwise it's one of the product's own files
     if (!f) return res.status(404).json({ error: 'Audio not found' });
     if (lesson && (dripLocked(a, lesson) || lessonGate(s, p, lesson.id))) return res.status(403).json({ error: 'This lesson isn’t open yet' });
+    if (appOnlyBlocks(owner, req)) return res.status(403).json(APP_ONLY);
     if (f.hls?.status !== 'ready') return res.status(409).json({ error: 'This audio is still being prepared — try again in a few minutes', preparing: true });
     res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, ...markFor(owner, p, s) });
   });
@@ -403,6 +411,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     // in a lesson: that lesson has to be open to this student; otherwise it's one of the product's own files
     const lesson = p.lessons.find((l) => l.fileIds?.includes(f.id));
     if (lesson && (dripLocked(a, lesson) || lessonGate(s, p, lesson.id))) return res.status(403).json({ error: 'This lesson isn’t open yet' });
+    if (appOnlyBlocks(owner, req)) return res.status(403).json(APP_ONLY);
     const { t, key, iv } = readerTicket(a.id, f.id, s.id);
     res.set('Cache-Control', 'no-store').json({ src: `/api/learn/${req.params.handle}/reader/${encodeURIComponent(t)}`, key, iv, ...markFor(owner, p, s), name: f.name, readOnly: !!f.readOnly || !!schoolOf(owner).noDownloads });
   });
@@ -630,6 +639,7 @@ Rules: modules (sections) in a sensible order, 3-6 lessons each; add a quiz (3-5
     if ('tutor' in b) out.tutor = !!b.tutor;
     if ('lang' in b) out.lang = SCHOOL_LANGS.includes(b.lang) ? b.lang : 'en';
     if ('noDownloads' in b) out.noDownloads = !!b.noDownloads;
+    if ('appOnly' in b) out.appOnly = !!b.appOnly;
     if ('watermark' in b) out.watermark = WATERMARKS.includes(b.watermark) ? b.watermark : 'subtle';
     if ('deviceLimit' in b) out.deviceLimit = Math.max(1, Math.min(10, Math.round(Number(b.deviceLimit)) || 3));
     if (Array.isArray(b.levels)) out.levels = SCHOOL_DEFAULTS.levels.map((d, i) => clip(b.levels[i], 30) || d);

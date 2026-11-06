@@ -63,6 +63,25 @@ const Name = ({ a }) => <b className="ln-name">{a?.name}{a?.badge && <em classNa
 function Spinner() { return <span className="ln-spin" aria-label={useT()('Loading')} />; }
 function Empty({ icon, title, text, children }) { return <div className="ln-empty"><div className="ln-empty-ic">{icon}</div><h3>{title}</h3>{text && <p>{text}</p>}{children}</div>; }
 
+// ---------- the AiHive Academy app (Android): lessons there can't be screenshotted or screen-recorded ----------
+const UA = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+const IN_APP = /AiHiveAcademy\//.test(UA);
+const ANDROID = /Android/i.test(UA);
+const APP_HOME = 'https://localhost/'; // the app's own "my academies" screen
+// opens this academy in the app if it's installed, else its Play Store page
+const appLink = (handle) => `intent://learn/${handle}#Intent;scheme=aihiveacademy;package=in.getaihive.academy;S.browser_fallback_url=${encodeURIComponent('https://play.google.com/store/apps/details?id=in.getaihive.academy')};end`;
+function AppBanner({ handle }) {
+  const t = useT();
+  return (
+    <div className="ln-install ln-appban">
+      <span className="ln-install-ic">🛡️</span>
+      <div><b>{t('Watch this course in the AiHive Academy app')}</b><small>{t('Screenshots and screen recordings are blocked there, so your teacher’s work stays safe.')}</small></div>
+      <a className="ln-btn sm" href={appLink(handle)}>{t('Open in the app')}</a>
+    </div>
+  );
+}
+const AppHome = () => IN_APP ? <a className="ln-icon ln-apphome" href={APP_HOME} aria-label={useT()('My academies')}>‹</a> : null;
+
 // ---------- the installable app ----------
 // Chrome / Android offer "install" once; we keep the offer for our own button
 let installOffer = null;
@@ -74,7 +93,7 @@ const iOS = () => typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(n
 function useInstall() {
   const [can, setCan] = useState(() => !!installOffer);
   useEffect(() => { const h = () => setCan(true); window.addEventListener('ff:installable', h); return () => window.removeEventListener('ff:installable', h); }, []);
-  if (standalone()) return null;
+  if (standalone() || IN_APP) return null;
   if (can) return { kind: 'prompt', go: async () => { installOffer.prompt(); const r = await installOffer.userChoice.catch(() => null); if (r?.outcome === 'accepted') { installOffer = null; setCan(false); } } };
   if (iOS()) return { kind: 'ios' };
   return null;
@@ -150,7 +169,7 @@ export default function Learn() {
   useEffect(() => { document.documentElement.lang = LOCALE.split('-')[0]; }, [lang]);
   const accent = info?.school?.color || '#6366f1';
   const frame = (cls, body) => <LangCtx.Provider value={ctx}><div className={cls} style={{ '--acc': accent, ...fontStyle(lang) }}>{body}</div></LangCtx.Provider>;
-  if (err) return frame('ln', <Empty icon="🔒" title={ctx.t('Academy not found')} text={ctx.t(err)} />);
+  if (err) return frame('ln', <Empty icon="🔒" title={ctx.t('Academy not found')} text={ctx.t(err)}>{IN_APP && <a className="ln-btn" href={APP_HOME}>{ctx.t('My academies')}</a>}</Empty>);
   if (!info || linking || (signedIn && !info.me && getTok(handle))) return frame('ln ln-loading', <Spinner />);
   if (!signedIn || !info.me) return frame('ln', <SignIn handle={handle} school={info.school} onDone={(t) => { setTok(handle, t); setSignedIn(true); }} />);
   const [section, a1, a2] = rest.split('/');
@@ -191,6 +210,7 @@ function SignIn({ handle, school, onDone }) {
   return (
     <div className="ln-auth">
       <div className="ln-auth-card">
+        <AppHome />
         {school.cover && <div className="ln-auth-cover" style={{ backgroundImage: `url("${school.cover}")` }} />}
         <div className="ln-auth-in">
           <div className="ln-brand big">{school.logo ? <img src={school.logo} alt="" /> : <span className="ln-logo">{(school.name || 'S')[0]}</span>}</div>
@@ -231,6 +251,7 @@ function Shell({ handle, school, me, section, go, api, onSignOut, children }) {
   return (
     <>
       <header className="ln-top">
+        <AppHome />
         <button className="ln-brand" onClick={() => go('')}>{school.logo ? <img src={school.logo} alt="" /> : <span className="ln-logo">{(school.name || 'S')[0]}</span>}<b>{school.name}</b></button>
         <nav className="ln-tabs" aria-label="Main">{TABS.slice(0, 3).map(([k, l]) => <button key={k} className={section === k || (k === 'community' && section === 'post') ? 'on' : ''} onClick={() => go(k === 'home' ? '' : k)}>{t(l)}</button>)}</nav>
         <div className="ln-top-r">
@@ -257,7 +278,7 @@ function Shell({ handle, school, me, section, go, api, onSignOut, children }) {
           </div>
         </div>
       </header>
-      <main className="ln-main">{children}</main>
+      <main className="ln-main">{school.appOnly && ANDROID && !IN_APP && <AppBanner handle={handle} />}{children}</main>
       <nav className="ln-bottom" aria-label="Main">{TABS.map(([k, l, ic, short]) => <button key={k} className={section === k || (k === 'community' && section === 'post') || (k === 'home' && section === 'course') ? 'on' : ''} onClick={() => go(k === 'home' ? '' : k)}><span>{ic}</span>{t(short || l)}</button>)}</nav>
     </>
   );
@@ -459,6 +480,7 @@ function Player({ lesson, resumeAt, onProgress, api, accessId }) {
 // A protected lesson video: encrypted stream (hls.js, or Safari's own player) with the student's email drifting
 // across it, so a screen recording shows who shared it
 function SecurePlayer({ api, accessId, fileId, events }) {
+  const t = useT();
   const ref = useRef(null);
   const [mark, setMark] = useState({ text: '', style: 'off' });
   const [err, setErr] = useState('');
@@ -483,7 +505,7 @@ function SecurePlayer({ api, accessId, fileId, events }) {
     <div className="ln-video" onContextMenu={(e) => e.preventDefault()}>
       <video ref={ref} controls controlsList="nodownload noremoteplayback" disablePictureInPicture playsInline preload="metadata" {...events} />
       <MovingMark text={mark.text} markStyle={mark.style} />
-      {err && <div className="ln-video-err">{err}</div>}
+      {err && <div className="ln-video-err">{t(err)}</div>}
     </div>
   );
 }
