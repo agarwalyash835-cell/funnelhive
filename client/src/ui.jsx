@@ -5,21 +5,23 @@ import { WorkspaceSwitch } from './pages/Team';
 import { api, meCache, logout, stopImpersonating, leaveClient, fmtDate, setToken } from './api';
 import { SKINS, applySkin, currentSkin, useDashboardMode, setMode, savedMode } from './skins';
 import SkinPicker from './skinPicker';
+import { HiveGlyph, ComposeGlyph, AssistantGlyph } from './brandIcons';
 import { isSuper } from './tier';
 import { agencyHost } from './agencyHost';
 import { t, tx, uiLang, setUiLang, applyUiLang, UI_LANGS } from './appI18n';
 import { LANG_GROUPS } from './i18n';
-import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Sparkles, Settings, Plus, Search, Eye, EyeOff, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, WandSparkles, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Bot, Image, List, Mic, Paperclip, CalendarDays, PanelLeft, Ellipsis, ChevronLeft, CircleCheck } from 'lucide-react';
+import { House, Funnel, LayoutTemplate, ChartLine, Target, Users, ShoppingCart, Settings, Plus, Search, Eye, EyeOff, Copy, Trash2, Pencil, ExternalLink, Undo2, Redo2, Monitor, Tablet, Smartphone, Send, GripVertical, Download, Check, X, Workflow, LogOut, Zap, Tag, Link2, Globe, Menu, ChevronRight, Split, Layers, Palette, Wallet, Play, Clock, ClipboardList, Bookmark, ShieldCheck, CreditCard, Box, RotateCcw, Mail, Phone, Receipt, Vault, Bell as BellIcon, MessageCircle, Image, List, Mic, Paperclip, CalendarDays, PanelLeft, Ellipsis, ChevronLeft, CircleCheck } from 'lucide-react';
 
 // One icon set everywhere: Lucide (ISC licence), the same line icons as the page builder's sections and the CRM's
-// industry styles. The names are FunnelHive's own, so screens ask for "cart" or "bot" and get the Lucide drawing.
+// industry styles. The names are FunnelHive's own, so screens ask for "cart" or "bot" and get the Lucide drawing —
+// except the AI ones (sparkles, wand, bot), which are FunnelHive's own marks (brandIcons.jsx).
 const ICONS = {
-  home: House, funnel: Funnel, layout: LayoutTemplate, chart: ChartLine, target: Target, users: Users, cart: ShoppingCart, sparkles: Sparkles, settings: Settings,
+  home: House, funnel: Funnel, layout: LayoutTemplate, chart: ChartLine, target: Target, users: Users, cart: ShoppingCart, sparkles: HiveGlyph, settings: Settings,
   plus: Plus, search: Search, eye: Eye, eyeOff: EyeOff, copy: Copy, trash: Trash2, edit: Pencil, external: ExternalLink, undo: Undo2, redo: Redo2, desktop: Monitor, tablet: Tablet,
   mobile: Smartphone, send: Send, grip: GripVertical, download: Download, check: Check, x: X, flow: Workflow, logout: LogOut, bolt: Zap, tag: Tag, link: Link2,
-  globe: Globe, menu: Menu, chevron: ChevronRight, split: Split, layers: Layers, palette: Palette, wand: WandSparkles, wallet: Wallet, play: Play, clock: Clock,
+  globe: Globe, menu: Menu, chevron: ChevronRight, split: Split, layers: Layers, palette: Palette, wand: ComposeGlyph, wallet: Wallet, play: Play, clock: Clock,
   clip: ClipboardList, bookmark: Bookmark, shield: ShieldCheck, card: CreditCard, box: Box, refund: RotateCcw, mail: Mail, phone: Phone, receipt: Receipt,
-  vault: Vault, bell: BellIcon, chat: MessageCircle, bot: Bot, image: Image, list: List, mic: Mic, attach: Paperclip, calendar: CalendarDays, panel: PanelLeft,
+  vault: Vault, bell: BellIcon, chat: MessageCircle, bot: AssistantGlyph, image: Image, list: List, mic: Mic, attach: Paperclip, calendar: CalendarDays, panel: PanelLeft,
   dots: Ellipsis, back: ChevronLeft, done: CircleCheck,
 };
 export const Icon = ({ name, size = 18, stroke = 1.75, className = '' }) => {

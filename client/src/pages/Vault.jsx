@@ -1,6 +1,6 @@
 // Vault: the business's private files (folders, subfolders, linked to CRM contacts), saved passwords and secure notes
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Folder, FolderPlus, FolderInput, Upload, Search, LayoutGrid, List, ChevronRight, Home, Pencil, Trash2, Download, KeyRound, StickyNote, Eye, EyeOff, Copy, ExternalLink, Wand2, Plus, Lock, Link2, HardDrive, Inbox } from 'lucide-react';
+import { Folder, FolderPlus, FolderInput, Upload, Search, LayoutGrid, List, ChevronRight, Home, Pencil, Trash2, Download, KeyRound, StickyNote, Eye, EyeOff, Copy, ExternalLink, Dices, Plus, Lock, Link2, HardDrive, Inbox } from 'lucide-react';
 import { api } from '../api';
 import { Layout, Panel, Empty, Modal, toast, confirmDialog, promptDialog, ago } from '../ui';
 import { FileChip, FileModal, InlinePreview, ContactPicker, useUploads, downloadFile, renameFile, deleteFile, bytes, ACCEPT } from '../vaultKit';
@@ -310,7 +310,7 @@ function SecretModal({ s, onClose, onSaved }) {
           </label>
           <div className={`vt-strength s${lvl}`}><i /><i /><i /><i /><span>{word}</span></div>
           <div className="vt-gen">
-            <button type="button" className="btn ghost sm" onClick={() => { setV({ ...v, password: generatePassword(gen.len, { symbols: gen.symbols }) }); setShow(true); }}><Wand2 size={14} /> Generate</button>
+            <button type="button" className="btn ghost sm" onClick={() => { setV({ ...v, password: generatePassword(gen.len, { symbols: gen.symbols }) }); setShow(true); }}><Dices size={14} /> Generate</button>
             <label className="vt-len"><span>{gen.len} characters</span><input type="range" min={12} max={48} value={gen.len} onChange={(e) => setGen({ ...gen, len: Number(e.target.value) })} aria-label="Length" /></label>
             <label className="vt-chk"><input type="checkbox" checked={gen.symbols} onChange={(e) => setGen({ ...gen, symbols: e.target.checked })} /> Symbols</label>
           </div>

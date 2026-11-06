@@ -3,7 +3,8 @@
 // the canvas and what the seller has pointed at with each message — so "make the background darker" or "swap this for
 // a close-up" lands on the right thing (studio_edit). Anything it changes shows up on the canvas as it happens.
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles, Square, ArrowUp, Check, X, Loader2, Plus, Crosshair } from 'lucide-react';
+import { Square, ArrowUp, Check, X, Loader2, Plus, Crosshair } from 'lucide-react';
+import { HiveGlyph as Sparkles } from '../../brandIcons';
 import { api } from '../../api';
 import { toast } from '../../ui';
 

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Mail, Phone, MessageCircle, StickyNote, PhoneCall, ShoppingBag, Eye, LogIn, UserPlus, TrendingUp, TrendingDown, PackagePlus, ShoppingCart,
-  ArrowRightLeft, X, Plus, Sparkles, ArrowUp, Users, BadgeCheck, Sprout, IndianRupee, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, CalendarPlus, Upload, Download, Paperclip,
+  ArrowRightLeft, X, Plus, ArrowUp, Users, BadgeCheck, Sprout, IndianRupee, Trash2, LayoutList, Kanban, Copy, Send, Repeat, ChevronUp, ChevronDown, SlidersHorizontal, Footprints, CalendarDays, CalendarPlus, Upload, Download, Paperclip,
 } from 'lucide-react';
+import { HiveGlyph as Sparkles } from '../brandIcons';
 import { api } from '../api';
 import { KitIcon } from '../blockIcons';
 import { ContactFiles } from '../vaultKit';

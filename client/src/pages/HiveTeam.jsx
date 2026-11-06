@@ -133,8 +133,8 @@ export function TeamDialog({ onClose, onChanged, onRun, editId = null }) {
               <i><Plus size={12} /> Hire</i>
             </button>
           ))}
-          <button className="hv-tm-card hire" onClick={() => setEdit({ name: '', emoji: '✨', color: '#6366f1', role: '', instructions: '', groups: [], core: false, askFirst: true })} disabled={busy || full}>
-            <span className="hv-mate-e">✨</span><b>Your own</b><small>Any role, your instructions</small><i><Plus size={12} /> Create</i>
+          <button className="hv-tm-card hire" onClick={() => setEdit({ name: '', emoji: '🧩', color: '#6366f1', role: '', instructions: '', groups: [], core: false, askFirst: true })} disabled={busy || full}>
+            <span className="hv-mate-e">🧩</span><b>Your own</b><small>Any role, your instructions</small><i><Plus size={12} /> Create</i>
           </button>
         </div>
         {full && <p className="hint">Your team is full ({data.max}). Remove one to hire another.</p>}

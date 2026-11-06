@@ -9,7 +9,7 @@ import '../chat.css';
 
 // /chatbots — WhatsApp chatbots drawn on a canvas, drafted by AI from a sentence, tested on a phone before going
 // live; and /chatbots?tab=agent — the AI agent that answers customers from the business's own knowledge.
-const AI_BG = 'linear-gradient(135deg, #7c3aed, #2563eb 55%, #06b6d4)';
+const AI_BG = 'var(--ai-grad)';
 export const NT = {
   start: ['Start', 'bolt', '#16a34a', 'Where the chat begins'],
   message: ['Send a message', 'chat', '#0ea5e9', 'Text, photo, video, document or voice note'],
@@ -190,7 +190,7 @@ export default function Chatbots() {
             <div className="cb-grid">
               {d.templates.map((t) => (
                 <button key={t.id} className="cb-card" onClick={() => create(t.id)}>
-                  <span className="ic" style={t.icon === 'sparkles' ? { background: AI_BG, color: '#fff' } : undefined}><Icon name={t.icon} size={18} /></span>
+                  <span className="ic" style={t.icon === 'sparkles' ? { background: AI_BG, color: 'var(--ai-on)' } : undefined}><Icon name={t.icon} size={18} /></span>
                   <b>{t.title}</b><small>{t.desc}</small>
                 </button>
               ))}
@@ -214,7 +214,7 @@ function AiDraft({ ai, onDraft }) {
   };
   return (
     <section className="cb-hero">
-      <h2><span style={{ color: '#67e8f9' }}>✦</span> Describe a chatbot — AI builds it</h2>
+      <h2><Icon name="sparkles" size={20} className="cb-hero-ic" /> Describe a chatbot — AI builds it</h2>
       <p>Say what it should do in plain words (English, Hindi or Hinglish). You get a complete flow on the canvas to tweak, test on a phone and switch on.</p>
       <form className="cb-prompt" onSubmit={go}>
         <input value={p} onChange={(e) => setP(e.target.value)} placeholder="e.g. Ask what service they need, their budget and city, then pass serious leads to my team" disabled={!ai || busy} />
@@ -475,7 +475,7 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
       onDrop={(e) => { const t = e.dataTransfer.getData('text/fh-node'); if (!NT[t]) return; e.preventDefault(); const [x, y] = toWorld(e); addNode(t, x - 20, y - 20); }}>
       <div className="wfb-world" ref={world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
         <svg className="wfb-edges" width="1" height="1">
-          <defs><linearGradient id="fbgrad" x1="0" x2="1"><stop offset="0" stopColor="#7c3aed" /><stop offset="1" stopColor="#06b6d4" /></linearGradient></defs>
+          <defs><linearGradient id="fbgrad" x1="0" x2="1"><stop offset="0" stopColor="#f5a524" /><stop offset="1" stopColor="#b45309" /></linearGradient></defs>
           {f.edges.map((e) => {
             const a = pts[`${e.from}:${e.port}`], b = byId[e.to];
             if (!a || !b) return null;
@@ -493,7 +493,7 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
         {f.nodes.map((n) => {
           const [label, ic, color] = NT[n.type], ports = portsOf(n), r = reach[n.id] || 0;
           return (
-            <div key={n.id} data-id={n.id} className={`wfb-node ${sel === n.id ? 'sel' : ''} ${bad.has(n.id) ? 'bad' : ''} ${now === n.id ? 'now' : ''} ${over === n.id && wire ? 'drop' : ''} t-${n.type}`} style={{ left: n.x, top: n.y, '--nc': color.startsWith('linear') ? '#7c3aed' : color }} onPointerDown={(e) => { if (!e.target.closest('.wfb-dot')) setSel(n.id); }}>
+            <div key={n.id} data-id={n.id} className={`wfb-node ${sel === n.id ? 'sel' : ''} ${bad.has(n.id) ? 'bad' : ''} ${now === n.id ? 'now' : ''} ${over === n.id && wire ? 'drop' : ''} t-${n.type}`} style={{ left: n.x, top: n.y, '--nc': color.startsWith('linear') || color.startsWith('var') ? '#e8890c' : color }} onPointerDown={(e) => { if (!e.target.closest('.wfb-dot')) setSel(n.id); }}>
               {n.type !== 'start' && <span className="wfb-in" />}
               <div className="wfb-nh" onPointerDown={(e) => { if (e.button !== 0 || e.target.closest('button')) return; e.stopPropagation(); setSel(n.id); setDrag({ kind: 'node', id: n.id, sx: e.clientX, sy: e.clientY, nx: n.x, ny: n.y }); capture(e); }}>
                 <span className="k" style={{ background: color }}><Icon name={ic} size={13} /></span><b>{label}</b>
@@ -541,7 +541,7 @@ function Canvas({ f, set, setNode, sel, setSel, view, setView, addNode, delNode,
       {f.nodes.length > 3 && (
         <svg className="wfb-mini" width={MW} height={MH} onClick={miniGo} aria-label="Map of the chatbot — click to move there">
           {f.edges.map((e) => { const a = byId[e.from], b = byId[e.to]; return a && b && <line key={`${e.from}:${e.port}`} x1={(a.x + 250 - mx0) * ms} y1={(a.y + 30 - my0) * ms} x2={(b.x - mx0) * ms} y2={(b.y + 25 - my0) * ms} />; })}
-          {f.nodes.map((n) => <rect key={n.id} x={(n.x - mx0) * ms} y={(n.y - my0) * ms} width={250 * ms} height={Math.max(6, 90 * ms)} rx={2} style={{ fill: sel === n.id ? '#6366f1' : NT[n.type][2].startsWith('linear') ? '#7c3aed' : NT[n.type][2] }} />)}
+          {f.nodes.map((n) => <rect key={n.id} x={(n.x - mx0) * ms} y={(n.y - my0) * ms} width={250 * ms} height={Math.max(6, 90 * ms)} rx={2} style={{ fill: sel === n.id ? '#6366f1' : /^(linear|var)/.test(NT[n.type][2]) ? '#e8890c' : NT[n.type][2] }} />)}
           <rect className="vp" x={(-view.x / view.z - mx0) * ms} y={(-view.y / view.z - my0) * ms} width={(size.w / view.z) * ms} height={(size.h / view.z) * ms} />
         </svg>
       )}
@@ -568,10 +568,10 @@ function NodeBody({ n, flows, nodes }) {
     case 'hours': return <div className="wfb-nb"><span className="muted" style={{ fontStyle: 'normal' }}>Your working hours (Inbox automations)</span></div>;
     case 'split': return null;
     case 'goto': return <div className="wfb-nb">{d.flowId ? <b className="wfb-hd">↪ {flows.find((x) => x.id === d.flowId)?.name || 'A deleted chatbot'}</b> : <div className="txt muted">Choose the chatbot…</div>}</div>;
-    case 'ai_route': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>✦ AI reads the message and picks a topic</span></div>;
+    case 'ai_route': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>AI reads the message and picks a topic</span></div>;
     case 'jump': { const t = nodes.find((x) => x.id === d.nodeId); return <div className="wfb-nb">{t ? <b className="wfb-hd">↩ {stepName(t)}</b> : <div className="txt muted">Choose the step…</div>}</div>; }
-    case 'ai_reply': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>✦ AI answers their message, then carries on</span>{d.note && <div className="txt">{d.note}</div>}</div>;
-    case 'ai_agent': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>✦ The AI agent continues the chat</span>{d.note && <div className="txt">{d.note}</div>}</div>;
+    case 'ai_reply': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>AI answers their message, then carries on</span>{d.note && <div className="txt">{d.note}</div>}</div>;
+    case 'ai_agent': return <div className="wfb-nb"><span className="ai-txt" style={{ fontSize: 12 }}>The AI agent continues the chat</span>{d.note && <div className="txt">{d.note}</div>}</div>;
     case 'handoff': return <div className="wfb-nb">{txt(d.text, 'No message — just notifies your team')}</div>;
     case 'wait': return <div className="wfb-nb">Wait {dur(d.minutes)}</div>;
     case 'webhook': return <div className="wfb-nb">{txt(d.url, 'https://…')}</div>;
@@ -938,9 +938,9 @@ function TestPhone({ f, onNode }) {
   const STAGE = 'Moved to a pipeline stage';
   const FX = {
     form: (e) => `📋 Form filled: ${e.answers.map((a) => `${a.label}: ${a.value}`).join(' · ') || 'no answers'}`, tag: (e) => `🏷 Tagged: ${e.tags.join(', ')}`, untag: (e) => `🏷 Tag removed: ${e.tags.join(', ')}`, save: (e) => `💾 Saved ${e.field.replace('custom:', 'CRM ')}: ${e.value}`,
-    handoff: (e) => `🙋 Handed to your team${e.note ? ` — ${e.note}` : ''}`, webhook: (e) => `🔗 Sent answers to ${e.url}`, route: (e) => `✦ AI picked: ${e.intent}`, agent: () => '✦ The AI agent takes over', end: (e) => (e.resolve ? '✅ Chat resolved' : '— end of chatbot —'),
+    handoff: (e) => `🙋 Handed to your team${e.note ? ` — ${e.note}` : ''}`, webhook: (e) => `🔗 Sent answers to ${e.url}`, route: (e) => `AI picked: ${e.intent}`, agent: () => 'The AI agent takes over', end: (e) => (e.resolve ? '✅ Chat resolved' : '— end of chatbot —'),
     api: (e) => (e.ok ? `🌐 API answered (${e.status})` : `🌐 API didn’t work (${e.status || e.error || 'no answer'})`), stage: () => `📊 ${STAGE}`, optout: () => '🔕 Unsubscribed from WhatsApp', optin: () => '🔔 Subscribed again',
-    split: (e) => `🔀 Random split: ${e.label}`, goto: () => '↪ Carries on in another chatbot', jump: (e) => `↩ Jumped to: ${(() => { const t = f.nodes.find((x) => x.id === e.to); return t ? stepName(t) : 'a step'; })()}`, ai_reply: (e) => (e.unsure ? `✦ AI wasn’t sure${e.reason ? ` — ${e.reason}` : ''}` : '✦ AI answered'), timeout: (e) => `⏱ No reply in ${dur(e.minutes || 0)}`,
+    split: (e) => `🔀 Random split: ${e.label}`, goto: () => '↪ Carries on in another chatbot', jump: (e) => `↩ Jumped to: ${(() => { const t = f.nodes.find((x) => x.id === e.to); return t ? stepName(t) : 'a step'; })()}`, ai_reply: (e) => (e.unsure ? `AI wasn’t sure${e.reason ? ` — ${e.reason}` : ''}` : 'AI answered'), timeout: (e) => `⏱ No reply in ${dur(e.minutes || 0)}`,
   };
   const send = async (input, shown) => {
     if (busy) return;
@@ -969,7 +969,7 @@ function TestPhone({ f, onNode }) {
         {!msgs.length && <div className="fxn">Type as your customer would — {f.trigger.type === 'keyword' ? `e.g. “${f.trigger.keywords[0] || 'hi'}”` : '“Hi”'} — to start</div>}
         {msgs.map((m, i) => m.fx ? <div key={i} className="fxn">{m.fx}</div> : m.card ? <ProductBubble key={i} c={m.card} /> : (
           <div key={i} className={`bub ${m.dir === 'in' ? 'b-out' : 'b-in'}`} style={m.dir === 'in' ? undefined : m.ai ? { border: '1.5px solid #8b5cf6' } : undefined}>
-            {m.ai && <div className="by"><span className="ai-txt">✦ AI agent</span></div>}
+            {m.ai && <div className="by"><span className="ai-txt">AI agent</span></div>}
             {m.kind === 'template' && <div className="by">📨 Template · {m.template?.name}</div>}
             {m.image && <span className="pill">📷 photo</span>}{m.kind === 'media_link' && <span className="pill">{MEDIA.find((x) => x[0] === m.media?.type)?.[1] || '📎 file'}</span>}
             {m.header && <b style={{ display: 'block' }}>{m.header}</b>}
@@ -1016,7 +1016,7 @@ function Agent() {
   };
   const save = async (patch = {}) => {
     setBusy('save');
-    try { const x = await api('/wa-agent', 'PUT', { ...pickA(a), ...patch }); setA(x); setSaved(JSON.stringify(pickA(x))); toast(patch.on === true ? `✦ ${x.name} is answering your WhatsApp` : patch.on === false ? 'AI agent switched off' : 'Saved'); } catch (e) { toast(e.message); }
+    try { const x = await api('/wa-agent', 'PUT', { ...pickA(a), ...patch }); setA(x); setSaved(JSON.stringify(pickA(x))); toast(patch.on === true ? `${x.name} is answering your WhatsApp` : patch.on === false ? 'AI agent switched off' : 'Saved'); } catch (e) { toast(e.message); }
     setBusy('');
   };
   const learn = async (e) => {
@@ -1170,7 +1170,7 @@ function AgentPhone({ a, name, ai }) {
         { dir: 'out', text: r.reply, buttons: r.buttons },
         ...(r.cards || []).map((c) => ({ dir: 'out', card: c })),
         ...(r.sendNames || []).map((n) => ({ fx: `📎 Would send: ${n}` })),
-        ...(r.facts || []).map((f) => ({ fx: `🧠 Would remember: ${f}` })),
+        ...(r.facts || []).map((f) => ({ fx: `Would remember: ${f}` })),
         ...(r.handoff ? [{ fx: `🙋 Would hand over to your team — ${r.reason || 'needs a person'}` }] : []), ...(r.lead?.email ? [{ fx: `💾 Would save email: ${r.lead.email}` }] : [])]);
     } catch (e) { toast(e.message); }
     setBusy(false);
@@ -1301,7 +1301,7 @@ function AgentDocs() {
   const search = async (e) => { e.preventDefault(); if (!q.trim()) return; setBusy('q'); try { setFound(await api('/wa-agent/search', 'POST', { q })); } catch (er) { toast(er.message); } setBusy(''); };
   if (!d) return null;
   return (
-    <Panel title="Catalogues & documents" actions={<span className="pill" title={d.search === 'smart' ? 'Finds answers by meaning, in any language' : 'Finds answers by matching words'}>{d.search === 'smart' ? '✦ Smart search' : 'Keyword search'}</span>}>
+    <Panel title="Catalogues & documents" actions={<span className="pill" title={d.search === 'smart' ? 'Finds answers by meaning, in any language' : 'Finds answers by matching words'}>{d.search === 'smart' ? 'Smart search' : 'Keyword search'}</span>}>
       <p className="hint top">Price lists, catalogues, brochures, policies — PDF, Word, Excel, PowerPoint, CSV, or photos (JPG, PNG), up to 15 MB each. Scanned PDFs and photos of price lists are read too. The agent answers from the right page and can send the file on WhatsApp — for a long PDF, just the pages that answer the customer. Catalogues also get their products listed (name, code, price).</p>
       <div className="row" style={{ marginBottom: 12 }}>
         <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ width: 'auto' }} aria-label="Type"><option value="catalogue">Catalogue / price list</option><option value="document">Document (FAQs, policies…)</option></select>

@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Clock, Mail, MessageCircle, Tag, ArrowRightLeft, Webhook, BellRing, Zap, Plus, Trash2, ChevronUp, ChevronDown, Copy, UserPlus,
-  ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, Sparkles, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass, KeyRound, StickyNote, GripVertical, Search, X, GraduationCap, BadgeCheck, Award, MessagesSquare, Eye, FileX,
+  ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass, KeyRound, StickyNote, GripVertical, Search, X, GraduationCap, BadgeCheck, Award, MessagesSquare, Eye, FileX,
   CalendarCheck, CalendarX, Target, ListTodo, Check, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX, CheckCheck, Handshake,
   PackageCheck, PackageX,
 } from 'lucide-react';
+import { HiveGlyph as Sparkles } from '../brandIcons';
 import { api } from '../api';
 import { useBizTz, zoneCity } from '../tzfmt';
 import { Layout, Panel, Empty, Modal, toast, ago, num, useWaTemplates, WaTemplateSelect, WaTemplateInfo, confirmDialog, promptDialog } from '../ui';

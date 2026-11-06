@@ -116,7 +116,7 @@ function ConvList({ list, q, filter, id, nav }) {
           <Avatar c={c} dot={c.window.open} />
           <div>
             <div className="t1"><b>{display(c)}</b><time>{short(c.lastAt)}</time></div>
-            <div className="t2"><span>{c.lastDir === 'out' && `${c.lastBy === 'ai' ? '✨ ' : c.lastBy === 'bot' ? '🤖 ' : 'You: '}`}{c.lastText || '…'}</span>{c.unread > 0 && <em className="ib-n">{c.unread}</em>}</div>
+            <div className="t2"><span>{c.lastDir === 'out' && `${c.lastBy === 'ai' ? 'AI: ' : c.lastBy === 'bot' ? 'Bot: ' : 'You: '}`}{c.lastText || '…'}</span>{c.unread > 0 && <em className="ib-n">{c.unread}</em>}</div>
             {(c.web || c.ai || c.bot || c.ad || c.labels.length > 0 || (c.human && c.handoff)) && <div className="t3">
               {c.web && <span className="ctwa-chip" title="From the chat on your website"><Icon name="globe" size={11} />Website</span>}
               {c.ad && <span className="ctwa-chip" title={`Started from the ad “${c.ad.headline || c.ad.id}”`}><Icon name="target" size={11} />Ad</span>}
@@ -548,7 +548,7 @@ function HandOff({ c, meta, onClose, onDone, patch }) {
         <div className="handoff-to">
           <button className={to === '' ? 'on' : ''} onClick={() => setTo('')}><Icon name="users" size={16} /><span><b>Anyone on the team</b><small>{meta?.rules?.includes('assign') ? 'Assigned in turn (auto-assign is on)' : 'Shows as “Needs you” for everyone'}</small></span></button>
           {(meta?.team || []).filter((p) => p.id !== c.assignee || p.id === meta.me).map((p) => <button key={p.id} className={to === p.id ? 'on' : ''} onClick={() => setTo(p.id)}><Avatar c={{ name: p.name, num: p.id }} sm /><span><b>{p.name}{p.id === meta.me ? ' (you)' : ''}</b><small>Assign and notify</small></span></button>)}
-          {meta?.agent?.on && !c.ai && <button className={to === 'ai' ? 'on' : ''} onClick={() => setTo('ai')}><span className="cav sm" style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb 55%, #06b6d4)' }}><Icon name="sparkles" size={14} /></span><span><b className="ai-txt">{meta.agent.name} (AI agent)</b><small>Replies now and hands back if needed</small></span></button>}
+          {meta?.agent?.on && !c.ai && <button className={to === 'ai' ? 'on' : ''} onClick={() => setTo('ai')}><span className="cav sm" style={{ background: 'var(--ai-grad)', color: 'var(--ai-on)' }}><Icon name="sparkles" size={14} /></span><span><b className="ai-txt">{meta.agent.name} (AI agent)</b><small>Replies now and hands back if needed</small></span></button>}
         </div>
         {to !== 'ai' && <>
           <label className="sm strong">Note for them<input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Wants a bulk quote — call before 6 pm" /></label>

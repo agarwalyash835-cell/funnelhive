@@ -1,7 +1,8 @@
 // Hive AI — chat on the left, the funnel being built on the right ("Lovable for funnels")
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Sparkles, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow, ThumbsUp, ThumbsDown, Undo2 } from 'lucide-react';
+import { Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow, ThumbsUp, ThumbsDown, Undo2 } from 'lucide-react';
+import { HiveGlyph as Sparkles } from '../brandIcons';
 import { api } from '../api';
 import { Layout, toast, ago, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { Page } from '../blocks';
@@ -47,7 +48,7 @@ const DOING = {
   studio_make_reel: 'Writing your Reel', studio_storyboard: 'Drawing up the storyboard', studio_change_scene: 'Changing the scene', studio_animate: 'Bringing the scenes to life',
 };
 const LONG = new Set(['create_funnel', 'create_website', 'create_course', 'generate_image']);
-const MAGIC = ['Working the magic ✨', 'Genie under way 🧞', 'Brewing something good ☕', 'Polishing the pixels', 'Teaching your page to sell', 'Lining up the details', 'Sprinkling some conversion dust', 'Almost there…'];
+const MAGIC = ['Working on it', 'Putting it together', 'Writing the copy', 'Polishing the details', 'Teaching your page to sell', 'Lining up the details', 'Checking everything', 'Almost there…'];
 function LiveStatus({ tools, since }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);

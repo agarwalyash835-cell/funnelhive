@@ -1,7 +1,7 @@
 // Editor icons for sections, elements and steps (Lucide, ISC licence) — one consistent line style.
 import {
   LayoutGrid, LayoutTemplate, Type, Image, Images, SquarePlay, ChartNoAxesColumn, Megaphone, UnfoldVertical, Minus, CodeXml,
-  CircleAlert, Sparkles, ListOrdered, Scale, MessageSquareQuote, UserRoundCheck, Gift, ShieldCheck, CircleHelp, Tag, Mail,
+  CircleAlert, Shapes, ListOrdered, Scale, MessageSquareQuote, UserRoundCheck, Gift, ShieldCheck, CircleHelp, Tag, Mail,
   ClipboardList, ListTodo, CreditCard, CircleArrowUp, CircleArrowDown, ShoppingBag, PartyPopper, PanelTop, Timer, Eye, Package, BellRing, DoorOpen,
   Pin, MessageCircle, Heading, Pilcrow, MousePointerClick, ListChecks, IndianRupee, House, FileText, Presentation, Box,
   Target, Building2, Stethoscope, BriefcaseBusiness, GraduationCap, Dumbbell, Landmark, Sofa, Gem, Plane, Car, UserSearch, SunMedium, Hotel, Store as StoreIcon, Earth, Moon, Monitor, HandHeart, Factory, ShoppingBasket, Truck,
@@ -10,7 +10,7 @@ import {
 
 const BLOCKS = {
   section: LayoutGrid, hero: LayoutTemplate, text: Type, image: Image, gallery: Images, video: SquarePlay, stats: ChartNoAxesColumn,
-  cta: Megaphone, spacer: UnfoldVertical, divider: Minus, html: CodeXml, problem: CircleAlert, features: Sparkles, steps: ListOrdered,
+  cta: Megaphone, spacer: UnfoldVertical, divider: Minus, html: CodeXml, problem: CircleAlert, features: Shapes, steps: ListOrdered,
   compare: Scale, testimonials: MessageSquareQuote, mentor: UserRoundCheck, bonuses: Gift, guarantee: ShieldCheck, faq: CircleHelp,
   pricing: Tag, optin: Mail, form: ClipboardList, quiz: ListTodo, checkout: CreditCard, offer: CircleArrowUp, crosssell: ShoppingBag, thankyou: PartyPopper,
   hellobar: PanelTop, countdown: Timer, livecount: Eye, stock: Package, proof: BellRing, exitpopup: DoorOpen, stickybar: Pin, whatsapp: MessageCircle,
@@ -22,7 +22,7 @@ const STEPS = { landing: House, optin: FileText, sales: Presentation, checkout: 
 const KITS = {
   general: Target, realestate: Building2, clinic: Stethoscope, consultant: BriefcaseBusiness, education: GraduationCap, fitness: Dumbbell, finance: Landmark,
   interior: Sofa, events: Gem, travel: Plane, auto: Car, professional: Scale, recruitment: UserSearch, homeservices: SunMedium, hospitality: Hotel, store: StoreIcon, manufacturer: Factory, retailer: ShoppingBasket, distributor: Truck, abroad: Earth, wellness: Moon, saas: Monitor, ngo: HandHeart,
-  lab: FlaskConical, jewellery: Diamond, school: School, pg: BedDouble, agri: Tractor, caterer: ChefHat, franchise: Network, movers: Forklift, matrimony: HeartHandshake, loans: HandCoins, custom: Sparkles,
+  lab: FlaskConical, jewellery: Diamond, school: School, pg: BedDouble, agri: Tractor, caterer: ChefHat, franchise: Network, movers: Forklift, matrimony: HeartHandshake, loans: HandCoins, custom: Shapes,
 };
 
 const make = (map) => function TypeIcon({ type, size = 16, className = '' }) {
