@@ -1,0 +1,59 @@
+/* Privacy policy and terms pages (getaihive.in/privacy/, /terms/): same palette and fonts as the home page */
+:root {
+  --bg: #0c0a09; --bg-2: #141110; --bg-3: #1a1613;
+  --ink: #f6f3ee; --ink-2: #d6d0c8; --muted: #9a928a; --faint: #6b645d;
+  --honey: #f5a524; --honey-soft: rgba(245, 165, 36, .14);
+  --sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --serif: 'Instrument Serif', Georgia, serif;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; color: var(--ink-2); font-family: var(--sans); font-size: 16.5px; line-height: 1.72;
+  -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  background-color: var(--bg);
+  background-image: radial-gradient(120% 70% at 100% 0%, var(--bg-3) 0%, transparent 60%), linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 55%);
+  background-attachment: fixed;
+}
+::selection { background: var(--honey); color: var(--bg); }
+a { color: var(--ink); text-decoration: underline; text-decoration-color: rgba(245, 165, 36, .5); text-underline-offset: 3px; }
+a:hover { color: var(--honey); }
+
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1180px; margin: 0 auto; padding: 22px 24px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: var(--ink); text-decoration: none; letter-spacing: -.01em; }
+.logo { width: 26px; height: 26px; }
+.toplinks { display: flex; gap: 22px; }
+.toplinks a { text-decoration: none; color: var(--muted); font-size: 14.5px; font-weight: 500; }
+.toplinks a:hover { color: var(--ink); }
+
+.doc { max-width: 760px; margin: 0 auto 0 max(24px, calc((100vw - 1180px) / 2 + 24px)); padding: 56px 24px 96px 0; text-align: left; }
+.kicker { margin: 0; color: var(--honey); font-size: 13px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
+h1 { margin: 10px 0 0; color: var(--ink); font-size: clamp(44px, 8vw, 84px); line-height: .98; font-weight: 800; letter-spacing: -.035em; }
+.serif { font-family: var(--serif); font-weight: 400; font-style: italic; letter-spacing: -.01em; color: var(--honey); }
+.updated { margin: 18px 0 0; color: var(--faint); font-size: 14px; }
+.lead { margin: 34px 0 0; color: var(--ink); font-size: 19px; line-height: 1.65; }
+
+.toc { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 34px 0 8px; padding: 18px 0 0; }
+.toc a { color: var(--muted); font-size: 14px; text-decoration: none; }
+.toc a:hover { color: var(--honey); }
+
+section { padding-top: 44px; scroll-margin-top: 20px; }
+h2 { margin: 0 0 12px; color: var(--ink); font-size: clamp(24px, 3.4vw, 30px); line-height: 1.2; font-weight: 750; letter-spacing: -.02em; }
+p { margin: 0 0 14px; }
+b { color: var(--ink); font-weight: 650; }
+ul { margin: 0 0 14px; padding-left: 20px; }
+li { margin: 6px 0; }
+li::marker { color: var(--honey); }
+.contact { color: var(--ink); line-height: 1.7; padding-left: 16px; background: linear-gradient(90deg, var(--honey-soft), transparent 70%); padding-top: 10px; padding-bottom: 10px; }
+
+.foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px 28px; max-width: 1180px; margin: 0 auto; padding: 30px 24px 44px; color: var(--faint); font-size: 14px; }
+.foot nav { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.foot a { color: var(--muted); text-decoration: none; }
+.foot a:hover { color: var(--ink); }
+
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  .doc { margin: 0; padding: 36px 16px 72px; }
+  .top, .foot { padding-left: 16px; padding-right: 16px; }
+  .lead { font-size: 17.5px; }
+}
