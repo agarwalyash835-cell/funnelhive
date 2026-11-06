@@ -24,6 +24,8 @@ import * as proTools from './hive-inventory-pro.js';
 import * as contactTools from './hive-contacts.js';
 import * as studioTools from './hive-studio.js';
 import * as reportTools from './hive-inventory-reports.js';
+import { PRESETS, MAX_TEAM, cleanMate, teamOf, mateOf, mateNote, startTeamJobs, forgetTeamCache } from './hive-team.js';
+import { notify } from './notify.js';
 
 const MAX_MODEL_CALLS = 16, RESULT_MAX = 40000; // a full 21-section page with all props is ~25k characters
 
@@ -924,11 +926,14 @@ export const TOOL_GROUPS = {
   account: { about: 'business settings, team members, agency clients, tracking, webhooks', tools: ['update_business', 'list_team', 'invite_team_member', 'list_clients', 'copy_funnel_to_client', 'set_tracking', 'connect_webhook'], re: /\b(team|invite|staff|employees?|clients?|agency|business (name|settings)|time ?zone|consent|settings)\b/i },
 };
 const groupOf = Object.fromEntries(Object.entries(TOOL_GROUPS).flatMap(([g, x]) => x.tools.map((n) => [n, g])));
-const USE_TOOLS = {
+// a teammate's use_tools offers only the groups it's allowed
+const useToolsDef = (keys) => ({
   type: 'function', name: 'use_tools',
-  description: `Load more tools for this request (you start with the funnel-building tools). Groups: ${Object.entries(TOOL_GROUPS).map(([g, x]) => `${g} — ${x.about}`).join('; ')}.`,
-  parameters: { type: 'object', properties: { groups: { type: 'array', items: { type: 'string', enum: Object.keys(TOOL_GROUPS) } } }, required: ['groups'], additionalProperties: false },
-};
+  description: `Load more tools for this request (you start with the funnel-building tools). Groups: ${keys.map((g) => `${g} — ${TOOL_GROUPS[g].about}`).join('; ')}.`,
+  parameters: { type: 'object', properties: { groups: { type: 'array', items: { type: 'string', enum: keys } } }, required: ['groups'], additionalProperties: false },
+});
+const USE_TOOLS = useToolsDef(Object.keys(TOOL_GROUPS));
+export const GROUP_ABOUT = Object.fromEntries(Object.entries(TOOL_GROUPS).map(([g, x]) => [g, x.about]));
 // the groups a turn starts with: its words, the last couple of messages, and the tools the last replies used
 export function startGroups(message, history = [], focused = false) {
   const recent = history.slice(-2);
@@ -940,10 +945,12 @@ export function startGroups(message, history = [], focused = false) {
 }
 const defOf = (t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.schema });
 // core false: a scoped chat (Studio's director) starts without the funnel-building tools
-export const toolDefsFor = (groups, core = true) => {
+export const toolDefsFor = (groups, core = true, useTools = USE_TOOLS) => {
   const names = new Set([...(core ? CORE_TOOLS : []), ...[...groups].flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
-  return [...TOOLS.filter((t) => names.has(t.name)).map(defOf), USE_TOOLS];
+  return [...TOOLS.filter((t) => names.has(t.name)).map(defOf), useTools];
 };
+// every tool a teammate may call: its groups (and the funnel tools when it builds funnels)
+export const mateTools = (m) => new Set([...(m.core ? CORE_TOOLS : []), ...m.groups.flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
 
 // tools that only read: several in one reply run at the same time
 const READ_ONLY = new Set(['ads_report', 'school_overview', 'check_domain', 'find_app_actions', 'write_marketing_copy']);
@@ -993,13 +1000,20 @@ const WRAP_UP = '[Note from the app: stop here — no more tools in this reply. 
 // ---------- the turn ----------
 // Studio's director (scope 'studio'): only the Studio tools to start with (others load on request), and how to edit
 const STUDIO_NOTE = `\n\nYou are working inside Studio as the seller's creative director (images, clips, Reels and designs). To change anything they have made, use studio_edit on what they mean — the Studio context names what is open and selected; "this", "it" and "here" mean the selected thing. Say what a change costs before anything paid (free changes just happen). "Undo", "go back" or "I liked it before" → studio_undo. Each brand (an agency's client) has its own brand kit (studio_brand_kits): make things with the kit they mean (kitId), and never work around what a kit locks. Keep replies short: what changed, what it cost, what they could try next.`;
-export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses, scope = null }) {
-  const studio = scope === 'studio';
+export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses, scope = null, teammate = null }) {
+  const studio = scope === 'studio' && !teammate;
+  // a teammate works only with its own groups (and the funnel tools if it builds funnels)
+  const allowed = teammate ? new Set(teammate.groups.filter((g) => TOOL_GROUPS[g])) : null;
+  const allowedNames = teammate ? mateTools(teammate) : null;
+  const useTools = allowed ? useToolsDef([...allowed]) : USE_TOOLS;
+  const core = teammate ? !!teammate.core : !studio;
   let context = '';
   if (focusFunnelId && !studio) { try { context = `\n\n[The user is looking at funnel ${focusFunnelId}: ${clip(outline(await ctx.call('GET', `/funnels/${focusFunnelId}`), ctx.origin)).slice(0, 3000)}]`; } catch {} }
   const input = [...history.slice(-12).map((m) => ({ role: m.role, content: m.text })), { role: 'user', content: message + context }];
-  const groups = studio ? new Set(['studio', ...startGroups(message, history.slice(-2), false)].filter((g) => g !== 'sections')) : startGroups(message, history, !!focusFunnelId);
-  const system = studio ? SYSTEM + STUDIO_NOTE : SYSTEM;
+  let groups = studio ? new Set(['studio', ...startGroups(message, history.slice(-2), false)].filter((g) => g !== 'sections')) : startGroups(message, history, !!focusFunnelId);
+  if (allowed) groups = new Set([...groups].filter((g) => allowed.has(g)));
+  const system = (studio ? SYSTEM + STUDIO_NOTE : SYSTEM) + (teammate ? mateNote(teammate, GROUP_ABOUT) : '');
+  const maxGroups = allowed ? allowed.size : GROUP_COUNT;
   const done = [], rounds = new Map(), seen = new Map(), fails = new Map(), blocked = new Map();
   const usage = { rounds: 0, tokensIn: 0, tokensOut: 0 };
   const turnEnd = Date.now() + TURN_MS;
@@ -1010,12 +1024,13 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     let args = {};
     try { args = JSON.parse(c.arguments || '{}'); } catch {}
     if (c.name === 'use_tools') {
-      const add = (Array.isArray(args.groups) ? args.groups : []).filter((g) => TOOL_GROUPS[g]);
+      const add = (Array.isArray(args.groups) ? args.groups : []).filter((g) => TOOL_GROUPS[g] && (!allowed || allowed.has(g)));
       add.forEach((g) => groups.add(g));
       return { out: { loaded: add.flatMap((g) => TOOL_GROUPS[g].tools) }, ok: true, summary: null };
     }
     const t = byName[c.name];
-    if (t && groupOf[c.name]) groups.add(groupOf[c.name]); // a tool it knew anyway: keep its group loaded
+    if (allowedNames && !allowedNames.has(c.name)) return { out: { error: `${c.name} isn’t part of ${teammate.name}’s work`, note: 'Don’t call it again. Tell the seller in one line which teammate or the main Hive chat can do this.' }, ok: false, summary: null };
+    if (t && groupOf[c.name] && (!allowed || allowed.has(groupOf[c.name]))) groups.add(groupOf[c.name]); // a tool it knew anyway: keep its group loaded
     // the same call again in one turn: a change isn't repeated; a read can be, twice
     const sig = `${c.name}:${JSON.stringify(args)}`, prev = seen.get(sig);
     // an app or tool that keeps failing in this reply isn't tried again: the model reports it instead
@@ -1027,7 +1042,9 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
       return { out: { note: 'Already done earlier in this reply with the same details — don’t repeat it. Continue with the next step or answer the user.', earlier: prev.summary }, ok: true, summary: null };
     }
     emit({ type: 'tool', status: 'running', id: c.call_id, name: c.name, label: t?.description.split(/[.:\n]/)[0] || c.name });
-    const ask = ctx.pending && needsOk(c.name, args);
+    // a teammate set to "ask first" (and every scheduled run) also waits for the seller on anything that changes something
+    const strict = !!t && (teammate?.askFirst || ctx.unattended) && !readsOnly(c.name);
+    const ask = ctx.pending && (needsOk(c.name, args) || (strict ? `${teammate?.name ? `${teammate.name}: ` : ''}${t?.description.split(/[.:\n]/)[0] || c.name.replace(/_/g, ' ')}` : null));
     if (ask) {
       const p = { id: uid(), name: c.name, args, label: ask, at: Date.now() };
       ctx.pending.push(p);
@@ -1063,7 +1080,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     if (usage.tokensIn >= TURN_TOKENS) { stoppedForBudget = true; break; }
     if (Date.now() > turnEnd - 20000) break; // out of time: wrapped up below
     compact(input, rounds, i);
-    const tools = toolDefsFor(groups, !studio);
+    const tools = toolDefsFor(groups, core, useTools);
     await slot(signal);
     let d;
     try { d = await model({ instructions: system, input, tools, signal, timeoutMs: Math.max(15000, Math.min(CALL_MS, turnEnd - Date.now())) }); } finally { freeSlot(); }
@@ -1072,11 +1089,11 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     usage.tokensOut += d.usage?.output_tokens || estTokens(d.output);
     const say = d.output.filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('').trim();
     const calls = d.output.filter((o) => o.type === 'function_call');
-    if (!calls.length && !rechecked && REFUSAL.test(say) && groups.size < GROUP_COUNT) {
+    if (!calls.length && !rechecked && REFUSAL.test(say) && groups.size < maxGroups) {
       // about to say "I can't" without every tool in view: load them all and let it look again (the user never
       // sees the first answer)
       rechecked = true;
-      Object.keys(TOOL_GROUPS).forEach((g) => groups.add(g));
+      Object.keys(TOOL_GROUPS).filter((g) => !allowed || allowed.has(g)).forEach((g) => groups.add(g));
       input.push({ role: 'assistant', content: say }, { role: 'user', content: '[Note from the app: every tool is loaded now — check the full list. If any tool can do what I asked, do it instead of saying you can’t; otherwise explain what you can do instead.]' });
       continue;
     }
@@ -1231,7 +1248,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
 
   app.get('/api/hive/status', auth, (req, res) => res.json({ ready: hiveReady(), ...(!req.actor && isAdmin(req.user) ? { provider: aiProvider() } : {}) })); // the AI vendor: the platform owner only
   const ownThread = (req, id) => { const t = id && T.hive.get(id); return t && t.userId === req.user.id ? t : null; };
-  app.get('/api/hive/threads', auth, (req, res) => res.json(T.hive.all({ userId: req.user.id }, { order: 'updatedAt', desc: true, limit: 100 }).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt }))));
+  app.get('/api/hive/threads', auth, (req, res) => res.json(T.hive.all({ userId: req.user.id }, { order: 'updatedAt', desc: true, limit: 100 }).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt, teammateId: t.teammateId || null }))));
   app.get('/api/hive/threads/:tid', auth, (req, res) => { const t = ownThread(req, req.params.tid); t ? res.json(threadView(t)) : res.status(404).json({ error: 'Chat not found' }); });
   app.delete('/api/hive/threads/:tid', auth, (req, res) => { T.hive.delWhere({ id: req.params.tid, userId: req.user.id }); res.json({ ok: true }); });
 
@@ -1243,7 +1260,10 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     let t = ownThread(req, req.body.threadId);
     // one reply at a time per chat: two at once each saved their own copy of the chat, and the last save won
     if (t && running.has(t.id)) return res.status(409).json({ error: 'Hive is still working on this chat — wait for it to finish, or press Stop.' });
-    if (!t) t = T.hive.insert({ id: uid(), userId: req.user.id, title: message.slice(0, 60), funnelId: req.body.funnelId || null, messages: [], at: Date.now(), updatedAt: Date.now() });
+    // a teammate's chat stays that teammate's (as it is now; one that was let go leaves a plain Hive chat)
+    const teammate = mateOf(req.user, t ? t.teammateId : req.body.teammateId);
+    if (!t && req.body.teammateId && !teammate) return res.status(404).json({ error: 'That teammate was removed — pick another' });
+    if (!t) t = T.hive.insert({ id: uid(), userId: req.user.id, title: message.slice(0, 60), funnelId: req.body.funnelId || null, ...(teammate ? { teammateId: teammate.id } : {}), messages: [], at: Date.now(), updatedAt: Date.now() });
     running.add(t.id);
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     const emit = (ev) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(ev)}\n\n`); };
@@ -1266,7 +1286,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       const spoken = req.body.voice ? `${message}\n\n(Spoken by voice${VOICE_LANGS[req.body.voice] ? ` in ${VOICE_LANGS[req.body.voice]}` : ''}: reply in that same language and script, in 1–3 short, natural spoken sentences — no lists, tables, links or formatting. If you need something from them, ask just one question.)` : message;
       // a Studio thread stays a Studio thread (the director's chat in Studio)
       if (req.body.scope === 'studio' && !t.scope) { t.scope = 'studio'; T.hive.put(t); }
-      const out = await hiveTurn({ ctx, history, message: spoken, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal, scope: t.scope || null });
+      const out = await hiveTurn({ ctx, history, message: spoken, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal, scope: t.scope || null, teammate });
       const undoId = saveUndo();
       t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now(), ...(undoId ? { undoId } : {}) });
       logUsage(req.user.id, out.usage);
@@ -1288,6 +1308,99 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       res.end();
     }
   });
+
+  // ---------- teammates (see hive-team.js) ----------
+  const groupIds = Object.keys(TOOL_GROUPS);
+  const ownerOnly = (req, res) => { if (!req.actor) return true; res.status(403).json({ error: 'Only the account owner can hire or change teammates' }); return false; };
+  const saveTeam = (userId, fn) => { const u = T.users.update(userId, (x) => { x.settings = { ...x.settings, hiveTeam: fn(teamOf(x)) }; }); forgetTeamCache(); return teamOf(u); };
+  app.get('/api/hive/team', auth, (req, res) => res.json({ team: teamOf(req.user), presets: PRESETS, groups: Object.entries(GROUP_ABOUT).map(([id, about]) => ({ id, about })), max: MAX_TEAM }));
+  // hire: a ready-made one ({ preset }) or your own ({ name, role, instructions, groups, … })
+  app.post('/api/hive/team', auth, (req, res) => {
+    if (!ownerOnly(req, res)) return;
+    if (teamOf(req.user).length >= MAX_TEAM) return res.status(400).json({ error: `Up to ${MAX_TEAM} teammates` });
+    const base = PRESETS.find((p) => p.preset === req.body?.preset);
+    if (req.body?.preset && !base) return res.status(400).json({ error: 'Unknown teammate' });
+    const m = cleanMate({ ...(base || {}), ...(base ? {} : req.body || {}) }, {}, groupIds);
+    if (!m.groups.length && !m.core) return res.status(400).json({ error: 'Pick at least one area this teammate works on' });
+    saveTeam(req.user.id, (team) => [...team, m]);
+    res.json(m);
+  });
+  app.put('/api/hive/team/:id', auth, (req, res) => {
+    if (!ownerOnly(req, res)) return;
+    const cur = mateOf(req.user, req.params.id);
+    if (!cur) return res.status(404).json({ error: 'Teammate not found' });
+    const { id, lastRunDay, lastRunAt, ...b } = req.body || {};
+    const m = cleanMate(b, cur, groupIds);
+    if (!m.groups.length && !m.core) return res.status(400).json({ error: 'Pick at least one area this teammate works on' });
+    saveTeam(req.user.id, (team) => team.map((x) => (x.id === m.id ? m : x)));
+    res.json(m);
+  });
+  app.delete('/api/hive/team/:id', auth, (req, res) => {
+    if (!ownerOnly(req, res)) return;
+    saveTeam(req.user.id, (team) => team.filter((x) => x.id !== req.params.id));
+    res.json({ ok: true }); // their chats stay (as plain Hive chats)
+  });
+
+  // a teammate does its task: on its schedule, or now ("Run now"). Nothing changes on its own word: every change
+  // waits as a Confirm card in its chat; the seller hears in the bell (and on WhatsApp if they asked)
+  const origin = () => process.env.APP_URL || `http://127.0.0.1:${port}`;
+  const firstLine = (s) => String(s || '').split('\n').map((x) => x.replace(/[#*_`>-]+/g, '').trim()).find(Boolean) || '';
+  const mateThread = (u, m, scheduled) => T.hive.all({ userId: u.id }, { order: 'updatedAt', desc: true, limit: 100 }).find((x) => x.teammateId === m.id && x.auto)
+    || T.hive.insert({ id: uid(), userId: u.id, teammateId: m.id, auto: true, title: `${m.emoji} ${m.name} · ${scheduled ? 'scheduled tasks' : 'tasks'}`, funnelId: null, messages: [], at: Date.now(), updatedAt: Date.now() });
+  // billing and WhatsApp load when a teammate runs (importing them up front makes a loop at start-up)
+  const deps = () => Promise.all([import('./billing.js'), import('./hive-wa.js')]).then(([b, w]) => ({ ...b, sellerAlert: w.sellerAlert }));
+  async function runMate(u, m, { scheduled = null, thread = null } = {}) {
+    if (!hiveReady()) throw new Error('Hive AI isn’t switched on yet');
+    const { AI_COST, creditsShort, spendCredits, sellerAlert } = await deps();
+    const short = creditsShort(u, AI_COST.hive);
+    if (short) throw new Error(short);
+    const task = m.schedule?.task;
+    if (!task) throw new Error(`${m.name} has no task set`);
+    const t = thread || mateThread(u, m, scheduled);
+    if (running.has(t.id) && !thread) throw new Error(`${m.name} is still busy with the last task`);
+    running.add(t.id);
+    try {
+      const history = t.messages.map((x) => ({ role: x.role, text: x.text, tools: (x.tools || []).map((y) => y.name) }));
+      t.messages.push({ role: 'user', text: `⏰ ${task}`, auto: true, at: Date.now() });
+      T.hive.put(t);
+      const jr = journaled(ctxFor(u, origin()), u.id);
+      const ctx = { ...jr.ctx, pending: [], unattended: true };
+      const message = `${task}\n\n[${scheduled ? `Scheduled task for ${scheduled}` : 'Run now'}: the seller isn’t watching live. Read whatever you need; anything that would change something becomes a card they approve later. Finish with a short summary they can read on WhatsApp: the key numbers and what needs their OK.]`;
+      const out = await hiveTurn({ ctx, history, message, emit: () => {}, signal: AbortSignal.timeout(TURN_MS + 60000), teammate: m });
+      spendCredits(u, AI_COST.hive);
+      logUsage(u.id, out.usage);
+      const undoId = jr.changed() ? T.hiveUndo.insert({ id: uid(), userId: u.id, at: Date.now(), journal: jr.journal }).id : null;
+      t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now(), ...(undoId ? { undoId } : {}) });
+      if (ctx.pending.length) t.pending = [...(t.pending || []).filter((p) => Date.now() - p.at < PENDING_TTL), ...ctx.pending].slice(-20);
+      const asks = ctx.pending.length ? ` · ${ctx.pending.length} to approve` : '';
+      notify(u.id, { kind: 'hive', title: `${m.emoji} ${m.name}: ${firstLine(out.text).slice(0, 110)}`, body: `${out.text.slice(0, 260)}${asks}`, link: `/hive?thread=${t.id}` });
+      if (m.schedule?.whatsapp) await Promise.resolve(sellerAlert(u, { kind: `${m.name} update`, where: 'Hive AI', what: `${firstLine(out.text).slice(0, 140)}${asks}`, path: `/hive?thread=${t.id}`, entityId: `${m.id}:${scheduled || Date.now()}` })).catch(() => {});
+      return { threadId: t.id, text: out.text, pending: ctx.pending.length };
+    } finally {
+      running.delete(t.id);
+      t.updatedAt = Date.now();
+      if (t.messages.length > 200) t.messages.splice(0, t.messages.length - 200);
+      if (T.hive.get(t.id)) T.hive.put(t);
+    }
+  }
+  // "Run now": the chat opens straight away and shows the reply when it lands
+  app.post('/api/hive/team/:id/run', auth, limiter, async (req, res) => {
+    const m = mateOf(req.user, req.params.id);
+    if (!m) return res.status(404).json({ error: 'Teammate not found' });
+    if (!m.schedule?.task) return res.status(400).json({ error: `Give ${m.name} a task first` });
+    if (!hiveReady()) return res.status(503).json({ error: 'Hive AI isn’t switched on yet — please try again later' });
+    const { AI_COST, creditsShort } = await deps();
+    const short = creditsShort(req.user, AI_COST.hive);
+    if (short) return res.status(402).json({ error: short, credits: true });
+    const t = mateThread(req.user, m, null);
+    if (running.has(t.id)) return res.status(409).json({ error: `${m.name} is still busy with the last task` });
+    running.add(t.id); // working from now, so the page that opens it shows that at once
+    runMate(req.user, m, { thread: t }).catch((e) => {
+      T.hive.update(t.id, (x) => { x.messages.push({ role: 'assistant', text: `Couldn’t finish: ${e.message}`, error: true, at: Date.now() }); });
+    });
+    res.json({ threadId: t.id });
+  });
+  startTeamJobs(runMate);
 
   // 👍 / 👎 on a reply (by its time). A 👎 keeps the request, the reply and the steps for the platform's review —
   // each one becomes a case in the test bank (server/evals) so the same mistake is caught before the next release.

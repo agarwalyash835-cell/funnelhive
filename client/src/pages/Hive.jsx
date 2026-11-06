@@ -5,6 +5,7 @@ import { Sparkles, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone,
 import { api } from '../api';
 import { Layout, toast, ago, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { Page } from '../blocks';
+import { TeamSide, TeamDialog, when } from './HiveTeam.jsx';
 
 const SUGGESTIONS = [
   { icon: Rocket, title: 'Sales funnel', text: 'Build a funnel for my home bakery in Pune — custom birthday cakes from ₹899' },
@@ -137,6 +138,11 @@ export default function Hive() {
   const endRef = useRef(null);
   const boxRef = useRef(null);
   const [first, setFirst] = useState('');
+  // AI teammates: the one a new chat is with (null = Hive itself), and the dialog to manage them
+  const [team, setTeam] = useState([]);
+  const [mate, setMate] = useState(null);
+  const [manage, setManage] = useState(null); // null, or { editId }
+  useEffect(() => { api('/hive/team').then((d) => setTeam(d.team)).catch(() => {}); }, []);
   useEffect(() => { api('/me').then((m) => setFirst(String(m?.name || '').trim().split(/\s+/)[0] || '')).catch(() => {}); }, []);
   // the box grows with what's typed (up to ~8 lines)
   useEffect(() => { const b = boxRef.current; if (!b) return; b.style.height = 'auto'; b.style.height = `${Math.min(220, b.scrollHeight)}px`; }, [input]);
@@ -168,9 +174,10 @@ export default function Hive() {
   const openThread = async (id) => {
     if (busy) return;
     setTid(id); setLive(null); setMob('chat'); setElsewhere(false); stick.current = true;
-    if (!id) { setMsgs([]); setFunnelId(null); return; }
+    if (!id) { setMsgs([]); setFunnelId(null); setMate(null); return; }
     const t = await api(`/hive/threads/${id}`);
     setMsgs(t.messages); setFunnelId(t.funnelId); setElsewhere(!!t.running);
+    setMate(team.find((m) => m.id === t.teammateId) || null);
   };
   // the seller confirms (or cancels) an action Hive proposed
   const decide = async (pendingId, ok) => {
@@ -214,7 +221,7 @@ export default function Hive() {
     const ac = new AbortController(); abort.current = ac;
     let finalFunnel = funnelId, threadId = tid;
     try {
-      const res = await fetch('/api/hive/chat', { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ff_token')}` }, body: JSON.stringify({ message, threadId: tid, funnelId }) });
+      const res = await fetch('/api/hive/chat', { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ff_token')}` }, body: JSON.stringify({ message, threadId: tid, funnelId, ...(!tid && mate ? { teammateId: mate.id } : {}) }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Hive AI is unavailable right now'); }
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -257,7 +264,8 @@ export default function Hive() {
   const [params, setParams] = useSearchParams();
   const asked = useRef(false);
   useEffect(() => {
-    const q = params.get('ask');
+    const q = params.get('ask'), th = params.get('thread');
+    if (status && th && !asked.current) { asked.current = true; setParams({}, { replace: true }); openThread(th).catch(() => {}); return; }
     if (!status || !q || asked.current) return;
     asked.current = true; setParams({}, { replace: true });
     if (ready) send(q); else setInput(q);
@@ -267,7 +275,7 @@ export default function Hive() {
     <form className="hv-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
       <textarea ref={boxRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={!ready}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-        placeholder={ready === false ? 'Hive AI isn’t switched on yet' : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
+        placeholder={ready === false ? 'Hive AI isn’t switched on yet' : mate ? `Ask ${mate.name}…` : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
       <div className="hv-input-bar">
         <span className="hv-hint">{busy ? 'Hive is working…' : 'Enter to send · Shift + Enter for a new line'}</span>
         {busy ? <button type="button" className="hv-stop" onClick={() => abort.current?.abort()} aria-label="Stop"><Square size={13} /> Stop</button>
@@ -281,11 +289,12 @@ export default function Hive() {
       <div className={`hive ${side ? '' : 'no-side'} ${funnel ? 'with-prev' : 'no-prev'} ${empty ? 'is-empty' : ''} mob-${mob}`}>
         <aside className="hv-threads">
           <button className="hv-new" onClick={() => openThread(null)} disabled={busy}><Plus size={15} /> New chat</button>
+          <TeamSide team={team} mate={!tid ? mate : null} disabled={busy} onPick={(m) => { openThread(null).then(() => setMate(m)); }} onManage={() => setManage({})} />
           {threads.length > 0 && <small className="hv-tlabel">Recent</small>}
           <div className="hv-tlist">
             {threads.map((t) => (
               <div key={t.id} className={`hv-t ${t.id === tid ? 'on' : ''}`} onClick={() => openThread(t.id)}>
-                <MessageSquare size={14} /><span title={t.title}>{t.title}</span><small>{ago(t.updatedAt)}</small>
+                {team.find((m) => m.id === t.teammateId) ? <span className="hv-t-e" aria-hidden="true">{team.find((m) => m.id === t.teammateId).emoji}</span> : <MessageSquare size={14} />}<span title={t.title}>{t.title}</span><small>{ago(t.updatedAt)}</small>
                 <button className="icon-btn xs" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); removeThread(t.id); }}><Trash2 size={12} /></button>
               </div>
             ))}
@@ -296,7 +305,8 @@ export default function Hive() {
         <section className="hv-chat">
           <div className="hv-chat-h">
             <button className="icon-btn" title={side ? 'Hide chats' : 'Show chats'} aria-label={side ? 'Hide chats' : 'Show chats'} onClick={() => setSide(!side)}><PanelLeft size={17} /></button>
-            <b>{threads.find((t) => t.id === tid)?.title || 'New chat'}</b>
+            <b>{mate && <span className="hv-mate-tag" style={{ '--mc': mate.color }}>{mate.emoji} {mate.name}</span>}{threads.find((t) => t.id === tid)?.title || (mate ? '' : 'New chat')}</b>
+            {mate && <button className="btn ghost sm" onClick={() => setManage({ editId: mate.id })}>Settings</button>}
             {status?.provider && <span className="hv-prov" title="Only you (the platform owner) see this">{status.provider}</span>}
             <span className={`hv-state ${ready ? 'on' : ''}`}><i />{ready ? 'Hive AI' : 'Offline'}</span>
           </div>
@@ -304,28 +314,33 @@ export default function Hive() {
             {empty && (
               <div className="hv-empty">
                 <span className="hv-orb" aria-hidden="true"><Sparkles size={28} /></span>
+                {mate ? <>
+                  <h2>{mate.emoji} {mate.name}</h2>
+                  <p>{mate.role}{mate.schedule?.on ? ` · Regular task ${when(mate.schedule)}: “${mate.schedule.task}”` : ''}</p>
+                </> : <>
                 <h2>{first ? `Hi ${first}, what are we building today?` : 'What are we building today?'}</h2>
                 <p>Describe your business in a sentence. Hive builds the whole funnel — pages, checkout, upsells, course, follow-ups — and changes anything you ask.</p>
+                </>}
                 {ready === false && <p className="hv-warn">Hive AI isn’t switched on yet — check back soon.</p>}
                 {composer}
-                <div className="hv-sugg">{SUGGESTIONS.map((x) => (
+                {mate ? (mate.schedule?.task && <div className="hv-sugg one"><button onClick={() => send(mate.schedule.task)} disabled={!ready}><span className="hv-sugg-ic">{mate.emoji}</span><b>Do your regular task now</b><small>{mate.schedule.task}</small></button></div>) : <div className="hv-sugg">{SUGGESTIONS.map((x) => (
                   <button key={x.title} onClick={() => send(x.text)} disabled={!ready}>
                     <span className="hv-sugg-ic"><x.icon size={16} /></span>
                     <b>{x.title}</b>
                     <small>{x.text}</small>
                   </button>
-                ))}</div>
+                ))}</div>}
               </div>
             )}
             {msgs.map((m, i) => (
               <div key={`${m.at || ''}-${i}`} className={`hv-msg ${m.role} ${m.error ? 'err' : ''}`}>
-                {m.role === 'assistant' && <span className="hv-av"><Sparkles size={14} /></span>}
+                {m.role === 'assistant' && <span className="hv-av">{mate ? mate.emoji : <Sparkles size={14} />}</span>}
                 <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} />{tid && <ReplyActions m={m} canUndo={!!m.undoId && m.undoId === lastUndo} onRate={rate} onUndo={undo} busy={busy || acting} />}</> : m.text}</div>
               </div>
             ))}
             {live && (
               <div className="hv-msg assistant live">
-                <span className="hv-av"><Sparkles size={14} /></span>
+                <span className="hv-av">{mate ? mate.emoji : <Sparkles size={14} />}</span>
                 <div className="hv-bub">
                   {live.thinking && <Rich text={live.thinking} />}
                   <ToolChips tools={live.tools} />
@@ -335,7 +350,7 @@ export default function Hive() {
             )}
             {elsewhere && !live && (
               <div className="hv-msg assistant live">
-                <span className="hv-av"><Sparkles size={14} /></span>
+                <span className="hv-av">{mate ? mate.emoji : <Sparkles size={14} />}</span>
                 <div className="hv-bub"><span className="hv-typing"><i /><i /><i /> <b>Hive is still finishing a reply in this chat…</b> <small className="hv-long">It shows here when it’s done.</small></span></div>
               </div>
             )}
@@ -365,6 +380,7 @@ export default function Hive() {
           </div>
         </section>
 
+        {manage && <TeamDialog editId={manage.editId} onClose={() => setManage(null)} onChanged={(t) => { setTeam(t); setMate((m) => (m ? t.find((x) => x.id === m.id) || null : m)); }} onRun={(id) => { loadThreads(); openThread(id); }} />}
         <nav className="hv-mobtabs">
           <button className={mob === 'chat' ? 'on' : ''} onClick={() => setMob('chat')}><MessageSquare size={16} /> Chat</button>
           <button className={mob === 'preview' ? 'on' : ''} onClick={() => setMob('preview')}><Eye size={16} /> Preview{funnel ? '' : ''}</button>
