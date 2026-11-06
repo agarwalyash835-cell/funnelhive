@@ -665,7 +665,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
   {
     name: 'school_overview', description: 'The seller’s school (members area): its link, students, community spaces (ids) and courses (ids, lessons, quizzes, certificate).', schema: S({}),
     run: async (ctx) => { const d = await ctx.call('GET', '/school'); return { url: d.url, settings: { name: d.settings.name, openJoin: d.settings.openJoin, tutor: d.settings.tutor }, stats: d.stats, spaces: d.spaces.map(({ id, name, access, posts }) => ({ id, name, access, posts })), courses: d.courses }; },
-    summary: (r) => `Looked at your school (${r.stats.students} students, ${r.courses.length} courses)`,
+    summary: (r) => `Looked at your academy (${r.stats.students} students, ${r.courses.length} courses)`,
   },
   {
     name: 'create_course',

@@ -22,11 +22,12 @@ async function loadPdfjs() {
 }
 
 // the member's email, diagonally across the whole page, drawn into the page image itself
-function watermark(ctx, w, h, text) {
+function watermark(ctx, w, h, text, style) {
   ctx.save();
   const size = Math.max(14, Math.round(w / 26));
   ctx.font = `600 ${size}px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`;
-  ctx.fillStyle = 'rgba(70, 70, 110, 0.13)';
+  // subtle: barely there while reading; strong: clearly visible on any photo or recording of the page
+  ctx.fillStyle = style === 'strong' ? 'rgba(70, 70, 110, 0.17)' : 'rgba(70, 70, 110, 0.07)';
   ctx.translate(w / 2, h / 2);
   ctx.rotate(-Math.PI / 6);
   const step = ctx.measureText(text).width + size * 3;
@@ -37,7 +38,7 @@ function watermark(ctx, w, h, text) {
   ctx.restore();
 }
 
-function Page({ doc, n, width, ratio, mark, onSeen }) {
+function Page({ doc, n, width, ratio, mark, markStyle, onSeen }) {
   const box = useRef(null);
   const canvas = useRef(null);
   const [near, setNear] = useState(false);
@@ -59,7 +60,7 @@ function Page({ doc, n, width, ratio, mark, onSeen }) {
       c.style.width = `${width}px`; c.style.height = `${Math.floor(vp.height / dpr)}px`;
       const ctx = c.getContext('2d');
       task = page.render({ canvasContext: ctx, viewport: vp });
-      return task.promise.then(() => { if (!gone && mark) watermark(ctx, c.width, c.height, mark); });
+      return task.promise.then(() => { if (!gone && mark) watermark(ctx, c.width, c.height, mark, markStyle); });
     }).catch(() => {});
     return () => { gone = true; task?.cancel?.(); };
   }, [near, width, doc, n]);
@@ -130,8 +131,69 @@ export function PdfReader({ api, token, accessId, file, onClose, t }) {
         {(info?.readOnly || file.readOnly) && <p className="ln-rd-note">🔒 {t('Read-only: this book opens here and can’t be downloaded or printed. Your email is on every page.')} {t('No reader can stop screenshots — the watermark shows whose copy it was.')}</p>}
         {err ? <p className="ln-err" role="alert">{t(err)}</p>
           : !doc ? <div className="ln-rd-wait"><span className="ln-spin" /> {t('Opening the book…')}</div>
-            : pages.map((n) => <Page key={n} doc={doc} n={n} width={width} ratio={ratio} mark={info.mark} onSeen={setCur} />)}
+            : pages.map((n) => <Page key={n} doc={doc} n={n} width={width} ratio={ratio} mark={info.mark} markStyle={info.markStyle} onSeen={setCur} />)}
       </div>
+    </div>
+  );
+}
+
+// ---------- protected audio, and the moving watermark ----------
+// where a member's audio comes from: the encrypted stream once the server has made it (hls.js, or Safari's own
+// player), the plain link only when the Academy allows downloads, "preparing" while the stream is being made
+export function useAudioSource(api, accessId, file, el) {
+  const [st, setSt] = useState({ state: 'idle', mark: '', markStyle: 'off' });
+  useEffect(() => {
+    const v = el.current;
+    if (!v || !file) { setSt({ state: 'none', mark: '', markStyle: 'off' }); return undefined; }
+    let hls, gone = false;
+    if (file.stream === 'ready') {
+      setSt({ state: 'loading', mark: '', markStyle: 'off' });
+      api('/audio', 'POST', { accessId, fileId: file.id }).then(async (r) => {
+        if (gone) return;
+        setSt({ state: 'ready', mark: r.mark || '', markStyle: r.markStyle || 'off' });
+        if (v.canPlayType('application/vnd.apple.mpegurl')) { v.src = r.src; return; }
+        const { default: Hls } = await import('hls.js');
+        if (gone) return;
+        if (!Hls.isSupported()) { setSt((x) => ({ ...x, state: 'error' })); return; }
+        hls = new Hls({ maxBufferLength: 60 });
+        hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setSt((x) => ({ ...x, state: 'error' })); });
+        hls.loadSource(r.src);
+        hls.attachMedia(v);
+      }).catch((e) => { if (!gone) setSt({ state: /prepar/i.test(e.message || '') ? 'preparing' : 'error', mark: '', markStyle: 'off' }); });
+    } else if (file.stream === 'preparing') setSt({ state: 'preparing', mark: '', markStyle: 'off' });
+    else if (file.view) { v.src = file.view; setSt({ state: 'ready', mark: '', markStyle: 'off' }); }
+    else setSt({ state: 'none', mark: '', markStyle: 'off' });
+    return () => { gone = true; hls?.destroy(); };
+  }, [file?.id, file?.stream, file?.view]);
+  return st;
+}
+// the member's email (and, when strong, the end of their phone number) drifting over a video or player: subtle stays
+// faint at the edges and moves every ~40 s; strong is clearer, anywhere, every ~10 s — so a recording shows whose it was
+const EDGES = [[3, 5], [58, 5], [3, 86], [58, 86], [3, 46], [62, 46]];
+export function MovingMark({ text, markStyle, light }) {
+  const [pos, setPos] = useState({ x: 3, y: 5 });
+  const on = !!text && markStyle !== 'off';
+  useEffect(() => {
+    if (!on) return undefined;
+    const strong = markStyle === 'strong';
+    const move = () => { if (strong) setPos({ x: 4 + Math.random() * 62, y: 6 + Math.random() * 78 }); else { const [x, y] = EDGES[Math.floor(Math.random() * EDGES.length)]; setPos({ x, y }); } };
+    move();
+    const t = setInterval(move, strong ? 10000 : 40000);
+    return () => clearInterval(t);
+  }, [on, markStyle]);
+  if (!on) return null;
+  return <span className={`ln-mark ${markStyle === 'strong' ? 'strong' : 'subtle'}${light ? ' on-light' : ''}`} style={{ left: `${pos.x}%`, top: `${pos.y}%` }} aria-hidden="true">{text}</span>;
+}
+// one audio file in a lesson's file list
+export function StreamAudio({ api, accessId, file, t }) {
+  const el = useRef(null);
+  const st = useAudioSource(api, accessId, file, el);
+  return (
+    <div className="ln-file-audio-w" onContextMenu={(e) => e.preventDefault()}>
+      <audio ref={el} className="ln-file-audio" controls controlsList="nodownload" preload="none" />
+      {st.state === 'preparing' && <small className="ln-mute">{t('This audio is being prepared — check back in a few minutes.')}</small>}
+      {st.state === 'error' && <small className="ln-mute">{t('The audio couldn’t load — reopen the lesson')}</small>}
+      <MovingMark text={st.mark} markStyle={st.markStyle} light />
     </div>
   );
 }
@@ -155,6 +217,7 @@ export function Audiobook({ c, cur, api, go, pid, reload, school, t }) {
   const chapters = c.lessons.filter((l) => l.locked || audioOf(l));
   const i = chapters.findIndex((l) => l.id === cur.id);
   const audio = audioOf(cur);
+  const src = useAudioSource(api, c.accessId, audio, el);
   const next = chapters.slice(i + 1).find((l) => !l.locked), prev = [...chapters.slice(0, Math.max(0, i))].reverse().find((l) => !l.locked);
   const save = (extra = {}) => {
     const v = el.current; if (!v) return;
@@ -201,22 +264,25 @@ export function Audiobook({ c, cur, api, go, pid, reload, school, t }) {
       setFin((f) => ({ ...f, [cur.id]: true }));
       if (next) open(next, true); else reload();
     },
-    // a stream link lasts 2 hours: fetch fresh ones and carry on from the same second
-    onError: () => { if (el.current?.currentTime) seekTo.current = el.current.currentTime; wantPlay.current = playing; reload(); },
+    // a plain link lasts 2 hours: fetch fresh ones and carry on from the same second (encrypted streams report their own errors)
+    onError: () => { if (audio?.stream) return; if (el.current?.currentTime) seekTo.current = el.current.currentTime; wantPlay.current = playing; reload(); },
   };
   return (
-    <div className="ln-ab">
+    <div className="ln-ab" onContextMenu={(e) => e.preventDefault()}>
       <div className="ln-ab-card">
+        <MovingMark text={src.mark} markStyle={src.markStyle} light />
         <div className="ln-ab-cover" style={c.cover ? { backgroundImage: `url("${c.cover}")` } : undefined}>{!c.cover && '🎧'}</div>
         <small className="ln-mute">{t('Chapter {i} of {n}', { i: i + 1, n: chapters.length })}</small>
         <h1>{cur.title}</h1>
-        {audio?.view ? <audio ref={el} src={audio.view} preload="metadata" controlsList="nodownload" {...events} /> : <p className="ln-mute">{t('This chapter has no audio yet.')}</p>}
+        {audio ? <audio ref={el} preload="metadata" controlsList="nodownload" {...events} /> : <p className="ln-mute">{t('This chapter has no audio yet.')}</p>}
+        {src.state === 'preparing' && <p className="ln-mute">{t('This audio is being prepared — check back in a few minutes.')}</p>}
+        {src.state === 'error' && <p className="ln-mute">{t('The audio couldn’t load — reopen the lesson')}</p>}
         <input className="ln-ab-seek" type="range" min={0} max={Math.max(1, Math.floor(dur))} step={1} value={Math.floor(time)} onChange={(e) => { if (el.current) el.current.currentTime = Number(e.target.value); }} aria-label={t('Position')} />
         <div className="ln-ab-times"><span>{clock(time)}</span><span>{dur ? `−${clock(dur - time)}` : '--:--'}</span></div>
         <div className="ln-ab-ctl">
           <button aria-label={t('Previous chapter')} disabled={!prev} onClick={() => open(prev)}>⏮</button>
           <button aria-label={t('Back 15 seconds')} onClick={() => skip(-15)}>↺<small>15</small></button>
-          <button className="ln-ab-play" aria-label={playing ? t('Pause') : t('Play')} disabled={!audio?.view} onClick={toggle}>{playing ? '❚❚' : '▶'}</button>
+          <button className="ln-ab-play" aria-label={playing ? t('Pause') : t('Play')} disabled={src.state !== 'ready'} onClick={toggle}>{playing ? '❚❚' : '▶'}</button>
           <button aria-label={t('Forward 15 seconds')} onClick={() => skip(15)}>↻<small>15</small></button>
           <button aria-label={t('Next chapter')} disabled={!next} onClick={() => open(next)}>⏭</button>
         </div>

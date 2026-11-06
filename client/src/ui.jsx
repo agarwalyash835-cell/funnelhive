@@ -88,7 +88,7 @@ const PAGES = {
   '/ads': ['target', 'Ads', 'Which ads bring leads, calls and sales — spend, ROAS and lifetime value per ad'],
   '/products': ['box', 'Products', 'Courses, downloads and memberships buyers get access to'],
   '/store': ['tag', 'Store', 'Your online shop — products and stock items in one cart, one checkout'],
-  '/school': ['bookmark', 'School', 'Courses, community and your students'],
+  '/school': ['bookmark', 'Academy', 'Courses, community and your students'],
   '/quotes': ['receipt', 'Quotes', 'Send a custom price and get paid online'],
   '/inventory': ['box', 'Inventory', 'Your stock — items, godowns, stock in and out, low-stock alerts'],
   '/affiliates': ['users', 'Affiliates', 'People who sell for you — referral links, coupons, commission and payouts'],

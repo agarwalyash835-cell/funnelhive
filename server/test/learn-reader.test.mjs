@@ -110,3 +110,40 @@ test('language: the seller picks it; unknown codes fall back to English', async 
   await api('/school/settings', 'PUT', { lang: 'hinglish' }, T);
   assert.equal((await L('')).data.school.lang, 'hinglish');
 });
+
+test('No downloads: nothing has a link, old links stop working, audio only as a stream; the watermark follows the Academy', async () => {
+  const upload = (name, content, type) => fetch(`${srv.base}/api/products/${book.id}/files`, { method: 'POST', headers: { authorization: `Bearer ${T}`, 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name), 'x-file-type': type }, body: content }).then((r) => r.json());
+  const sheet = (await upload('worksheet.docx', crypto.randomBytes(500), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')).file;
+  const before = (await courseOf(asha)).files.find((f) => f.id === sheet.id);
+  assert.ok(before.url, 'downloads on: the worksheet has a link');
+
+  const s = (await api('/school/settings', 'PUT', { noDownloads: true, watermark: 'strong' }, T)).data;
+  assert.deepEqual([s.noDownloads, s.watermark], [true, 'strong']);
+  const c = await courseOf(asha);
+  const all = [...c.files, ...c.lessons.flatMap((l) => l.files || [])];
+  assert.ok(all.every((f) => !f.url && !f.view), 'no file has a link');
+  assert.equal(all.find((f) => f.id === sheet.id).blocked, true, 'a Word file can’t be shown');
+  assert.equal(all.find((f) => f.id === pdfFile.id).readOnly, true, 'every PDF opens in the reader only');
+  assert.ok(all.find((f) => f.id === mp3.id).stream, 'audio is offered only as a stream');
+  // a link handed out before the switch: refused now
+  const old = await fetch(srv.base + before.url);
+  assert.equal(old.status, 403);
+  assert.match(await old.text(), /downloads are switched off/);
+
+  // audio: a stream ticket once it's ready, never a file (here it isn't ready yet)
+  const au = await L('/audio', 'POST', { accessId: c.accessId, fileId: mp3.id }, asha);
+  assert.equal(au.status, 409);
+  assert.match(au.data.error, /being prepared/);
+  assert.equal((await L('/audio', 'POST', { accessId: c.accessId, fileId: mp3.id }, ravi)).status, 404, 'not with another member’s access');
+  assert.equal((await L('/audio', 'POST', { accessId: c.accessId, fileId: pdfFile.id }, asha)).status, 404, 'only audio streams here');
+
+  // the watermark: strong reaches the reader; the product's own switch still turns it off
+  const r = await L('/reader', 'POST', { accessId: c.accessId, fileId: pdfFile.id }, asha);
+  assert.deepEqual([r.data.markStyle, r.data.mark, r.data.readOnly], ['strong', 'asha@x.in', true]);
+  await api(`/products/${book.id}`, 'PUT', { watermark: false }, T);
+  const off = await L('/reader', 'POST', { accessId: c.accessId, fileId: pdfFile.id }, asha);
+  assert.deepEqual([off.data.markStyle, off.data.mark], ['off', '']);
+  assert.equal((await api('/school/settings', 'PUT', { watermark: 'loud' }, T)).data.watermark, 'subtle', 'an unknown strength falls back to subtle');
+  await api(`/products/${book.id}`, 'PUT', { watermark: true }, T);
+  await api('/school/settings', 'PUT', { noDownloads: false }, T);
+});

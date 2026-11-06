@@ -20,7 +20,7 @@ import { randomToken, hashToken } from './security.js';
 import { buyerPlans } from './plans.js';
 import { stripeCreds } from './stripe.js';
 import { s3Enabled, putFile, deleteObject, copyObject, presign, getObject } from './storage.js';
-import { queueVideo, dropHls } from './video.js';
+import { queueVideo, dropHls, streamable } from './video.js';
 import { domainOfFunnel } from './domains.js';
 import { GST_RATES, cleanHsn } from './sales.js';
 
@@ -261,6 +261,7 @@ const signedFile = (aid, fid, inline) => {
 function libraryView(ctx) {
   const now = Date.now();
   const owner = T.users.get(ctx.userId);
+  const noDl = !!owner?.settings?.school?.noDownloads; // the Academy's "No downloads" (school.js)
   const byProduct = new Map();
   for (const a of ctx.rows) {
     const cur = byProduct.get(a.productId);
@@ -278,9 +279,13 @@ function libraryView(ctx) {
     const base = { productId: p.id, accessId: a.id, name: p.name, description: p.description || '', cover: p.cover || '', kind: kindOf(p), grantedAt: a.at, expiresAt: a.expiresAt || null, status: ok ? 'active' : a.revoked ? (a.revokeReason === 'refunded' ? 'refunded' : 'revoked') : 'expired' };
     if (!ok) { products.push(base); continue; }
     const left = (fid) => (p.downloadLimit ? Math.max(0, p.downloadLimit - (a.dl?.[fid] || 0)) : null);
-    // a read-only PDF has no link at all: it opens only in the members area's reader
-    const file = (f) => (f.readOnly && isPdf(f) ? { id: f.id, name: f.name, size: f.size, type: f.type, readOnly: true, left: null, url: null, view: null }
-      : { id: f.id, name: f.name, size: f.size, type: f.type, left: left(f.id), url: left(f.id) === 0 ? null : signedFile(a.id, f.id), view: INLINE.test(f.type) && left(f.id) !== 0 ? signedFile(a.id, f.id, true) : null });
+    // a read-only PDF has no link at all: it opens only in the members area's reader. With the Academy's "No downloads"
+    // on, nothing has a link: PDFs open in the reader, audio and video play as encrypted streams, anything else can't
+    // be offered (blocked). Audio that is already a stream plays as one either way.
+    const stream = (f) => ({ stream: f.hls?.status === 'ready' ? 'ready' : 'preparing' });
+    const file = (f) => (isPdf(f) && (f.readOnly || noDl) ? { id: f.id, name: f.name, size: f.size, type: f.type, readOnly: true, left: null, url: null, view: null }
+      : noDl ? { id: f.id, name: f.name, size: f.size, type: f.type, left: null, url: null, view: null, ...(streamable(f) ? stream(f) : { blocked: true }) }
+      : { id: f.id, name: f.name, size: f.size, type: f.type, left: left(f.id), url: left(f.id) === 0 ? null : signedFile(a.id, f.id), view: INLINE.test(f.type) && left(f.id) !== 0 ? signedFile(a.id, f.id, true) : null, ...(/^audio\//.test(f.type) && f.hls?.status === 'ready' ? { stream: 'ready' } : {}) });
     const inLessons = new Set(p.lessons.flatMap((l) => [...l.fileIds, l.videoFileId].filter(Boolean)));
     products.push({
       ...base, note: p.note || '', downloadLimit: p.downloadLimit || 0, ...(p.audiobook ? { audiobook: true } : {}),
@@ -400,7 +405,7 @@ export function registerProducts(app, { auth, wrap, rateLimit, isTest, secret, a
   app.post('/api/products/:pid/files/:fid/stream', auth, (req, res) => {
     const p = ownProduct(req.user.id, req.params.pid);
     const f = p?.files.find((x) => x.id === req.params.fid);
-    if (!f || !/^video\//.test(f.type)) return res.status(404).json({ error: 'Video not found' });
+    if (!f || !streamable(f)) return res.status(404).json({ error: 'Video or audio not found' });
     if (!queueVideo(req.user.id, p.id, f)) return res.status(503).json({ error: 'Protected streaming isn’t available on this server yet' });
     res.json({ ok: true, product: T.products.get(p.id) });
   });
@@ -505,6 +510,7 @@ export function registerProducts(app, { auth, wrap, rateLimit, isTest, secret, a
     const f = p?.files.find((x) => x.id === fid);
     if (!hasFile(p.userId, f)) return res.status(404).type('text').send('File not found');
     if (f.readOnly && isPdf(f)) return res.status(403).type('text').send('This file can be read in the members area only — it can’t be downloaded.');
+    if (T.users.get(p.userId)?.settings?.school?.noDownloads) return res.status(403).type('text').send('This course can only be opened in the members area — downloads are switched off.');
     // a download counts once per download, not per streamed chunk of a video
     const fresh = !req.headers.range || /^bytes=0-/.test(String(req.headers.range));
     const inline = req.query.inline === '1' && INLINE.test(f.type);

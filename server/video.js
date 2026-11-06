@@ -30,8 +30,10 @@ const FFPROBE = () => process.env.FFPROBE_PATH || 'ffprobe';
 
 // ---------- the queue ----------
 // a video file on a product → a job; the file shows its streaming status to the seller
+// audio (audiobook chapters, audio lessons) goes the same way: an encrypted audio-only stream instead of a file
+export const streamable = (f) => /^(video|audio)\//.test(f?.type || '');
 export function queueVideo(userId, productId, file) {
-  if (!/^video\//.test(file?.type || '') || !ffmpegReady()) return null;
+  if (!streamable(file) || !ffmpegReady()) return null;
   T.products.update(productId, (p) => { const f = p.files.find((x) => x.id === file.id); if (f) f.hls = { status: 'queued', at: Date.now() }; });
   return T.vjobs.insert({ id: uid(), userId, productId, fileId: file.id, status: 'queued', tries: 0, at: Date.now() });
 }
@@ -58,6 +60,27 @@ function probe(file) {
 }
 
 // turn one uploaded video into encrypted HLS
+// the finished pieces: into the storage bucket when there is one, else this server's disk; the file is then streamable
+async function storeHls(job, out, key, variants, seconds) {
+  // store the pieces: the bucket when there is one, else this server's disk
+  const files = [];
+  const walk = (d, rel = '') => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n), r = rel ? `${rel}/${n}` : n; if (fs.statSync(p).isDirectory()) walk(p, r); else files.push([p, r]); } };
+  walk(out);
+  const bytes = files.reduce((n, [p]) => n + fs.statSync(p).size, 0);
+  let store = videoBucketReady() ? 'video' : s3Enabled() ? 'files' : null;
+  if (store) {
+    try {
+      for (const [p, r] of files) await bucket(store).putFile(hlsKey(job.userId, job.fileId, r), p, r.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t');
+    } catch (e) { console.error('video upload to storage failed — kept on disk', e.message); store = null; }
+  }
+  if (!store) { fs.rmSync(localDir(job.userId, job.fileId), { recursive: true, force: true }); fs.mkdirSync(path.dirname(localDir(job.userId, job.fileId)), { recursive: true }); fs.cpSync(out, localDir(job.userId, job.fileId), { recursive: true }); }
+  // the file may have been deleted while we worked
+  if (!fileOf(job.productId, job.fileId)) { await dropHls(job.userId, { id: job.fileId, hls: { store } }); T.vjobs.del(job.id); return null; }
+  const hls = { status: 'ready', keyEnc: encrypt(key.toString('hex')), variants, seconds, bytes, store, at: Date.now() };
+  setHls(job.productId, job.fileId, hls);
+  T.vjobs.del(job.id);
+  return hls;
+}
 export async function processJob(job) {
   const f = fileOf(job.productId, job.fileId);
   if (!f) { T.vjobs.del(job.id); return null; }
@@ -73,6 +96,14 @@ export async function processJob(job) {
     fs.writeFileSync(path.join(work, 'k.info'), `key://k\n${path.join(work, 'k.key')}\n${iv}\n`);
     const out = path.join(work, 'out');
     fs.mkdirSync(out);
+    // audio: one encrypted AAC stream, the same playlist and piece layout as video (v0/index.m3u8, v0/sNNNN.ts)
+    if (/^audio\//.test(f.type || '')) {
+      if (!info.audio) throw new Error('This file has no sound in it');
+      await run(FFMPEG(), ['-y', '-hide_banner', '-loglevel', 'error', '-i', src, '-vn', '-map', '0:a:0', '-c:a', 'aac', '-b:a', '96k', '-ac', '2',
+        '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'vod', '-hls_key_info_file', path.join(work, 'k.info'),
+        '-hls_segment_filename', path.join(out, 'v%v', 's%04d.ts'), '-master_pl_name', 'master.m3u8', '-var_stream_map', 'a:0', path.join(out, 'v%v', 'index.m3u8')]);
+      return await storeHls(job, out, key, ['audio'], info.seconds);
+    }
     // two qualities, never larger than the source: 360p for slow mobile data, up to 720p otherwise
     const hi = Math.min(720, info.height || 720), lo = Math.min(360, hi);
     const rungs = hi > lo ? [[lo, '700k', '1000k'], [hi, '2400k', '3400k']] : [[lo, '900k', '1300k']];
@@ -85,24 +116,7 @@ export async function processJob(job) {
       '-hls_segment_filename', path.join(out, 'v%v', 's%04d.ts'), '-master_pl_name', 'master.m3u8',
       '-var_stream_map', rungs.map((_, i) => (info.audio ? `v:${i},a:${i}` : `v:${i}`)).join(' '), path.join(out, 'v%v', 'index.m3u8'));
     await run(FFMPEG(), args);
-    // store the pieces: the bucket when there is one, else this server's disk
-    const files = [];
-    const walk = (d, rel = '') => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n), r = rel ? `${rel}/${n}` : n; if (fs.statSync(p).isDirectory()) walk(p, r); else files.push([p, r]); } };
-    walk(out);
-    const bytes = files.reduce((n, [p]) => n + fs.statSync(p).size, 0);
-    let store = videoBucketReady() ? 'video' : s3Enabled() ? 'files' : null;
-    if (store) {
-      try {
-        for (const [p, r] of files) await bucket(store).putFile(hlsKey(job.userId, job.fileId, r), p, r.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t');
-      } catch (e) { console.error('video upload to storage failed — kept on disk', e.message); store = null; }
-    }
-    if (!store) { fs.rmSync(localDir(job.userId, job.fileId), { recursive: true, force: true }); fs.mkdirSync(path.dirname(localDir(job.userId, job.fileId)), { recursive: true }); fs.cpSync(out, localDir(job.userId, job.fileId), { recursive: true }); }
-    // the file may have been deleted while we worked
-    if (!fileOf(job.productId, job.fileId)) { await dropHls(job.userId, { id: job.fileId, hls: { store } }); T.vjobs.del(job.id); return null; }
-    const hls = { status: 'ready', keyEnc: encrypt(key.toString('hex')), variants: rungs.map(([h]) => h), seconds: info.seconds, bytes, store, at: Date.now() };
-    setHls(job.productId, job.fileId, hls);
-    T.vjobs.del(job.id);
-    return hls;
+    return await storeHls(job, out, key, rungs.map(([h]) => h), info.seconds);
   } catch (e) {
     const tries = (job.tries || 0) + 1;
     if (tries < 2) T.vjobs.update(job.id, (x) => { x.status = 'queued'; x.tries = tries; x.error = String(e.message).slice(0, 300); });

@@ -165,7 +165,7 @@ export function AgencyAccessPanel() {
 }
 
 // the menu client accounts start with: by each client's industry (default), or the tools you pick for all of them
-const CLIENT_TOOLS = [['/contacts', 'CRM'], ['/funnels', 'Funnels'], ['/hive', 'Hive AI'], ['/bookings', 'Bookings'], ['/quotes', 'Quotes'], ['/webinars', 'Webinars'], ['/orders', 'Orders'], ['/reports', 'Reports'], ['/ads', 'Ads'], ['/products', 'Products'], ['/school', 'School'], ['/automations', 'Automations'], ['/broadcasts', 'Broadcasts'], ['/vault', 'Vault']];
+const CLIENT_TOOLS = [['/contacts', 'CRM'], ['/funnels', 'Funnels'], ['/hive', 'Hive AI'], ['/bookings', 'Bookings'], ['/quotes', 'Quotes'], ['/webinars', 'Webinars'], ['/orders', 'Orders'], ['/reports', 'Reports'], ['/ads', 'Ads'], ['/products', 'Products'], ['/school', 'Academy'], ['/automations', 'Automations'], ['/broadcasts', 'Broadcasts'], ['/vault', 'Vault']];
 function ClientMenu({ menu, enabled }) {
   const [pages, setPages] = useState(menu || null);
   const save = async () => { try { const r = await api('/agency/client-menu', 'PUT', { pages: pages || [] }); setPages(r.clientMenu); toast('Client menu saved'); } catch (e) { toast(e.message); } };

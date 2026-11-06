@@ -14,7 +14,7 @@ import { aiEnabled, aiText, aiJson } from './ai.js';
 import { creditsShort, spendCredits } from './billing.js';
 import { brand } from './platform.js';
 import { waEvent } from './hive-wa.js';
-import { ticket } from './video.js';
+import { ticket, queueVideo } from './video.js';
 
 const DAY = 86400000;
 const SESSION_DAYS = 60;
@@ -25,8 +25,18 @@ const first = (name) => String(name || '').trim().split(/\s+/)[0] || '';
 const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 
 // ---------- the school's settings (on the seller's account) ----------
-export const SCHOOL_DEFAULTS = { name: '', tagline: '', logo: '', cover: '', color: '', openJoin: false, deviceLimit: 3, tutor: true, levels: ['Newcomer', 'Learner', 'Regular', 'Contributor', 'Achiever', 'Expert', 'Mentor', 'Master', 'Legend'], welcome: '', lang: 'en' };
+export const SCHOOL_DEFAULTS = { name: '', tagline: '', logo: '', cover: '', color: '', openJoin: false, deviceLimit: 3, tutor: true, levels: ['Newcomer', 'Learner', 'Regular', 'Contributor', 'Achiever', 'Expert', 'Mentor', 'Master', 'Legend'], welcome: '', lang: 'en', noDownloads: false, watermark: 'subtle' };
 // the members area's own words (sign-in, lessons, community, quizzes, certificates) in one of these; students can switch
+// the moving watermark: off, subtle (faint, near the edges, moves every ~40 s) or strong (clearer, anywhere, every ~10 s)
+export const WATERMARKS = ['off', 'subtle', 'strong'];
+// what a member's copy carries: their email (and, when strong, the end of their phone number) — a product's own
+// watermark switch still turns it off for that product
+export function markFor(owner, product, s) {
+  const style = WATERMARKS.includes(schoolOf(owner).watermark) ? schoolOf(owner).watermark : 'subtle';
+  if (style === 'off' || product?.watermark === false) return { mark: '', markStyle: 'off' };
+  const phone = String(s.phone || '').replace(/\D/g, '');
+  return { mark: style === 'strong' && phone.length >= 4 ? `${s.email} · …${phone.slice(-4)}` : s.email, markStyle: style };
+}
 export const SCHOOL_LANGS = ['en', 'hi', 'mr', 'gu', 'bn', 'ta', 'te', 'kn', 'ml', 'pa', 'or', 'hinglish'];
 export const schoolOf = (u) => ({ ...SCHOOL_DEFAULTS, ...(u?.settings?.school || {}) });
 const schoolName = (u) => schoolOf(u).name || u?.settings?.businessName || u?.name || brand();
@@ -179,7 +189,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   const writeLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 20, message: 'You’re posting quickly — wait a moment.' });
   const tutorLimiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 6, message: 'Give the tutor a moment — try again shortly.' });
   const sellerByHandle = (h) => { const r = q("SELECT id FROM users WHERE json_extract(data, '$.bookingHandle') = ?").get(String(h || '').toLowerCase()); return r && T.users.get(r.id); };
-  const school = (req, res) => { const u = sellerByHandle(req.params.handle); if (!u) { res.status(404).json({ error: 'This school doesn’t exist' }); return null; } return u; };
+  const school = (req, res) => { const u = sellerByHandle(req.params.handle); if (!u) { res.status(404).json({ error: 'This academy doesn’t exist' }); return null; } return u; };
   // the signed-in student (header X-Student: <session token>)
   const student = (req, res, owner, { quiet = false } = {}) => {
     const t = String(req.headers['x-student'] || '');
@@ -192,7 +202,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   const meView = (owner, s) => ({ id: s.id, email: s.email, name: s.name, bio: s.bio || '', alerts: !s.alertsOff, initials: initials(s.name || s.email), ...levelView(owner, s.points || 0) });
   const publicSchool = (owner) => {
     const sc = schoolOf(owner);
-    return { name: schoolName(owner), tagline: sc.tagline, logo: sc.logo, cover: sc.cover, color: sc.color || owner.settings?.brandColor || '#6366f1', openJoin: !!sc.openJoin, tutor: !!sc.tutor && aiEnabled(), levels: sc.levels, levelPoints: LEVELS, welcome: sc.welcome, lang: SCHOOL_LANGS.includes(sc.lang) ? sc.lang : 'en' };
+    return { name: schoolName(owner), tagline: sc.tagline, logo: sc.logo, cover: sc.cover, color: sc.color || owner.settings?.brandColor || '#6366f1', openJoin: !!sc.openJoin, tutor: !!sc.tutor && aiEnabled(), levels: sc.levels, levelPoints: LEVELS, welcome: sc.welcome, lang: SCHOOL_LANGS.includes(sc.lang) ? sc.lang : 'en', noDownloads: !!sc.noDownloads };
   };
 
   // --- public: the school's front door ---
@@ -366,7 +376,21 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     if (!f || a.at + (lesson.dripDays || 0) * DAY > Date.now()) return res.status(404).json({ error: 'Video not found' });
     if (lessonGate(s, p, lesson.id)) return res.status(403).json({ error: `Reach level ${lesson.minLevel} to unlock this lesson` });
     if (f.hls?.status !== 'ready') return res.status(409).json({ error: 'This video is still being prepared — try again in a few minutes' });
-    res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, mark: p.watermark === false ? '' : s.email });
+    res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, ...markFor(owner, p, s) });
+  });
+  // an audio lesson or audiobook chapter as an encrypted stream (the same tickets and pieces as video), never a file
+  app.post('/api/learn/:handle/audio', limiter, (req, res) => {
+    const owner = school(req, res); if (!owner) return;
+    const s = student(req, res, owner); if (!s) return;
+    const a = ownAccess(s, req.body?.accessId);
+    const p = a && T.products.get(a.productId);
+    const f = p?.files.find((x) => x.id === req.body?.fileId && /^audio\//.test(x.type || ''));
+    const lesson = f && p.lessons.find((l) => l.fileIds?.includes(f.id));
+    // in a lesson: that lesson has to be open to this member; otherwise it's one of the product's own files
+    if (!f) return res.status(404).json({ error: 'Audio not found' });
+    if (lesson && (dripLocked(a, lesson) || lessonGate(s, p, lesson.id))) return res.status(403).json({ error: 'This lesson isn’t open yet' });
+    if (f.hls?.status !== 'ready') return res.status(409).json({ error: 'This audio is still being prepared — try again in a few minutes', preparing: true });
+    res.set('Cache-Control', 'no-store').json({ src: `/api/hls/${a.id}/${f.id}/master.m3u8?t=${encodeURIComponent(ticket(a.id, f.id, s.id))}`, ...markFor(owner, p, s) });
   });
   // a PDF in the in-page reader: a 10-minute ticket for this student; the file itself comes encrypted (see products.js)
   app.post('/api/learn/:handle/reader', limiter, (req, res) => {
@@ -380,7 +404,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const lesson = p.lessons.find((l) => l.fileIds?.includes(f.id));
     if (lesson && (dripLocked(a, lesson) || lessonGate(s, p, lesson.id))) return res.status(403).json({ error: 'This lesson isn’t open yet' });
     const { t, key, iv } = readerTicket(a.id, f.id, s.id);
-    res.set('Cache-Control', 'no-store').json({ src: `/api/learn/${req.params.handle}/reader/${encodeURIComponent(t)}`, key, iv, mark: s.email, name: f.name, readOnly: !!f.readOnly });
+    res.set('Cache-Control', 'no-store').json({ src: `/api/learn/${req.params.handle}/reader/${encodeURIComponent(t)}`, key, iv, ...markFor(owner, p, s), name: f.name, readOnly: !!f.readOnly || !!schoolOf(owner).noDownloads });
   });
   // only the student the ticket was made for, signed in, before it runs out
   app.get('/api/learn/:handle/reader/:t', limiter, wrap(async (req, res) => {
@@ -432,7 +456,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   app.post('/api/learn/:handle/tutor', tutorLimiter, wrap(async (req, res) => {
     const owner = school(req, res); if (!owner) return;
     const s = student(req, res, owner); if (!s) return;
-    if (!schoolOf(owner).tutor || !aiEnabled()) return res.status(404).json({ error: 'The AI tutor isn’t switched on for this school' });
+    if (!schoolOf(owner).tutor || !aiEnabled()) return res.status(404).json({ error: 'The AI tutor isn’t switched on for this academy' });
     const p = T.products.get(req.body?.productId);
     if (!p || !inCourse(s, p.id)) return res.status(404).json({ error: 'Course not found' });
     const question = clip(req.body?.question, 1000);
@@ -605,9 +629,13 @@ Rules: modules (sections) in a sensible order, 3-6 lessons each; add a quiz (3-5
     if ('openJoin' in b) out.openJoin = !!b.openJoin;
     if ('tutor' in b) out.tutor = !!b.tutor;
     if ('lang' in b) out.lang = SCHOOL_LANGS.includes(b.lang) ? b.lang : 'en';
+    if ('noDownloads' in b) out.noDownloads = !!b.noDownloads;
+    if ('watermark' in b) out.watermark = WATERMARKS.includes(b.watermark) ? b.watermark : 'subtle';
     if ('deviceLimit' in b) out.deviceLimit = Math.max(1, Math.min(10, Math.round(Number(b.deviceLimit)) || 3));
     if (Array.isArray(b.levels)) out.levels = SCHOOL_DEFAULTS.levels.map((d, i) => clip(b.levels[i], 30) || d);
     const u = T.users.update(req.user.id, (x) => { x.settings = { ...x.settings, school: out }; });
+    // no downloads: every audio file that isn't a stream yet becomes one (in the background)
+    if (out.noDownloads && !cur.noDownloads) for (const p of T.products.all({ userId: req.user.id })) for (const f of p.files || []) if (/^audio\//.test(f.type || '') && !['ready', 'queued', 'processing'].includes(f.hls?.status)) queueVideo(req.user.id, p.id, f);
     res.json(schoolOf(u));
   });
   const cleanSpace = (b, cur = {}) => {

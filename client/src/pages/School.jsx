@@ -17,7 +17,7 @@ export default function School() {
   useEffect(() => { load(); }, []);
   const pick = (k) => { setTab(k); history.replaceState(null, '', `/school${k === 'overview' ? '' : `?tab=${k}`}`); };
   return (
-    <Layout title="School" subtitle="Your members area: courses, community and students in one place"
+    <Layout title="Academy" subtitle="Your members area: courses, community and students in one place"
       actions={d && <><button className="btn ghost" onClick={() => copy(d.url)}><Icon name="link" size={15} /> Copy link</button><a className="btn primary" href={d.url} target="_blank" rel="noreferrer"><Icon name="external" size={15} /> Open members area</a></>}>
       <div className="seg sc-tabs" role="tablist">{TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => pick(k)}>{l}</button>)}</div>
       {!d ? <div className="skeleton" /> : tab === 'overview' ? <Overview d={d} pick={pick} />
@@ -34,7 +34,7 @@ function Overview({ d, pick }) {
   const steps = [
     [d.courses.length > 0, 'Create a course', 'Add lessons with videos and notes — or let AI write the whole course.', () => nav('/products')],
     [d.spaces.length > 0, 'Open your community', 'Add spaces like General, Wins and Announcements.', () => pick('community')],
-    [!!(d.settings.name || d.settings.logo), 'Brand your school', 'Name, logo, colour and a welcome message.', () => pick('settings')],
+    [!!(d.settings.name || d.settings.logo), 'Brand your academy', 'Name, logo, colour and a welcome message.', () => pick('settings')],
     [d.stats.students > 0, 'Invite your first students', 'Buyers get in with their email. Share the link in your emails and WhatsApp.', () => copy(d.url)],
   ];
   const left = steps.filter((s) => !s[0]).length;
@@ -44,7 +44,7 @@ function Overview({ d, pick }) {
         {[['Students', d.stats.students], ['Active this week', d.stats.active7], ['Community posts', d.stats.posts], ['Certificates', d.stats.certificates]].map(([l, n]) => <div key={l} className="stat"><small>{l}</small><b>{n.toLocaleString('en-IN')}</b></div>)}
       </div>
       {left > 0 && (
-        <Panel title={`Get your school ready · ${steps.length - left}/${steps.length}`}>
+        <Panel title={`Get your academy ready · ${steps.length - left}/${steps.length}`}>
           <div className="sc-steps">{steps.map(([done, t, text, go], i) => (
             <button key={i} className={`sc-step ${done ? 'done' : ''}`} onClick={go}><span className="sc-check">{done ? '✓' : i + 1}</span><div><b>{t}</b><small>{text}</small></div><Icon name="chevron" size={16} /></button>
           ))}</div>
@@ -65,7 +65,7 @@ function Overview({ d, pick }) {
         <ul className="sc-how">
           <li><b>Buyers</b> of any product sign in at your link with their email — we email them a 6-digit code. No passwords.</li>
           <li><b>The library link</b> in their purchase email opens the members area directly.</li>
-          <li>{d.settings.openJoin ? <><b>Anyone can join free</b> (open school) — great for a free community that sells your courses.</> : <>Only buyers can sign in. Turn on <b>open sign-up</b> in Settings for a free community.</>}</li>
+          <li>{d.settings.openJoin ? <><b>Anyone can join free</b> (open academy) — great for a free community that sells your courses.</> : <>Only buyers can sign in. Turn on <b>open sign-up</b> in Settings for a free community.</>}</li>
           <li>Each student can be signed in on up to <b>{d.settings.deviceLimit}</b> devices — it stops one login being shared in a group.</li>
         </ul>
       </Panel>
@@ -136,7 +136,7 @@ function CommunityAdmin({ d, reload }) {
         {space && <div className="sc-space-h"><div><h3>{space.emoji} {space.name}</h3><small className="muted">{ACCESS[space.access]} · {space.postBy === 'admins' ? 'only the team posts' : 'members can post'}</small></div><span className="row"><button className="btn ghost sm" onClick={() => setEdit(space)}><Icon name="edit" size={14} /> Edit</button><button className="btn ghost sm danger" onClick={delSpace}><Icon name="trash" size={14} /></button></span></div>}
         <form className="sc-compose" onSubmit={post}>
           <input value={draft.title} maxLength={200} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Title (optional)" />
-          <textarea rows={3} value={draft.body} maxLength={10000} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Post as your school — a welcome, a weekly challenge, a live-class link…" />
+          <textarea rows={3} value={draft.body} maxLength={10000} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Post as your academy — a welcome, a weekly challenge, a live-class link…" />
           <div className="row"><label className="tog" style={{ margin: 0 }}><input type="checkbox" checked={draft.pinned} onChange={(e) => setDraft({ ...draft, pinned: e.target.checked })} /><span /> Pin to the top</label><button className="btn primary" disabled={busy || (!draft.title.trim() && !draft.body.trim())}>{busy ? <span className="spin" /> : 'Post'}</button></div>
         </form>
         {!posts ? <div className="skeleton" /> : !posts.length ? <p className="muted">No posts in this space yet.</p> : (
@@ -173,7 +173,7 @@ function PostModal({ id, onClose }) {
         <p className="sc-pbody">{d.post.body}</p>
         <h4 className="sc-h4">{d.comments.length} comment{d.comments.length === 1 ? '' : 's'}</h4>
         <div className="sc-cmts">{d.comments.map((c) => <div key={c.id} className={`sc-cmt ${c.parentId ? 'child' : ''}`}><div><b>{c.author.name}</b> <small className="muted">{ago(c.at)}</small><p>{c.body}</p></div><button className="icon-btn xs danger" aria-label="Delete comment" onClick={() => del(c)}><Icon name="x" size={12} /></button></div>)}</div>
-        <form className="sc-compose" onSubmit={reply}><textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply as your school…" maxLength={3000} /><div className="row end"><button className="btn primary" disabled={!text.trim()}>Reply</button></div></form>
+        <form className="sc-compose" onSubmit={reply}><textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply as your academy…" maxLength={3000} /><div className="row end"><button className="btn primary" disabled={!text.trim()}>Reply</button></div></form>
       </>}
     </Modal>
   );
@@ -264,12 +264,12 @@ function ImagePick({ label, value, onChange, hint }) {
 function SettingsTab({ d, reload }) {
   const [v, setV] = useState(d.settings);
   const [busy, setBusy] = useState(false);
-  const save = async () => { setBusy(true); try { await api('/school/settings', 'PUT', v); toast('School saved'); reload(); } catch (e) { toast(e.message); } setBusy(false); };
+  const save = async () => { setBusy(true); try { await api('/school/settings', 'PUT', v); toast('Academy saved'); reload(); } catch (e) { toast(e.message); } setBusy(false); };
   return (
     <>
       <Panel title="Look">
         <div className="form2">
-          <label className="fld"><span>School name</span><input value={v.name} maxLength={80} onChange={(e) => setV({ ...v, name: e.target.value })} placeholder="Your business name" /></label>
+          <label className="fld"><span>Academy name</span><input value={v.name} maxLength={80} onChange={(e) => setV({ ...v, name: e.target.value })} placeholder="Your business name" /></label>
           <label className="fld"><span>Brand colour</span><span className="sc-color"><input type="color" value={v.color || '#6366f1'} onChange={(e) => setV({ ...v, color: e.target.value })} /><code>{v.color || '#6366f1'}</code></span></label>
           <label className="fld full"><span>Tagline</span><input value={v.tagline} maxLength={200} onChange={(e) => setV({ ...v, tagline: e.target.value })} placeholder="One line on the sign-in page" /></label>
           <ImagePick label="Logo" value={v.logo} onChange={(logo) => setV({ ...v, logo })} hint="Square works best · shown in the top bar" />
@@ -282,6 +282,15 @@ function SettingsTab({ d, reload }) {
         <label className="tog sc-tog"><input type="checkbox" checked={!!v.tutor} disabled={!d.aiEnabled} onChange={(e) => setV({ ...v, tutor: e.target.checked })} /><span /><div><b>AI tutor</b> — students ask questions and get answers from your lessons (1 AI credit each, up to 30 a day per student){!d.aiEnabled && ' · needs AI on this server'}</div></label>
         <label className="fld" style={{ maxWidth: 320, marginTop: 10 }}><span>Members area language</span><select value={v.lang || 'en'} onChange={(e) => setV({ ...v, lang: e.target.value })}>{LEARN_LANGS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select><small className="hint">Sign-in, lessons, the community, quizzes and certificates use this language. Each student can switch to another. Your own lesson text stays as you wrote it.</small></label>
         <label className="fld" style={{ maxWidth: 260, marginTop: 10 }}><span>Devices per student</span><select value={v.deviceLimit} onChange={(e) => setV({ ...v, deviceLimit: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select><small className="hint">Signing in on one more device signs out the oldest — stops a login being shared.</small></label>
+      </Panel>
+      <Panel title="Protection">
+        <label className="tog sc-tog"><input type="checkbox" checked={!!v.noDownloads} onChange={(e) => setV({ ...v, noDownloads: e.target.checked })} /><span /><div><b>No downloads</b> — nothing in your courses can be saved: PDFs open only in the reader, audio and video play only as encrypted streams, and download links stop working. Other file types (Word, zip, images) can’t be shown to members while this is on.</div></label>
+        <label className="fld" style={{ maxWidth: 320, marginTop: 10 }}><span>Watermark</span><select value={v.watermark || 'subtle'} onChange={(e) => setV({ ...v, watermark: e.target.value })}>
+          <option value="subtle">Subtle — faint, near the edges (recommended)</option>
+          <option value="strong">Strong — clearly visible, moves often</option>
+          <option value="off">Off</option>
+        </select></label>
+        <p className="hint">The member’s email{v.watermark === 'strong' ? ' and the last 4 digits of their phone' : ''} moves over videos, the audio player and every PDF page, so a screen recording or photo shows whose copy it was. No website can stop screen recording itself — the watermark is what stops people sharing.</p>
       </Panel>
       <Panel title="Levels">
         <p className="hint">Students earn points for likes on their posts and comments, finished lessons (1), passed quizzes (2) and finished courses (10). Name the 9 levels your way.</p>

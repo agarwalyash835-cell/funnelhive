@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { videoSource } from '../blocks';
 import { alertDialog, confirmDialog } from '../ui';
 import { learnT, learnFonts, learnLocale, LEARN_LANGS } from '../i18n-learn.js';
-import { PdfReader, Audiobook, audioOf, isAudio, isPdf } from './LearnMedia.jsx';
+import { PdfReader, Audiobook, StreamAudio, MovingMark, audioOf, isAudio, isPdf } from './LearnMedia.jsx';
 import '../learn.css';
 
 // ---------- the members area's language: the school's, unless the member picked another (on this device) ----------
@@ -129,7 +129,7 @@ export default function Learn() {
       if (sent !== getTok(handle)) return;
       setInfo(d);
       if (!d.me && sent) { setTok(handle, ''); setSignedIn(false); }
-    }).catch((e) => setErr(e.message || 'This school couldn’t be loaded'));
+    }).catch((e) => setErr(e.message || 'This academy couldn’t be loaded'));
   };
   useEffect(() => { load(); }, [handle, signedIn]);
   // the emailed library link (?t=L…) signs straight in
@@ -150,7 +150,7 @@ export default function Learn() {
   useEffect(() => { document.documentElement.lang = LOCALE.split('-')[0]; }, [lang]);
   const accent = info?.school?.color || '#6366f1';
   const frame = (cls, body) => <LangCtx.Provider value={ctx}><div className={cls} style={{ '--acc': accent, ...fontStyle(lang) }}>{body}</div></LangCtx.Provider>;
-  if (err) return frame('ln', <Empty icon="🔒" title={ctx.t('School not found')} text={ctx.t(err)} />);
+  if (err) return frame('ln', <Empty icon="🔒" title={ctx.t('Academy not found')} text={ctx.t(err)} />);
   if (!info || linking || (signedIn && !info.me && getTok(handle))) return frame('ln ln-loading', <Spinner />);
   if (!signedIn || !info.me) return frame('ln', <SignIn handle={handle} school={info.school} onDone={(t) => { setTok(handle, t); setSignedIn(true); }} />);
   const [section, a1, a2] = rest.split('/');
@@ -347,7 +347,7 @@ function CoursePage({ handle, api, pid, lid, go, tutor, school }) {
   if (err) return <Empty icon="🔒" title={t('Course not available')} text={t(err)}><button className="ln-btn" onClick={() => go('')}>{t('Back home')}</button></Empty>;
   if (!c) return <div className="ln-skel" />;
   const reader = reading && <PdfReader api={api} token={getTok(handle)} accessId={c.accessId} file={reading} onClose={() => setReading(null)} t={t} />;
-  if (!lessons.length) return <><Downloads c={c} go={go} onRead={setReading} />{reader}</>;
+  if (!lessons.length) return <><Downloads c={c} go={go} api={api} onRead={setReading} />{reader}</>;
   // an audiobook: its chapters are the lessons with audio
   if (c.audiobook && lessons.some(audioOf)) {
     const chapters = lessons.filter((l) => !l.locked && audioOf(l));
@@ -358,7 +358,7 @@ function CoursePage({ handle, api, pid, lid, go, tutor, school }) {
         <h2 className="ln-ab-book">🎧 {c.name}</h2>
         <Audiobook c={c} cur={ch} api={api} go={go} pid={pid} reload={load} school={school} t={t} />
         {ch.body && <div className="ln-body ln-panel">{linkify(ch.body)}</div>}
-        {ch.files?.some((f) => !isAudio(f)) && <LessonFiles files={ch.files.filter((f) => !isAudio(f))} onRead={setReading} />}
+        {ch.files?.some((f) => !isAudio(f)) && <LessonFiles files={ch.files.filter((f) => !isAudio(f))} onRead={setReading} api={api} accessId={c.accessId} />}
         {reader}
       </div>
     );
@@ -405,7 +405,7 @@ function CoursePage({ handle, api, pid, lid, go, tutor, school }) {
         </div>
         {tab === 'lesson' && <div className="ln-body">
           {cur.body ? linkify(cur.body) : (cur.video || cur.hls || cur.videoUrl) ? <p className="ln-mute">{t('Watch the video above.')}</p> : null}
-          {cur.files?.length > 0 && <LessonFiles files={cur.files} onRead={setReading} />}
+          {cur.files?.length > 0 && <LessonFiles files={cur.files} onRead={setReading} api={api} accessId={c.accessId} />}
           {cur.quiz && !cur.quizResult?.passed && <div className="ln-callout">{t('This lesson ends with a quiz.')} <button className="ln-link" onClick={() => setTab('quiz')}>{t('Take the quiz →')}</button></div>}
         </div>}
         {tab === 'quiz' && cur.quiz && <Quiz key={cur.id} api={api} c={c} lesson={cur} onPassed={async (r) => { if (r.cert) setToast(t('🎓 Course complete — your certificate is ready!')); await load(); }} />}
@@ -422,14 +422,14 @@ function CoursePage({ handle, api, pid, lid, go, tutor, school }) {
   );
 }
 // a lesson's files: a PDF opens in the reader (and downloads too unless it's read-only); audio plays here
-function LessonFiles({ files, onRead }) {
+function LessonFiles({ files, onRead, api, accessId }) {
   const t = useT();
   return (
     <div className="ln-files"><h4>{t('Files')}</h4>{files.map((f) => (
       <div key={f.id} className="ln-file">
         <span className="ln-file-ic">{isPdf(f) ? '📖' : isAudio(f) ? '🎧' : '⬇'}</span>
-        <span className="ln-file-n">{f.name}{f.readOnly && <small>🔒 {t('Read-only')}</small>}{f.left != null && <small>{t('{n} downloads left', { n: f.left })}</small>}</span>
-        {isAudio(f) && f.view && <audio className="ln-file-audio" src={f.view} controls controlsList="nodownload" preload="none" />}
+        <span className="ln-file-n">{f.name}{f.readOnly && <small>🔒 {t('Read-only')}</small>}{f.left != null && <small>{t('{n} downloads left', { n: f.left })}</small>}{f.blocked && <small>🔒 {t('This file can’t be opened here — downloads are switched off.')}</small>}</span>
+        {isAudio(f) && (f.stream || f.view) && <StreamAudio api={api} accessId={accessId} file={f} t={t} />}
         {isPdf(f) && <button className="ln-btn sm" onClick={() => onRead(f)}>{t('Read')}</button>}
         {f.url && <a className="ln-btn sm ghost" href={f.url}>{t('Download')}</a>}
       </div>
@@ -460,14 +460,13 @@ function Player({ lesson, resumeAt, onProgress, api, accessId }) {
 // across it, so a screen recording shows who shared it
 function SecurePlayer({ api, accessId, fileId, events }) {
   const ref = useRef(null);
-  const [mark, setMark] = useState('');
-  const [pos, setPos] = useState({ x: 8, y: 10 });
+  const [mark, setMark] = useState({ text: '', style: 'off' });
   const [err, setErr] = useState('');
   useEffect(() => {
     let hls, gone = false;
     api('/video', 'POST', { accessId, fileId }).then(async (r) => {
       if (gone) return;
-      setMark(r.mark);
+      setMark({ text: r.mark || '', style: r.markStyle || (r.mark ? 'subtle' : 'off') });
       const v = ref.current;
       if (v.canPlayType('application/vnd.apple.mpegurl')) { v.src = r.src; return; }
       const { default: Hls } = await import('hls.js');
@@ -480,11 +479,10 @@ function SecurePlayer({ api, accessId, fileId, events }) {
     }).catch((e) => setErr(e.message));
     return () => { gone = true; hls?.destroy(); };
   }, [fileId]);
-  useEffect(() => { if (!mark) return; const t = setInterval(() => setPos({ x: 4 + Math.random() * 62, y: 6 + Math.random() * 78 }), 7000); return () => clearInterval(t); }, [mark]);
   return (
     <div className="ln-video" onContextMenu={(e) => e.preventDefault()}>
       <video ref={ref} controls controlsList="nodownload noremoteplayback" disablePictureInPicture playsInline preload="metadata" {...events} />
-      {mark && <span className="ln-mark" style={{ left: `${pos.x}%`, top: `${pos.y}%` }} aria-hidden="true">{mark}</span>}
+      <MovingMark text={mark.text} markStyle={mark.style} />
       {err && <div className="ln-video-err">{err}</div>}
     </div>
   );
@@ -547,14 +545,14 @@ function Tutor({ api, pid, lid }) {
     </div>
   );
 }
-function Downloads({ c, go, onRead }) {
+function Downloads({ c, go, api, onRead }) {
   const t = useT();
   return (
     <div className="ln-narrow">
       <button className="ln-back" onClick={() => go('')}>{t('← Home')}</button>
       <h1>{c.name}</h1>
       {c.note && <p className="ln-body">{linkify(c.note)}</p>}
-      {c.files.length > 0 && <LessonFiles files={c.files} onRead={onRead} />}
+      {c.files.length > 0 && <LessonFiles files={c.files} onRead={onRead} api={api} accessId={c.accessId} />}
       {c.links.length > 0 && <div className="ln-files">{c.links.map((l, i) => <a key={i} className="ln-file" href={l.url} target="_blank" rel="noopener noreferrer"><span className="ln-file-ic">🔗</span><span className="ln-file-n">{l.label}</span></a>)}</div>}
     </div>
   );
