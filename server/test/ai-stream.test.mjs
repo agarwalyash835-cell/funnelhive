@@ -104,6 +104,28 @@ test('a funnel written as a Claude-style stream is built too', async () => {
   assert.ok(seen.slice(n).some((x) => x.stream === true && /\/claude\/v1\/messages$/.test(x.url)));
 });
 
+test('a stream still coming when our time limit ends: the log says so, with what had arrived (never "0 bytes")', async () => {
+  // pieces 1.2 s apart, a 3 s budget: our limit ends it part-way
+  const slow = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', async () => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      for (const p of pieces(text)) { if (res.destroyed) return; res.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', delta: p })}\n\n`); await sleep(1200); }
+      res.end();
+    });
+  }).listen(0);
+  await sleep(30);
+  const s = await startServer({ KIE_API_KEY: 'kie-test-key', KIE_BASE_URL: `http://127.0.0.1:${slow.address().port}`, AI_REPAIR_PASSES: '0', AI_FUNNEL_BUDGET_MS: '3000' });
+  servers.push([s, slow]);
+  const T = (await register(s.api)).token;
+  const r = await s.api('/ai/generate', 'POST', { prompt: brief }, T);
+  assert.equal(r.status, 503, JSON.stringify(r.data).slice(0, 200));
+  await sleep(200);
+  const log = s.log();
+  assert.match(log, /our time limit \(\d+s\) ended it while the reply was still coming — \d+s, first byte \ds, \d+ bytes, \d+ chars of answer so far/);
+  assert.doesNotMatch(log, /bytes=0|0 bytes, 0 chars/);
+});
+
 test('a model that refuses to stream is asked again in one piece', async () => {
   const { api, T } = await builder('refuses');
   const n = seen.length;

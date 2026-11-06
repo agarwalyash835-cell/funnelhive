@@ -64,15 +64,32 @@ async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODE
     body = { model: m, instructions: system, input: messages.map((x) => ({ role: x.role, content: x.content })), stream, ...(json ? { text: { format: { type: 'json_object' } } } : {}) };
     pick = (d) => (d.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('');
   }
-  const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${KIE_KEY}`, 'Content-Type': 'application/json', ...(stream ? { Accept: 'text/event-stream' } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
-  const raw = await r.text().catch(() => '');
+  // what this call did, for the log: when the first byte came, how much arrived, and whether OUR time limit ended it
+  // (so a slow answer is told apart from a provider error — "0 bytes" alone can't say which side was slow)
+  const t0 = Date.now(), at = { first: null, bytes: 0, cut: false };
+  const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${KIE_KEY}`, 'Content-Type': 'application/json', ...(stream ? { Accept: 'text/event-stream' } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
+    .catch((e) => { if (e.name === 'TimeoutError') console.error('AI request failed:', m, `our time limit (${Math.round(timeoutMs / 1000)}s) ended it before the provider answered — no reply headers`); throw e; });
+  // the body as it arrives: what came before a cut-off is kept (and counted) instead of thrown away
+  let raw = '';
+  try {
+    const dec = new TextDecoder();
+    for await (const chunk of r.body || []) { if (at.first == null) at.first = Date.now() - t0; at.bytes += chunk.length; raw += dec.decode(chunk, { stream: true }); }
+    raw += dec.decode();
+  } catch (e) { at.cut = e.name === 'TimeoutError' || e.name === 'AbortError'; if (!at.cut) console.error('AI reply broke off:', m, e.message); }
+  const took = `${Math.round((Date.now() - t0) / 1000)}s, first byte ${at.first == null ? 'never' : `${Math.round(at.first / 1000)}s`}, ${at.bytes} bytes`;
+  if (at.cut) {
+    const sofar = stream ? readSse(raw, pick).text.length : 0;
+    console.error('AI request failed:', m, `our time limit (${Math.round(timeoutMs / 1000)}s) ended it while the reply was still coming — ${took}, ${sofar} chars of answer so far`);
+    throw new Error('The AI is busy right now — please try again in a minute');
+  }
+  if (stream) console.log('AI stream:', m, took);
   // a streamed reply, or a plain JSON one (a provider that ignores stream:true answers in one piece)
   const sse = stream && (/event-stream/i.test(r.headers.get('content-type') || '') || /^\s*(?:event|data):/m.test(raw.slice(0, 200)));
   let d = {}, text = '';
   if (sse) {
     const s = readSse(raw, pick); text = s.text; if (s.error) d = { msg: s.error };
     // a stream with no answer in it: what it held, so the next fix needs no guessing (no secrets in a model's stream)
-    if (!text && !s.error) console.error('AI stream gave no text:', m, `events=${s.types.join(',') || 'none'}`, `bytes=${raw.length}`, `start=${JSON.stringify(raw.slice(0, 300))}`);
+    if (!text && !s.error) console.error('AI stream gave no text:', m, `events=${s.types.join(',') || 'none'}`, took, `start=${JSON.stringify(raw.slice(0, 300))}`);
   } else { try { d = JSON.parse(raw); } catch { d = {}; } text = pick(d); }
   // a provider that won't stream this model: the same request once more, in one piece
   if (stream && !r.ok && r.status === 400 && /stream/i.test(d.msg || d.error?.message || raw.slice(0, 300))) return kie(system, messages, json, timeoutMs, model, false);
@@ -317,6 +334,7 @@ const FUNNEL_BUDGET_MS = Number(process.env.AI_FUNNEL_BUDGET_MS || 200000);
 // Studio; the everyday model takes over when it's unavailable or slow. FUNNEL_AI_MODEL='' turns it off.
 const FUNNEL_MODEL = () => process.env.FUNNEL_AI_MODEL ?? (process.env.NODE_ENV === 'test' ? '' : 'claude-opus-5-5');
 const FRONTIER_BUDGET_MS = Number(process.env.AI_FRONTIER_BUDGET_MS || 300000);
+const DETAILED_EXTRA_MS = Number(process.env.AI_DETAILED_EXTRA_MS || 120000); // a detailed funnel: 7 minutes in all
 // on shorter pages the model may still add what the seller asked for, plus up to two custom sections of its own
 const EXTRA_OK = new Set(['section', 'html']);
 const summarise = (issues) => issues.map((i) => `- ${i.s == null ? 'funnel' : `step ${i.s + 1}${i.b == null ? '' : ` block ${i.b + 1}`}`} (${i.type}): ${i.msg}`).join('\n');
@@ -364,7 +382,12 @@ Every section has its own job — never repeat a point, benefit, list or claim a
 The seller chose their design: ${design}.` : ''}`;
   const report = { model: aiProvider(), template: closest.id, firstDraftIssues: null, repairPasses: 0, filledFromTemplate: [], finalIssues: null };
   const frontier = KIE_KEY && FUNNEL_MODEL() && FUNNEL_MODEL() !== KIE_MODEL ? FUNNEL_MODEL() : null;
-  const deadline = Date.now() + (frontier ? Math.max(FUNNEL_BUDGET_MS, FRONTIER_BUDGET_MS) : FUNNEL_BUDGET_MS), left = () => deadline - Date.now();
+  // a detailed funnel is a long answer: more time in all, and the backup model is kept a fair share of it (it used to
+  // get only what the first model left over — 1⅔ minutes after a slow first try)
+  const detailed = length === 'detailed';
+  const budget = (frontier ? Math.max(FUNNEL_BUDGET_MS, FRONTIER_BUDGET_MS) : FUNNEL_BUDGET_MS) + (detailed ? DETAILED_EXTRA_MS : 0);
+  const backupShare = detailed ? 150000 : 100000;
+  const deadline = Date.now() + budget, left = () => deadline - Date.now();
   const check = (f) => [...audit(f, blueprint), ...unmet(f, needs)];
   let best = null, bestIssues = null;
   const consider = (f) => {
@@ -392,7 +415,7 @@ The seller chose their design: ${design}.` : ''}`;
   // the first draft: the frontier model when there is one, then the everyday model if that fails or there's time left
   let model = frontier || undefined, lastError = null;
   for (let attempt = 0; attempt < 2 && !best && (attempt === 0 || left() > 60000); attempt++) {
-    try { consider(await ask(system, briefFor(prompt), [], { deadline: model ? deadline - 100000 : deadline, model, stream: true })); } catch (e) {
+    try { consider(await ask(system, briefFor(prompt), [], { deadline: model ? deadline - backupShare : deadline, model, stream: true })); } catch (e) {
       lastError = e;
       console.warn('AI funnel generation failed:', model || KIE_MODEL, e.message);
       if (e.message === PAUSED || /not authorized|401|API key/i.test(e.message)) break;
