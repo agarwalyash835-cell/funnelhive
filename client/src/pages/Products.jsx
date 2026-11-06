@@ -90,7 +90,7 @@ function ProductEditor({ id }) {
   const save = async () => {
     setBusy(true);
     try {
-      const x = await api(`/products/${id}`, 'PUT', { name: p.name, description: p.description, note: p.note, cover: p.cover, links: p.links, lessons: p.lessons, includes: p.includes || [], certificate: p.certificate || { enabled: false }, accessDays: p.accessDays, downloadLimit: p.downloadLimit, hsn: p.hsn || '', gstRate: p.gstRate ?? '', origin: p.origin || '' });
+      const x = await api(`/products/${id}`, 'PUT', { name: p.name, description: p.description, note: p.note, cover: p.cover, links: p.links, lessons: p.lessons, includes: p.includes || [], certificate: p.certificate || { enabled: false }, watermark: p.watermark !== false, audiobook: !!p.audiobook, accessDays: p.accessDays, downloadLimit: p.downloadLimit, hsn: p.hsn || '', gstRate: p.gstRate ?? '', origin: p.origin || '' });
       const next = { ...x, usage: p.usage };
       setP(next); setSaved(JSON.stringify(next)); toast('Product saved');
     } catch (e) { toast(e.message); }
@@ -132,6 +132,7 @@ function ContentTab({ p, set, onFiles }) {
         <FilesPanel p={p} onFiles={onFiles} />
         <LinksPanel p={p} set={set} />
         <LessonsPanel p={p} set={set} />
+        {p.files.some(isAudio) && p.lessons?.length > 0 && <AudiobookPanel p={p} set={set} />}
       </div>
       <aside className="pr-side">
         <CoverPanel p={p} set={set} />
@@ -221,6 +222,9 @@ function FilesPanel({ p, onFiles }) {
     if (!await confirmDialog({ title: `Delete ${f.name}?`, text: 'Buyers will no longer be able to download it.', confirm: 'Delete', danger: true })) return;
     try { onFiles(await api(`/products/${p.id}/files/${f.id}`, 'DELETE')); } catch (e) { toast(e.message); }
   };
+  const setReadOnly = async (f, readOnly) => {
+    try { onFiles(await api(`/products/${p.id}/files/${f.id}`, 'PUT', { readOnly })); toast(readOnly ? `${f.name}: read-only — opens in the members area’s reader` : `${f.name}: downloadable`); } catch (e) { toast(e.message); }
+  };
   const download = async (f) => {
     const r = await fetch(`/api/products/${p.id}/files/${f.id}`, { headers: tokenHeader() });
     if (!r.ok) return toast('Download failed');
@@ -235,11 +239,12 @@ function FilesPanel({ p, onFiles }) {
       {queue.map((q) => <div key={q.key} className="pr-up"><span>{q.name}</span><div className="meter"><div style={{ width: `${Math.round(q.pct * 100)}%` }} /></div><small>{Math.round(q.pct * 100)}%</small></div>)}
       {p.files.length > 0 && (
         <table className="tbl compact pr-files"><tbody>{p.files.map((f) => (
-          <tr key={f.id}><td><Icon name={/^video/.test(f.type) ? 'play' : 'clip'} size={15} /> {f.name}{/^video/.test(f.type) && <> <StreamBadge p={p} f={f} onFiles={onFiles} /></>}</td><td className="muted sm">{bytes(f.size)}</td>
+          <tr key={f.id}><td><Icon name={/^video/.test(f.type) ? 'play' : 'clip'} size={15} /> {f.name}{/^video/.test(f.type) && <> <StreamBadge p={p} f={f} onFiles={onFiles} /></>}{isPdf(f) && <> <select className="pr-ro" value={f.readOnly ? 'ro' : 'dl'} onChange={(e) => setReadOnly(f, e.target.value === 'ro')} aria-label={`${f.name}: downloadable or read-only`}><option value="dl">Downloadable</option><option value="ro">🔒 Read-only</option></select></>}</td><td className="muted sm">{bytes(f.size)}</td>
             <td className="r"><button className="icon-btn" title="Download" aria-label="Download" onClick={() => download(f)}><Icon name="download" size={15} /></button><button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={() => remove(f)}><Icon name="trash" size={15} /></button></td></tr>
         ))}</tbody></table>
       )}
       {p.files.length > 0 && p.lessons.length > 0 && <p className="hint">Files used in a lesson appear inside that lesson; the rest are listed as downloads.</p>}
+      {p.files.some(isPdf) && <p className="hint"><b>PDFs:</b> every PDF opens in the members area’s reader with the buyer’s email across each page. <b>Read-only</b> ones can’t be downloaded or printed — there’s no link to the file at all. Honest limit: no web reader can stop a screenshot or a phone camera; the email on every page shows whose copy was shared.</p>}
     </Panel>
   );
 }
@@ -332,6 +337,18 @@ function AiCourse({ p, set, onClose }) {
       <p className="hint">Writes modules, full lessons and a quiz at the end of each module (5 AI credits). Lessons are added below the ones you have — nothing is saved until you press Save.</p>
       <div className="row end"><button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button><button className="btn primary" onClick={go} disabled={busy || v.topic.trim().length < 4}>{busy ? <><span className="spin" /> Writing… (about a minute)</> : <><Icon name="sparkles" size={15} /> Write the course</>}</button></div>
     </Modal>
+  );
+}
+
+const isPdf = (f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+const isAudio = (f) => /^audio\//.test(f.type || '') || /\.(mp3|m4a|aac|ogg|wav)$/i.test(f.name || '');
+// the lessons' audio as an audiobook in the members area
+function AudiobookPanel({ p, set }) {
+  return (
+    <Panel title="Audiobook">
+      <label className="tog" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={!!p.audiobook} onChange={(e) => set({ audiobook: e.target.checked })} /><span /> Play this product as an audiobook</label>
+      <p className="hint">Each lesson with an audio file becomes a chapter. Students get a chapter list, resume where they stopped in every chapter, speed from 0.75× to 2×, skip 15 seconds, and it plays on from one chapter to the next — with lock-screen controls on phones.</p>
+    </Panel>
   );
 }
 

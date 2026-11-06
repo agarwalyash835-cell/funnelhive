@@ -19,7 +19,7 @@ import { waEvent } from './hive-wa.js';
 import { randomToken, hashToken } from './security.js';
 import { buyerPlans } from './plans.js';
 import { stripeCreds } from './stripe.js';
-import { s3Enabled, putFile, deleteObject, copyObject, presign } from './storage.js';
+import { s3Enabled, putFile, deleteObject, copyObject, presign, getObject } from './storage.js';
 import { queueVideo, dropHls } from './video.js';
 import { domainOfFunnel } from './domains.js';
 import { GST_RATES, cleanHsn } from './sales.js';
@@ -69,6 +69,8 @@ function cleanProduct(b = {}, cur = {}) {
   // a certificate when the course is finished (every lesson done, every quiz passed)
   // the student's email drifting over protected video (on unless the seller switches it off)
   if ('watermark' in b) out.watermark = b.watermark !== false;
+  // an audiobook: the members area plays the lessons' audio as chapters (resume per chapter, speed, background play)
+  if ('audiobook' in b) out.audiobook = b.audiobook === true;
   if ('certificate' in b) out.certificate = b.certificate && b.certificate.enabled ? { enabled: true, title: clip(b.certificate.title, 120), signer: clip(b.certificate.signer, 80), signerRole: clip(b.certificate.signerRole, 80) } : { enabled: false };
   if ('downloadLimit' in b) out.downloadLimit = intIn(b.downloadLimit, 0, 1000);
   // physical goods: country of origin, shown at checkout (empty = the seller's default in Settings, else India)
@@ -276,17 +278,19 @@ function libraryView(ctx) {
     const base = { productId: p.id, accessId: a.id, name: p.name, description: p.description || '', cover: p.cover || '', kind: kindOf(p), grantedAt: a.at, expiresAt: a.expiresAt || null, status: ok ? 'active' : a.revoked ? (a.revokeReason === 'refunded' ? 'refunded' : 'revoked') : 'expired' };
     if (!ok) { products.push(base); continue; }
     const left = (fid) => (p.downloadLimit ? Math.max(0, p.downloadLimit - (a.dl?.[fid] || 0)) : null);
-    const file = (f) => ({ id: f.id, name: f.name, size: f.size, type: f.type, left: left(f.id), url: left(f.id) === 0 ? null : signedFile(a.id, f.id), view: INLINE.test(f.type) && left(f.id) !== 0 ? signedFile(a.id, f.id, true) : null });
+    // a read-only PDF has no link at all: it opens only in the members area's reader
+    const file = (f) => (f.readOnly && isPdf(f) ? { id: f.id, name: f.name, size: f.size, type: f.type, readOnly: true, left: null, url: null, view: null }
+      : { id: f.id, name: f.name, size: f.size, type: f.type, left: left(f.id), url: left(f.id) === 0 ? null : signedFile(a.id, f.id), view: INLINE.test(f.type) && left(f.id) !== 0 ? signedFile(a.id, f.id, true) : null });
     const inLessons = new Set(p.lessons.flatMap((l) => [...l.fileIds, l.videoFileId].filter(Boolean)));
     products.push({
-      ...base, note: p.note || '', downloadLimit: p.downloadLimit || 0,
+      ...base, note: p.note || '', downloadLimit: p.downloadLimit || 0, ...(p.audiobook ? { audiobook: true } : {}),
       files: p.files.filter((f) => !inLessons.has(f.id)).map(file),
       links: p.links,
       lessons: p.lessons.map((l) => {
         const opensAt = a.at + l.dripDays * DAY;
         if (opensAt > now) return { id: l.id, title: l.title, section: l.section, locked: true, opensAt };
         const vf = l.videoFileId && p.files.find((f) => f.id === l.videoFileId);
-        return { id: l.id, title: l.title, section: l.section, body: l.body, videoUrl: l.videoUrl, ...(l.quiz ? { quiz: { pass: l.quiz.pass, questions: l.quiz.questions.map((x) => ({ q: x.q, options: x.options })) }, quizResult: a.quiz?.[l.id] || null } : {}), video: vf && vf.hls?.status !== 'ready' ? signedFile(a.id, vf.id, true) : null, ...(vf?.hls?.status === 'ready' ? { hls: { fileId: vf.id } } : {}), files: l.fileIds.map((id) => p.files.find((f) => f.id === id)).filter(Boolean).map(file), done: !!a.progress?.[l.id] };
+        return { id: l.id, title: l.title, section: l.section, body: l.body, videoUrl: l.videoUrl, ...(l.quiz ? { quiz: { pass: l.quiz.pass, questions: l.quiz.questions.map((x) => ({ q: x.q, options: x.options })) }, quizResult: a.quiz?.[l.id] || null } : {}), video: vf && vf.hls?.status !== 'ready' ? signedFile(a.id, vf.id, true) : null, ...(vf?.hls?.status === 'ready' ? { hls: { fileId: vf.id } } : {}), files: l.fileIds.map((id) => p.files.find((f) => f.id === id)).filter(Boolean).map(file), done: !!a.progress?.[l.id], ...(a.pos?.[l.id] ? { pos: a.pos[l.id] } : {}) };
       }),
     });
   }
@@ -412,6 +416,15 @@ export function registerProducts(app, { auth, wrap, rateLimit, isTest, secret, a
     dropFile(req.user.id, gone);
     res.json(saved);
   });
+  // a PDF: downloadable (a signed link, as before) or read-only (opens in the members area's reader only)
+  app.put('/api/products/:pid/files/:fid', auth, (req, res) => {
+    const p = ownProduct(req.user.id, req.params.pid);
+    const f = p?.files.find((x) => x.id === req.params.fid);
+    if (!f) return res.status(404).json({ error: 'File not found' });
+    if ('readOnly' in (req.body || {}) && !isPdf(f)) return res.status(400).json({ error: 'Only PDFs can be read-only' });
+    const saved = T.products.update(p.id, (x) => { const y = x.files.find((k) => k.id === f.id); if (req.body.readOnly === true) y.readOnly = true; else delete y.readOnly; x.updatedAt = Date.now(); });
+    res.json(saved);
+  });
   // the seller downloads their own file
   app.get('/api/products/:pid/files/:fid', auth, (req, res) => {
     const p = ownProduct(req.user.id, req.params.pid);
@@ -491,6 +504,7 @@ export function registerProducts(app, { auth, wrap, rateLimit, isTest, secret, a
     const p = T.products.get(a.productId);
     const f = p?.files.find((x) => x.id === fid);
     if (!hasFile(p.userId, f)) return res.status(404).type('text').send('File not found');
+    if (f.readOnly && isPdf(f)) return res.status(403).type('text').send('This file can be read in the members area only — it can’t be downloaded.');
     // a download counts once per download, not per streamed chunk of a video
     const fresh = !req.headers.range || /^bytes=0-/.test(String(req.headers.range));
     const inline = req.query.inline === '1' && INLINE.test(f.type);
@@ -529,6 +543,41 @@ function sendStored(res, userId, f, inline) {
   // in the bucket: a signed link valid for 5 minutes (enough to start a download or a video stream)
   if (!fs.existsSync(filePath(userId, f.id)) && f.s3) return res.redirect(302, presign(s3Key(userId, f.id), { expires: 300, filename: inline ? undefined : f.name }));
   res.sendFile(filePath(userId, f.id), { acceptRanges: true, headers: {} }, (err) => { if (err && !res.headersSent) res.status(err.status || 500).end(); });
+}
+
+// ---------- the in-page PDF reader (members area) ----------
+// A PDF opened in the reader travels encrypted (AES-256-CTR) under a key derived from a 10-minute ticket that names
+// the access, the file and the signed-in student. The link alone is useless as a file: the page decrypts it in memory
+// and draws each page onto a canvas with the student's email across it. No reader stops a screenshot — the
+// watermark is what discourages sharing.
+const READER_TTL = Number(process.env.READER_TTL_MS) || 10 * 60000; // tests shorten it
+export const READER_MAX = 200 * MB;
+export const isPdf = (f) => !!f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name || ''));
+const readerSecret = (t, what) => crypto.createHmac('sha256', SECRET).update(`reader-${what}.${t}`).digest();
+// the counter block: 8 bytes from the ticket, then a zero 64-bit block counter (WebCrypto's AES-CTR with length 64
+// counts in those low bytes, exactly as Node does)
+const readerIv = (t) => Buffer.concat([readerSecret(t, 'iv').subarray(0, 8), Buffer.alloc(8)]);
+export function readerTicket(accessId, fileId, studentId) {
+  const exp = Date.now() + READER_TTL;
+  const t = `${accessId}.${fileId}.${studentId}.${exp}.${sig(`reader.${accessId}.${fileId}.${studentId}.${exp}`)}`;
+  return { t, key: readerSecret(t, 'key').toString('base64'), iv: readerIv(t).toString('base64') };
+}
+// → { accessId, fileId, studentId } or { error, status }
+export function checkReaderTicket(t) {
+  const [accessId, fileId, studentId, exp, s] = String(t || '').split('.');
+  if (!accessId || !fileId || !studentId || !same(sig(`reader.${accessId}.${fileId}.${studentId}.${exp}`), String(s || ''))) return { status: 403, error: 'This page link isn’t valid — reopen the file' };
+  if (!(Number(exp) > Date.now())) return { status: 403, error: 'This reading link has expired — reopen the file', expired: true };
+  return { accessId, fileId, studentId };
+}
+export async function sendReader(res, t, ownerId, f) {
+  if (!hasFile(ownerId, f)) return res.status(404).json({ error: 'File not found' });
+  if ((f.size || 0) > READER_MAX) return res.status(413).json({ error: 'This file is too big for the reader' });
+  res.set({ 'Content-Type': 'application/octet-stream', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" });
+  const cipher = crypto.createCipheriv('aes-256-ctr', readerSecret(t, 'key'), readerIv(t));
+  const local = filePath(ownerId, f.id);
+  if (fs.existsSync(local)) return fs.createReadStream(local).on('error', () => res.destroy()).pipe(cipher).pipe(res);
+  const buf = await getObject(s3Key(ownerId, f.id));
+  res.end(Buffer.concat([cipher.update(buf), cipher.final()]));
 }
 
 // ---------- for the school (the members area) ----------
