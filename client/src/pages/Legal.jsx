@@ -53,7 +53,7 @@ const place = (s) => [s.company?.address, s.company?.state].filter(Boolean).join
 const Grievance = ({ s }) => <>
   <h2>Grievance redressal</h2>
   <p>Our grievance officer handles complaints about the service, about content hosted on {s.brand}, and about how we handle personal data.</p>
-  <div className="contact-card"><p><b>{gr(s).name || <NotSet />}</b>, Grievance Officer<br />Email: <Mail to={gr(s).email} />{gr(s).phone ? <><br />Phone: {gr(s).phone}</> : null}{place(s) ? <><br />{who(s)}, {place(s)}</> : null}</p></div>
+  <div className="contact-card"><p>{gr(s).name ? <><b>{gr(s).name}</b>, Grievance Officer</> : <b>Grievance Officer</b>}<br />Email: <Mail to={gr(s).email} />{gr(s).phone ? <><br />Phone: {gr(s).phone}</> : null}{place(s) ? <><br />{who(s)}, {place(s)}</> : null}</p></div>
   <p>We acknowledge every complaint within 24 hours and resolve it within 15 days. If you are not satisfied with how we handled a complaint about your personal data, you may approach the Data Protection Board of India.</p>
 </>;
 
