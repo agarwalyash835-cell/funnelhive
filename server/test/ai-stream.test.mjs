@@ -59,7 +59,8 @@ function provider(format) {
     req.on('data', (c) => { b += c; });
     req.on('end', async () => {
       const body = JSON.parse(b || '{}');
-      seen.push({ url: req.url, stream: body.stream });
+      seen.push({ url: req.url, stream: body.stream, effort: body.reasoning?.effort ?? null });
+      if (format === 'noeffort' && body.reasoning) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ code: 400, msg: 'Unsupported parameter: reasoning.effort' })); }
       if (format === 'refuses' && body.stream) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ code: 400, msg: 'stream is not supported for this model' })); }
       if (!body.stream) { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify(format === 'claude' ? { content: [{ type: 'text', text }] } : { output: [{ type: 'message', content: [{ type: 'output_text', text }] }] })); }
       res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -92,6 +93,17 @@ test('a funnel written as a stream (Responses API) is built from the streamed wo
   assert.equal(r.data.name, 'Grahak Ka Dimaag');
   assert.equal(r.data.steps.flatMap((s) => s.blocks).find((b) => b.type === 'checkout').props.price, 299);
   assert.ok(seen.slice(n).some((x) => x.stream === true && /\/openai\/v1\/responses$/.test(x.url)), 'asked to stream');
+  assert.ok(seen.slice(n).every((x) => x.effort === 'low'), 'a funnel draft asks for low thinking effort');
+});
+
+test('a model that won’t take a thinking setting is asked again without it', async () => {
+  const { api, T } = await builder('noeffort');
+  const n = seen.length;
+  const r = await api('/ai/generate', 'POST', { prompt: brief }, T);
+  assert.equal(r.status, 200, JSON.stringify(r.data).slice(0, 300));
+  assert.equal(r.data.usedAI, true);
+  const efforts = seen.slice(n).map((x) => x.effort);
+  assert.ok(efforts.includes('low') && efforts.includes(null), JSON.stringify(efforts));
 });
 
 test('a funnel written as a Claude-style stream is built too', async () => {

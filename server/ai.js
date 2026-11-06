@@ -47,7 +47,10 @@ export function readSse(raw, pick) {
   return { text: text || done || doneAlt || '', error, types: [...types] };
 }
 // One call to whichever model is configured → the model's text. stream: read the reply as it's written (funnels).
-async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODEL, stream = false) {
+// effort: how long a reasoning model may think first ('low' for funnel drafts). The live log showed Kimi K3.1 Pro and
+// DeepSeek streaming within 2 s and then thinking for minutes (3 MB of reasoning, 2 KB of answer in 200 s) — a funnel
+// is a writing job; the thinking is capped so the time goes on the answer.
+async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODEL, stream = false, effort = null) {
   const m = model;
   let url, body, pick;
   if (m.startsWith('claude-')) {
@@ -61,7 +64,7 @@ async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODE
     pick = (d) => (Array.isArray(d) ? d : [d]).flatMap((c) => c.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('');
   } else {
     url = `${KIE_BASE}/${m.startsWith('gpt-') ? 'codex' : 'openai'}/v1/responses`;
-    body = { model: m, instructions: system, input: messages.map((x) => ({ role: x.role, content: x.content })), stream, ...(json ? { text: { format: { type: 'json_object' } } } : {}) };
+    body = { model: m, instructions: system, input: messages.map((x) => ({ role: x.role, content: x.content })), stream, ...(json ? { text: { format: { type: 'json_object' } } } : {}), ...(effort ? { reasoning: { effort } } : {}) };
     pick = (d) => (d.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []).map((c) => c.text || '').join('');
   }
   // what this call did, for the log: when the first byte came, how much arrived, and whether OUR time limit ended it
@@ -92,7 +95,10 @@ async function kie(system, messages, json, timeoutMs = TIMEOUT, model = KIE_MODE
     if (!text && !s.error) console.error('AI stream gave no text:', m, `events=${s.types.join(',') || 'none'}`, took, `start=${JSON.stringify(raw.slice(0, 300))}`);
   } else { try { d = JSON.parse(raw); } catch { d = {}; } text = pick(d); }
   // a provider that won't stream this model: the same request once more, in one piece
-  if (stream && !r.ok && r.status === 400 && /stream/i.test(d.msg || d.error?.message || raw.slice(0, 300))) return kie(system, messages, json, timeoutMs, model, false);
+  const refused = !r.ok && r.status === 400 ? String(d.msg || d.error?.message || raw.slice(0, 300)) : '';
+  if (stream && /stream/i.test(refused)) return kie(system, messages, json, timeoutMs, model, false, effort);
+  // a model that won't take a thinking setting: the same request without it
+  if (effort && /reason|effort/i.test(refused)) { console.warn('AI model refused a reasoning effort, asking without it:', m); return kie(system, messages, json, timeoutMs, model, stream, null); }
   // kie.ai reports some errors with HTTP 200 and { code, msg }
   // the provider's details go to the server log only — sellers see FunnelHive's AI, never the vendor or model
   if (!r.ok || !text) {
@@ -194,8 +200,8 @@ export async function studioAI(system, user, opts = {}) {
   }
   return askAI(system, user, opts);
 }
-async function complete(system, messages, { json = true, timeoutMs, model, stream = false } = {}) {
-  if (KIE_KEY) return kie(system, messages, json, timeoutMs, model || KIE_MODEL, stream);
+async function complete(system, messages, { json = true, timeoutMs, model, stream = false, effort = null } = {}) {
+  if (KIE_KEY) return kie(system, messages, json, timeoutMs, model || KIE_MODEL, stream, effort);
   const res = await client.messages.create({ model: MODEL, max_tokens: 32000, system, messages });
   return res.content.map((c) => c.text || '').join('');
 }
@@ -285,8 +291,8 @@ function extractJson(text) {
 export const aiText = (system, user, history = []) => complete(system, [...history, { role: 'user', content: user }], { json: false });
 export const aiJson = (system, user) => ask(system, user);
 // deadline (ms timestamp, optional): each call gets only the time that's left
-async function ask(system, user, history = [], { deadline, model, stream = false } = {}) {
-  const within = () => ({ timeoutMs: deadline ? Math.max(5000, deadline - Date.now()) : TIMEOUT, model, stream });
+async function ask(system, user, history = [], { deadline, model, stream = false, effort = null } = {}) {
+  const within = () => ({ timeoutMs: deadline ? Math.max(5000, deadline - Date.now()) : TIMEOUT, model, stream, effort });
   const messages = [...history, { role: 'user', content: user }];
   const text = await complete(system, messages, within());
   try { return extractJson(text); } catch {
@@ -342,11 +348,11 @@ const summarise = (issues) => issues.map((i) => `- ${i.s == null ? 'funnel' : `s
 async function repair(system, f, issues, deadline) {
   // structure problems (missing pages / sections / wrong order): the model rewrites the funnel
   if (issues.some((i) => i.b == null)) {
-    return ask(system, `Here is a funnel you generated:\n${JSON.stringify(f)}\n\nIt fails the quality bar:\n${summarise(issues)}\n\nReturn the COMPLETE corrected funnel JSON (same format), fixing every problem and keeping everything that was already good.`, [], { deadline, stream: true });
+    return ask(system, `Here is a funnel you generated:\n${JSON.stringify(f)}\n\nIt fails the quality bar:\n${summarise(issues)}\n\nReturn the COMPLETE corrected funnel JSON (same format), fixing every problem and keeping everything that was already good.`, [], { deadline, stream: true, effort: 'low' });
   }
   // content problems: only the failing blocks go back, the rest is untouched
   const targets = [...new Map(issues.map((i) => [`${i.s}.${i.b}`, i])).values()].map((i) => ({ step: i.s, index: i.b, type: f.steps[i.s].blocks[i.b].type, props: f.steps[i.s].blocks[i.b].props, problems: issues.filter((x) => x.s === i.s && x.b === i.b).map((x) => x.msg) }));
-  const out = await ask(system, `These blocks of the funnel "${f.name}" fail the quality bar. The checkout price is ${JSON.stringify(f.steps.flatMap((st) => st.blocks).find((x) => x.type === 'checkout')?.props?.price ?? null)}.\n${JSON.stringify(targets)}\n\nReturn ONLY JSON {"fixes":[{"step":number,"index":number,"props":{...complete corrected props...}}]} with one entry per block above, fixing every listed problem.`, [], { deadline, stream: true });
+  const out = await ask(system, `These blocks of the funnel "${f.name}" fail the quality bar. The checkout price is ${JSON.stringify(f.steps.flatMap((st) => st.blocks).find((x) => x.type === 'checkout')?.props?.price ?? null)}.\n${JSON.stringify(targets)}\n\nReturn ONLY JSON {"fixes":[{"step":number,"index":number,"props":{...complete corrected props...}}]} with one entry per block above, fixing every listed problem.`, [], { deadline, stream: true, effort: 'low' });
   const next = structuredClone(f);
   for (const fx of out.fixes || []) {
     const blk = next.steps[fx.step]?.blocks?.[fx.index];
@@ -415,7 +421,7 @@ The seller chose their design: ${design}.` : ''}`;
   // the first draft: the frontier model when there is one, then the everyday model if that fails or there's time left
   let model = frontier || undefined, lastError = null;
   for (let attempt = 0; attempt < 2 && !best && (attempt === 0 || left() > 60000); attempt++) {
-    try { consider(await ask(system, briefFor(prompt), [], { deadline: model ? deadline - backupShare : deadline, model, stream: true })); } catch (e) {
+    try { consider(await ask(system, briefFor(prompt), [], { deadline: model ? deadline - backupShare : deadline, model, stream: true, effort: 'low' })); } catch (e) {
       lastError = e;
       console.warn('AI funnel generation failed:', model || KIE_MODEL, e.message);
       if (e.message === PAUSED || /not authorized|401|API key/i.test(e.message)) break;
