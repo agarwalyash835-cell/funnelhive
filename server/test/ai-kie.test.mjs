@@ -50,7 +50,7 @@ test('funnel generation goes through kie.ai with our templates as examples, and 
   assert.equal(call.url, '/openai/v1/responses');
   assert.equal(call.auth, 'Bearer kie-test-key');
   assert.equal(call.body.model, 'deepseek-v4-1-flash');
-  assert.equal(call.body.stream, false);
+  assert.equal(call.body.stream, true, 'funnel writing is streamed (a long draft is never cut off by the gateway)');
   assert.match(call.body.instructions, /EXAMPLE — a complete funnel from our template library for a similar business \("Authentic Mithai Gift Hamper"\)/, 'closest template (sweets, for a bakery) included as the example');
   assert.match(call.body.instructions, /"type":"hero"/);
 });
