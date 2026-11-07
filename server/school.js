@@ -8,7 +8,7 @@ import { hashToken, randomToken } from './security.js';
 import { sendEmail } from './messaging.js';
 import { handleOf } from './bookings.js';
 import { studentLibrary, accessActive, cleanQuiz, isPdf, readerTicket, checkReaderTicket, sendReader } from './products.js';
-import { fire as fireAutomation } from './automations.js';
+import { fire as fireAutomation, PROGRESS_MARKS } from './automations.js';
 import { ensureContact } from './crm.js';
 import { aiEnabled, aiText, aiJson } from './ai.js';
 import { creditsShort, spendCredits } from './billing.js';
@@ -171,6 +171,20 @@ function markComplete(owner, s, product, access) {
   if (!access || access.completedAt || !courseComplete(product, access)) return;
   T.access.update(access.id, (x) => { x.completedAt ||= Date.now(); });
   fireAutomation(owner.id, 'course_completed', { email: s.email, phone: s.phone, name: s.name, productId: product.id, product: product.name, source: 'course' });
+}
+// "A student finishes a lesson" (once per lesson, even if it's unticked and ticked again) and "reaches X% of a course"
+// (once per mark) — whether the lesson was ticked off or done by passing its quiz
+function lessonDone(owner, s, product, access, lesson) {
+  const lessons = product.lessons || [];
+  if (!lessons.length || !access?.progress?.[lesson.id]) return;
+  const pct = Math.floor((lessons.filter((l) => access.progress[l.id]).length * 100) / lessons.length);
+  const firstTime = !(access.lessonsFired || []).includes(lesson.id);
+  const marks = PROGRESS_MARKS.filter((m) => pct >= m && !(access.marksFired || []).includes(m));
+  if (!firstTime && !marks.length) return;
+  T.access.update(access.id, (x) => { if (firstTime) x.lessonsFired = [...(x.lessonsFired || []), lesson.id]; x.marksFired = [...(x.marksFired || []), ...marks]; });
+  const who = { email: s.email, phone: s.phone, name: s.name, productId: product.id, source: 'course' };
+  if (firstTime) fireAutomation(owner.id, 'lesson_completed', { ...who, product: `${product.name} — ${lesson.title}`, lesson: lesson.title });
+  for (const m of marks) fireAutomation(owner.id, 'course_progress', { ...who, product: product.name, percent: m });
 }
 export function courseComplete(product, access) {
   const lessons = product.lessons || [];
@@ -338,6 +352,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
       x.lastSeenAt = Date.now();
     });
     if (firstTime) award(s, 1, 'lesson', `${p.id}:${lesson.id}`);
+    lessonDone(owner, s, p, n, lesson);
     markComplete(owner, s, p, n);
     const cert = p.certificate?.enabled && courseComplete(p, n) ? certView(issueCert(owner, T.students.get(s.id), p)) : null;
     res.json({ ok: true, complete: courseComplete(p, n), cert });
@@ -367,6 +382,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
       if (passed) { x.progress ||= {}; x.progress[lesson.id] ||= Date.now(); }
     });
     if (firstPass) { award(s, 2, 'quiz', `${p.id}:${lesson.id}`); fireAutomation(owner.id, 'quiz_passed', { email: s.email, phone: s.phone, name: s.name, productId: p.id, product: `${p.name} — ${lesson.title}`, source: 'course' }); }
+    if (passed) lessonDone(owner, s, p, n, lesson);
     markComplete(owner, s, p, n);
     const cert = p.certificate?.enabled && courseComplete(p, n) ? certView(issueCert(owner, T.students.get(s.id), p)) : null;
     res.json({ score, passed, pass: lesson.quiz.pass, results, cert });

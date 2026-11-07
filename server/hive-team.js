@@ -45,6 +45,12 @@ export const PRESETS = [
     schedule: { on: true, time: '19:00', days: [1, 2, 3, 4, 5, 6], task: 'Evening stock report: items below reorder level with a suggested order quantity, batches expiring in 30 days, and the top 5 slow-moving items.', whatsapp: true },
   },
   {
+    preset: 'academy', name: 'Academy Manager', emoji: '🎓', color: '#0d9488', role: 'Students, questions, community and courses',
+    groups: ['school'], core: false, askFirst: true,
+    instructions: 'Look after the Academy’s students. Spot who is stuck or hasn’t started, answer questions under lessons warmly and clearly in the student’s language, keep the community lively, and suggest course fixes where many students drop off. Answers and posts reach students, so they wait for the seller’s OK.',
+    schedule: { on: true, time: '09:00', days: [1, 2, 3, 4, 5, 6], task: 'Morning Academy check: unanswered student questions (draft an answer for each), students stuck for 7+ days or not started (who, which course, how far), and new community posts that need a reply. End with the one course fix that would help most.', whatsapp: true },
+  },
+  {
     preset: 'creative', name: 'Creative Director', emoji: '🎬', color: '#ec4899', role: 'Reels, posters and product shots in Studio',
     groups: ['studio'], core: false, askFirst: false,
     instructions: 'Make scroll-stopping creatives for the seller’s brand: strong hook in the first second, the brand kit’s colours and fonts, and text in the language the customers read. Always say what a paid creation costs before making it.',

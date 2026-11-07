@@ -4,7 +4,7 @@ import {
   Clock, Mail, MessageCircle, Tag, ArrowRightLeft, Webhook, BellRing, Zap, Plus, Trash2, ChevronUp, ChevronDown, Copy, UserPlus,
   ShoppingBag, TrendingUp, ShoppingCart, Kanban, AlertTriangle, ArrowLeft, Square, Workflow, GitBranch, CircleStop, Send, Link2, Hand, Split, CalendarDays, History, PenLine, Hourglass, KeyRound, StickyNote, GripVertical, Search, X, GraduationCap, BadgeCheck, Award, MessagesSquare, Eye, FileX,
   CalendarCheck, CalendarX, Target, ListTodo, Check, Video, Presentation, Undo2, RefreshCw, CreditCard, Truck, UserCheck, UserX, CheckCheck, Handshake,
-  PackageCheck, PackageX,
+  PackageCheck, PackageX, BookCheck, Gauge, Moon,
 } from 'lucide-react';
 import { HiveGlyph as Sparkles } from '../brandIcons';
 import { api } from '../api';
@@ -46,7 +46,7 @@ const TRIGGER_ICON = {
   booking: CalendarCheck, booking_cancelled: CalendarX, webinar_registered: Presentation, webinar_attended: UserCheck, webinar_missed: UserX,
   stage: Kanban, tag: Tag, field: PenLine, stuck: Hourglass, date: CalendarDays, inbound: Link2, manual: Hand,
   wa_message: MessageCircle, wa_handoff: Handshake, wa_resolved: CheckCheck,
-  student_joined: GraduationCap, quiz_passed: BadgeCheck, course_completed: Award, community_post: MessagesSquare, quote_viewed: Eye, quote_accepted: Check, quote_declined: FileX,
+  student_joined: GraduationCap, quiz_passed: BadgeCheck, course_completed: Award, community_post: MessagesSquare, lesson_completed: BookCheck, course_progress: Gauge, student_inactive: Moon, quote_viewed: Eye, quote_accepted: Check, quote_declined: FileX,
 };
 // the pickers: grouped like Zapier, with a line on what each one is for
 const TRIGGER_GROUPS = [
@@ -55,7 +55,7 @@ const TRIGGER_GROUPS = [
   ['CRM', ['stage', 'stuck', 'field', 'tag', 'date']],
   ['WhatsApp inbox', ['wa_message', 'wa_handoff', 'wa_resolved']],
   ['Calls & webinars', ['booking', 'booking_cancelled', 'webinar_registered', 'webinar_attended', 'webinar_missed']],
-  ['Courses & community', ['student_joined', 'quiz_passed', 'course_completed', 'community_post']],
+  ['Courses & community', ['student_joined', 'lesson_completed', 'course_progress', 'quiz_passed', 'course_completed', 'student_inactive', 'community_post']],
   ['Quotes', ['quote_viewed', 'quote_accepted', 'quote_declined']],
 ];
 const TRIGGER_HELP = {
@@ -68,6 +68,7 @@ const TRIGGER_HELP = {
   tag: 'A tag is added to a contact', date: 'A date field arrives — site visit, renewal, birthday',
   wa_message: 'A contact writes to you on WhatsApp — any message, or one with a word', wa_handoff: 'A chatbot, the AI agent or a teammate hands a chat to your team', wa_resolved: 'A WhatsApp chat is marked resolved',
   student_joined: 'First sign-in to your members area', quiz_passed: 'A lesson quiz is passed', course_completed: 'Every lesson done (certificate earned)', community_post: 'A student posts in your community',
+  lesson_completed: 'A lesson is marked done (or its quiz passed)', course_progress: 'A student gets 25, 50, 75 or 90% of the way through', student_inactive: 'A student hasn’t opened a course for N days — nudge them back',
   quote_viewed: 'A client opens the quote you sent', quote_accepted: 'A client says yes (when online payment isn’t set up) — follow up on payment', quote_declined: 'A client declines a quote',
 };
 const STEP_GROUPS = [
@@ -83,7 +84,7 @@ const STEP_HELP = {
   access: 'Give or take away a course or product', wait: 'Pause for a while, or until a time of day', condition: 'Branch on tags, stage, fields, purchases…',
   split: 'Send people down A or B at random', enroll: 'Hand them to another automation', exit: 'Stop here for this contact', meta: 'Tell Meta this lead qualified or bought — ads find more like them', webhook: 'Send their details to Zapier, Pabbly or Sheets',
 };
-const COURSE_TRIGGERS = ['student_joined', 'quiz_passed', 'course_completed', 'community_post'];
+const COURSE_TRIGGERS = ['student_joined', 'quiz_passed', 'course_completed', 'community_post', 'lesson_completed', 'course_progress', 'student_inactive'];
 const tempId = () => `n${Math.random().toString(36).slice(2, 10)}`;
 const newStep = (type) => ({ id: tempId(), ...({
   wait: { type, amount: 1, unit: 'days' },
@@ -432,6 +433,7 @@ function Builder({ id }) {
     if (t.type === 'stuck') return stageName(t.pipelineId, t.stageId) ? `${t.days || 7} days in ${stageName(t.pipelineId, t.stageId)}` : 'Choose a stage';
     if (t.type === 'tag') return t.tag ? `Tag “${t.tag}”` : 'Choose a tag';
     if (t.type === 'quiz' && t.outcome) return `Result: ${t.outcome}`;
+    if (t.type === 'course_progress' || t.type === 'student_inactive') { const c = products.find((p) => p.id === t.productId)?.name || 'any course'; return t.type === 'course_progress' ? `${t.percent || 50}% of ${c}` : `${t.days || 7} days away from ${c}`; }
     if (t.type === 'field') return t.fieldId ? `${fieldName(t.fieldId)}${t.value ? ` → ${t.value}` : ' changes'}` : 'Choose a field';
     if (t.type === 'date') return t.fieldId ? `${!t.offsetDays ? 'On' : `${Math.abs(t.offsetDays)} days ${t.offsetDays < 0 ? 'before' : 'after'}`} ${fieldName(t.fieldId)}` : 'Choose a date field';
     if (t.funnelId) return funnels.find((f) => f.id === t.funnelId)?.name || '';
@@ -556,6 +558,15 @@ function Builder({ id }) {
       {COURSE_TRIGGERS.includes(a.trigger.type) && a.trigger.type !== 'community_post' && (
         <label>Course<select value={a.trigger.productId || ''} onChange={(e) => setTrigger({ productId: e.target.value || undefined })}><option value="">Any course</option>{products.filter((p) => p.lessons > 0).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       )}
+      {a.trigger.type === 'course_progress' && <>
+        <label>Reaches<select value={a.trigger.percent || 50} onChange={(e) => setTrigger({ percent: Number(e.target.value) })}>{[25, 50, 75, 90].map((n) => <option key={n} value={n}>{n}% of the lessons done</option>)}</select></label>
+        <p className="hint">Runs once per student and course when they pass this mark. Use {'{{percent}}'} and {'{{product}}'} in messages; finishing everything is “A student finishes a course”.</p>
+      </>}
+      {a.trigger.type === 'student_inactive' && <>
+        <label>After<div className="au-inline"><input type="number" min="1" max="90" value={a.trigger.days || 7} onChange={(e) => setTrigger({ days: e.target.value })} /> days without opening the course</div></label>
+        <p className="hint">Counts from their last lesson, quiz or visit to the course. Runs once each time they go quiet, and again only after they come back. Never for finished courses or students whose access ended.</p>
+      </>}
+      {a.trigger.type === 'lesson_completed' && <p className="hint">Runs once per student and lesson. Use {'{{lesson}}'} in messages for the lesson’s title.</p>}
       {a.trigger.type === 'abandoned' && <label>Counts as abandoned after<div className="au-inline"><input type="number" min="5" value={a.trigger.delayMin || 30} onChange={(e) => setTrigger({ delayMin: e.target.value })} /> minutes without paying</div></label>}
       {(a.trigger.type === 'stage' || a.trigger.type === 'stuck') && <>
         <label>Pipeline<select value={a.trigger.pipelineId || ''} onChange={(e) => setTrigger({ pipelineId: e.target.value, stageId: '' })}><option value="">Choose…</option>{pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>

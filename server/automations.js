@@ -40,6 +40,9 @@ export const TRIGGERS = {
   student_joined: 'A student signs in to the members area for the first time',
   quiz_passed: 'A student passes a quiz',
   course_completed: 'A student finishes a course (certificate earned)',
+  lesson_completed: 'A student finishes a lesson',
+  course_progress: 'A student reaches X% of a course',
+  student_inactive: 'A student hasn’t opened their course in N days',
   community_post: 'A student posts in the community',
   quote_viewed: 'A client opens a quote',
   quote_accepted: 'A client accepts a quote (without paying online)',
@@ -51,7 +54,8 @@ export const TRIGGERS = {
   manual: 'Only when I add a contact to it',
 };
 const STEP_TYPES = ['wait', 'email', 'whatsapp', 'tag', 'stage', 'field', 'access', 'enroll', 'note', 'meta', 'webhook', 'notify', 'condition', 'split', 'exit'];
-const COURSE_EVENTS = ['student_joined', 'quiz_passed', 'course_completed', 'community_post'];
+const COURSE_EVENTS = ['student_joined', 'quiz_passed', 'course_completed', 'community_post', 'lesson_completed', 'course_progress', 'student_inactive'];
+export const PROGRESS_MARKS = [25, 50, 75, 90]; // the marks of "reaches X% of a course"
 // branch names inside a step: If/else → yes/no, A/B split → a/b
 const BRANCHES = { condition: ['yes', 'no'], split: ['a', 'b'] };
 const BRANCH_LABEL = { yes: 'Yes', no: 'No', a: 'Path A', b: 'Path B' };
@@ -77,7 +81,7 @@ export const emailTracking = (origin, userId, key, msgId) => {
 const linkSig = (id, url) => crypto.createHmac('sha256', SECRET).update(`click:${id}:${url}`).digest('hex').slice(0, 16);
 
 // ---------- template variables ----------
-export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'access_link', 'invoice_link', 'booking_time', 'booking_link', 'meeting_link', 'webinar_time', 'join_link', 'tracking_link', 'courier', 'tracking_id', 'quiz_result', 'quiz_score', 'handoff_reason', 'business'];
+export const VARIABLES = ['first_name', 'name', 'email', 'phone', 'product', 'amount', 'funnel', 'funnel_link', 'checkout_link', 'access_link', 'invoice_link', 'booking_time', 'booking_link', 'meeting_link', 'webinar_time', 'join_link', 'tracking_link', 'courier', 'tracking_id', 'quiz_result', 'quiz_score', 'lesson', 'percent', 'days', 'handoff_reason', 'business'];
 export function fill(text, ctx) {
   return String(text || '').replace(/\{\{\s*([a-z][a-z0-9_-]*)\s*\}\}/gi, (m, k) => {
     const v = ctx[k.toLowerCase()];
@@ -98,6 +102,8 @@ function cleanTrigger(t = {}, userId) {
   if (type === 'quiz') out.outcome = str(t.outcome, 120).trim(); // blank = any result
   if (COURSE_EVENTS.includes(type) && t.productId && T.products.get(t.productId)?.userId === userId) out.productId = t.productId; // blank = any course
   if (type === 'field') { out.fieldId = str(t.fieldId, 20); out.value = str(t.value, 200).trim(); } // value: blank = any change
+  if (type === 'course_progress') out.percent = PROGRESS_MARKS.includes(Number(t.percent)) ? Number(t.percent) : 50;
+  if (type === 'student_inactive') out.days = Math.max(1, Math.min(90, Math.round(Number(t.days) || 7)));
   if (type === 'stuck') { out.pipelineId = str(t.pipelineId, 20); out.stageId = str(t.stageId, 20); out.days = Math.max(1, Math.min(365, Math.round(Number(t.days) || 7))); }
   if (type === 'date') {
     out.fieldId = str(t.fieldId, 20);
@@ -236,6 +242,7 @@ function contextFor(userId, data) {
     booking_time: data.bookingTime || '', booking_link: data.bookingLink || '', meeting_link: data.meetingLink || '',
     webinar_time: data.webinarTime || '', join_link: data.joinLink || '',
     quiz_result: data.outcome || '', quiz_score: data.score != null ? String(data.score) : '',
+    lesson: data.lesson || '', percent: data.percent != null ? `${data.percent}%` : '', days: data.days != null ? String(data.days) : '', // Academy: a lesson done, X% reached, N quiet days
     tracking_link: data.trackingLink || '', courier: data.courier || '', tracking_id: data.trackingId || '',
   };
 }
@@ -256,6 +263,7 @@ export function fire(userId, event, data = {}) {
       if (event === 'wa_message' && t.keyword && !String(data.text || '').toLowerCase().includes(t.keyword.toLowerCase())) continue;
       if (event === 'wa_handoff' && t.by && data.by !== t.by) continue;
       if (COURSE_EVENTS.includes(event) && t.productId && t.productId !== data.productId) continue;
+      if (event === 'course_progress' && t.percent && t.percent !== data.percent) continue;
       if (event === 'field' && (t.fieldId !== data.fieldId || (t.value && String(t.value).trim().toLowerCase() !== String(data.value ?? '').trim().toLowerCase()))) continue;
       start(a, data);
     }
@@ -677,13 +685,32 @@ export function scanStuck(now = Date.now()) {
     }
   }
 }
+// "A student hasn't opened their course in N days": each course they can still open, counted from their last activity
+// in it (a lesson opened or done, a quiz, the reader — or when access was given if they never came) — once per quiet
+// spell; coming back starts a new one. Finished courses and ended access (revoked / expired) never fire.
+export function scanInactive(now = Date.now()) {
+  for (const a of T.automations.all({ triggerType: 'student_inactive', active: 1 })) {
+    const t = a.trigger, cut = now - (t.days || 7) * 86400000 * SCALE;
+    for (const x of T.access.all({ userId: a.userId, revoked: 0, ...(t.productId ? { productId: t.productId } : {}) })) {
+      if ((x.expiresAt && x.expiresAt <= now) || x.completedAt) continue;
+      const p = T.products.get(x.productId);
+      if (!p?.lessons?.length) continue; // a download, not a course
+      const last = Math.max(x.at || 0, x.lastSeenAt || 0, x.resume?.at || 0, ...Object.values(x.progress || {}).map(Number), ...Object.values(x.quiz || {}).map((v) => v?.at || 0));
+      if (last > cut || x.inactiveFired?.[a.id] === last) continue;
+      const s = T.students.find({ userId: a.userId, ckey: contactKey(x.email) });
+      if (s?.banned) continue;
+      T.access.update(x.id, (y) => { y.inactiveFired = { ...y.inactiveFired, [a.id]: last }; });
+      start(a, { email: x.email, name: s?.name || x.name || '', phone: s?.phone || x.phone || '', productId: p.id, product: p.name, days: t.days, source: 'course' });
+    }
+  }
+}
 // at most this many runs are started per tick, so a burst can't monopolise the server
 const BATCH = Number(process.env.AUTOMATION_BATCH || 500);
 let lastPrune = 0, lastDates = 0;
 export function tick() {
   const now = Date.now();
   scanAbandoned();
-  if (now - lastDates > Math.min(60000, TICK * 4) || SCALE < 1) { lastDates = now; scanDates(); scanStuck(now); }
+  if (now - lastDates > Math.min(60000, TICK * 4) || SCALE < 1) { lastDates = now; scanDates(); scanStuck(now); scanInactive(now); }
   for (const r of q(`SELECT id FROM runs WHERE status = 'active' AND nextAt <= ? ORDER BY nextAt LIMIT ${BATCH}`).all(now)) advance(r.id);
   // keep finished runs for 60 days, email tracking records for 90 (pruned hourly)
   if (now - lastPrune > 3600000) {
@@ -734,7 +761,7 @@ function snapshot(a, note) {
 const AI_SPEC = `You design marketing / CRM automations for a small Indian business. Reply with ONLY JSON:
 {"name": "short name", "trigger": {...}, "steps": [...], "stopOnPurchase": true|false}
 trigger.type is one of: ${Object.keys(TRIGGERS).join(', ')}.
-  Extra trigger fields: funnelId (lead/quiz/purchase/offer/abandoned, optional) · delayMin (abandoned) · pipelineId + stageId (stage) · pipelineId + stageId + days (stuck) · tag (tag) · outcome (quiz: a result title, optional) · fieldId + value (field; value optional) · fieldId + offsetDays (negative = before) + time "HH:MM" + yearly (date) · productId (student_joined / quiz_passed / course_completed, optional).
+  Extra trigger fields: funnelId (lead/quiz/purchase/offer/abandoned, optional) · delayMin (abandoned) · pipelineId + stageId (stage) · pipelineId + stageId + days (stuck) · tag (tag) · outcome (quiz: a result title, optional) · fieldId + value (field; value optional) · fieldId + offsetDays (negative = before) + time "HH:MM" + yearly (date) · productId (student_joined / quiz_passed / course_completed / lesson_completed / course_progress / student_inactive, optional) · percent 25|50|75|90 (course_progress) · days 1–90 (student_inactive).
 steps run top to bottom; each is one of:
   {"type":"wait","amount":2,"unit":"minutes|hours|days"} · {"type":"wait","mode":"until","time":"10:00"}
   {"type":"email","subject":"…","body":"…"} · {"type":"notify","subject":"…","body":"…"} (an alert to the business owner)

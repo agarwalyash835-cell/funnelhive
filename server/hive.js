@@ -22,6 +22,7 @@ import * as insightTools from './hive-tally-insights.js';
 import * as inventoryTools from './hive-inventory.js';
 import * as proTools from './hive-inventory-pro.js';
 import * as contactTools from './hive-contacts.js';
+import * as academyTools from './hive-academy.js';
 import * as studioTools from './hive-studio.js';
 import * as reportTools from './hive-inventory-reports.js';
 import { PRESETS, MAX_TEAM, cleanMate, teamOf, mateOf, mateNote, startTeamJobs, forgetTeamCache } from './hive-team.js';
@@ -834,7 +835,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Made a copy: “${r.name}”`,
   },
   // stock insights on Tally, and the Inventory add-on (each module keeps its own tools)
-  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS, ...studioTools.TOOLS,
+  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS, ...studioTools.TOOLS, ...academyTools.TOOLS,
 ];
 const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -868,7 +869,7 @@ const NEEDS_OK = {
   // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
   run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${String(a.slug || '').startsWith('GOOGLEADS') ? 'Google Ads' : 'Meta Ads'} account: ${String(a.slug || '').replace(/^(METAADS|GOOGLEADS)_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
-  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK, ...studioTools.OK,
+  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK, ...studioTools.OK, ...academyTools.OK,
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
@@ -917,7 +918,7 @@ export const TOOL_GROUPS = {
   calls: { about: 'booking calendars, booked calls, webinars', tools: ['create_calendar', 'configure_calendar', 'list_bookings', 'configure_webinar'], re: /\b(book\w*|calls?|calendar|appointments?|slots?|webinars?|meetings?|demos?|sessions?|consultations?|site visits?|zoom|google meet)\b/i },
   quotes: { about: 'custom quotes / proposals with a pay link', tools: ['create_quote', 'list_quotes'], re: /\b(quotes?|quotations?|proposals?|estimates?|invoices?|retainers?|packages?)\b/i },
   ads: { about: 'Meta / Google ads (the seller’s connected accounts), ad reports, ad images, tracking pixels', tools: ['find_app_actions', 'run_app_action', 'ads_report', 'generate_image', 'set_tracking'], re: /\b(ads?|advert\w*|meta|facebook|instagram|google|campaigns?|roas|cpa|cpl|pixel|ga4|tracking|creatives?|reels?)\b/i },
-  school: { about: 'courses, quizzes, the members community', tools: ['school_overview', 'create_course', 'add_quiz', 'get_course', 'create_space', 'post_to_community'], re: /\b(courses?|school|lessons?|modules?|quiz\w*|community|members? area|students?|certificates?)\b/i },
+  school: { about: 'the Academy (members area): courses, lessons and quizzes; students and their progress (who is stuck / finished); their questions and community posts and answering them; Academy settings (protection, language, sign-up)', tools: ['school_overview', 'create_course', 'add_quiz', 'get_course', 'create_space', 'post_to_community', ...academyTools.TOOLS.map((t) => t.name)], re: /\b(courses?|school|academy|lessons?|modules?|quiz\w*|community|members? area|students?|certificates?|stuck|progress|watermark|downloads?|drip)\b/i },
   studio: { about: 'Studio: AI product images, scenes and short video clips (Reels), checked for quality; redo with changes; designs with words (festive posts, sale posters, stories, YouTube thumbnails, carousels) in Indian languages', tools: studioTools.TOOLS.map((t) => t.name), re: /\b(studio|designs?|posters?|carousels?|thumbnails?|banners?|greetings?|festive|diwali|holi|eid|clips?|reels?|videos?|shorts|animate\w*|creatives?|product (shots?|photos?)|scenes?|cast|characters?|brand kit|brand fonts?)\b/i },
   website: { about: 'business websites, custom domains, images', tools: ['create_website', 'connect_domain', 'check_domain', 'generate_image'], re: /\b(website|site|about( us)?|home ?page|domains?|dns|cname|images?|photos?|pictures?)\b/i },
   tally: { about: 'the Tally books (add-on): money owed both ways, vouchers, ledgers, stock, payment reminders, saving vouchers / ledgers into TallyPrime', tools: ['tally_overview', 'find_tally', 'tally_change', 'remind_tally_bill', ...insightTools.TOOLS.map((t) => t.name)], re: /\b(tally|ledgers?|vouchers?|outstanding|receivables?|payables?|debtors?|creditors?|udhaar|dues?|stock|godowns?|inventory|purchase|receipts?)\b/i },
@@ -953,7 +954,7 @@ export const toolDefsFor = (groups, core = true, useTools = USE_TOOLS) => {
 export const mateTools = (m) => new Set([...(m.core ? CORE_TOOLS : []), ...m.groups.flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
 
 // tools that only read: several in one reply run at the same time
-const READ_ONLY = new Set(['ads_report', 'school_overview', 'check_domain', 'find_app_actions', 'write_marketing_copy']);
+const READ_ONLY = new Set(['ads_report', 'school_overview', 'check_domain', 'find_app_actions', 'write_marketing_copy', 'academy_students', 'academy_questions', 'academy_posts']);
 const readsOnly = (name) => READ_ONLY.has(name) || /^(list|get|find)_/.test(name);
 
 // ---------- limits ----------
