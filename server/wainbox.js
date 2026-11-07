@@ -18,6 +18,7 @@ import { sarvamReady, transcribe, oggSeconds } from './sarvam.js';
 import { ALL_KITS } from './crmkits.js';
 import { webchatOf } from './webchat-key.js';
 import { ensureMeta, ensureContact, logActivity, pipelinesFor, stageFor } from './crm.js';
+import { valueFor } from './crm-map.js';
 import { notify } from './notify.js';
 import { aiEnabled, aiJson, aiText } from './ai.js';
 import { creditsShort, spendCredits, AI_COST } from './billing.js';
@@ -396,7 +397,14 @@ function saveField(u, conv, field, value) {
   if (field === 'name') { m.name = clip(value, 120); T.waconvs.update(conv.id, (c) => { c.name = clip(value, 80); }); }
   else if (field === 'email') { if (!EMAIL.test(value)) return; m.email = clip(value, 200).toLowerCase(); }
   else if (field === 'phone') m.phone = clip(value, 40);
-  else if (field.startsWith('custom:')) m.custom = { ...m.custom, [field.slice(7)]: clip(value, 500) };
+  else if (field.startsWith('custom:')) {
+    // stored as the field keeps it: "₹1.3–1.8 Cr" → 13000000 in a money field, "3 bhk" → the "3 BHK" option; an
+    // answer that doesn't fit (a dropdown option it isn't) is left out rather than saved as stray text
+    const id = field.slice(7), def = (u.crmFields || []).find((x) => x.id === id);
+    const v = def ? valueFor(def, value) : clip(value, 500);
+    if (v === undefined) return;
+    m.custom = { ...m.custom, [id]: v };
+  }
   else return;
   T.crm.put(m);
 }
