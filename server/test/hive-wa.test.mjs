@@ -11,7 +11,7 @@ import path from 'node:path';
 import { startServer, register } from './helpers.mjs';
 
 const KEY = 'hk_test_ok_supersecret_123';
-const fake = { reqs: [], sent: [], msgs: new Map(), templates: [{ id: 't0', name: 'fh_quote_sent', language: 'en', status: 'APPROVED', category: 'UTILITY' }], hook: null, failOnce: new Set(), noEdit: false };
+const fake = { reqs: [], sent: [], msgs: new Map(), templates: [{ id: 't0', name: 'fh_quote_sent', language: 'en', status: 'APPROVED', category: 'UTILITY' }], hook: null, failOnce: new Set(), blipOnce: new Set(), noEdit: false };
 // a template as Hive lists it: components as Meta has them ([{ type: 'BODY', text }])
 const listed = (j, extra) => ({ name: j.name, language: j.language, category: j.category, components: (j.components || []).map((c) => ({ type: String(c.type).toUpperCase(), text: c.parameters?.[0]?.text ?? c.text })), ...extra });
 let hive, hiveUrl, srv, api, T, f, co;
@@ -65,6 +65,7 @@ before(async () => {
         const ik = req.headers['idempotency-key'];
         if (!ik) return send(400, { error: 'Idempotency-Key header is required' });
         if (fake.failOnce.delete(ik)) return send(500, { error: 'temporary failure' });
+        if (fake.blipOnce.delete(ik)) return send(503, { error: 'busy' }); // a blip: tried again at once
         if (fake.msgs.has(ik)) return send(202, fake.msgs.get(ik)); // Hive answers a repeated key with the first result
         const r = { id: `msg_${fake.msgs.size + 1}`, wamid: `wamid.${fake.msgs.size + 1}`, status: 'queued' };
         fake.msgs.set(ik, r);
@@ -262,6 +263,12 @@ test('a retried message is never sent twice (same Idempotency-Key, one record)',
   assert.equal(fake.reqs.filter((x) => x.path === '/messages' && x.headers['idempotency-key'] === ik).length, 2, 'the failed try and its retry — not the duplicate');
   assert.equal(sentTo('919777700001').length, 1);
   assert.equal(DB.wamsgs.all({ userId: u.id }).length, 1);
+  // a blip (503) is retried within the same send, once, with the same key: delivered, still one message
+  const args2 = { ...args, to: '+91 97777 00002', entityId: 'ord2' }, ik2 = 'order_receipt:ord2:919777700002';
+  fake.blipOnce.add(ik2);
+  assert.equal((await H.waEvent(u.id, 'order_receipt', args2)).status, 'sent', 'Hive busy for a moment: sent on the retry');
+  assert.equal(fake.reqs.filter((x) => x.path === '/messages' && x.headers['idempotency-key'] === ik2).length, 2);
+  assert.equal(sentTo('919777700002').length, 1);
   assert.equal((await H.waEvent(u.id, 'booking_confirmed', args)).status, 'off', 'no approved template: nothing sent');
   assert.equal(H.waNumber('09777700001'), '919777700001');
   assert.equal(H.waNumber('+44 7700 900123'), '447700900123');

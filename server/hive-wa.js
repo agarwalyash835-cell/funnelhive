@@ -60,11 +60,22 @@ export const waPhoneOk = (p) => !!waNumber(p);
 export const waReady = (u, event) => { const h = live(u); return !!h && h.templates?.[event]?.status === 'APPROVED' && h.events?.[event] !== false; };
 
 // one call to Hive; errors carry a plain message (the key itself never appears in one)
+// A blip (no answer, or Hive's 502 / 503 / 504) is tried once more after a moment — but only when repeating is
+// safe: reads, and sends carrying an Idempotency-Key (Hive drops the duplicate), so a customer never gets two copies
+const RETRY_MS = Number(process.env.HIVE_WA_RETRY_MS ?? 1500);
 async function call(key, method, path, body, headers = {}) {
+  const safe = method === 'GET' || !!headers['Idempotency-Key'];
   let r;
-  try {
-    r = await fetch(`${API()}${path}`, { method, headers: { Authorization: `Bearer ${key}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
-  } catch { throw Object.assign(new Error('Couldn’t reach Hive WhatsApp — please try again in a minute'), { status: 502 }); }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      r = await fetch(`${API()}${path}`, { method, headers: { Authorization: `Bearer ${key}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
+    } catch {
+      if (safe && attempt === 0) { await new Promise((ok) => setTimeout(ok, RETRY_MS)); continue; }
+      throw Object.assign(new Error('Couldn’t reach Hive WhatsApp — please try again in a minute'), { status: 502 });
+    }
+    if (safe && attempt === 0 && [502, 503, 504].includes(r.status)) { await new Promise((ok) => setTimeout(ok, RETRY_MS)); continue; }
+    break;
+  }
   const data = await r.json().catch(() => ({}));
   if (r.ok) return data;
   const code = data.code || data.error?.code || '';
