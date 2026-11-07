@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import { T, uid, contactKey } from './db.js';
 import { ensureMeta, logActivity, metaFor } from './crm.js';
+import { answersToCustom, sourceToCustom, fillContact } from './crm-map.js';
 import { findContact } from './contacts-merge.js';
 import { fire } from './automations.js';
 import { notify } from './notify.js';
@@ -76,6 +77,14 @@ export function ingest(userId, lead) {
   m.tags = [...new Set([...(m.tags || []), label, ...(lead.test ? ['test lead'] : [])])].slice(0, 30);
   T.crm.put(m);
   logActivity(userId, key, { type: 'note', title: `${lead.test ? 'Test enquiry' : 'New enquiry'} from ${label}`, text: details.map(([k, v]) => `${k}: ${v}`).join('\n') });
+  // what they told the portal into the CRM's own fields (city → preferred location, "Budget: 80 lakh" lines from
+  // lead forms and portal emails…) and where they came from; changed fields start their automations
+  const defs = T.users.get(userId)?.crmFields || [];
+  if (defs.length) {
+    const lines = Object.fromEntries(String(lead.message || '').split('\n').map((l) => l.match(/^\s*([^:\n]{2,40}?)\s*:\s*(.+)$/)).filter(Boolean).map((x) => [x[1], x[2].trim()]));
+    const { changed } = fillContact(userId, key, answersToCustom(defs, { ...lines, City: str(lead.city, 80), Company: str(lead.company, 120), 'Interested in': str(lead.product, 200) }), { source: sourceToCustom(defs, source) });
+    if (!lead.test) for (const fe of changed) fire(userId, 'field', { email, phone, name, ...fe });
+  }
   notify(userId, { kind: 'lead', title: `${lead.test ? 'Test lead' : 'New lead'} from ${label} · ${name || phone || email}`, body: summary || [phone, email].filter(Boolean).join(' · '), link: `/contacts/${encodeURIComponent(key)}`, ckey: key });
   // a real, new contact starts the "new lead" automations (a returning one is just noted on its timeline)
   if (!known && !lead.test) fire(userId, 'lead', { email, phone, name, source: label });

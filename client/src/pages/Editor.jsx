@@ -200,8 +200,21 @@ function GalleryField({ value, onChange }) {
   );
 }
 
+// the CRM's own fields (an industry's Budget, BHK…), for “Save to CRM field” — loaded once per editor visit
+let crmFieldsCache = null;
+function useCrmFields() {
+  const [list, setList] = useState(() => (Array.isArray(crmFieldsCache) ? crmFieldsCache : []));
+  useEffect(() => { if (crmFieldsCache) return; crmFieldsCache = api('/crm/fields').then((x) => { crmFieldsCache = Array.isArray(x) ? x : []; setList(crmFieldsCache); }).catch(() => { crmFieldsCache = null; }); }, []);
+  return list;
+}
+function CrmFieldPick({ value, onChange, label = 'CRM field', hint }) {
+  const crm = useCrmFields();
+  if (!crm.length) return null;
+  return <div className="fld"><label>{label}</label><select value={value || ''} onChange={(e) => onChange(e.target.value)}><option value="">Match by name (automatic)</option>{crm.map((d) => <option key={d.id} value={d.id}>Save to: {d.label}</option>)}</select>{hint && <span className="hint">{hint}</span>}</div>;
+}
 function FormFieldsField({ value, onChange }) {
   const items = value || [];
+  const crm = useCrmFields();
   const set = (i, k, v) => onChange(items.map((it, n) => (n === i ? { ...it, [k]: v } : it)));
   return (
     <div className="fld"><label>Form fields <small>({items.length})</small></label>
@@ -219,10 +232,11 @@ function FormFieldsField({ value, onChange }) {
           {it.type === 'select' && <input placeholder="Options, separated by commas" value={it.options || ''} onChange={(e) => set(i, 'options', e.target.value)} />}
           {it.type === 'select' && <input placeholder="Not a fit if they choose… (comma-separated, optional)" value={it.reject || ''} onChange={(e) => set(i, 'reject', e.target.value)} title="Qualification: applicants who pick one of these see the 'not a fit' message instead of the next step" />}
           {['text', 'email', 'tel', 'number', 'textarea'].includes(it.type || 'text') && <input placeholder="Placeholder (optional)" value={it.placeholder || ''} onChange={(e) => set(i, 'placeholder', e.target.value)} />}
+          {crm.length > 0 && !['email', 'tel'].includes(it.type) && <select value={it.crmField || ''} onChange={(e) => set(i, 'crmField', e.target.value)} title="Where this answer goes in your CRM"><option value="">CRM field: match by name</option>{crm.map((d) => <option key={d.id} value={d.id}>Save to CRM: {d.label}</option>)}</select>}
         </div>
       ))}
       <button className="btn ghost sm block" onClick={() => onChange([...items, { label: 'New question', type: 'text', required: false }])}><Icon name="plus" size={14} /> Add field</button>
-      <span className="hint">Answers appear in Contacts and in the lead.created webhook. Include an Email or Phone field so you can follow up. For applications, list the answers that mean “not a fit” — those applicants are saved as not qualified and see your “not a fit” message.</span>
+      <span className="hint">Answers appear in Contacts and in the lead.created webhook, and fill your CRM fields (a question named like a field, or the one you pick). Include an Email or Phone field so you can follow up. For applications, list the answers that mean “not a fit” — those applicants are saved as not qualified and see your “not a fit” message.</span>
     </div>
   );
 }
@@ -338,6 +352,7 @@ function Field({ def, value, onChange, props }) {
   if (key === 'logo') return <ImageField label="logo" value={value} onChange={onChange} hint={hint} aspect="1:1" />;
   if (kind === 'gallery') return <GalleryField value={value} onChange={onChange} />;
   if (kind === 'formfields') return <FormFieldsField value={value} onChange={onChange} />;
+  if (kind === 'crmfield') return <CrmFieldPick value={value} onChange={onChange} label={label} hint={hint} />;
   if (kind === 'quizquestions') return <QuizQuestionsField value={value} onChange={onChange} props={props} />;
   if (kind === 'quizoutcomes') return <QuizOutcomesField value={value} onChange={onChange} props={props} />;
   if (kind === 'calendar') return <div className="fld"><label>calendar</label><CalendarSelect value={value} onChange={onChange} />{hint && <span className="hint">{hint}</span>}</div>;

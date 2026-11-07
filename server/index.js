@@ -27,6 +27,7 @@ import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, pop
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm, ensureMeta } from './crm.js';
+import { answersToCustom, sourceToCustom, fillContact } from './crm-map.js';
 import { registerContactsMerge } from './contacts-merge.js';
 import { orderPage } from './orderlist.js';
 import { initMessaging, registerChannels, sendEmail, whatsappStatus } from './messaging.js';
@@ -1621,12 +1622,33 @@ app.post('/api/public/:slug/lead', (req, res) => {
     if (gift && cleanEmail && qualified !== false) access = deliver({ f, owner: ownerOf(f), email: cleanEmail, name: lead.name, phone: cleanPhone, grants: [{ productId: gift }], leadId: lead.id, base: appUrl(req) });
     fireWebhook(f.userId, 'lead.created', { funnel: f.name, ...out, ...(access ? { access: access.library } : {}) });
     if (quiz) quizDone(f, stepId, quizBlock, quiz, lead, visitorOf(req), String(source || 'direct').slice(0, 40));
+    toCrmFields(f, owner, formBlocks, fields, { quiz, quizBlock, qualified, lead });
     fireAutomation(f.userId, 'lead', { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id, source: lead.source, ...(qualified !== undefined ? { qualified } : {}), ...(access ? { accessLink: access.library } : {}) });
     trackServer(f.userId, { name: 'Lead', funnelId: f.id, id: eventId, buyer: lead, tk: cleanTk(req.body.tk, req) });
     notify(f.userId, { kind: 'lead', title: `${qualified === undefined ? 'New lead' : qualified ? 'New application (qualified)' : 'New application (not a fit)'} · ${lead.name || cleanEmail || cleanPhone} · ${f.name}`, body: [cleanEmail, cleanPhone].filter(Boolean).join(' · '), link: `/contacts/${encodeURIComponent(contactKey(cleanEmail, cleanPhone))}`, ckey: contactKey(cleanEmail, cleanPhone) });
   }
   res.json({ ok: true, eventId, ...(quiz ? { quiz: resultView(quizBlock, quiz) } : {}), ...(qualified !== false ? { pass: stepPass(f, 'lead') } : {}), ...(qualified !== undefined ? { qualified } : {}), ...(access ? { access: access.receipt } : {}), ...(webinar && !webinar.error ? { webinar } : {}) });
 });
+
+// the answers into the CRM's own fields (see crm-map.js): the questions the seller linked to a field ("Save to CRM
+// field") or named like one, the quiz result and score, where they came from — and "not a fit" applicants tagged so
+// they're easy to set aside. Changed fields and new tags start their automations like a change made by hand.
+function toCrmFields(f, owner, formBlocks, fields, { quiz, quizBlock, qualified, lead }) {
+  const key = contactKey(lead.email, lead.phone);
+  const defs = owner?.crmFields || [];
+  if (!key || (!defs.length && qualified !== false)) return;
+  const links = Object.fromEntries(formBlocks.filter((b) => b.type === 'form' || b.type === 'optin').flatMap((b) => (b.props?.fields || []).filter((fd) => fd.crmField && fd.label).map((fd) => [fd.label, fd.crmField])));
+  const answers = { ...fields };
+  if (quiz) {
+    answers['Quiz result'] = quiz.outcome; answers['Quiz score'] = quiz.score;
+    if (quizBlock.props?.crmField) links['Quiz result'] = quizBlock.props.crmField;
+    if (quizBlock.props?.crmScoreField) links['Quiz score'] = quizBlock.props.crmScoreField;
+  }
+  const { changed, added } = fillContact(f.userId, key, answersToCustom(defs, answers, links), { source: sourceToCustom(defs, [lead.attr?.utm_source, lead.attr?.fbclid && 'facebook', lead.attr?.gclid && 'google', lead.source].filter(Boolean).join(' ')), tags: qualified === false ? ['not a fit'] : [] });
+  const who = { email: lead.email, phone: lead.phone, name: lead.name, funnelId: f.id };
+  for (const fe of changed) fireAutomation(f.userId, 'field', { ...who, ...fe });
+  for (const tag of added) fireAutomation(f.userId, 'tag', { ...who, tag });
+}
 
 // a finished quiz: counted for the quiz report, its tags put on the contact, and the “finishes a quiz” automations
 function quizDone(f, stepId, block, quiz, lead, visitor, source) {
