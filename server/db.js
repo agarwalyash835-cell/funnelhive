@@ -117,6 +117,7 @@ const SCHEMA = {
   hiveFeedback: { cols: { userId: 0, at: 0 }, index: [['at']] }, // 👍 / 👎 on Hive replies, with the request and steps, for review (hive.js)
   hiveUndo: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // what each Hive reply changed, so it can be undone (hive.js)
   hiveUsage: { cols: { userId: 0, at: 0 }, index: [['at']] }, // Hive AI per account per day: turns, model calls, tokens (hive.js)
+  hiveActivity: { cols: { userId: 0, teammateId: 0, at: 0 }, index: [['userId', 'at'], ['at']] }, // every tool Hive ran, and each Confirm / Cancel, for the seller's activity log; 90 days (hive.js)
   partnerLedger: { cols: { partnerId: 0, at: 0 }, index: [['partnerId', 'at']] }, // a partner's wallet: top-ups in, account fees and AI usage out
   activity: { cols: { userId: 0, at: 0 }, index: [['userId', 'at']] }, // who changed what in an account
   apikeys: { cols: { userId: 0, hash: 0 }, unique: [['hash']], index: [['userId']] }, // public API keys (hashed)

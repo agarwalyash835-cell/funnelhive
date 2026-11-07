@@ -35,7 +35,7 @@ import { rzpCreds, createOrder as rzpCreateOrder, validPayment, validWebhook, re
 import { registerDomains, domainRouter, funnelUrl, domainOfFunnel , pagesSplit, pagesBase, sitemapUrls, sitemapXml, robotsTxt, noindexStep } from './domains.js';
 import { registerAutomations, fire as fireAutomation } from './automations.js';
 import { registerComposio } from './composio.js';
-import { registerHive } from './hive.js';
+import { registerHive, pendingCount } from './hive.js';
 import { registerBilling, accessFor, lockedOut, newBilling, spendCredits, creditsShort, usageSummary, AI_COST, pricing } from './billing.js';
 import { platform, isAdmin, adminLevel, brand, publicCompany } from './platform.js';
 import { registerAdmin } from './admin.js';
@@ -535,6 +535,7 @@ app.get('/api/me', auth, (req, res) => {
       ship: q("SELECT COUNT(*) AS n FROM orders WHERE userId = ? AND json_extract(data, '$.fulfilment.status') = 'pending' AND json_extract(data, '$.status') NOT IN ('cancelled', 'refunded')").get(req.user.id).n,
       calls: T.bookings.count({ userId: req.user.id, status: 'confirmed', start: { gte: Date.now(), lte: Date.now() + 86400000 } }),
       unread: unreadCount(req.user.id), // notifications (the bell)
+      approvals: pendingCount(req.user.id), // Hive actions waiting for the seller's OK (the Hive AI item's badge)
       chats: q("SELECT COUNT(*) AS n FROM waconvs WHERE userId = ? AND status <> 'resolved' AND IFNULL(json_extract(data, '$.unread'), 0) > 0").get(req.user.id).n, // unread WhatsApp chats (the phone's Inbox tab)
       industry: s.crmKit?.id || null, // the menu starts from the business's industry (its CRM kit)
       hidden: hiddenModules(req.user), // industry tools this business doesn't use, unless switched on (modules.js)

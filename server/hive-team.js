@@ -68,6 +68,7 @@ export function cleanMate(b = {}, cur = {}, groups = []) {
   if ('groups' in b) out.groups = [...new Set((Array.isArray(b.groups) ? b.groups : []).filter((g) => groups.includes(g)))];
   if ('core' in b) out.core = !!b.core;
   if ('askFirst' in b) out.askFirst = !!b.askFirst;
+  if ('pinned' in b) out.pinned = !!b.pinned; // shown first in the team list
   if ('preset' in b && !cur.preset) out.preset = clip(b.preset, 20);
   if ('schedule' in b) {
     const s = b.schedule || {}, was = cur.schedule || {};

@@ -1,7 +1,7 @@
 // Hive teammates: the seller's AI specialists (Sales Manager, Accountant…) — the list beside Hive's chats, and
 // the dialog to hire, change, schedule and let them go. The server keeps them (/api/hive/team, hive-team.js).
 import { useEffect, useState } from 'react';
-import { Plus, Clock, Play, Trash2, ArrowLeft, Users } from 'lucide-react';
+import { Plus, Clock, Play, Trash2, ArrowLeft, Users, Pin } from 'lucide-react';
 import { api } from '../api';
 import { Modal, toast, confirmDialog } from '../ui';
 
@@ -13,15 +13,18 @@ export const when = (s) => {
   return `${d} at ${s.time}`;
 };
 
-// the team beside the chats: pick one to start a chat with them
-export function TeamSide({ team, mate, onPick, onManage, disabled }) {
+// pinned teammates first (the server sends them that way too; kept here for lists changed on the page)
+const pinnedFirst = (team) => [...team.filter((m) => m.pinned), ...team.filter((m) => !m.pinned)];
+// the team beside the chats: pick one to start a chat with them; a dot = a task reply not opened yet
+export function TeamSide({ team, mate, onPick, onManage, disabled, unread = new Set() }) {
   return (
     <div className="hv-team">
       <small className="hv-tlabel">Your AI team</small>
-      {team.map((m) => (
+      {pinnedFirst(team).map((m) => (
         <button key={m.id} className={`hv-mate ${mate?.id === m.id ? 'on' : ''}`} style={{ '--mc': m.color }} onClick={() => onPick(m)} disabled={disabled} title={m.role}>
           <span className="hv-mate-e" aria-hidden="true">{m.emoji}</span>
-          <span className="hv-mate-t"><b>{m.name}</b><small>{m.schedule?.on ? <><Clock size={10} /> {when(m.schedule)}</> : m.role}</small></span>
+          <span className="hv-mate-t"><b>{m.name}</b><small>{m.pinned && <Pin size={10} />}{m.schedule?.on ? <><Clock size={10} /> {when(m.schedule)}</> : m.role}</small></span>
+          {unread.has(m.id) && <i className="hv-unread" title="New report you haven’t opened" aria-label="New report" />}
         </button>
       ))}
       <button className="hv-mate add" onClick={onManage} disabled={disabled}><span className="hv-mate-e"><Users size={14} /></span><span className="hv-mate-t"><b>{team.length ? 'Manage team' : 'Hire AI teammates'}</b><small>{team.length ? 'Hire, change or schedule' : 'Sales, accounts, marketing…'}</small></span></button>
@@ -88,6 +91,7 @@ export function TeamDialog({ onClose, onChanged, onRun, editId = null }) {
               {data.groups.map((g) => <button type="button" key={g.id} className={edit.groups?.includes(g.id) ? 'on' : ''} onClick={() => set('groups', toggle(edit.groups || [], g.id))} title={g.about}>{g.id.replace('_', ' ')}</button>)}
             </div>
           </div>
+          <label className="tog"><input type="checkbox" checked={!!edit.pinned} onChange={(e) => set('pinned', e.target.checked)} /><span /><div><b>Pin to the top</b> — shown first in your AI team list.</div></label>
           <label className="tog"><input type="checkbox" checked={!!edit.askFirst} onChange={(e) => set('askFirst', e.target.checked)} /><span /><div><b>Ask before every change</b> — reading is free; anything they save, send or change waits for your Confirm.</div></label>
 
           <div className="hv-tm-sched">
@@ -117,7 +121,7 @@ export function TeamDialog({ onClose, onChanged, onRun, editId = null }) {
         <p className="muted sm">Specialists who work inside Hive with only the tools their job needs. Give them a regular task and they report to you every day — anything they’d change waits for your OK.</p>
         {data.team.length > 0 && <>
           <h4>Your team</h4>
-          <div className="hv-tm-grid">{data.team.map((m) => (
+          <div className="hv-tm-grid">{pinnedFirst(data.team).map((m) => (
             <button key={m.id} className="hv-tm-card" style={{ '--mc': m.color }} onClick={() => setEdit(structuredClone(m))}>
               <span className="hv-mate-e">{m.emoji}</span><b>{m.name}</b><small>{m.role}</small>
               {m.schedule?.on && <em><Clock size={11} /> {when(m.schedule)}</em>}
