@@ -95,3 +95,16 @@ test('giving a course by hand to someone who already has it keeps one enrolment 
   assert.equal(after.length, before.length, 'no second copy of the course');
   assert.equal(after[0].done, before[0].done, 'progress kept');
 });
+
+test('give a course by email (with a Confirm, marked as reaching a person); an empty settings change makes no card', async () => {
+  assert.match(H.needsOk('give_course_access', { productId: course.id, email: 'team@x.in' }), /Give team@x.in access to this course \(they get an email/);
+  assert.equal(H.riskOf('give_course_access', {}), 'external');
+  const r = await run('give_course_access', { productId: course.id, email: 'team@x.in', name: 'Team', notify: false });
+  assert.equal(r.ok, true);
+  const s = (await api('/school/students', 'GET', null, T)).data;
+  const got = (await api(`/products/${course.id}/grant`, 'POST', { email: 'team@x.in', notify: false }, T)).data;
+  assert.ok(got.library, 'they have a library link');
+  assert.equal(H.needsOk('academy_settings', {}), null, 'nothing to change: no Confirm card');
+  await assert.rejects(run('academy_settings', {}), /Say which setting/);
+  assert.ok(Array.isArray(s));
+});

@@ -3003,3 +3003,15 @@ a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
 .hv-file button { border: 0; background: none; padding: 0; display: grid; cursor: pointer; color: var(--c-muted); }
 .hv-attach { border: 0; background: none; padding: 6px; border-radius: 8px; cursor: pointer; color: var(--c-muted); display: grid; }
 .hv-attach:hover:not(:disabled) { background: var(--c-surface-2); color: var(--c-ink); }
+
+/* Hive: the panel keeps its height — the chat list scrolls inside it — so the message box always stays in view */
+.hive { grid-template-rows: minmax(0, 1fr); }
+.hv-threads { min-height: 0; overflow-y: auto; }
+.hv-chat, .hv-prev, .hv-msgs { min-height: 0; }
+.hv-drawer-bg { display: none; }
+@media (max-width: 1100px) {
+  .hive { position: relative; }
+  .hive.drawer-open .hv-threads { display: flex; visibility: visible; position: absolute; top: 0; bottom: 0; left: 0; width: min(300px, 86%); z-index: 6; padding: 14px 12px; box-shadow: 0 20px 50px -10px rgba(0, 0, 0, .35); }
+  .hive.drawer-open .hv-drawer-bg { display: block; position: absolute; inset: 0; z-index: 5; border: 0; padding: 0; background: rgba(15, 12, 9, .35); cursor: pointer; }
+}
+@media (max-width: 760px) { .hv-newchat { padding: 4px 8px; } .hv-chat-h .hv-state { display: none; } }

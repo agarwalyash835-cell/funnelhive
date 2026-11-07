@@ -68,8 +68,17 @@ export const TOOLS = [
   {
     name: 'academy_settings', description: 'Change the Academy’s settings (waits for the seller’s Confirm): name, tagline, welcome message, language (en, hi, mr, gu, bn, ta, te, kn, ml, pa, or, hinglish), open sign-up, AI tutor, and protection — noDownloads (nothing can be saved), watermark (off / subtle / strong), appOnly (on Android, lessons play only in the AiHive Academy app). Only send what changes.',
     schema: S({ name: str('Academy name'), tagline: str('One line under the name'), welcome: str('Welcome message'), lang: str('Language code'), openJoin: { type: 'boolean' }, tutor: { type: 'boolean' }, noDownloads: { type: 'boolean' }, watermark: { type: 'string', enum: ['off', 'subtle', 'strong'] }, appOnly: { type: 'boolean' } }),
-    run: async (ctx, a) => { const s = await ctx.call('PUT', '/school/settings', a); return { ok: true, settings: { name: s.name, lang: s.lang, openJoin: s.openJoin, tutor: s.tutor, noDownloads: s.noDownloads, watermark: s.watermark, appOnly: s.appOnly } }; },
+    run: async (ctx, a) => { if (!Object.keys(a || {}).length) throw new Error('Say which setting to change'); const s = await ctx.call('PUT', '/school/settings', a); return { ok: true, settings: { name: s.name, lang: s.lang, openJoin: s.openJoin, tutor: s.tutor, noDownloads: s.noDownloads, watermark: s.watermark, appOnly: s.appOnly } }; },
     summary: (r, a) => `Changed the Academy settings (${Object.keys(a).join(', ')})`,
+  },
+  {
+    name: 'give_course_access', description: 'Give someone a course (or any product) directly by email — a team member who wants to check it, a guest, a buyer who paid offline. They get it in their Academy library; notify sends them an email with the link. Use this instead of coupons, checkouts or price changes. Waits for the seller’s Confirm.',
+    schema: S({ productId: str('Course (product) id from school_overview / list_products'), email: str('Their email'), name: str('Their name (optional)'), notify: { type: 'boolean', description: 'Email them the link (default true)' } }, ['productId', 'email']),
+    run: async (ctx, a) => {
+      const r = await ctx.call('POST', `/products/${encodeURIComponent(a.productId)}/grant`, { email: a.email, name: a.name || '', notify: a.notify !== false });
+      return { ok: true, email: a.email, library: r.library, emailed: a.notify !== false };
+    },
+    summary: (r) => `Gave ${r.email} access${r.emailed ? ' and emailed them the link' : ''}`,
   },
   {
     name: 'edit_course', description: 'Edit an existing course’s lessons: rename the course; rename lessons or move them between modules (section); drip (dripDays after joining); level gate (minLevel 1–9); free preview; reorder (order = all lesson ids in the new order); remove lessons (waits for Confirm). Get lesson ids from get_course first. Lesson text, videos and files stay as they are.',
@@ -97,7 +106,8 @@ export const TOOLS = [
 // the Confirm card's line: students see these, settings change, or lessons go
 export const OK = {
   answer_question: (a) => `Answer a student’s question: “${clip(a.answer, 80)}${String(a.answer || '').length > 80 ? '…' : ''}”`,
+  give_course_access: (a) => `Give ${clip(a.email, 80)} access to this course${a.notify === false ? '' : ' (they get an email with the link)'}`,
   reply_to_post: (a) => `Reply in your community: “${clip(a.text, 80)}${String(a.text || '').length > 80 ? '…' : ''}”`,
-  academy_settings: (a) => `Change Academy settings: ${Object.entries(a).map(([k, v]) => `${k} → ${typeof v === 'string' ? clip(v, 40) : v}`).join(', ')}`,
+  academy_settings: (a) => (!Object.keys(a || {}).length ? null : `Change Academy settings: ${Object.entries(a).map(([k, v]) => `${k} → ${typeof v === 'string' ? clip(v, 40) : v}`).join(', ')}`),
   edit_course: (a) => (a.remove?.length ? `Edit the course and DELETE ${a.remove.length} lesson${a.remove.length === 1 ? '' : 's'} (students lose their progress in them)` : null),
 };

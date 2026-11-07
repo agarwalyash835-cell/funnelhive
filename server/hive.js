@@ -885,7 +885,7 @@ export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
 // how much an action can do, for the approvals list and the activity log: read (looks only), write (changes the
 // seller's own account), external (reaches customers or other systems — sends, replies, posts, ad accounts, webhooks)
-const EXTERNAL = new Set(['send_broadcast', 'answer_question', 'reply_to_post', 'connect_webhook', 'remind_tally_bill', 'post_to_community', 'invite_team_member']);
+const EXTERNAL = new Set(['send_broadcast', 'answer_question', 'reply_to_post', 'connect_webhook', 'remind_tally_bill', 'post_to_community', 'invite_team_member', 'give_course_access']);
 export const riskOf = (name, args = {}) => (EXTERNAL.has(name) || (name === 'run_app_action' && !readOnlyAction(args?.slug)) ? 'external'
   : (readsOnly(name) || name === 'run_app_action') && !needsOk(name, args) ? 'read' : 'write');
 
@@ -918,6 +918,7 @@ How to work:
 - Several independent changes → make all the tool calls, then reply once.
 - You start with the funnel-building tools. If the tool you need isn't in your list (checkout, CRM, automations, broadcasts, calls, quotes, ads, school, website, account), call use_tools with its group first.
 - Publish only when the user asks to go live. Remove pages or sections only when asked.
+- Do exactly what was asked, with the smallest change that does it. Never change prices, checkouts, coupons, live pages, automations or settings the user didn’t ask about — if something else looks worth changing, suggest it in your reply instead. Giving someone a course → give_course_access (never a free coupon or a checkout change).
 - Selling → configure_checkout: price & currency (₹ = Razorpay/UPI; $ € £ etc. = Stripe for buyers abroad), memberships (billing monthly/yearly), EMI-style payment plans (installments), order bump, shipping + Cash on Delivery for physical products, and the product delivered after payment (create_product / list_products first).
 - Calls → create_calendar for a NEW call type (start from the seller's industry template: site visit, appointment, demo class, test drive…), configure_calendar to change one (hours, duration, time zone, meeting link, price and currency for paid calls, refund window); list_bookings. Webinars → configure_webinar (schedule, time zone, joining link, replay, reminders).
 - Numbers → get_sales (revenue, refunds, ROAS by campaign, COD to collect, orders to ship, failing payment plans) or get_analytics (traffic and conversion).

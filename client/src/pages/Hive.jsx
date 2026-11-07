@@ -220,8 +220,11 @@ export default function Hive() {
   };
   useEffect(() => { loadFunnel(funnelId); }, [funnelId]);
 
+  const [drawer, setDrawer] = useState(false); // the chat list on tablets and phones
+  const narrow = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1100px)').matches;
   const openThread = async (id) => {
     if (busy) return;
+    setDrawer(false);
     setTid(id); setLive(null); setMob('chat'); setElsewhere(false); stick.current = true;
     if (!id) { setMsgs([]); setFunnelId(null); setMate(null); return; }
     const t = await api(`/hive/threads/${id}`);
@@ -323,12 +326,13 @@ export default function Hive() {
   const empty = !msgs.length && !live;
   const composer = (
     <Composer ready={ready} busy={busy} prefill={prefill} focusKey={tid} onSend={send} onStop={() => abort.current?.abort()}
-      placeholder={ready === false ? 'Hive AI isn’t switched on yet' : mate ? `Ask ${mate.name}…` : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
+      placeholder={ready === false ? 'Hive AI isn’t switched on yet' : msgs.length ? `Reply to ${mate ? mate.name : 'Hive'}…` : mate ? `Ask ${mate.name}…` : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
   );
 
   return (
     <Layout title={<span className="hv-title"><Sparkles size={20} /> Hive AI</span>} subtitle="Describe it — Hive builds the funnel, pages, offers and automations while you watch." wide>
-      <div className={`hive ${side ? '' : 'no-side'} ${funnel ? 'with-prev' : 'no-prev'} ${empty ? 'is-empty' : ''} mob-${mob}`}>
+      <div className={`hive ${side ? '' : 'no-side'} ${funnel ? 'with-prev' : 'no-prev'} ${empty ? 'is-empty' : ''} mob-${mob} ${drawer ? 'drawer-open' : ''}`}>
+        {drawer && <button className="hv-drawer-bg" aria-label="Close chats" onClick={() => setDrawer(false)} />}
         <aside className="hv-threads">
           <button className="hv-new" onClick={() => openThread(null)} disabled={busy}><Plus size={15} /> New chat</button>
           <TeamSide team={team} unread={unreadMates} mate={!tid ? mate : null} disabled={busy} onPick={(m) => { openThread(null).then(() => setMate(m)); }} onManage={() => setManage({})} />
@@ -348,9 +352,10 @@ export default function Hive() {
 
         <section className="hv-chat">
           <div className="hv-chat-h">
-            <button className="icon-btn" title={side ? 'Hide chats' : 'Show chats'} aria-label={side ? 'Hide chats' : 'Show chats'} onClick={() => setSide(!side)}><PanelLeft size={17} /></button>
+            <button className="icon-btn" title={narrow ? 'Chats' : side ? 'Hide chats' : 'Show chats'} aria-label={narrow ? 'Chats' : side ? 'Hide chats' : 'Show chats'} onClick={() => (window.matchMedia('(max-width: 1100px)').matches ? setDrawer((d) => !d) : setSide(!side))}><PanelLeft size={17} /></button>
             <b>{mate && <span className="hv-mate-tag" style={{ '--mc': mate.color }}>{mate.emoji} {mate.name}</span>}{threads.find((t) => t.id === tid)?.title || (mate ? '' : 'New chat')}</b>
             {mate && <button className="btn ghost sm" onClick={() => setManage({ editId: mate.id })}>Settings</button>}
+            {(tid || msgs.length > 0) && <button className="btn ghost sm hv-newchat" onClick={() => openThread(null)} disabled={busy} title="End this chat and start a new one (this one stays in your list)"><Plus size={14} /> New chat</button>}
             {status?.provider && <span className="hv-prov" title="Only you (the platform owner) see this">{status.provider}</span>}
             <span className={`hv-state ${ready ? 'on' : ''}`}><i />{ready ? 'Hive AI' : 'Offline'}</span>
           </div>
