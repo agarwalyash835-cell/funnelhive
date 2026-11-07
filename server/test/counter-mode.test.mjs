@@ -116,3 +116,29 @@ test('sales staff use counter mode: catalog, bills with a clientId; only the own
   assert.equal(s.status, 200, JSON.stringify(s.data));
   assert.equal((await api(`${P}/counter/catalog`, 'GET', null, sales)).data.settings.upi_id, 'shop.name@okhdfcbank');
 });
+
+test('offline pricing matches the server: the customer’s own rate list, and GST-inclusive (MRP) items', async () => {
+  const { priceOffline } = await import('../../client/src/counter/pricing.js');
+  const rice = await newItem('Offline rice', { sale_rate: 100, gst_percent: 5 });
+  const mrp = await newItem('Offline MRP soap', { sale_rate: 40, gst_percent: 18, tax_inclusive: true });
+  await stockIn(rice, 50); await stockIn(mrp, 50);
+  const list = (await api(`${P}/ratelists`, 'POST', { name: 'Offline wholesale', rates: { [rice.id]: 80 } }, owner)).data;
+  assert.equal((await api(`${P}/credit`, 'PUT', { party_name: 'Ravi Traders', limit: 100000, ratelistId: list.id }, owner)).status, 200);
+  const cat = (await api(`${P}/counter/catalog`, 'GET', null, owner)).data;
+  assert.ok(cat.parties.some((p) => p.ratelistId === list.id));
+  assert.equal(cat.items.find((i) => i.id === mrp.id).tax_inclusive, true);
+  for (const body of [
+    { lines: [{ itemId: rice.id, qty: 2 }, { itemId: mrp.id, qty: 3 }], party_name: 'Ravi Traders' },
+    { lines: [{ itemId: rice.id, qty: 2 }, { itemId: mrp.id, qty: 3 }], party_name: 'ravi traders ' },
+    { lines: [{ itemId: rice.id, qty: 2 }, { itemId: mrp.id, qty: 3 }] },
+  ]) {
+    const server = (await api(`${P}/bills/preview`, 'POST', body, owner)).data, phone = priceOffline(cat, body);
+    assert.equal(phone.total, server.total, JSON.stringify(body));
+    assert.deepEqual(phone.lines.map((l) => [l.rate, l.taxable, l.gst, l.amount]), server.lines.map((l) => [l.rate, l.taxable, l.gst, l.amount]));
+  }
+  assert.equal(priceOffline(cat, { lines: [{ itemId: rice.id, qty: 1 }], party_name: 'Ravi Traders' }).total, 84, 'their list: ₹80 + 5%');
+  assert.equal(priceOffline(cat, { lines: [{ itemId: mrp.id, qty: 1 }] }).total, 40, 'the MRP, not MRP + GST');
+  // a card payment is kept on the bill
+  const b = await api(`${P}/bills`, 'POST', { clientId: cid(), lines: [{ itemId: mrp.id, qty: 1 }], pay_mode: 'card' }, owner);
+  assert.equal(b.data.pay_mode, 'card');
+});

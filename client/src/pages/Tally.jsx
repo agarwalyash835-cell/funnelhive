@@ -9,7 +9,7 @@ import '../tally-insights.css';
 const TABS = [['overview', 'Overview'], ['ledgers', 'Ledgers'], ['vouchers', 'Vouchers'], ['outstandings', 'Bills'], ['stock', 'Stock'], ['masters', 'Units & godowns'], ['activity', 'Activity']];
 const VSTATUS = { POSTED: ['Posted', 'ok'], DUE: ['Overdue', 'bad'], CANCELLED: ['Cancelled', ''], OPTIONAL: ['Optional', 'info'] };
 const BSTATUS = { PENDING: ['Pending', 'info'], PARTIAL: ['Part paid', 'warn'], OVERDUE: ['Overdue', 'bad'], PAID: ['Paid', 'ok'], CANCELLED: ['Cancelled', ''] };
-const CSTATUS = { PENDING: ['Waiting for your PC', 'info'], SENT: ['Running in Tally', 'info'], SUCCESS: ['Done', 'ok'], FAILED: ['Tally refused', 'bad'], EXPIRED: ['Not picked up', 'warn'] };
+const CSTATUS = { PENDING: ['Waiting for your PC', 'info'], SENT: ['Running in Tally', 'info'], SUCCESS: ['Done', 'ok'], FAILED: ['Tally refused', 'bad'], EXPIRED: ['Not picked up', 'warn'], UNCONFIRMED: ['Check in Tally', 'warn'] };
 const CNAME = { CREATE_LEDGER: 'New ledger', ALTER_LEDGER: 'Edit ledger', DELETE_LEDGER: 'Delete ledger', CREATE_VOUCHER: 'New voucher', CREATE_RECEIPT: 'New receipt', CREATE_PAYMENT: 'New payment', ALTER_VOUCHER: 'Edit voucher', CANCEL_VOUCHER: 'Cancel voucher', DELETE_VOUCHER: 'Delete voucher', CREATE_STOCK_ITEM: 'New stock item', ALTER_STOCK_ITEM: 'Edit stock item', DELETE_STOCK_ITEM: 'Delete stock item', CREATE_STOCK_JOURNAL: 'Stock transfer', CREATE_UNIT: 'New unit', ALTER_UNIT: 'Edit unit', DELETE_UNIT: 'Delete unit', CREATE_GODOWN: 'New godown', ALTER_GODOWN: 'Edit godown', DELETE_GODOWN: 'Delete godown', SYNC_FULL: 'Full sync', SYNC_VOUCHERS: 'Sync vouchers', SYNC_LEDGERS: 'Sync ledgers' };
 const money = (v) => (v == null ? '—' : inr(Math.abs(Number(v))));
 // Tally keeps balances signed: Dr is negative in its export
@@ -25,7 +25,7 @@ async function runInTally(type, payload, label) {
     await new Promise((r) => setTimeout(r, 2000));
     try { c = await api(`/tally/commands/${c.id}`); } catch { continue; }
     if (c.status === 'SUCCESS') { toast(`${label || CNAME[type] || 'Change'} saved in Tally`); return c; }
-    if (['FAILED', 'EXPIRED'].includes(c.status)) { toast(c.error_message || 'Tally didn’t accept the change'); return null; }
+    if (['FAILED', 'EXPIRED', 'UNCONFIRMED'].includes(c.status)) { toast(c.error_message || 'Tally didn’t accept the change'); return null; }
   }
   toast('Your PC hasn’t answered yet — check the Activity tab in a minute');
   return null;
@@ -403,6 +403,7 @@ function TallySettings({ onClose }) {
           <label>Then every (days)<input type="number" min="1" max="60" value={r.everyDays} onChange={(e) => setR({ everyDays: e.target.value })} /></label>
           <label className="full">Send by<select value={r.channel} onChange={(e) => setR({ channel: e.target.value })}><option value="both">WhatsApp and email</option><option value="whatsapp">WhatsApp</option><option value="email">Email</option></select></label>
         </div>}
+        {r.on && v.held && <p className="hint bad-t">Automatic reminders are paused: your bills last came in from Tally {v.held.syncedAt ? ago(v.held.syncedAt) : 'more than a day ago'}, so a customer may have paid since. Open TallyPrime and the connector on your PC — reminders start again after the next sync.</p>}
         <label>How customers pay you <small className="muted">· added to reminder emails</small><textarea rows={3} value={v.payNote} onChange={(e) => setV({ ...v, payNote: e.target.value })} placeholder={'UPI: yourname@okhdfc\nBank: HDFC Bank, A/c 50200012345678, IFSC HDFC0001234'} /></label>
         <p className="hint">WhatsApp reminders use the “Payment reminders” template — create it under Settings → WhatsApp → Create my message templates, and Meta approves it in a few minutes.</p>
         <div className="m-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save}>Save</button></div>
@@ -419,7 +420,7 @@ function Activity({ rev }) {
   const tone = (st) => ({ ok: 'ok', bad: 'bad', warn: 'warn' }[st] || 'info');
   return (
     <>
-      {c && <Strip items={[['Saved in Tally', count(['SUCCESS']), 'of the last 50 changes', 'check', 'in'], ['Waiting', count(['PENDING', 'SENT']), 'for your PC', 'clock', count(['PENDING', 'SENT']) ? 'out' : ''], ['Refused', count(['FAILED', 'EXPIRED']), 'see why below', 'x', count(['FAILED', 'EXPIRED']) ? 'bad' : ''], runs && ['Last sync', runs[0] ? ago(runs[0].at) : 'never', runs[0] ? `${runs[0].status.toLowerCase()}` : 'from your PC', 'download']]} />}
+      {c && <Strip items={[['Saved in Tally', count(['SUCCESS']), 'of the last 50 changes', 'check', 'in'], ['Waiting', count(['PENDING', 'SENT']), 'for your PC', 'clock', count(['PENDING', 'SENT']) ? 'out' : ''], ['Refused', count(['FAILED', 'EXPIRED', 'UNCONFIRMED']), 'see why below', 'x', count(['FAILED', 'EXPIRED', 'UNCONFIRMED']) ? 'bad' : ''], runs && ['Last sync', runs[0] ? ago(runs[0].at) : 'never', runs[0] ? `${runs[0].status.toLowerCase()}` : 'from your PC', 'download']]} />}
       <div className="tl-two">
         <Panel title="Changes sent to Tally">
           {!c ? <div className="skeleton" /> : !c.length ? <Empty icon="send" title="Nothing sent yet" text="Vouchers, ledgers and stock items you create here — or ask Hive to — show up here as they’re saved in TallyPrime." /> : (
@@ -595,12 +596,17 @@ function VoucherForm({ s, onClose, onDone }) {
   const taxable = withItems && v.items.length ? itemTotal : Number(v.amount) || 0;
   const gstAmt = gstOn ? Math.round(taxable * (Number(v.gst_percent) || 0)) / 100 : 0;
   const setItem = (k, p) => set({ items: v.items.map((i, j) => (j === k ? { ...i, ...p } : i)) });
+  // IGST when the party's state (its Tally ledger) isn't the business's own — a default the seller can change
+  const stateKey = (x) => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
+  const partyRow = (names.ledgers || []).find((l) => l.name.toLowerCase() === v.party_name.trim().toLowerCase());
+  const autoInter = s.homeState && partyRow?.state ? stateKey(partyRow.state) !== stateKey(s.homeState) : null;
+  const inter = v.interstate ?? autoInter ?? false;
   const offsetHint = { Sales: 'Sales account (e.g. Sales Account)', Purchase: 'Purchase account (e.g. Purchase Account)', Receipt: 'Cash or bank it came into', Payment: 'Cash or bank it was paid from', 'Credit Note': 'Sales account', 'Debit Note': 'Purchase account' }[v.voucher_type];
   const submit = () => {
     const items = v.items.filter((i) => i.stock_item_name && Number(i.quantity) > 0).map(({ matched, ...i }) => ({ ...i, quantity: Number(i.quantity), rate: Number(i.rate) || 0 }));
     const p = { voucher_type: v.voucher_type, date: v.date, narration: v.narration || undefined, reference_number: v.reference_number || undefined, ...(v.source ? { voucher_source: v.source } : {}) };
     if (twoLedgers) Object.assign(p, { debit_ledger: v.debit_ledger, credit_ledger: v.credit_ledger, amount: Number(v.amount) });
-    else Object.assign(p, { party_name: v.party_name, offset_ledger: v.offset_ledger || undefined, ...(items.length ? { items } : { amount: Number(v.amount) }), ...(v.bill_number ? { bill_number: v.bill_number, bill_type: ['Receipt', 'Payment', 'Credit Note', 'Debit Note'].includes(v.voucher_type) ? 'Agst Ref' : 'New Ref' } : {}), ...(v.due_date ? { due_date: v.due_date } : {}), ...(gstOn && Number(v.gst_percent) > 0 ? { gst_percent: Number(v.gst_percent), interstate: !!v.interstate } : {}) });
+    else Object.assign(p, { party_name: v.party_name, offset_ledger: v.offset_ledger || undefined, ...(items.length ? { items } : { amount: Number(v.amount) }), ...(v.bill_number ? { bill_number: v.bill_number, bill_type: ['Receipt', 'Payment', 'Credit Note', 'Debit Note'].includes(v.voucher_type) ? 'Agst Ref' : 'New Ref' } : {}), ...(v.due_date ? { due_date: v.due_date } : {}), ...(gstOn && Number(v.gst_percent) > 0 ? { gst_percent: Number(v.gst_percent), interstate: v.interstate ?? autoInter ?? undefined } : {}) });
     go(v.voucher_type === 'Receipt' ? 'CREATE_RECEIPT' : v.voucher_type === 'Payment' ? 'CREATE_PAYMENT' : 'CREATE_VOUCHER', p, `${v.voucher_type} voucher`);
   };
   return (
@@ -620,7 +626,7 @@ function VoucherForm({ s, onClose, onDone }) {
           <label>Debit ledger<input list="tl-ledgers" value={v.debit_ledger} onChange={(e) => set({ debit_ledger: e.target.value })} required /></label>
           <label>Credit ledger<input list="tl-ledgers" value={v.credit_ledger} onChange={(e) => set({ credit_ledger: e.target.value })} required /></label>
         </> : <>
-          <label>Party<input list="tl-ledgers" value={v.party_name} onChange={(e) => set({ party_name: e.target.value })} placeholder="Customer or supplier ledger" required /></label>
+          <label>Party<input list="tl-ledgers" value={v.party_name} onChange={(e) => set({ party_name: e.target.value, interstate: undefined })} placeholder="Customer or supplier ledger" required /></label>
           <label>Against <small className="muted">· optional</small><input list="tl-ledgers" value={v.offset_ledger} onChange={(e) => set({ offset_ledger: e.target.value })} placeholder={offsetHint} /></label>
         </>}
       </div>
@@ -644,12 +650,12 @@ function VoucherForm({ s, onClose, onDone }) {
           <label>GST<select value={v.gst_percent ?? ''} onChange={(e) => set({ gst_percent: e.target.value })}>
             <option value="">No GST</option>{[0.25, 3, 5, 12, 18, 28, 40].map((r) => <option key={r} value={r}>{r}%</option>)}
           </select></label>
-          {Number(v.gst_percent) > 0 && <label className="tog"><input type="checkbox" checked={!!v.interstate} onChange={(e) => set({ interstate: e.target.checked })} /><span />Other state — IGST <small className="muted">· otherwise CGST + SGST</small></label>}
+          {Number(v.gst_percent) > 0 && <label className="tog"><input type="checkbox" checked={inter} onChange={(e) => set({ interstate: e.target.checked })} /><span />Other state — IGST <small className="muted">· otherwise CGST + SGST{v.interstate == null && autoInter != null ? ' · set from the party’s state' : ''}</small></label>}
         </>}
         <label className="full">Narration <small className="muted">· optional</small><input value={v.narration} onChange={(e) => set({ narration: e.target.value })} /></label>
       </div>
-      {gstAmt > 0 && <p className="tl-gst">{inr(taxable)} + {v.interstate ? 'IGST' : 'CGST + SGST'} {inr(gstAmt)} = <b>{inr(taxable + gstAmt)}</b></p>}
-      {gstOn && Number(v.gst_percent) > 0 && <p className="hint">Posted to your {v.voucher_type === 'Purchase' || v.voucher_type === 'Credit Note' ? 'Input' : 'Output'} {v.interstate ? 'IGST' : 'CGST and SGST'} ledgers under Duties &amp; Taxes in Tally.</p>}
+      {gstAmt > 0 && <p className="tl-gst">{inr(taxable)} + {inter ? 'IGST' : 'CGST + SGST'} {inr(gstAmt)} = <b>{inr(taxable + gstAmt)}</b></p>}
+      {gstOn && Number(v.gst_percent) > 0 && <p className="hint">Posted to your {v.voucher_type === 'Purchase' || v.voucher_type === 'Debit Note' ? 'Input' : 'Output'} {inter ? 'IGST' : 'CGST and SGST'} ledgers under Duties &amp; Taxes in Tally.</p>}
     </FormModal>
   );
 }

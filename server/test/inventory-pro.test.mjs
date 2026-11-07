@@ -485,3 +485,33 @@ test('GST tax invoices: plain bill without a GSTIN, CGST+SGST or IGST by place o
   assert.ok(j.doc_issue.doc_det.some((d) => d.doc_num === 1) && j.doc_issue.doc_det.some((d) => d.doc_num === 5));
   assert.ok(!j.b2b.concat(j.b2cl).some((x) => x.inv.some((i) => i.inum === plain.number)), 'a plain bill isn’t reported');
 });
+
+test('counter bills never sell from an expired batch: only expired left refuses the line (unless allowed); MRP items bill at the MRP', async () => {
+  const balm = item('Expired Balm', { gst_percent: 12, sale_rate: 60 });
+  stockIn(balm, 4, { batch: 'X1', expiry: day(-1) });
+  const no = await api(`${P}/bills`, 'POST', { lines: [{ itemId: balm.id, qty: 1 }] }, S);
+  assert.equal(no.status, 409);
+  assert.match(no.data.error, /Only expired stock left for Expired Balm/);
+  assert.equal(stockOf(balm.id), 4, 'nothing moved');
+  // some in date, the rest expired: the in-date units are not enough → refused, naming what's in date
+  stockIn(balm, 1, { batch: 'X2', expiry: day(40) });
+  const part = await api(`${P}/bills`, 'POST', { lines: [{ itemId: balm.id, qty: 3 }] }, S);
+  assert.equal(part.status, 409);
+  assert.match(part.data.error, /Only 1 pcs of Expired Balm is in date/);
+  const ok = await api(`${P}/bills`, 'POST', { lines: [{ itemId: balm.id, qty: 1 }] }, S);
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  const forced = await api(`${P}/bills`, 'POST', { lines: [{ itemId: balm.id, qty: 1 }], allowNegative: true }, S);
+  assert.equal(forced.status, 200, 'the seller may record a sale that already happened');
+  const left = batchesOf(balm.id);
+  assert.equal(left.X1, 4, 'the expired batch is untouched');
+
+  // GST-inclusive (MRP) with a 10% scheme: 10 × ₹100 less 10% = ₹900 exactly, GST backed out
+  const juice = item('MRP Juice', { gst_percent: 18, sale_rate: 100, tax_inclusive: true });
+  stockIn(juice, 50);
+  await api(`${P}/schemes`, 'POST', { itemId: juice.id, kind: 'PERCENT', pct: 10, min_qty: 10 }, S);
+  const c = (await api(`${P}/schemes/calc`, 'POST', { itemId: juice.id, qty: 10 }, S)).data;
+  assert.deepEqual([c.amount, c.taxable, c.gst, c.mrp, c.rate], [900, 762.71, 137.29, 100, 84.75]);
+  const b = (await api(`${P}/bills`, 'POST', { lines: [{ itemId: juice.id, qty: 2 }], schemes: false }, S)).data;
+  assert.equal(b.total, 200);
+});
+const batchesOf = (itemId) => Object.fromEntries(T.imoves.all({ userId: sellerId, itemId }).reduce((m, x) => m.set(x.batch, Math.round(((m.get(x.batch) || 0) + x.qty) * 1000) / 1000), new Map()));

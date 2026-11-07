@@ -599,6 +599,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
         Object.assign(c, await ctx.call('GET', `/tally/commands/${c.id}`));
       }
       if (c.status === 'FAILED' || c.status === 'EXPIRED') throw new Error(`Tally didn’t save it: ${c.error_message || 'the PC didn’t answer'}`);
+      if (c.status === 'UNCONFIRMED') return { sent: true, note: 'The Tally PC didn’t confirm it — check TallyPrime before entering it again, so it isn’t posted twice.' };
       return c.status === 'SUCCESS' ? { saved: true } : { sent: true, note: 'Sent to the seller’s Tally PC — still saving; the Activity tab on the Tally page shows the result.' };
     },
     summary: (r) => (r.saved ? 'Saved in Tally' : 'Sent the change to Tally'),

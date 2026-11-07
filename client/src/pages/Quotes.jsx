@@ -68,13 +68,18 @@ function QuoteEditor({ q: q0, onClose, onSaved }) {
   const set = (patch) => setQ({ ...q, ...patch });
   const setC = (patch) => setQ({ ...q, client: { ...q.client, ...patch } });
   const setItem = (i, patch) => setQ({ ...q, items: q.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) });
-  const total = q.items.reduce((s, i) => s + (i.optional ? 0 : (Number(i.qty) || 1) * (Number(i.price) || 0)), 0);
+  const lines = q.items.reduce((s, i) => s + (i.optional ? 0 : (Number(i.qty) || 1) * (Number(i.price) || 0)), 0);
+  // GST: 'auto' (a new quote) takes the account's usual rate on save; '' is no GST
+  const gstSel = q.gstRate === undefined ? (q.id ? '' : 'auto') : q.gstRate === null ? '' : String(q.gstRate);
+  const rate = /^d/.test(gstSel) ? Number(gstSel) : 0;
+  const gst = rate ? (q.taxIncl ? lines - lines / (1 + rate / 100) : (lines * rate) / 100) : 0;
+  const total = q.taxIncl ? lines : lines + gst;
   const addons = q.items.filter((i) => i.optional).reduce((s, i) => s + (Number(i.qty) || 1) * (Number(i.price) || 0), 0);
   const setDetail = (i, patch) => setQ({ ...q, details: (q.details || []).map((d, j) => (j === i ? { ...d, ...patch } : d)) });
   const save = async (send) => {
     setBusy(true);
     try {
-      const body = { client: q.client, title: q.title, intro: q.intro, items: q.items, currency: q.currency, deposit: q.deposit, terms: q.terms, taxNote: q.taxNote || '', design: q.design || 'classic', details: (q.details || []).filter((d) => d.label && d.value), accent: q.accent || '', ...(q.validDays !== '' ? { validDays: q.validDays } : {}) };
+      const body = { client: q.client, title: q.title, intro: q.intro, items: q.items, currency: q.currency, deposit: q.deposit, terms: q.terms, taxNote: q.taxNote || '', ...(gstSel !== 'auto' ? { gstRate: gstSel === '' ? null : Number(gstSel), taxIncl: !!q.taxIncl } : {}), design: q.design || 'classic', details: (q.details || []).filter((d) => d.label && d.value), accent: q.accent || '', ...(q.validDays !== '' ? { validDays: q.validDays } : {}) };
       const r = q.id ? await api(`/quotes/${q.id}`, 'PUT', body) : await api('/quotes', 'POST', body);
       if (send) { await api(`/quotes/${r.id}/send`, 'POST', {}); toast(`Sent to ${r.client.email}`); } else toast('Quote saved');
       onSaved(r);
@@ -109,18 +114,24 @@ function QuoteEditor({ q: q0, onClose, onSaved }) {
         <tbody>{q.items.map((it, i) => (
           <tr key={i}>
             <td><input value={it.name} onChange={(e) => setItem(i, { name: e.target.value })} placeholder="Strategy workshop" /><input className="sub-in" value={it.detail || ''} onChange={(e) => setItem(i, { detail: e.target.value })} placeholder="Details (optional)" /><label className="q-opt"><input type="checkbox" checked={!!it.optional} onChange={(e) => setItem(i, { optional: e.target.checked })} /> Optional add-on — the client can tick it on</label></td>
-            <td><input type="number" min="1" value={it.qty} onChange={(e) => setItem(i, { qty: e.target.value })} /></td>
+            <td><input type="number" min="0.001" step="any" value={it.qty} onChange={(e) => setItem(i, { qty: e.target.value })} /></td>
             <td><input type="number" min="0" value={it.price} onChange={(e) => setItem(i, { price: e.target.value })} /></td>
             <td className="r">{it.optional ? <span className="muted">+{fmtMoney((Number(it.qty) || 1) * (Number(it.price) || 0), q.currency)}</span> : fmtMoney((Number(it.qty) || 1) * (Number(it.price) || 0), q.currency)}</td>
             <td>{q.items.length > 1 && <button className="btn ghost sm" onClick={() => set({ items: q.items.filter((_, j) => j !== i) })}><Icon name="x" size={14} /></button>}</td>
           </tr>
         ))}</tbody>
-        <tfoot><tr><td colSpan={3}><button className="btn ghost sm" onClick={() => set({ items: [...q.items, { name: '', detail: '', qty: 1, price: 0 }] })}><Icon name="plus" size={14} /> Add item</button></td><td className="r"><b>{fmtMoney(total, q.currency)}</b>{addons > 0 && <small className="sub-t">+ up to {fmtMoney(addons, q.currency)} in add-ons</small>}</td><td /></tr></tfoot>
+        <tfoot><tr><td colSpan={3}><button className="btn ghost sm" onClick={() => set({ items: [...q.items, { name: '', detail: '', qty: 1, price: 0 }] })}><Icon name="plus" size={14} /> Add item</button></td><td className="r">{gst > 0 && <small className="sub-t">{q.taxIncl ? `incl. GST ${fmtMoney(gst, q.currency)}` : `${fmtMoney(lines, q.currency)} + GST ${fmtMoney(gst, q.currency)}`}</small>}<b>{fmtMoney(total, q.currency)}</b>{addons > 0 && <small className="sub-t">+ up to {fmtMoney(addons, q.currency)} in add-ons</small>}</td><td /></tr></tfoot>
       </table></div>
       <div className="form2">
         <label className="fld"><span>Currency</span><select value={q.currency} onChange={(e) => set({ currency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></label>
         <label className="fld"><span>Deposit to start <small className="muted">· % paid first, the rest later from the same link</small></span><select value={q.deposit} onChange={(e) => set({ deposit: Number(e.target.value) })}>{[...new Set([0, 10, 20, 25, 30, 40, 50, 60, 75, 100, Number(q.deposit) || 0])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d ? `${d}% (${fmtMoney((total * d) / 100, q.currency)})` : 'No deposit — pay in full'}</option>)}</select></label>
         <label className="fld"><span>Valid for</span><select value={q.validDays} onChange={(e) => set({ validDays: e.target.value })}>{q.id && <option value="">Keep {q.validUntil ? `(until ${fmtDate(q.validUntil)})` : '(no expiry)'}</option>}{[...(![7, 14, 30, 60, 0, ''].includes(Number(q.validDays)) && q.validDays !== '' ? [[Number(q.validDays), `${q.validDays} days`]] : []), [7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days'], [0, 'No expiry']].map(([d, l]) => <option key={d} value={d}>{l}</option>)}</select></label>
+      </div>
+      <div className="form2">
+        <label className="fld"><span>GST <small className="muted">· added to the total and shown on the client’s page and invoice</small></span><select value={gstSel} onChange={(e) => set({ gstRate: e.target.value === 'auto' ? undefined : e.target.value === '' ? null : Number(e.target.value) })}>
+          {!q.id && <option value="auto">My usual GST rate</option>}<option value="">No GST</option>{[0, 3, 5, 12, 18, 28, 40].map((r) => <option key={r} value={r}>{r}%</option>)}
+        </select></label>
+        <label className="fld"><span>Prices</span><select value={q.taxIncl ? 'incl' : 'excl'} onChange={(e) => set({ taxIncl: e.target.value === 'incl' })}><option value="excl">GST added on top</option><option value="incl">Already include GST</option></select></label>
       </div>
       <label className="fld"><span>GST / tax line <small className="muted">· shown under the total, e.g. “Exclusive of GST @18% (SAC 998311)”</small></span><input value={q.taxNote || ''} maxLength={300} onChange={(e) => set({ taxNote: e.target.value })} placeholder="Prices are exclusive of GST @18%" /></label>
       <label className="fld"><span>Terms <small className="muted">· payment, timelines, revisions, cancellation</small></span><textarea rows={q.terms?.length > 200 ? 6 : 3} value={q.terms} onChange={(e) => set({ terms: e.target.value })} /></label>

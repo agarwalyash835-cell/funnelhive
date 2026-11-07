@@ -334,7 +334,8 @@ function syncVouchers(agent, guid, records, rec0, before) {
   });
 }
 
-const outKey = (party, bill, type) => `${lname(party)}|${lname(bill)}|${type === 'PAYABLE' ? 'PAYABLE' : 'RECEIVABLE'}`;
+// bill numbers restart each April, so the bill's date is part of its key (a dateless bill keeps the old key)
+const outKey = (party, bill, type, date) => { const k = `${lname(party)}|${lname(bill)}|${type === 'PAYABLE' ? 'PAYABLE' : 'RECEIVABLE'}`, d = istDay(date); return d ? `${k}|${d}` : k; };
 function syncOutstandings(agent, guid, records, rec0, before, lastChunk = true) {
   const company = resolveCompany(agent, guid);
   return runSync(agent, 'OUTSTANDINGS', company.id, (c) => {
@@ -343,16 +344,20 @@ function syncOutstandings(agent, guid, records, rec0, before, lastChunk = true) 
     for (const rec of records) {
       const party = clip(rec.party_name), bill = clip(rec.bill_number, 200) || null;
       if (!party || (party === 'Unknown Party' && !bill)) continue;
-      const type = rec.bill_type === 'PAYABLE' ? 'PAYABLE' : 'RECEIVABLE', okey = outKey(party, bill, type);
+      const type = rec.bill_type === 'PAYABLE' ? 'PAYABLE' : 'RECEIVABLE', bdate = istDay(rec.bill_date), okey = outKey(party, bill, type, bdate);
       const ledger = T.tledgers.find({ companyId: company.id, lname: lname(party) });
       // the voucher that raised the bill (its New Ref allocation); voucher numbers repeat per type, so a bare number
-      // match must be the same party
+      // match must be the same party — and, when the number was used again in another year, the one dated as the bill
       let voucherId = null;
       if (bill) {
-        const alloc = T.tbills.all({ companyId: company.id, bname: lname(bill), btype: 'New Ref' }).find((a) => !ledger || a.ledger === lname(party));
-        voucherId = alloc?.voucherId || T.tvouchers.all({ companyId: company.id, vnum: bill }).find((v) => lname(v.party_name) === lname(party))?.id || null;
+        const dated = (v) => !bdate || v?.voucher_date === bdate;
+        const allocs = T.tbills.all({ companyId: company.id, bname: lname(bill), btype: 'New Ref' }).filter((a) => !ledger || a.ledger === lname(party));
+        const alloc = allocs.find((a) => dated(T.tvouchers.get(a.voucherId))) || allocs[0];
+        const vs = alloc ? [] : T.tvouchers.all({ companyId: company.id, vnum: bill }).filter((v) => lname(v.party_name) === lname(party));
+        voucherId = alloc?.voucherId || (vs.find(dated) || vs[0])?.id || null;
       }
-      const prev = T.touts.find({ companyId: company.id, okey });
+      // a row saved under the dateless key (before the date was part of it) is taken over, not left as a duplicate
+      const prev = T.touts.find({ companyId: company.id, okey }) || (bdate && T.touts.find({ companyId: company.id, okey: outKey(party, bill, type) })) || null;
       const due = istDay(rec.due_date), amount = magnitude(rec.amount), pending = magnitude(rec.pending_amount);
       T.touts.put({
         ...(prev || {}), id: prev?.id, userId: agent.userId, companyId: company.id, okey, party_name: party, party_email: clip(rec.party_email, 200) || ledger?.email || null, party_phone: clip(rec.party_phone, 80) || ledger?.phone || null,
@@ -362,9 +367,15 @@ function syncOutstandings(agent, guid, records, rec0, before, lastChunk = true) 
       });
       prev ? c.updated++ : c.created++;
     }
-    if (rec0) reconcile('touts', company.id, c, records, before, (r) => r.okey || outKey(r.party_name, r.bill_number, r.bill_type));
+    if (rec0) reconcile('touts', company.id, c, records, before, (r) => r.okey || outKey(r.party_name, clip(r.bill_number, 200), r.bill_type, r.bill_date));
     if (lastChunk) refreshVoucherDue(company.id); // reads every open bill: once per upload, not per chunk
   });
+}
+// when the company's bills last came in from Tally (a finished outstanding-bills sync); null when none in the 30 days kept
+export function outstandingsSyncedAt(company) {
+  const r = q("SELECT data FROM truns WHERE userId = ? AND json_extract(data, '$.companyId') = ? AND json_extract(data, '$.sync_type') = 'OUTSTANDINGS' AND json_extract(data, '$.status') IN ('SUCCESS', 'PARTIAL') ORDER BY at DESC LIMIT 1").get(company.userId, company.id);
+  const run = r && JSON.parse(r.data);
+  return run ? run.completedAt || run.at : null;
 }
 // a voucher is DUE while one of its own bills is unpaid and overdue; it fills a missing due date from them too
 function refreshVoucherDue(companyId) {
@@ -405,16 +416,22 @@ const syncGodowns = syncMasters('tgodowns', 'GODOWNS', (r) => ({ parent: cleanTe
 const syncStockItems = syncMasters('tstock', 'STOCK_ITEMS', (r) => ({ parent: cleanText(r.parent), category: cleanText(r.category), base_units: clip(r.base_units, 120) || null, opening_balance: num(r.opening_balance), opening_value: num(r.opening_value), closing_balance: num(r.closing_balance), closing_value: num(r.closing_value), last_sale_rate: num(r.last_sale_rate), last_purchase_rate: num(r.last_purchase_rate) }));
 
 // ---------- the command queue ----------
+// a command already sent goes again (the PC restarted, or its answer was lost) only when a second run can't double it:
+// reads, and voucher writes carrying our import id (Tally matches REMOTEID). A stock journal has none in the connector's
+// XML, and a master or a delete would be refused the second time — those wait for their answer (expireOld)
+const resendable = (r) => r.status === 'PENDING' || !WRITE_RE.test(r.command_type) || (!!r.payload?.remote_id && !r.command_type.startsWith('DELETE_'));
+const UNCONFIRMED_MS = 5 * 60000; // the connector gives Tally 3 minutes, then retries its report
 function pendingFor(agent, limit = 10) {
   expireOld();
-  const rows = T.tcommands.all({ agentId: agent.id, status: ['PENDING', 'SENT'] }, { order: 'priority, at', limit: Math.min(Number(limit) || 10, 50) }).filter((r) => !r.expiresAt || r.expiresAt > Date.now());
+  const rows = T.tcommands.all({ agentId: agent.id, status: ['PENDING', 'SENT'] }, { order: 'priority, at', limit: 100 }).filter((r) => (!r.expiresAt || r.expiresAt > Date.now()) && resendable(r)).slice(0, Math.min(Number(limit) || 10, 50));
   for (const r of rows) if (r.status === 'PENDING') T.tcommands.update(r.id, (x) => { x.status = 'SENT'; x.sentAt = Date.now(); });
   return rows.map((r) => ({ command_id: r.id, command_type: r.command_type, payload: r.payload || {} }));
 }
 function submitResult(agent, id, b) {
   const cmd = T.tcommands.get(id);
   if (!cmd || cmd.agentId !== agent.id) fail(404, 'Tally command not found');
-  if (!['PENDING', 'SENT'].includes(cmd.status)) fail(409, `Cannot submit result for ${cmd.status} Tally command`);
+  // a late answer still settles an UNCONFIRMED one
+  if (!['PENDING', 'SENT', 'UNCONFIRMED'].includes(cmd.status)) fail(409, `Cannot submit result for ${cmd.status} Tally command`);
   const ok = b.status === 'SUCCESS';
   const row = T.tcommands.update(id, (x) => { x.status = ok ? 'SUCCESS' : 'FAILED'; x.result = b.result && typeof b.result === 'object' ? b.result : {}; x.error_message = ok ? null : clip(b.error_message, 2000) || 'Tally refused the change'; x.completedAt = Date.now(); });
   if (ok) {
@@ -425,6 +442,12 @@ function submitResult(agent, id, b) {
   return { id: row.id, status: row.status };
 }
 function expireOld() {
+  // a write the PC took but never answered for, that isn't sent again: only TallyPrime can say whether it was saved
+  const now = Date.now();
+  for (const r of T.tcommands.all({ status: 'SENT' })) {
+    if (resendable(r) || ((r.sentAt || r.at) > now - UNCONFIRMED_MS && !(r.expiresAt <= now))) continue;
+    T.tcommands.update(r.id, (x) => { x.status = 'UNCONFIRMED'; x.error_message = 'Your Tally PC took this but never said whether it was saved — check TallyPrime first, and only enter it again if it isn’t there, so it isn’t saved twice'; });
+  }
   for (const r of T.tcommands.all({ status: ['PENDING', 'SENT'], expiresAt: { lte: Date.now() } })) T.tcommands.update(r.id, (x) => { x.status = 'EXPIRED'; x.error_message = 'The Tally PC didn’t pick this up in time — check TallyPrime before trying again, it may have been applied'; });
 }
 // a write changes Tally: queue a targeted re-sync (reusing a pending one) so the mirror catches up on the next poll
@@ -526,7 +549,7 @@ function precheck(userId, company, type, p) {
     if (bill?.bill_date && String(p.date).slice(0, 10) < bill.bill_date) fail(400, `Bill ${bill.bill_number} is dated ${bill.bill_date}, so a ${vt0} against it can’t be dated ${String(p.date).slice(0, 10)} — use ${bill.bill_date} or later`);
   }
   const needs = [];
-  if (type === 'CREATE_STOCK_JOURNAL') needs.push({ name: p.stock_item_name, qty: num(p.quantity), where: ` in ${p.source_godown}` });
+  if (type === 'CREATE_STOCK_JOURNAL') needs.push({ name: p.stock_item_name, qty: num(p.quantity), from: p.source_godown });
   else if (VOUCHER_CREATE.has(type)) {
     const vt = lname(p.voucher_type) || (type === 'CREATE_RECEIPT' ? 'receipt' : type === 'CREATE_PAYMENT' ? 'payment' : 'sales');
     if (OUTWARD.has(vt)) for (const i of p.items || (p.stock_item_name ? [p] : [])) needs.push({ name: i.stock_item_name, qty: num(i.quantity), unit: i.unit });
@@ -536,7 +559,8 @@ function precheck(userId, company, type, p) {
   for (const [k, n] of byItem) {
     const item = T.tstock.find({ companyId: company.id, lname: k });
     if (!item || item.closing_balance == null) continue;
-    if (Number(item.closing_balance) < n.qty) fail(409, `Not enough stock of ${item.name}: this needs ${n.qty}${n.unit ? ` ${n.unit}` : ''}${n.where || ''}, but only ${item.closing_balance} is on hand. Lower the quantity, or sync the latest stock from Tally and try again.`);
+    // the mirror has each item's total, not each godown's: never pass that total off as the source godown's
+    if (Number(item.closing_balance) < n.qty) fail(409, `Not enough stock of ${item.name}: this needs ${n.qty}${n.unit ? ` ${n.unit}` : ''}${n.from ? ` from ${n.from}` : ''}, but only ${item.closing_balance} is on hand${n.from ? ' in all godowns together' : ''}. Lower the quantity, or sync the latest stock from Tally and try again.`);
   }
 }
 // GST on a sale / purchase / note: gst_percent for the voucher (or tax_percent per item) and interstate → the tax lines,
@@ -544,6 +568,12 @@ function precheck(userId, company, type, p) {
 // (Output … on sales, Input … on purchases when both exist). The connector adds them and charges the party the total.
 const GST_TYPES = new Set(['sales', 'purchase', 'credit note', 'debit note']);
 const round2 = (n) => Math.round(n * 100) / 100;
+export const homeState = (u) => u?.settings?.invoicing?.state || null;
+const stateKey = (s) => lname(s).replace(/[^a-z]/g, '');
+function partyInterstate(company, p) {
+  const home = stateKey(homeState(T.users.get(company.userId))), party = stateKey(T.tledgers.find({ companyId: company.id, lname: lname(p.party_name) })?.state);
+  return !!(home && party && home !== party);
+}
 function applyGst(company, type, p) {
   const vt = lname(p.voucher_type) || 'sales';
   if (type !== 'CREATE_VOUCHER' || !GST_TYPES.has(vt) || p.taxes?.length) return;
@@ -551,7 +581,9 @@ function applyGst(company, type, p) {
   const lines = p.items?.length ? p.items.map((i) => ({ taxable: num(i.amount) || num(i.quantity) * num(i.rate), pct: rate(i.tax_percent ?? p.gst_percent) })) : [{ taxable: num(p.amount) || 0, pct: rate(p.gst_percent) }];
   const tax = round2(lines.reduce((s, l) => s + (l.taxable * l.pct) / 100, 0));
   if (!(tax > 0)) return;
-  const interstate = p.interstate === true || p.interstate === 'true';
+  // as asked; else the party ledger's state against the seller's own (their invoicing state), when both are known
+  const interstate = p.interstate == null || p.interstate === '' ? partyInterstate(company, p) : p.interstate === true || p.interstate === 'true';
+  p.interstate = interstate;
   // the tax side: a credit note (sales return) reverses Output tax, a debit note (purchase return) Input tax
   const outward = ['sales', 'credit note'].includes(vt);
   const taxLedgers = T.tledgers.all({ companyId: company.id, active: 1 }).filter((l) => lname(l.ledger_group || l.parent) === 'duties & taxes');
@@ -848,7 +880,7 @@ export function registerTally(app, { auth, wrap, rateLimit, isTest, secret, appU
   const on = (req, res, next) => (tallyOn(req.user) ? next() : res.status(403).json({ error: 'Tally isn’t switched on for your account — ask us to turn it on', code: 'TALLY_OFF' }));
   const origin = (req) => String(process.env.APP_URL || appUrl(req)).replace(/\/+$/, '');
   app.get(S, auth, send((req) => ({
-    on: tallyOn(req.user), download: downloadUrl(origin(req)), groups: STANDARD_GROUPS, voucherTypes: VOUCHER_TYPES,
+    on: tallyOn(req.user), download: downloadUrl(origin(req)), groups: STANDARD_GROUPS, voucherTypes: VOUCHER_TYPES, homeState: homeState(req.user),
     ...(tallyOn(req.user) ? { agents: T.tagents.all({ userId: req.user.id }).filter((a) => a.status !== 'DISABLED').map(publicAgent), companies: companiesOf(req.user.id).filter((c) => c.active !== false).map((c) => ({ id: c.id, name: c.name, tally_guid: c.tally_guid, financial_year_from: c.financial_year_from, financial_year_to: c.financial_year_to, last_synced_at: c.syncedAt })), companyId: selectedCompany(req.user.id)?.id || null } : {}),
   })));
   const codeLimit = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 10, key: (req) => req.user.id });

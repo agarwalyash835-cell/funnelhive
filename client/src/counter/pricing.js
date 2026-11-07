@@ -1,6 +1,7 @@
 // Pricing a counter bill on the phone with no network, from the cached catalog (GET /inventory/pro/counter/catalog).
-// It mirrors server/inventory-pro.js priceBill (rate list → item rate, the best scheme, GST per line, CGST + SGST or
-// IGST by place of supply, rounding to the rupee). The server prices every offline bill again when it syncs and its
+// It mirrors server/inventory-pro.js priceBill (rate list — the one named, else the customer's own — → item rate, the
+// best scheme, GST per line or backed out of a GST-inclusive price (MRP), CGST + SGST or IGST by place of supply,
+// rounding to the rupee). The server prices every offline bill again when it syncs and its
 // total stands — a difference is flagged on the bill. Pure functions, so node:test can check them.
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -21,6 +22,12 @@ export function schemeFor(schemes, item, qty, rate, day) {
   return best;
 }
 
+// the rate list a customer is on (Inventory Pro → credit limits), by the name typed on the bill
+export function partyList(catalog, party) {
+  const p = String(party || '').trim().toLowerCase();
+  return (p && (catalog.parties || []).find((x) => x.lparty === p)?.ratelistId) || null;
+}
+
 export function rateOf(catalog, item, ratelistId) {
   const l = ratelistId && (catalog.ratelists || []).find((x) => x.id === ratelistId);
   if (l && l.rates?.[item.id] != null) return Number(l.rates[item.id]);
@@ -32,18 +39,25 @@ export function priceLine(catalog, item, { qty, rate, day }) {
   if (!(n > 0)) throw new Error(`Quantity of ${item.name} must be more than 0`);
   const raw = rate != null && rate !== '' ? rate : item.sale_rate;
   if (raw == null || raw === '' || !(Number(raw) >= 0)) throw new Error(`Rate of ${item.name} is missing`);
-  const rt = r2(raw), sc = schemeFor(catalog.schemes, item, n, rt, day);
-  const gross = r2(n * rt), discount = sc?.discount || 0, taxable = r2(gross - discount), gp = Number(item.gst_percent) || 0, gst = r2((taxable * gp) / 100);
-  return { itemId: item.id, name: item.name, unit: item.unit || '', hsn: item.hsn || null, qty: n, free_qty: sc?.free_qty || 0, rate: rt, gross, discount, scheme: sc?.scheme || null, taxable, gst_percent: gp, gst, amount: r2(taxable + gst) };
+  const rt = r2(raw), sc = schemeFor(catalog.schemes, item, n, rt, day), gp = Number(item.gst_percent) || 0;
+  const base = { itemId: item.id, name: item.name, unit: item.unit || '', hsn: item.hsn || null, qty: n, free_qty: sc?.free_qty || 0, scheme: sc?.scheme || null, gst_percent: gp };
+  if (item.tax_inclusive) {
+    // the price already holds GST (an MRP): the line comes to exactly price × qty less the scheme, GST backed out
+    const f = 1 + gp / 100, amount = r2(r2(n * rt) - (sc?.discount || 0)), taxable = r2(amount / f), gross = r2((n * rt) / f);
+    return { ...base, rate: r2(rt / f), mrp: rt, tax_inclusive: true, gross, discount: r2(gross - taxable), taxable, gst: r2(amount - taxable), amount };
+  }
+  const gross = r2(n * rt), discount = sc?.discount || 0, taxable = r2(gross - discount), gst = r2((taxable * gp) / 100);
+  return { ...base, rate: rt, gross, discount, taxable, gst, amount: r2(taxable + gst) };
 }
 
 // body: the same shape the server takes — { lines: [{ itemId, qty, rate? }], ratelistId, party_name, credit, buyer: { gstin, state } }
 export function priceOffline(catalog, body, day = istDay()) {
   const byId = new Map((catalog.items || []).map((i) => [i.id, i]));
+  const list = body.ratelistId || partyList(catalog, body.party_name);
   const lines = (body.lines || []).map((l) => {
     const item = byId.get(l.itemId);
     if (!item) throw new Error('An item on this bill isn’t in the saved catalog');
-    return priceLine(catalog, item, { qty: l.qty, rate: l.rate != null && l.rate !== '' ? l.rate : rateOf(catalog, item, body.ratelistId), day });
+    return priceLine(catalog, item, { qty: l.qty, rate: l.rate != null && l.rate !== '' ? l.rate : rateOf(catalog, item, list), day });
   });
   const states = catalog.states || {}, byCode = Object.fromEntries(Object.entries(states).map(([n, c]) => [c, n]));
   const seller = catalog.seller || {}, gstin = String(body.buyer?.gstin || '').trim().toUpperCase();

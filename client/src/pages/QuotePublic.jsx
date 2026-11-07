@@ -93,7 +93,9 @@ export default function QuotePublic() {
           <thead><tr><th>Item</th><th className="r">Qty</th><th className="r">Amount</th></tr></thead>
           <tbody>{q.items.map((it, i) => (it.optional && !q.selected.includes(i) ? null : <tr key={i} className={it.optional ? 'q-addon-row' : undefined}><td><b>{it.name}</b>{it.optional && <span className="q-tag">Add-on</span>}{it.detail && <small>{it.detail}</small>}</td><td className="r">{it.qty}</td><td className="r">{m(it.qty * it.price)}</td></tr>))}</tbody>
           <tfoot>
+            {q.gstRate != null && !q.taxIncl && q.gst > 0 && <><tr><td colSpan={2}>Subtotal</td><td className="r">{m(q.subtotal)}</td></tr><tr><td colSpan={2}>GST @ {q.gstRate}%</td><td className="r">{m(q.gst)}</td></tr></>}
             <tr className="tot"><td colSpan={2}>Total</td><td className="r">{m(q.total)}</td></tr>
+            {q.gstRate != null && q.taxIncl && q.gst > 0 && <tr className="q-tax"><td colSpan={2}>Includes GST @ {q.gstRate}%</td><td className="r">{m(q.gst)}</td></tr>}
             {q.paid > 0 && <tr><td colSpan={2}>Paid</td><td className="r">− {m(q.paid)}</td></tr>}
             {q.paid > 0 && q.due > 0 && <tr className="tot"><td colSpan={2}>Balance due</td><td className="r">{m(q.due)}</td></tr>}
             {q.taxNote && <tr className="q-tax"><td colSpan={3}>{q.taxNote}</td></tr>}

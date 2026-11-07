@@ -77,8 +77,10 @@ test('a USD proposal is paid by card through Stripe; an expired or declined one 
   const o = (await api('/orders', 'GET', null, T)).data.orders.find((x) => x.quoteId === u.id);
   assert.deepEqual([o.currency, o.total, o.provider], ['USD', 1500, 'stripe']);
 
-  const old = (await api('/quotes', 'POST', { client: { name: 'X', email: 'x@y.in' }, title: 'Old', items: [{ name: 'A', price: 100 }], validUntil: Date.now() - 1000 }, T)).data;
+  // sent, then its date passes (re-sending would open it again — quotes-gst.test.mjs)
+  const old = (await api('/quotes', 'POST', { client: { name: 'X', email: 'x@y.in' }, title: 'Old', items: [{ name: 'A', price: 100 }] }, T)).data;
   await api(`/quotes/${old.id}/send`, 'POST', {}, T);
+  await api(`/quotes/${old.id}`, 'PUT', { validUntil: Date.now() - 1000 }, T);
   assert.equal((await api(`/q/${old.id}?t=${tok(old)}`)).data.status, 'expired');
   assert.equal((await api(`/q/${old.id}/pay`, 'POST', { t: tok(old) })).status, 400);
   const d = (await api('/quotes', 'POST', { client: { name: 'Z', email: 'z@y.in' }, title: 'Nope', items: [{ name: 'A', price: 100 }] }, T)).data;

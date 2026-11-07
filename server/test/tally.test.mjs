@@ -5,7 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, register, enable2fa } from './helpers.mjs';
 
-let srv, api, ADMIN, T, sellerId, AG, agentId;
+let srv, api, ADMIN, T, sellerId, AG, agentId, DB;
 const A = '/v1/agent/tally';
 const agent = (path, method = 'GET', body) => api(`${A}${path}`, method, body, AG);
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
@@ -20,6 +20,9 @@ before(async () => {
   ADMIN = (await enable2fa(api, ADMIN)).token;
   T = (await register(api, 'seller@tally.test')).token;
   sellerId = (await api('/me', 'GET', null, T)).data.id;
+  // the same database file as the server (SQLite in WAL mode takes several processes): to age rows in time
+  process.env.DATA_DIR = srv.dataDir;
+  ({ T: DB } = await import('../db.js'));
 });
 after(async () => { await srv?.stop(); });
 
@@ -277,6 +280,88 @@ test('the MCP reads units and godowns and makes every kind of change, e.g. renam
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
   assert.equal(ok.data.payload.address, '', 'sent as an emptied field');
   await agent('/heartbeat', 'POST', { agent_id: agentId, tally_status: 'ONLINE', company_loaded: true, company_name: COMPANY.name, company_guid: COMPANY.tally_guid, app_version: '1.1.2' });
+});
+
+test('a bill number used again in a later year is a second bill, linked to its own voucher; rows keyed the old way are taken over', async () => {
+  const CO = { tally_guid: 'c-guid-rao', name: 'Rao Exports', financial_year_from: '2025-04-01', financial_year_to: '2027-03-31' };
+  await agent('/sync/companies', 'POST', { records: [CO] });
+  const co = DB.tcompanies.find({ agentId, guid: CO.tally_guid });
+  await agent('/sync/ledgers', 'POST', { company_guid: CO.tally_guid, records: [{ tally_guid: 'rl-1', name: 'Rao Traders', parent: 'Sundry Debtors' }] });
+  const sale = (guid, date, amount) => ({ tally_guid: guid, voucher_number: '1', voucher_type: 'Sales', voucher_date: date, party_name: 'Rao Traders', amount: -amount, ledger_entries: [{ ledger_name: 'Rao Traders', amount: -amount, is_party_ledger: true, bill_allocations: [{ bill_name: 'R-1', bill_type: 'New Ref', amount: -amount }] }] });
+  await agent('/sync/vouchers', 'POST', { company_guid: CO.tally_guid, records: [sale('rv-25', '2025-05-01', 1000), sale('rv-26', '2026-05-01', 2500)] });
+  // a row saved before the date was part of the key, and one Tally no longer lists
+  const legacy = DB.touts.insert({ userId: sellerId, companyId: co.id, okey: 'rao traders|r-1|RECEIVABLE', party_name: 'Rao Traders', bill_number: 'R-1', bill_type: 'RECEIVABLE', amount: 1000, pending_amount: 1000, status: 'PENDING', active: true, syncedAt: 1, at: 1 });
+  DB.touts.insert({ userId: sellerId, companyId: co.id, okey: 'rao traders|r-0|RECEIVABLE', party_name: 'Rao Traders', bill_number: 'R-0', bill_type: 'RECEIVABLE', amount: 50, pending_amount: 50, status: 'PENDING', active: true, syncedAt: 1, at: 1 });
+  const bill = (date, amount) => ({ party_name: 'Rao Traders', bill_number: 'R-1', bill_date: date, due_date: '2026-06-01', amount: -amount, pending_amount: -amount, bill_type: 'RECEIVABLE' });
+  const r = await agent('/sync/outstandings', 'POST', { company_guid: CO.tally_guid, reconcile: true, records: [bill('2025-05-01', 1000), bill('2026-05-01', 2500)] });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const open = DB.touts.all({ companyId: co.id, active: 1 });
+  assert.equal(open.length, 2, JSON.stringify(open.map((o) => o.okey)));
+  assert.deepEqual(open.map((o) => o.pending_amount).sort((a, b) => a - b), [1000, 2500], 'both bills count — neither overwrote the other');
+  assert.ok(open.some((o) => o.id === legacy.id), 'the old-key row was taken over, not duplicated');
+  const v = (g) => DB.tvouchers.find({ companyId: co.id, guid: g }).id;
+  assert.equal(open.find((o) => o.bill_date === '2025-05-01').voucherId, v('rv-25'));
+  assert.equal(open.find((o) => o.bill_date === '2026-05-01').voucherId, v('rv-26'), 'each bill links to the voucher of its own date');
+  // the next full export, unchanged: nothing retired, nothing added
+  await agent('/sync/outstandings', 'POST', { company_guid: CO.tally_guid, reconcile: true, records: [bill('2025-05-01', 1000), bill('2026-05-01', 2500)] });
+  assert.equal(DB.touts.all({ companyId: co.id, active: 1 }).length, 2);
+});
+
+test('a sent write with no import id (a stock journal) is never sent twice: it waits for its answer, then asks the seller to check Tally', async () => {
+  const post = (type, payload) => api('/tally/commands', 'POST', { type, payload }, T);
+  // answer whatever earlier tests left waiting
+  for (let i = 0; i < 20; i++) {
+    const left = (await agent('/commands/pending?limit=50')).data;
+    if (!left.length) break;
+    for (const c of left) await agent(`/commands/${c.command_id}/result`, 'POST', { status: 'FAILED', error_message: 'test cleanup' });
+  }
+  const tooMuch = await post('CREATE_STOCK_JOURNAL', { stock_item_name: 'Steel Rod 12mm', quantity: 999, unit: 'Nos', source_godown: 'Main Location', dest_godown: 'Warehouse' });
+  assert.match(tooMuch.data.error, /needs 999 from Main Location, but only 270 is on hand in all godowns together/, 'the total, not passed off as the godown’s');
+  const sj = (await post('CREATE_STOCK_JOURNAL', { stock_item_name: 'Steel Rod 12mm', quantity: 5, unit: 'Nos', source_godown: 'Main Location', dest_godown: 'Warehouse' })).data;
+  const vc = (await post('CREATE_VOUCHER', { voucher_type: 'Sales', party_name: 'Gupta Hardware', offset_ledger: 'Sales Account', amount: 100, date: today })).data;
+  assert.deepEqual((await agent('/commands/pending')).data.map((c) => c.command_type).sort(), ['CREATE_STOCK_JOURNAL', 'CREATE_VOUCHER']);
+  // no answer yet: the voucher (Tally matches its REMOTEID) goes again, the stock journal doesn't
+  assert.deepEqual((await agent('/commands/pending')).data.map((c) => c.command_type), ['CREATE_VOUCHER']);
+  assert.equal((await api(`/tally/commands/${sj.id}`, 'GET', null, T)).data.status, 'SENT');
+  DB.tcommands.update(sj.id, (x) => { x.sentAt = Date.now() - 6 * 60000; });
+  await agent('/commands/pending');
+  const unsure = (await api(`/tally/commands/${sj.id}`, 'GET', null, T)).data;
+  assert.equal(unsure.status, 'UNCONFIRMED');
+  assert.match(unsure.error_message, /check TallyPrime first/);
+  // a late answer still settles it
+  assert.equal((await agent(`/commands/${sj.id}/result`, 'POST', { status: 'SUCCESS', result: {} })).status, 200);
+  assert.equal((await api(`/tally/commands/${sj.id}`, 'GET', null, T)).data.status, 'SUCCESS');
+  for (const c of (await agent('/commands/pending?limit=50')).data) await agent(`/commands/${c.command_id}/result`, 'POST', { status: 'FAILED', error_message: 'test cleanup' });
+  assert.equal((await api(`/tally/commands/${vc.id}`, 'GET', null, T)).data.status, 'FAILED');
+});
+
+test('GST: IGST or CGST + SGST from the party’s state against the seller’s own, unless asked', async () => {
+  const post = (payload) => api('/tally/commands', 'POST', { type: 'CREATE_VOUCHER', payload: { voucher_type: 'Sales', offset_ledger: 'Sales Account', amount: 1000, gst_percent: 18, date: today, ...payload } }, T);
+  await agent('/sync/ledgers', 'POST', { company_guid: COMPANY.tally_guid, records: [{ tally_guid: 'l-ka', name: 'Bangalore Builders', parent: 'Sundry Debtors', state: 'Karnataka' }, { tally_guid: 'l-mh', name: 'Pune Paints', parent: 'Sundry Debtors', state: 'Maharashtra' }] });
+  assert.deepEqual((await post({ party_name: 'Bangalore Builders' })).data.payload.taxes.map((t) => t.ledger_name), ['Output CGST', 'Output SGST'], 'the seller’s state isn’t known yet');
+  DB.users.update(sellerId, (u) => { u.settings = { ...u.settings, invoicing: { ...(u.settings?.invoicing || {}), state: 'Maharashtra' } }; });
+  assert.equal((await api('/tally', 'GET', null, T)).data.homeState, 'Maharashtra');
+  assert.deepEqual((await post({ party_name: 'Bangalore Builders' })).data.payload.taxes, [{ ledger_name: 'Output IGST', amount: 180 }]);
+  assert.equal((await post({ party_name: 'Pune Paints' })).data.payload.taxes.length, 2);
+  assert.equal((await post({ party_name: 'Bangalore Builders', interstate: false })).data.payload.taxes.length, 2, 'the seller’s choice wins');
+  for (const c of (await agent('/commands/pending?limit=50')).data) await agent(`/commands/${c.command_id}/result`, 'POST', { status: 'FAILED', error_message: 'test cleanup' });
+});
+
+test('automatic payment reminders wait while the bills are more than a day old, and say why', async () => {
+  const { reminderJob } = await import('../tally-remind.js');
+  await api('/tally/settings', 'PUT', { reminders: { on: true, afterDays: 0, everyDays: 1, channel: 'email' } }, T);
+  const co = DB.tcompanies.find({ agentId, guid: COMPANY.tally_guid });
+  // the shop PC has been off: the last bills sync was two days ago
+  for (const r of DB.truns.all({ userId: sellerId })) if (r.companyId === co.id && r.sync_type === 'OUTSTANDINGS') DB.truns.update(r.id, (x) => { x.at = x.completedAt = Date.now() - 2 * 86400000; });
+  await reminderJob();
+  const held = (await api('/tally/settings', 'GET', null, T)).data.held;
+  assert.ok(held?.at && held.companyId === co.id, JSON.stringify(held));
+  assert.ok(Date.now() - held.syncedAt > 86400000, 'the last sync it went by');
+  // bills come in again: the next run goes ahead
+  await agent('/sync/outstandings', 'POST', { company_guid: COMPANY.tally_guid, records: [{ party_name: 'Gupta Hardware', bill_number: 'INV-1', bill_date: '2026-08-10', due_date: '2026-09-09', amount: -45000, pending_amount: -45000, bill_type: 'RECEIVABLE', status: 'PENDING' }] });
+  await reminderJob();
+  assert.equal((await api('/tally/settings', 'GET', null, T)).data.held, null);
+  await api('/tally/settings', 'PUT', { reminders: { on: false } }, T);
 });
 
 test('the PC must be online with the company open; a disconnected PC stops working', async () => {

@@ -12,7 +12,7 @@ import { fire as fireAutomation } from './automations.js';
 import { ensureContact } from './crm.js';
 import { rzpCreds, createOrder as rzpCreateOrder, validPayment } from './razorpay.js';
 import { stripeCreds, startStripePayment, confirmedIntent, CURRENCIES } from './stripe.js';
-import { issueInvoice, invoiceUrl, cleanBuyerGst } from './sales.js';
+import { issueInvoice, invoiceUrl, cleanBuyerGst, invoicingOf, GST_RATES } from './sales.js';
 import { linkBase } from './products.js';
 import { fxRate } from './fx.js';
 import { notify } from './notify.js';
@@ -21,9 +21,15 @@ const DAY = 86400000;
 const ISO = [...new Set(Object.values(CURRENCIES))];
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const r2 = (n) => Math.round(n * 100) / 100;
+const r3 = (n) => Math.round(n * 1000) / 1000;
 // optional lines (add-ons) count only once the client ticks them on their page (q.selected: their indexes)
 const counts = (q, i, n) => !i.optional || (q.selected || []).includes(n);
-const total = (q) => r2(q.items.reduce((s, i, n) => s + (counts(q, i, n) ? i.qty * i.price : 0), 0));
+const subtotal = (q) => r2(q.items.reduce((s, i, n) => s + (counts(q, i, n) ? i.qty * i.price : 0), 0));
+// GST on a quote: q.gstRate (a GST slab) is added on top of the lines, or is already inside them (q.taxIncl).
+// Quotes made before this have no gstRate — their total is the lines, as it always was
+const hasGst = (q) => q.gstRate != null && GST_RATES.includes(q.gstRate);
+const gstOf = (q) => { if (!hasGst(q) || !q.gstRate) return 0; const s = subtotal(q); return q.taxIncl ? r2(s - s / (1 + q.gstRate / 100)) : r2((s * q.gstRate) / 100); };
+const total = (q) => (hasGst(q) && !q.taxIncl ? r2(subtotal(q) + gstOf(q)) : subtotal(q));
 const hexOk = (v) => /^#[0-9a-f]{6}$/i.test(String(v || ''));
 const paidOf = (q) => r2((q.payments || []).reduce((s, p) => s + p.amount, 0));
 // what the next payment is: the deposit first (when there is one), then the balance
@@ -33,7 +39,7 @@ const statusOf = (q, now = Date.now()) => {
   const t = total(q), paid = paidOf(q);
   if (paid > 0) return paid >= t ? 'paid' : 'deposit_paid';
   if (q.status === 'declined') return 'declined';
-  if (q.validUntil && q.validUntil < now && q.status !== 'draft') return 'expired';
+  if (q.validUntil && q.validUntil < now && !['draft', 'accepted'].includes(q.status)) return 'expired';
   return q.status || 'draft';
 };
 
@@ -52,11 +58,13 @@ export function cleanQuote(b = {}, cur = {}) {
   if ('terms' in b || !cur.id) out.terms = clip(b.terms, 5000);
   // the GST line shown under the total (e.g. "Exclusive of GST @18% (SAC 998311)") and how the client's page looks
   if ('taxNote' in b || !cur.id) out.taxNote = clip(b.taxNote, 300);
+  if ('gstRate' in b) out.gstRate = b.gstRate === null || b.gstRate === '' ? null : GST_RATES.includes(Number(b.gstRate)) ? Number(b.gstRate) : cur.gstRate ?? null;
+  if ('taxIncl' in b) out.taxIncl = !!b.taxIncl;
   // the facts this industry's clients expect up top (property, event date, travellers…) and the page's accent colour
   if ('details' in b || !cur.id) out.details = (Array.isArray(b.details) ? b.details : []).slice(0, 12).map((d) => ({ label: clip(d?.label, 40), value: clip(d?.value, 160) })).filter((d) => d.label && d.value);
   if ('accent' in b || !cur.id) out.accent = hexOk(b.accent) ? String(b.accent).toLowerCase() : cur.accent || '';
   if ('design' in b || !cur.id) out.design = QUOTE_DESIGNS.includes(b.design) ? b.design : cur.design || 'classic';
-  if ('items' in b || !cur.id) out.items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((i) => ({ name: clip(i?.name, 200), detail: clip(i?.detail, 1000), qty: Math.max(1, Math.min(10000, Math.round(Number(i?.qty) || 1))), price: Math.max(0, Math.min(10000000, r2(Number(i?.price) || 0))) , ...(i?.optional ? { optional: true } : {}) })).filter((i) => i.name);
+  if ('items' in b || !cur.id) out.items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((i) => ({ name: clip(i?.name, 200), detail: clip(i?.detail, 1000), qty: Math.max(0.001, Math.min(100000, r3(Number(i?.qty) || 1))), price: Math.max(0, Math.min(10000000, r2(Number(i?.price) || 0))) , ...(i?.optional ? { optional: true } : {}) })).filter((i) => i.name);
   // the seller changed the lines: ticked add-ons that are no longer add-ons are dropped (after out.items is set)
   if (out.items) out.selected = (cur.selected || []).filter((n) => out.items[n]?.optional);
   if ('currency' in b || !cur.id) out.currency = ISO.includes(b.currency) ? b.currency : cur.currency || 'INR';
@@ -69,14 +77,14 @@ export function cleanQuote(b = {}, cur = {}) {
 const problems = (q) => (!q.items.length ? 'Add at least one item with a price' : total(q) <= 0 ? 'The total must be more than zero' : null);
 
 export const quoteLink = (q, base) => `${base}/q/${q.id}?t=${q.token}`;
-const sellerView = (q, base) => ({ ...q, total: total(q), paid: paidOf(q), due: dueNow(q), status: statusOf(q), link: quoteLink(q, base) });
+const sellerView = (q, base) => ({ ...q, subtotal: subtotal(q), gst: gstOf(q), total: total(q), paid: paidOf(q), due: dueNow(q), status: statusOf(q), link: quoteLink(q, base) });
 function publicView(q) {
   const owner = T.users.get(q.userId), s = owner?.settings || {};
   const st = statusOf(q);
   const provider = q.currency === 'INR' && rzpCreds(owner) ? 'razorpay' : stripeCreds(owner) ? 'stripe' : null;
   return {
     id: q.id, number: q.number, title: q.title, intro: q.intro, terms: q.terms, taxNote: q.taxNote || '', design: q.design || 'classic', details: q.details || [], accent: q.accent || '', selected: q.selected || [], canChoose: !paidOf(q) && ['draft', 'sent', 'viewed'].includes(st), items: q.items, currency: q.currency, deposit: q.deposit, validUntil: q.validUntil, at: q.at,
-    total: total(q), paid: paidOf(q), due: dueNow(q), status: st, client: { name: q.client.name, company: q.client.company },
+    gstRate: hasGst(q) ? q.gstRate : null, taxIncl: !!q.taxIncl, subtotal: subtotal(q), gst: gstOf(q), total: total(q), paid: paidOf(q), due: dueNow(q), status: st, client: { name: q.client.name, company: q.client.company },
     seller: { name: s.businessName || owner?.name || '', email: s.supportEmail || owner?.email || '', whatsapp: s.supportWhatsapp || '' },
     provider, canPay: !!provider && ['draft', 'sent', 'viewed', 'deposit_paid'].includes(st) && dueNow(q) > 0,
     // without online payment the client can still say yes; the seller arranges payment with them
@@ -117,7 +125,7 @@ function confirmQuotePaymentOnce(pay, paymentId, base) {
   });
   const g = c.gstin ? cleanBuyerGst({ gstin: c.gstin, company: c.company || c.name, state: c.state }) : null;
   const gst = g && !g.error ? g : null;
-  const inv = issueInvoice(owner, order, [{ index: order.items.length - 1, name: item.name, kind: 'quote', amount: item.price }], { paymentId, gst });
+  const inv = issueInvoice(owner, order, [{ index: order.items.length - 1, name: item.name, kind: 'quote', amount: item.price, ...(hasGst(quote) ? { rate: quote.gstRate } : {}) }], { paymentId, gst });
   const link = inv ? invoiceUrl(linkBase(null, base || pay.base), inv) : null;
   const q2 = T.quotes.update(quote.id, (x) => { x.orderId = order.id; (x.payments ||= []).push({ amount: item.price, at: now, paymentId, provider: pay.provider || 'razorpay', ...(link ? { invoice: link } : {}) }); x.status = statusOf(x); x.updatedAt = now; });
   pay.result = { ok: true, status: q2.status, paid: paidOf(q2), due: dueNow(q2), ...(link ? { invoice: link } : {}), orderId: order.id };
@@ -146,6 +154,7 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     if (T.quotes.count({ userId: req.user.id }) >= 2000) return res.status(400).json({ error: 'You have 2,000 quotes — delete old drafts first' });
     const clean = cleanQuote(req.body);
     if (clean.error) return res.status(400).json(clean);
+    if (!('gstRate' in (req.body || {}))) { const inv = invoicingOf(req.user); clean.gstRate = inv.gstin && GST_RATES.includes(inv.rate) ? inv.rate : null; }
     const seq = T.users.update(req.user.id, (u) => { u.quoteSeq = (u.quoteSeq || 0) + 1; }).quoteSeq;
     if (clean.client?.email || clean.client?.phone) ensureContact(req.user.id, clean.client, 'quote'); // the client shows in the CRM
     const q = T.quotes.insert({ id: uid(), userId: req.user.id, number: `Q-${String(seq).padStart(4, '0')}`, token: crypto.randomBytes(12).toString('hex'), status: 'draft', payments: [], at: Date.now(), updatedAt: Date.now(), ...clean });
@@ -154,6 +163,7 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
   app.put('/api/quotes/:qid', auth, (req, res) => {
     const q = own(req, res); if (!q) return;
     if (paidOf(q) > 0) return res.status(400).json({ error: 'This quote has been paid — duplicate it to make changes' });
+    if (q.status === 'accepted') return res.status(400).json({ error: 'The client accepted this quote — duplicate it to send a revised one' });
     const clean = cleanQuote(req.body, q);
     if (clean.error) return res.status(400).json(clean);
     res.json(sellerView(T.quotes.update(q.id, (x) => { Object.assign(x, clean); if (x.status === 'declined' || x.status === 'expired') x.status = 'draft'; x.updatedAt = Date.now(); }), base(req)));
@@ -171,8 +181,14 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     res.json({ ok: true });
   });
   // email the link to the client (from the seller's email setup)
+  // re-sending an expired quote opens it again for as long as it was valid before
+  const revive = (q) => {
+    if (!q.id || !q.validUntil || q.validUntil > Date.now() || paidOf(q) > 0 || q.status === 'accepted') return q;
+    const was = Math.round((q.validUntil - (q.sentAt || q.at)) / DAY), days = was > 0 ? Math.min(365, was) : 14;
+    return T.quotes.update(q.id, (x) => { x.validUntil = Date.now() + days * DAY; });
+  };
   app.post('/api/quotes/:qid/send', auth, wrap(async (req, res) => {
-    const q = own(req, res); if (!q) return;
+    const q = revive(own(req, res) || {}); if (!q.id) return;
     const p = problems(q);
     if (p) return res.status(400).json({ error: p });
     const owner = T.users.get(q.userId), biz = owner.settings?.businessName || owner.name;
@@ -203,6 +219,7 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
   app.post('/api/q/:qid/decline', limiter, (req, res) => {
     const q = pub(req, res); if (!q) return;
     if (paidOf(q) > 0) return res.status(400).json({ error: 'This quote has already been paid' });
+    if (!['draft', 'sent', 'viewed'].includes(statusOf(q))) return res.status(400).json({ error: statusOf(q) === 'accepted' ? 'You’ve already accepted this quote — contact the seller to change it' : 'This quote can’t be declined now' });
     const x = T.quotes.update(q.id, (y) => { y.status = 'declined'; y.declineReason = clip(req.body?.reason, 500); y.updatedAt = Date.now(); });
     const owner = T.users.get(q.userId);
     fireAutomation(q.userId, 'quote_declined', { email: q.client?.email, phone: q.client?.phone, name: q.client?.name, product: q.title, source: 'quote' });
@@ -235,6 +252,8 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
     const v = publicView(q);
     if (!v.canPay) return res.status(400).json({ error: v.status === 'expired' ? 'This quote has expired — ask for a new one' : v.status === 'declined' ? 'This quote was declined' : v.status === 'paid' ? 'This quote is already paid' : 'Online payment isn’t set up for this quote — please contact the seller' });
     const owner = T.users.get(q.userId), amount = v.due, iso = q.currency;
+    const open = T.payments.all({ userId: q.userId, status: 'created' }, { order: 'at', desc: true, limit: 50 }).find((p) => p.kind === 'quote' && p.quoteId === q.id && p.checkout && p.charge?.total === amount && Date.now() - p.at < 30 * 60000);
+    if (open) return res.json(open.checkout);
     const label = `${q.title} — ${q.number}${q.deposit && !v.paid && amount < v.total ? ` (${q.deposit}% deposit)` : v.paid ? ' (balance)' : ''}`;
     const buyer = { email: q.client.email, name: q.client.name, phone: q.client.phone, source: 'quote' };
     const pay = { id: uid(), userId: q.userId, funnelId: null, kind: 'quote', quoteId: q.id, buyer, charge: { items: [{ name: label, price: amount, kind: 'quote' }], total: amount, discount: 0 }, status: 'created', at: Date.now(), base: base(req), currency: iso };
@@ -243,8 +262,9 @@ export function registerQuotes(app, { auth, wrap, rateLimit, isTest, appUrl }) {
         const creds = rzpCreds(owner);
         const rz = await rzpCreateOrder(creds, { amount: Math.round(amount * 100), receipt: pay.id, notes: { quote: q.number, payment: pay.id } });
         Object.assign(pay, { mode: creds.mode, rzpOrderId: rz.id });
+        pay.checkout = { provider: 'razorpay', payment: pay.id, key: creds.keyId, order_id: rz.id, amount: rz.amount, currency: 'INR', name: v.seller.name, description: label.slice(0, 250), prefill: { name: buyer.name, email: buyer.email, contact: buyer.phone } };
         T.payments.insert(pay);
-        return res.json({ provider: 'razorpay', payment: pay.id, key: creds.keyId, order_id: rz.id, amount: rz.amount, currency: 'INR', name: v.seller.name, description: label.slice(0, 250), prefill: { name: buyer.name, email: buyer.email, contact: buyer.phone } });
+        return res.json(pay.checkout);
       }
       const sc = stripeCreds(owner);
       Object.assign(pay, { mode: sc.mode, provider: 'stripe' });

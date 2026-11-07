@@ -1,5 +1,5 @@
 // Counter mode: billing at the shop counter on a phone, one screen. Scan with the camera (BarcodeDetector) or type,
-// tap tiles for what sells most, + / − on the cart, customer name / phone, cash / UPI / credit, an optional buyer
+// tap tiles for what sells most, + / − on the cart, customer name / phone, cash / UPI / card / credit, an optional buyer
 // GSTIN, the live total (the server's preview; the phone's own pricing when offline), Save → print.
 // Offline: bills wait in IndexedDB with the id the phone gave them and sync in order when the network is back — the
 // server prices them again and flags a different total or stock gone below zero (server/inventory-pro.js saveBill).
@@ -112,7 +112,12 @@ export default function Counter() {
     setCart((c) => { const k = c.findIndex((l) => l.itemId === it.id); return k >= 0 ? c.map((l, j) => (j === k ? { ...l, qty: Math.round((Number(l.qty) + n) * 1000) / 1000 } : l)) : [...c, { itemId: it.id, qty: n }]; });
     if (navigator.vibrate) navigator.vibrate(30);
   };
-  const setQty = (id, v) => setCart((c) => (Number(v) <= 0 && v !== '' ? c.filter((l) => l.itemId !== id) : c.map((l) => (l.itemId === id ? { ...l, qty: v } : l))));
+  // typing keeps what's typed ("0", "0.", "0.5" on the way to half a kilo; up to 3 decimals); a line goes only with
+  // the − button or when the box is left at 0 / empty
+  const drop = (id) => setCart((c) => c.filter((l) => l.itemId !== id));
+  const setQty = (id, v) => { if (/^\d*\.?\d{0,3}$/.test(String(v))) setCart((c) => c.map((l) => (l.itemId === id ? { ...l, qty: v } : l))); };
+  const less = (l) => { const n = Math.round((Number(l.qty) - 1) * 1000) / 1000; if (n > 0) setQty(l.itemId, String(n)); else drop(l.itemId); };
+  const leaveQty = (l) => { if (!(Number(l.qty) > 0)) drop(l.itemId); };
   const byCode = (code) => { const s = String(code).trim(), l = s.toLowerCase(); return items.find((i) => i.barcode === s) || items.find((i) => i.sku && i.sku.toLowerCase() === l); };
   const onCode = (code) => { const it = byCode(code); if (it) { add(it); toast(`+1 ${it.name}`); } else toast(`No item with code ${code}`); };
   const typed = (e) => {
@@ -231,8 +236,8 @@ export default function Counter() {
           <div key={l.itemId} className="cm-line">
             <div className="cm-ln"><b>{it?.name || 'Item'}</b><small>{p ? `${rs(p.rate)} · GST ${p.gst_percent}%${p.scheme ? ` · ${p.scheme.name}${p.free_qty ? ` (+${qn(p.free_qty)} free)` : ''}` : ''}` : ''}</small></div>
             <div className="cm-qty">
-              <button aria-label={`One less ${it?.name}`} onClick={() => setQty(l.itemId, Math.round((Number(l.qty) - 1) * 1000) / 1000)}><Minus size={18} /></button>
-              <input type="number" inputMode="decimal" min="0" step="any" value={l.qty} onChange={(e) => setQty(l.itemId, e.target.value)} aria-label={`Quantity of ${it?.name}`} />
+              <button aria-label={`One less ${it?.name}`} onClick={() => less(l)}><Minus size={18} /></button>
+              <input type="number" inputMode="decimal" min="0" step="any" value={l.qty} onChange={(e) => setQty(l.itemId, e.target.value)} onBlur={() => leaveQty(l)} aria-label={`Quantity of ${it?.name}`} />
               <button aria-label={`One more ${it?.name}`} onClick={() => add(it)}><Plus size={18} /></button>
             </div>
             <b className="cm-amt">{p ? rs(p.amount) : ''}</b>
@@ -241,7 +246,7 @@ export default function Counter() {
       </section>}
 
       {cart.length > 0 && <section className="cm-cust">
-        <div className="cm-pay" role="radiogroup" aria-label="Payment">{[['cash', 'Cash'], ['upi', 'UPI'], ['credit', 'Credit']].map(([k, l]) => <button key={k} role="radio" aria-checked={pay === k} className={pay === k ? 'on' : ''} onClick={() => setPay(k)}>{l}</button>)}</div>
+        <div className="cm-pay" role="radiogroup" aria-label="Payment">{[['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'], ['credit', 'Credit']].map(([k, l]) => <button key={k} role="radio" aria-checked={pay === k} className={pay === k ? 'on' : ''} onClick={() => setPay(k)}>{l}</button>)}</div>
         <div className="cm-two">
           <input value={cust.name} onChange={(e) => setCust({ ...cust, name: e.target.value })} placeholder={pay === 'credit' ? 'Customer name (needed)' : 'Customer name'} aria-label="Customer name" autoComplete="off" />
           <input value={cust.phone} onChange={(e) => setCust({ ...cust, phone: e.target.value.replace(/[^\d+ ]/g, '') })} placeholder="Phone" type="tel" inputMode="tel" aria-label="Customer phone" maxLength={15} />

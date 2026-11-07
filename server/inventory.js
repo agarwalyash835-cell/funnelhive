@@ -8,7 +8,7 @@
 //   POST /transfer (a TRANSFER_OUT + TRANSFER_IN pair) · POST /import (CSV with opening stock) · POST /photo (bill → draft)
 // The /api/inventory paths are the 'tally' team area in the menu (ui.jsx PAGE_AREAS).
 import { T, q, tx, uid } from './db.js';
-import { inventoryOn, MOVE_KINDS, MOVE_SOURCES, mainGodown, stockMap, stockOf, addMove } from './inventory-core.js';
+import { inventoryOn, MOVE_KINDS, MOVE_SOURCES, mainGodown, stockMap, stockOf, addMove, batched, sellFefo } from './inventory-core.js';
 import { readImage, visionReady } from './waknow.js';
 import { aiJson, aiEnabled } from './ai.js';
 import { creditsShort, spendCredits, AI_COST } from './billing.js';
@@ -32,7 +32,8 @@ export const ENTRY_KINDS = ['OPENING', 'PURCHASE', 'SALE', 'RETURN_IN', 'RETURN_
 const OUT_KINDS = new Set(Object.keys(MOVE_KINDS).filter((k) => MOVE_KINDS[k] < 0));
 
 // ---------- items ----------
-const ITEM_FIELDS = ['name', 'unit', 'sku', 'barcode', 'category', 'hsn', 'gst_percent', 'sale_rate', 'purchase_rate', 'reorder_level'];
+// tax_inclusive: the sale rate already holds GST (an MRP) — counter bills back GST out of it instead of adding it
+const ITEM_FIELDS = ['name', 'unit', 'sku', 'barcode', 'category', 'hsn', 'gst_percent', 'sale_rate', 'purchase_rate', 'reorder_level', 'tax_inclusive'];
 function cleanItem(b, old = {}) {
   const x = {};
   if ('name' in b || !old.name) x.name = clip(b.name, 120) || fail(400, 'Give the item a name');
@@ -40,6 +41,7 @@ function cleanItem(b, old = {}) {
   if (!old.unit && !x.unit) x.unit = 'pcs';
   if ('gst_percent' in b) { x.gst_percent = amount(b.gst_percent, 'GST %'); if (x.gst_percent > 100) fail(400, 'GST % must be between 0 and 100'); }
   for (const [f, l] of [['sale_rate', 'Sale rate'], ['purchase_rate', 'Purchase rate'], ['reorder_level', 'Reorder level']]) if (f in b) x[f] = amount(b[f], l);
+  if ('tax_inclusive' in b) x.tax_inclusive = b.tax_inclusive === true || b.tax_inclusive === 1 || /^(1|true|yes|y)$/i.test(String(b.tax_inclusive ?? '').trim());
   if (x.barcode && !/^[\w\-.]{3,40}$/.test(x.barcode)) fail(400, 'A barcode is letters and digits only');
   return x;
 }
@@ -58,7 +60,7 @@ export function createItem(userId, b) {
 const own = (table, userId, id, what) => { const r = id && T[table].get(id); return r && r.userId === userId ? r : fail(404, `That ${what} isn’t in your inventory`); };
 const itemOut = (i, qty) => ({
   id: i.id, name: i.name, unit: i.unit, sku: i.sku, barcode: i.barcode, category: i.category, sale_rate: i.sale_rate, purchase_rate: i.purchase_rate,
-  reorder_level: i.reorder_level, gst_percent: i.gst_percent, hsn: i.hsn, active: i.active !== false, stock: qty || 0, low: (qty || 0) <= (Number(i.reorder_level) || 0),
+  reorder_level: i.reorder_level, gst_percent: i.gst_percent, tax_inclusive: !!i.tax_inclusive, hsn: i.hsn, active: i.active !== false, stock: qty || 0, low: (qty || 0) <= (Number(i.reorder_level) || 0),
 });
 
 // one query per godown table: every (godown, item) balance → Map(godownId → Map(itemId → qty))
@@ -131,11 +133,19 @@ const godownByRef = (userId, ref) => {
 
 // ---------- moves ----------
 const moveBody = (b) => ({ day: /^\d{4}-\d{2}-\d{2}$/.test(b.day || '') ? b.day : ymd(), rate: amount(b.rate, 'Rate'), party_name: clip(b.party_name, 120) || null, ref: clip(b.ref, 60) || null, note: clip(b.note, 300) || null, batch: clip(b.batch, 60) || null, expiry: /^\d{4}-\d{2}-\d{2}$/.test(b.expiry || '') ? b.expiry : null, source: MOVE_SOURCES.includes(b.source) ? b.source : 'MANUAL' });
+// A sale of a batch-tracked item (no batch named) goes first-expiry-first-out like a counter bill — one move per batch,
+// never from an expired one — and comes back as its first move with all of them in `split`.
 export function recordMove(userId, b) {
   const kind = String(b.kind || '');
   if (!ENTRY_KINDS.includes(kind)) fail(400, `Pick what happened: ${ENTRY_KINDS.join(', ')}`);
   const item = own('iitems', userId, b.itemId, 'item');
-  return addMove(userId, { ...moveBody(b), itemId: item.id, godownId: godownByRef(userId, b.godownId || b.godown).id, kind, qty: b.qty }, { allowNegative: !!b.force && OUT_KINDS.has(kind) });
+  const m = { ...moveBody(b), itemId: item.id, godownId: godownByRef(userId, b.godownId || b.godown).id, kind, qty: b.qty };
+  const opts = { allowNegative: !!b.force && OUT_KINDS.has(kind) };
+  return tx(() => {
+    if (kind !== 'SALE' || m.batch || !batched(item.id, m.godownId)) return addMove(userId, m, opts);
+    const moves = sellFefo(userId, m, opts);
+    return moves.length > 1 ? Object.assign(moves[0], { split: moves }) : moves[0];
+  });
 }
 
 // a whole bill (a photo, Hive, WhatsApp): every line or none. A line names its item by itemId, by name / SKU / barcode
@@ -191,8 +201,16 @@ export function undoMove(userId, id) {
   const run = ['PRODUCE', 'CONSUME'].includes(m.kind) && m.ref;
   const set = m.pair ? T.imoves.all({ userId, itemId: m.itemId }).filter((x) => x.pair === m.pair)
     : run ? T.imoves.all({ userId }).filter((x) => x.ref === run && ['PRODUCE', 'CONSUME'].includes(x.kind)) : [m];
-  for (const x of set) if (x.qty > 0 && stockOf(x.itemId, x.godownId) - x.qty < -0.0005) fail(409, 'Undoing this would leave less than zero in stock — undo the later sales first');
-  tx(() => { for (const x of set) T.imoves.del(x.id); });
+  // the check and the delete in one transaction (another worker can't sell in between); a batch can't go below zero either
+  const batchLeft = (x) => Number(q("SELECT SUM(json_extract(data, '$.qty')) AS n FROM imoves WHERE itemId = ? AND godownId = ? AND json_extract(data, '$.batch') = ?").get(x.itemId, x.godownId, x.batch)?.n) || 0;
+  tx(() => {
+    for (const x of set) {
+      if (!(x.qty > 0)) continue;
+      if (stockOf(x.itemId, x.godownId) - x.qty < -0.0005) fail(409, 'Undoing this would leave less than zero in stock — undo the later sales first');
+      if (x.batch && batchLeft(x) - x.qty < -0.0005) fail(409, `Undoing this would leave less than zero in batch ${x.batch} — undo the later sales from it first`);
+    }
+    for (const x of set) T.imoves.del(x.id);
+  });
   return { ok: true, removed: set.length };
 }
 
@@ -223,7 +241,10 @@ export function importCsv(userId, text) {
   if (rows.length > 5001) fail(400, 'Up to 5,000 items at a time — split the file');
   const key = (h) => String(h).toLowerCase().replace(/[^a-z0-9]/g, '');
   const col = {};
-  rows[0].forEach((h, i) => { const k = key(h); const f = Object.keys(HEADS).find((f) => HEADS[f].includes(k)); if (f && !(f in col)) col[f] = i; });
+  let saleHead = null;
+  rows[0].forEach((h, i) => { const k = key(h); const f = Object.keys(HEADS).find((f) => HEADS[f].includes(k)); if (f && !(f in col)) { col[f] = i; if (f === 'sale_rate') saleHead = k; } });
+  // an MRP column is a price with GST in it: those items bill at the MRP, GST backed out (never MRP + GST)
+  const mrp = saleHead === 'mrp';
   if (!('name' in col)) fail(400, 'Couldn’t find the item name column — call it “Name” or “Item”');
   const out = { created: 0, updated: 0, opening: 0, skipped: [] };
   const day = ymd();
@@ -233,6 +254,7 @@ export function importCsv(userId, text) {
       const b = Object.fromEntries(Object.entries(col).map(([f, i]) => [f, (r[i] ?? '').trim()]));
       const fields = Object.fromEntries(ITEM_FIELDS.filter((f) => f in b && b[f] !== '').map((f) => [f, b[f]]));
       if (fields.gst_percent) fields.gst_percent = String(fields.gst_percent).replace('%', '');
+      if (mrp && fields.sale_rate != null) fields.tax_inclusive = true;
       let item = (b.sku && T.iitems.find({ userId, sku: lname(b.sku), active: 1 })) || T.iitems.find({ userId, lname: lname(b.name), active: 1 });
       if (item) {
         const x = cleanItem(fields, item);
@@ -336,7 +358,7 @@ export function registerInventory(app, { auth, wrap, rateLimit, isTest }) {
   }));
 
   app.get(`${S}/moves`, auth, on, send((req) => ({ moves: listMoves(uidOf(req), { itemId: clip(req.query.itemId, 60), kind: clip(req.query.kind, 20), limit: req.query.limit }) })));
-  app.post(`${S}/moves`, ...W, send((req) => { const m = recordMove(uidOf(req), req.body || {}); const [i, g] = lookups(uidOf(req)); return moveOut(m, i, g); }));
+  app.post(`${S}/moves`, ...W, send((req) => { const m = recordMove(uidOf(req), req.body || {}); const [i, g] = lookups(uidOf(req)); return m.split ? { ...moveOut(m, i, g), split: m.split.map((x) => moveOut(x, i, g)) } : moveOut(m, i, g); }));
   app.post(`${S}/moves/batch`, ...W, send((req) => recordBatch(uidOf(req), req.body || {})));
   app.delete(`${S}/moves/:id`, ...W, send((req) => undoMove(uidOf(req), req.params.id)));
   app.post(`${S}/transfer`, ...W, send((req) => transfer(uidOf(req), req.body || {})));

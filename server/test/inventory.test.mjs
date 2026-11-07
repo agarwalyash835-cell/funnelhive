@@ -257,3 +257,60 @@ test('Hive won’t create a near-twin of an existing item unless the seller says
   assert.equal((await tool.inventory_item.run(ctx, { name: 'Paracetamol 500 syrup', unit: 'Bottle', different_item: true })).name, 'Paracetamol 500 syrup');
   assert.equal((await tool.inventory_item.run(ctx, { name: 'Paracetamol 650', unit: 'Strip' })).name, 'Paracetamol 650', 'a different strength isn’t a twin');
 });
+
+const dayAt = (n = 0) => new Date(Date.parse(`${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+const preview = async (lines, o = {}) => (await api('/inventory/pro/bills/preview', 'POST', { lines, ...o }, T)).data;
+
+test('an MRP column means the price includes GST: the bill comes to the MRP, never MRP + GST; the item form can switch it', async () => {
+  const r = await inv('/import', 'POST', { csv: 'name,mrp,gst\nMRP Biscuit,100,18%\n' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  await inv('/import', 'POST', { csv: 'name,sale price,gst\nPlain Biscuit,100,18\n' });
+  const all = (await items()).items, mrp = all.find((i) => i.name === 'MRP Biscuit'), plain = all.find((i) => i.name === 'Plain Biscuit');
+  assert.equal(mrp.tax_inclusive, true);
+  assert.equal(plain.tax_inclusive, false, 'items without the flag keep GST on top');
+  let b = await preview([{ itemId: mrp.id, qty: 1 }]);
+  assert.deepEqual([b.lines[0].taxable, b.lines[0].gst, b.lines[0].amount, b.total], [84.75, 15.25, 100, 100]);
+  b = await preview([{ itemId: mrp.id, qty: 3 }]);
+  assert.equal(b.lines[0].amount, 300, 'the line equals MRP × qty');
+  assert.equal(r2(b.lines[0].taxable + b.lines[0].gst), 300);
+  assert.equal((await preview([{ itemId: plain.id, qty: 1 }])).total, 118);
+  // the seller turns it off on the item form → GST goes on top again
+  assert.equal((await inv(`/items/${mrp.id}`, 'PUT', { tax_inclusive: false })).data.tax_inclusive, false);
+  assert.equal((await preview([{ itemId: mrp.id, qty: 1 }])).total, 118);
+  assert.equal((await inv(`/items/${mrp.id}`, 'PUT', { tax_inclusive: true })).data.tax_inclusive, true);
+});
+const r2 = (n) => Math.round(n * 100) / 100;
+
+test('stock checks hold under parallel sales: 10 sales of 1 against 5 in stock leave exactly 0', async () => {
+  const it = (await inv('/items', 'POST', { name: 'Race Item', sale_rate: 10 })).data;
+  await inv('/moves', 'POST', { kind: 'PURCHASE', itemId: it.id, qty: 5 });
+  const rs = await Promise.all(Array.from({ length: 10 }, () => inv('/moves', 'POST', { kind: 'SALE', itemId: it.id, qty: 1 })));
+  assert.equal(rs.filter((x) => x.status === 200).length, 5);
+  assert.ok(rs.filter((x) => x.status !== 200).every((x) => x.status === 409));
+  assert.equal(await stockOf(it.id), 0);
+});
+
+test('a manual sale of batched stock goes first-expiry-first-out, never from an expired batch; undo keeps batches ≥ 0', async () => {
+  const syrup = (await inv('/items', 'POST', { name: 'Expired Syrup', sale_rate: 50, gst_percent: 12 })).data;
+  await inv('/moves', 'POST', { kind: 'PURCHASE', itemId: syrup.id, qty: 5, batch: 'OLD', expiry: dayAt(-2) });
+  const no = await inv('/moves', 'POST', { kind: 'SALE', itemId: syrup.id, qty: 2 });
+  assert.equal(no.status, 409);
+  assert.match(no.data.error, /Only expired stock left for Expired Syrup.*write it off first/);
+  assert.equal(await stockOf(syrup.id), 5, 'nothing sold');
+  assert.equal((await inv('/moves', 'POST', { kind: 'SALE', itemId: syrup.id, qty: 2, force: true })).status, 200, 'forced: recorded');
+
+  const drops = (await inv('/items', 'POST', { name: 'Eye Drops', sale_rate: 30 })).data;
+  const p2 = (await inv('/moves', 'POST', { kind: 'PURCHASE', itemId: drops.id, qty: 3, batch: 'B2', expiry: dayAt(30) })).data;
+  await inv('/moves', 'POST', { kind: 'PURCHASE', itemId: drops.id, qty: 4, batch: 'B3', expiry: dayAt(60) });
+  await inv('/moves', 'POST', { kind: 'PURCHASE', itemId: drops.id, qty: 10 });
+  const s = await inv('/moves', 'POST', { kind: 'SALE', itemId: drops.id, qty: 5 });
+  assert.equal(s.status, 200, JSON.stringify(s.data));
+  assert.deepEqual(s.data.split.map((m) => m.qty), [-3, -2]);
+  const left = (await api(`/inventory/pro/batches?itemId=${drops.id}&all=1`, 'GET', null, T)).data;
+  assert.deepEqual(left.map((b) => [b.batch, b.qty]), [['B2', 0], ['B3', 2], [null, 10]]);
+  // undoing B2's purchase: the godown still has 12, but batch B2 would go to −3
+  const u = await inv(`/moves/${p2.id}`, 'DELETE');
+  assert.equal(u.status, 409);
+  assert.match(u.data.error, /batch B2/);
+  assert.equal(await stockOf(drops.id), 12);
+});

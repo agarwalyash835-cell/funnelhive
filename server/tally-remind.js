@@ -7,7 +7,7 @@ import { T, JOBS, contactKey } from './db.js';
 import { sendEmail } from './messaging.js';
 import { waEvent } from './hive-wa.js';
 import { logActivity } from './crm.js';
-import { tallyOn, selectedCompany } from './tally.js';
+import { tallyOn, selectedCompany, outstandingsSyncedAt } from './tally.js';
 
 const DAY = 86400000;
 const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
@@ -59,6 +59,12 @@ export async function reminderJob(now = Date.now()) {
     if (!p.on) continue;
     const company = selectedCompany(u.id);
     if (!company) continue;
+    // the bills are only as fresh as the last sync: with the shop PC off for a day, a customer who has paid since would
+    // still be chased — hold the run, and say why on the Tally page (u.tally.remindHold)
+    const synced = outstandingsSyncedAt(company);
+    const hold = !synced || now - synced > DAY ? { at: now, companyId: company.id, syncedAt: synced } : null;
+    if (hold || u.tally?.remindHold) T.users.update(u.id, (x) => { x.tally = { ...x.tally, remindHold: hold }; });
+    if (hold) continue;
     let n = 0;
     for (const o of T.touts.all({ companyId: company.id, active: 1, status: 'OVERDUE' })) {
       if (n >= 25) break;
@@ -73,7 +79,7 @@ export async function reminderJob(now = Date.now()) {
 export function registerTallyReminders(app, { auth, wrap, rateLimit, isTest }) {
   const on = (req, res, next) => (tallyOn(req.user) ? next() : res.status(403).json({ error: 'Tally isn’t switched on for your account', code: 'TALLY_OFF' }));
   const limit = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 30, key: (req) => req.user.id, message: 'Too many reminders at once — wait a minute.' });
-  app.get('/api/tally/settings', auth, on, (req, res) => res.json(tallyPrefs(req.user)));
+  app.get('/api/tally/settings', auth, on, (req, res) => res.json({ ...tallyPrefs(req.user), held: req.user.tally?.remindHold || null }));
   app.put('/api/tally/settings', auth, on, (req, res) => {
     const b = req.body || {}, cur = tallyPrefs(req.user);
     const r = b.reminders || {};

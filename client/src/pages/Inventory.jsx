@@ -58,7 +58,7 @@ export default function Inventory() {
     <Layout title="Inventory" subtitle="Your stock — items, godowns, stock in and out" actions={on && <><Link className="btn ghost" to="/counter" title="Phone-first counter billing — works offline"><Icon name="receipt" size={14} /> Counter mode</Link><NewMenu onPick={setForm} /></>}>
       {!d ? <div className="skeleton" /> : <>
         <div className="tl-strip">
-          {[['Stock value', money(s.value), 'at purchase rates', 'wallet', 'in'], ['Items', s.items.toLocaleString('en-IN'), `${godowns.length} ${godowns.length === 1 ? 'godown' : 'godowns'}`, 'layers'], ['Low stock', s.low.toLocaleString('en-IN'), s.low ? 'at or below reorder level' : 'nothing running low', 'bell', s.low ? 'out' : 'in'], ['Out of stock', s.out.toLocaleString('en-IN'), s.out ? 'need restocking' : 'all in stock', 'box', s.out ? 'bad' : 'in']].map(([label, value, sub, icon, tone]) => (
+          {[['Stock value', money(s.value), 'qty × today’s purchase rate — FIFO / average value: Reports, below', 'wallet', 'in'], ['Items', s.items.toLocaleString('en-IN'), `${godowns.length} ${godowns.length === 1 ? 'godown' : 'godowns'}`, 'layers'], ['Low stock', s.low.toLocaleString('en-IN'), s.low ? 'at or below reorder level' : 'nothing running low', 'bell', s.low ? 'out' : 'in'], ['Out of stock', s.out.toLocaleString('en-IN'), s.out ? 'need restocking' : 'all in stock', 'box', s.out ? 'bad' : 'in']].map(([label, value, sub, icon, tone]) => (
             <div key={label} className={`tl-stat ${tone || ''}`}><span className="tl-stat-ic"><Icon name={icon} size={14} /></span><div><small>{label}</small><b>{value}</b><em>{sub}</em></div></div>
           ))}
         </div>
@@ -163,7 +163,7 @@ function ItemDrawer({ id, rev, onClose, onChange, onForm }) {
             <button className="btn ghost sm" onClick={() => onForm({ kind: 'item', item: i })}><Icon name="edit" size={14} /> Edit</button>
             <button className="btn ghost sm" onClick={deactivate}><Icon name="trash" size={14} /> Remove</button>
           </div>
-          <dl className="inv-facts"><dt>Sale rate</dt><dd>{money(i.sale_rate)}</dd><dt>Purchase rate</dt><dd>{money(i.purchase_rate)}</dd><dt>Stock value</dt><dd>{i.purchase_rate != null ? inr(Math.max(0, i.stock) * i.purchase_rate) : '—'}</dd></dl>
+          <dl className="inv-facts"><dt>Sale rate</dt><dd>{money(i.sale_rate)}{i.tax_inclusive && i.sale_rate != null ? ' incl. GST' : ''}</dd><dt>Purchase rate</dt><dd>{money(i.purchase_rate)}</dd><dt>Stock value</dt><dd>{i.purchase_rate != null ? inr(Math.max(0, i.stock) * i.purchase_rate) : '—'}</dd></dl>
           <h4>By godown</h4>
           <ul className="tl-rank">{d.byGodown.map((g) => <li key={g.id}><span>{g.name}</span><b className={g.qty < 0 ? 'bad-t' : ''}>{qtyText(g.qty, i.unit)}</b></li>)}</ul>
           <h4>History</h4>
@@ -260,13 +260,13 @@ function TransferForm({ items, godowns, preset, onClose, onDone }) {
 
 function ItemForm({ item = {}, onClose, onDone }) {
   const editing = !!item.id;
-  const [v, setV] = useState({ name: '', unit: 'pcs', sku: '', barcode: '', category: '', hsn: '', gst_percent: '', sale_rate: '', purchase_rate: '', reorder_level: '', ...Object.fromEntries(Object.entries(item).map(([k, x]) => [k, x ?? ''])) });
+  const [v, setV] = useState({ name: '', unit: 'pcs', sku: '', barcode: '', category: '', hsn: '', gst_percent: '', sale_rate: '', purchase_rate: '', reorder_level: '', tax_inclusive: false, ...Object.fromEntries(Object.entries(item).map(([k, x]) => [k, x ?? ''])) });
   const [busy, setBusy] = useState(false);
   const [scan, setScan] = useState(false);
   const set = (p) => setV({ ...v, ...p });
   const save = async () => {
     setBusy(true);
-    const body = Object.fromEntries(['name', 'unit', 'sku', 'barcode', 'category', 'hsn', 'gst_percent', 'sale_rate', 'purchase_rate', 'reorder_level'].map((k) => [k, v[k]]));
+    const body = { ...Object.fromEntries(['name', 'unit', 'sku', 'barcode', 'category', 'hsn', 'gst_percent', 'sale_rate', 'purchase_rate', 'reorder_level'].map((k) => [k, v[k]])), tax_inclusive: !!v.tax_inclusive };
     try { const i = editing ? await api(`/inventory/items/${item.id}`, 'PUT', body) : await api('/inventory/items', 'POST', body); toast(editing ? 'Item saved' : 'Item added — record its opening stock from Stock in'); onDone(i); onClose(); } catch (e) { toast(e.message); }
     setBusy(false);
   };
@@ -283,6 +283,7 @@ function ItemForm({ item = {}, onClose, onDone }) {
         <label>Purchase rate (₹)<input type="number" min="0" step="any" value={v.purchase_rate} onChange={(e) => set({ purchase_rate: e.target.value })} /></label>
         <label>HSN code <small className="muted">· optional</small><input value={v.hsn} onChange={(e) => set({ hsn: e.target.value })} inputMode="numeric" /></label>
         <label>GST<select value={v.gst_percent} onChange={(e) => set({ gst_percent: e.target.value })}><option value="">Not set</option>{GST.map((r) => <option key={r} value={r}>{r}%</option>)}</select></label>
+        <label className="tog full"><input type="checkbox" checked={!!v.tax_inclusive} onChange={(e) => set({ tax_inclusive: e.target.checked })} /><span />Sale rate includes GST <small className="muted">· an MRP: bills charge exactly this, with GST taken out of it</small></label>
         <label className="full">Reorder level <small className="muted">· flagged low at or below this quantity</small><input type="number" min="0" step="any" value={v.reorder_level} onChange={(e) => set({ reorder_level: e.target.value })} /></label>
       </div>
       {scan && <Scanner title="Scan the item’s barcode" onCode={(code) => { set({ barcode: code }); setScan(false); }} onClose={() => setScan(false)} />}

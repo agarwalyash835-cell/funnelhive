@@ -3,7 +3,7 @@
 // Routes live under /api/inventory/pro. Every stock change is a move through addMove — nothing keeps a running total,
 // so cancelling a counter bill or a production run is just deleting its moves.
 import { T, q, tx, uid } from './db.js';
-import { inventoryOn, mainGodown, stockOf, stockMap, addMove, MOVE_SOURCES } from './inventory-core.js';
+import { inventoryOn, mainGodown, stockOf, stockMap, addMove, MOVE_SOURCES, batchStock, fefo, sellFefo } from './inventory-core.js';
 import { tallyOn, selectedCompany } from './tally.js';
 import { STATES, GSTIN_RE } from './platform.js';
 import { sellerOf, fyOf, PIN_RE, nextInSeries, gstr1 } from './gst-returns.js';
@@ -51,26 +51,8 @@ export function findItem(userId, ref) {
 }
 
 // ---------- batches & expiry (distributors) ----------
-// stock per batch: the sum of moves carrying that batch; its expiry is the one recorded when it came in
-export function batchStock(userId, { itemId = null, godownId = null } = {}) {
-  const where = ['userId = ?'], args = [userId];
-  if (itemId) { where.push('itemId = ?'); args.push(itemId); }
-  if (godownId) { where.push('godownId = ?'); args.push(godownId); }
-  return q(`SELECT itemId, json_extract(data, '$.batch') AS batch, MIN(json_extract(data, '$.expiry')) AS expiry, SUM(json_extract(data, '$.qty')) AS n
-    FROM imoves WHERE ${where.join(' AND ')} GROUP BY itemId, json_extract(data, '$.batch')`).all(...args)
-    .map((r) => ({ itemId: r.itemId, batch: r.batch || null, expiry: r.expiry || null, qty: r3(r.n) }));
-}
-// first-expiry-first-out: which batches to sell qty from (no-expiry stock last, unbatched stock after that); expired
-// batches are never suggested — they're listed so the seller can return or write them off
-export function fefo(userId, itemId, qty, godownId = null, today = ymd()) {
-  const all = batchStock(userId, { itemId, godownId }).filter((b) => b.qty > 0.0005);
-  const expired = all.filter((b) => b.expiry && b.expiry < today), open = all.filter((b) => !expired.includes(b))
-    .sort((a, b) => (!a.batch) - (!b.batch) || (!a.expiry) - (!b.expiry) || String(a.expiry).localeCompare(String(b.expiry)) || String(a.batch).localeCompare(String(b.batch)));
-  const take = [];
-  let left = r3(qty);
-  for (const b of open) { if (left <= 0) break; const n = r3(Math.min(left, b.qty)); take.push({ batch: b.batch, expiry: b.expiry, qty: n }); left = r3(left - n); }
-  return { take, short: left > 0 ? left : 0, expired };
-}
+// stock per batch and first-expiry-first-out live in inventory-core.js (manual sales use them too)
+export { batchStock, fefo };
 export function expiring(userId, days = 30, today = ymd()) {
   const until = addDays(today, days);
   const names = new Map();
@@ -158,16 +140,23 @@ export function schemeFor(userId, item, qty, rate, day = ymd()) {
   }
   return best;
 }
-// one sale line: rate (pre-GST), scheme, GST from the item
+// one sale line: rate (pre-GST), scheme, GST from the item. An item whose price includes GST (tax_inclusive: an MRP)
+// has the rate given (or its sale / rate-list rate) taken as GST-inclusive: the line comes to exactly price × qty less
+// the scheme, and GST is backed out of it (taxable = amount / (1 + GST%)); rate is then the pre-GST rate, mrp the price
 export function priceLine(userId, item, { qty, rate, schemes = true, day } = {}) {
   const n = r3(pos(qty, `Quantity of ${item.name}`));
   // no rate given and none on the item: ask, never bill at ₹0
   const raw = rate != null && rate !== '' ? rate : item.sale_rate;
   if (raw == null || raw === '' || !(Number(raw) >= 0)) fail(400, `Rate of ${item.name} is missing — give a rate or set its sale rate`);
   const rt = r2(raw);
-  const sc = schemes ? schemeFor(userId, item, n, rt, day) : null;
-  const gross = r2(n * rt), discount = sc?.discount || 0, taxable = r2(gross - discount), gp = Number(item.gst_percent) || 0, gst = r2((taxable * gp) / 100);
-  return { itemId: item.id, name: item.name, unit: item.unit || '', hsn: item.hsn || null, qty: n, free_qty: sc?.free_qty || 0, rate: rt, gross, discount, scheme: sc?.scheme || null, taxable, gst_percent: gp, gst, amount: r2(taxable + gst) };
+  const sc = schemes ? schemeFor(userId, item, n, rt, day) : null, gp = Number(item.gst_percent) || 0;
+  const base = { itemId: item.id, name: item.name, unit: item.unit || '', hsn: item.hsn || null, qty: n, free_qty: sc?.free_qty || 0, scheme: sc?.scheme || null, gst_percent: gp };
+  if (item.tax_inclusive) {
+    const f = 1 + gp / 100, amount = r2(r2(n * rt) - (sc?.discount || 0)), taxable = r2(amount / f), gross = r2((n * rt) / f);
+    return { ...base, rate: r2(rt / f), mrp: rt, tax_inclusive: true, gross, discount: r2(gross - taxable), taxable, gst: r2(amount - taxable), amount };
+  }
+  const gross = r2(n * rt), discount = sc?.discount || 0, taxable = r2(gross - discount), gst = r2((taxable * gp) / 100);
+  return { ...base, rate: rt, gross, discount, taxable, gst, amount: r2(taxable + gst) };
 }
 
 // ---------- rate lists & credit limits (traders) ----------
@@ -243,7 +232,7 @@ function makeVariants(userId, body) {
     const name = [p.name, size, colour].filter(Boolean).join(' ');
     if (have.some((i) => lower(i.attrs?.size) === lower(size) && lower(i.attrs?.colour) === lower(colour)) || T.iitems.find({ userId, lname: lower(name) })) { skipped.push(name); continue; }
     const tag = [size, colour].filter(Boolean).map((x) => x.toUpperCase().replace(/\s+/g, ''));
-    made.push(T.iitems.insert({ id: uid(), userId, name, unit: p.unit || 'pcs', sku: p.sku ? [p.sku, ...tag].join('-') : null, barcode: null, category: p.category || null, hsn: p.hsn || null, gst_percent: p.gst_percent ?? null, sale_rate: p.sale_rate ?? null, purchase_rate: p.purchase_rate ?? null, reorder_level: p.reorder_level ?? null, parent_id: p.id, attrs: { ...(size ? { size } : {}), ...(colour ? { colour } : {}) }, active: true, at: Date.now() }));
+    made.push(T.iitems.insert({ id: uid(), userId, name, unit: p.unit || 'pcs', sku: p.sku ? [p.sku, ...tag].join('-') : null, barcode: null, category: p.category || null, hsn: p.hsn || null, gst_percent: p.gst_percent ?? null, sale_rate: p.sale_rate ?? null, tax_inclusive: p.tax_inclusive || undefined, purchase_rate: p.purchase_rate ?? null, reorder_level: p.reorder_level ?? null, parent_id: p.id, attrs: { ...(size ? { size } : {}), ...(colour ? { colour } : {}) }, active: true, at: Date.now() }));
   }
   return { made: made.map(itemView), skipped, grid: variantGrid(userId, p) };
 }
@@ -355,11 +344,10 @@ function makeBill(u, p, g, src, { allowNegative }) {
   const fy = fyOf(p.day), number = nextInSeries(u.id, 'CB', fy);
   const moveIds = [];
   for (const l of p.lines) {
-    // batched stock goes first-expiry-first-out, so batch balances stay true; free units leave stock at ₹0
+    // batched stock goes first-expiry-first-out, so batch balances stay true (expired batches are never sold — only
+    // expired left refuses the line unless allowNegative); free units leave stock at ₹0
     const sell = (qty, rate) => {
-      const { take, short } = fefo(u.id, l.itemId, qty, g.id);
-      for (const t of take) moveIds.push(addMove(u.id, { itemId: l.itemId, godownId: g.id, qty: t.qty, kind: 'SALE', rate, day: p.day, party_name: p.party_name, ref: number, source: src, batch: t.batch, expiry: t.expiry }).id);
-      if (short > 0) moveIds.push(addMove(u.id, { itemId: l.itemId, godownId: g.id, qty: short, kind: 'SALE', rate, day: p.day, party_name: p.party_name, ref: number, source: src }, { allowNegative }).id);
+      for (const m of sellFefo(u.id, { itemId: l.itemId, godownId: g.id, qty, kind: 'SALE', rate, day: p.day, party_name: p.party_name, ref: number, source: src }, { allowNegative })) moveIds.push(m.id);
     };
     sell(l.qty, l.qty ? r2(l.taxable / l.qty) : l.rate);
     if (l.free_qty) sell(l.free_qty, 0);
@@ -368,7 +356,7 @@ function makeBill(u, p, g, src, { allowNegative }) {
 }
 
 // ---------- counter mode (the phone app at /counter) ----------
-// Everything a phone needs to bill with no network: items with rate, GST and stock, rate lists, schemes, the seller's
+// Everything a phone needs to bill with no network: items with rate, GST and stock, rate lists (and who is on which), schemes, the seller's
 // GST details and UPI ID, and what sells most (the tiles on the screen). Offline bills priced from this are priced
 // again on the server when they sync.
 const UPI_RE = /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,63}$/;
@@ -376,11 +364,13 @@ export const counterSettings = (u) => ({ upi_id: u.settings?.counter?.upi_id || 
 export function counterCatalog(u) {
   const all = T.iitems.all({ userId: u.id, active: 1 });
   const parents = new Set(all.map((i) => i.parent_id).filter(Boolean)), stock = stockMap(u.id);
-  const items = all.filter((i) => !parents.has(i.id)).map((i) => ({ ...itemView(i), hsn: i.hsn || null, gst_percent: Number(i.gst_percent) || 0, sale_rate: i.sale_rate != null && i.sale_rate !== '' ? Number(i.sale_rate) : null, category: i.category || null, stock: stock.get(i.id) || 0 }));
+  const items = all.filter((i) => !parents.has(i.id)).map((i) => ({ ...itemView(i), hsn: i.hsn || null, gst_percent: Number(i.gst_percent) || 0, sale_rate: i.sale_rate != null && i.sale_rate !== '' ? Number(i.sale_rate) : null, tax_inclusive: !!i.tax_inclusive, category: i.category || null, stock: stock.get(i.id) || 0 }));
   const popular = q("SELECT itemId, COUNT(*) AS n FROM imoves WHERE userId = ? AND kind = 'SALE' AND at > ? GROUP BY itemId ORDER BY n DESC LIMIT 24").all(u.id, Date.now() - 30 * 86400000).map((r) => r.itemId);
   const schemes = T.ischemes.all({ userId: u.id }).filter((s) => s.active !== false).map(({ id, itemId, kind, name, buy, free, pct, min_qty, from, to }) => ({ id, itemId, kind, name, buy, free, pct, min_qty, from, to }));
   const ratelists = T.iratelists.all({ userId: u.id }, { order: 'lname' }).map(({ id, name, rates }) => ({ id, name, rates }));
-  return { owner: u.id, at: Date.now(), today: ymd(), seller: sellerOf(u), states: STATES, items, popular, schemes, ratelists, settings: counterSettings(u) };
+  // customers on their own rate list (credit limits), so an offline bill for them is priced as the server prices it
+  const parties = T.icredit.all({ userId: u.id }).filter((c) => c.ratelistId).map((c) => ({ party_name: c.party_name, lparty: c.lparty, ratelistId: c.ratelistId }));
+  return { owner: u.id, at: Date.now(), today: ymd(), seller: sellerOf(u), states: STATES, items, popular, schemes, ratelists, parties, settings: counterSettings(u) };
 }
 function saveCounterSettings(u, body) {
   const upi = clip(body.upi_id, 300).replace(/\s/g, '');
