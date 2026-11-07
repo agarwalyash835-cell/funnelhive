@@ -152,7 +152,8 @@ td .pill { margin-left: 6px; }
   .lib-side { position: static; max-height: none; order: 2; }
   .lib-file { grid-template-columns: 40px minmax(0, 1fr); }
   .lib-file > a, .lib-file > span:last-child { grid-column: 2; justify-self: start; }
-  .lib-who { display: none; }
+  .lib-who { font-size: 0; } /* the email line hides on phones; the members-area button stays */
+  .lib-who .lib-btn { font-size: 13px; margin-right: 0; }
 }
 
 /* =====================================================================

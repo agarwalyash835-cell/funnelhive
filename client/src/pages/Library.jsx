@@ -18,6 +18,11 @@ export default function Library() {
   useEffect(() => { if (token) load(); }, [token]);
   useEffect(() => { document.title = d?.seller?.name ? `Your library · ${d.seller.name}` : 'Your library'; }, [d]);
   useEffect(() => { if (d && !open && d.products.length === 1 && d.products[0].status === 'active') setOpen(d.products[0].productId); }, [d]);
+  // a course lives in the seller's Academy (lessons, quizzes, community, protection): the library link goes straight
+  // there, signed in — this page stays for downloads-only purchases and one-purchase receipts
+  useEffect(() => {
+    if (d?.scope === 'library' && d.seller.school && /^L/.test(token) && d.products.some((p) => p.status === 'active' && p.lessons?.length)) window.location.replace(`${d.seller.school}?t=${encodeURIComponent(token)}`);
+  }, [d]);
   const accent = d?.theme?.primary || '#6366f1';
 
   if (!token) return <Recover seller={qs.get('s')} />;
