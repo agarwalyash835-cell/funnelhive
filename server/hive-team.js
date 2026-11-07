@@ -69,6 +69,7 @@ export function cleanMate(b = {}, cur = {}, groups = []) {
   if ('core' in b) out.core = !!b.core;
   if ('askFirst' in b) out.askFirst = !!b.askFirst;
   if ('memory' in b) out.memory = !!b.memory; // uses Hive's memory (on unless switched off)
+  if ('learn' in b) out.learn = !!b.learn; // drafts skills from its chats each night (on unless switched off)
   if ('pinned' in b) out.pinned = !!b.pinned; // shown first in the team list
   if ('preset' in b && !cur.preset) out.preset = clip(b.preset, 20);
   if ('schedule' in b) {

@@ -25,7 +25,7 @@ const OR_BASE = () => String(process.env.OPENROUTER_BASE_URL || 'https://openrou
 
 // ---------- storage the JSON tables can't do: full-text search and vectors ----------
 // words include their marks (Hindi and other Indian scripts write vowels as marks: वारंटी is one word, not four)
-const TOKENIZE = "tokenize=\"unicode61 remove_diacritics 2 categories 'L* N* Co Mc Mn'\"";
+export const TOKENIZE = "tokenize=\"unicode61 remove_diacritics 2 categories 'L* N* Co Mc Mn'\"";
 for (const [t, col] of [['kfts', 'chunkId'], ['kpfts', 'prodId']]) {
   const have = q("SELECT sql FROM sqlite_master WHERE name = ?").get(t)?.sql || '';
   if (have && !have.includes('categories')) q(`DROP TABLE ${t}`).run(); // made before Indian scripts were handled: rebuilt below
@@ -129,8 +129,8 @@ export async function embed(texts, cfg = embedCfg(), { retries = 4, timeoutMs = 
   return out;
 }
 // unit vector → int8 (1 byte a dimension); the dot product of two of these ≈ cosine × 127²
-const toInt8 = (v) => Buffer.from(Int8Array.from(v, (x) => Math.max(-127, Math.min(127, Math.round(x * 127)))).buffer);
-const dot8 = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s / 16129; };
+export const toInt8 = (v) => Buffer.from(Int8Array.from(v, (x) => Math.max(-127, Math.min(127, Math.round(x * 127)))).buffer);
+export const dot8 = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s / 16129; };
 
 // each process keeps a seller's vectors in memory until their documents change
 const vecCache = new Map();
@@ -149,7 +149,7 @@ function vectorsOf(userId, model) {
 const QUERY_MS = Number(process.env.EMBED_QUERY_MS || 5000);
 const qCache = new Map();
 let slowUntil = 0;
-async function queryVector(text) {
+export async function queryVector(text) {
   const k = `${embedModel()}:${text}`;
   const c = qCache.get(k);
   if (c && Date.now() - c.at < 10 * 60000) return c.v;

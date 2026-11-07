@@ -6,7 +6,7 @@ import { HiveGlyph as Sparkles } from '../brandIcons';
 import { api } from '../api';
 import { Layout, toast, ago, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { Page } from '../blocks';
-import { TeamSide, TeamDialog, when } from './HiveTeam.jsx';
+import { TeamSide, TeamDialog, RoomDialog, when } from './HiveTeam.jsx';
 import { ApprovalsDialog, ActivityDialog } from './HiveApprovals.jsx';
 
 const SUGGESTIONS = [
@@ -187,6 +187,8 @@ export default function Hive() {
   const [team, setTeam] = useState([]);
   const [mate, setMate] = useState(null);
   const [manage, setManage] = useState(null); // null, or { editId }
+  const [room, setRoom] = useState(null); // the open chat when it's a team room ({ id, room })
+  const [roomEdit, setRoomEdit] = useState(null); // the room dialog: {} new, or a room
   useEffect(() => { api('/hive/team').then((d) => setTeam(d.team)).catch(() => {}); }, []);
   useEffect(() => { api('/me').then((m) => setFirst(String(m?.name || '').trim().split(/\s+/)[0] || '')).catch(() => {}); }, []);
 
@@ -226,10 +228,11 @@ export default function Hive() {
     if (busy) return;
     setDrawer(false);
     setTid(id); setLive(null); setMob('chat'); setElsewhere(false); stick.current = true;
-    if (!id) { setMsgs([]); setFunnelId(null); setMate(null); return; }
+    if (!id) { setMsgs([]); setFunnelId(null); setMate(null); setRoom(null); return; }
     const t = await api(`/hive/threads/${id}`);
     setMsgs(t.messages); setFunnelId(t.funnelId); setElsewhere(!!t.running);
     setMate(team.find((m) => m.id === t.teammateId) || null);
+    setRoom(t.room ? { id: t.id, room: t.room } : null);
     if (threads.some((x) => x.id === id && x.unread)) setThreads((l) => l.map((x) => (x.id === id ? { ...x, unread: false } : x))); // opened: seen
   };
   // the seller confirms (or cancels) an action Hive proposed
@@ -292,11 +295,13 @@ export default function Hive() {
           try { ev = JSON.parse(chunk.slice(6)); } catch { continue; } // one garbled event shouldn't end the reply
           if (ev.type === 'thread') { setTid(ev.threadId); threadId = ev.threadId; }
           else if (ev.type === 'thinking') setLive((l) => ({ ...l, thinking: ev.text }));
+          else if (ev.type === 'speaker') setLive((l) => ({ ...l, by: ev.by, tools: [], thinking: '' }));
           else if (ev.type === 'tool') {
             setLive((l) => ({ ...l, tools: ev.status === 'running' ? [...l.tools, ev] : l.tools.map((t) => (t.id === ev.id ? { ...t, ...ev } : t)) }));
             if (ev.status === 'done' && ev.funnelId) { if (ev.funnelId !== finalFunnel) { finalFunnel = ev.funnelId; setFunnelId(ev.funnelId); } else if (Date.now() - lastLoad > 2000) { lastLoad = Date.now(); loadFunnel(ev.funnelId); } }
           } else if (ev.type === 'reply') {
-            setMsgs((m) => [...m, { role: 'assistant', text: ev.text, tools: ev.tools, at: Date.now() }]);
+            setMsgs((m) => [...m, { role: 'assistant', text: ev.text, tools: ev.tools, at: Date.now(), ...(ev.by ? { by: ev.by } : {}) }]);
+            if (ev.by) setLive((l) => (l ? { ...l, tools: [], thinking: '' } : l));
             if (ev.funnelId && ev.funnelId !== finalFunnel) setFunnelId(ev.funnelId); else if (ev.funnelId) loadFunnel(ev.funnelId);
           } else if (ev.type === 'error') setMsgs((m) => [...m, { role: 'assistant', text: ev.error, error: true, at: Date.now() }]);
         }
@@ -318,15 +323,18 @@ export default function Hive() {
   const asked = useRef(false);
   useEffect(() => {
     const q = params.get('ask'), th = params.get('thread');
+    if (params.get('skills')) { setManage({ skills: true }); setParams({}, { replace: true }); return; } // 'skills to review' from the bell
     if (status && th && !asked.current) { asked.current = true; setParams({}, { replace: true }); openThread(th).catch(() => {}); return; }
     if (!status || !q || asked.current) return;
     asked.current = true; setParams({}, { replace: true });
     if (ready) send(q); else setPrefill(q);
   }, [status]);
+  // who said a message in a room: a teammate, or the team's combined summary
+  const who = (m) => (!m?.by ? null : m.by === 'summary' ? { emoji: '👥', name: 'Team summary' } : team.find((x) => x.id === m.by) || null);
   const empty = !msgs.length && !live;
   const composer = (
     <Composer ready={ready} busy={busy} prefill={prefill} focusKey={tid} onSend={send} onStop={() => abort.current?.abort()}
-      placeholder={ready === false ? 'Hive AI isn’t switched on yet' : msgs.length ? `Reply to ${mate ? mate.name : 'Hive'}…` : mate ? `Ask ${mate.name}…` : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
+      placeholder={ready === false ? 'Hive AI isn’t switched on yet' : room ? `Message ${room.room.name} — @name to ask one, @everyone for all` : msgs.length ? `Reply to ${mate ? mate.name : 'Hive'}…` : mate ? `Ask ${mate.name}…` : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
   );
 
   return (
@@ -335,12 +343,12 @@ export default function Hive() {
         {drawer && <button className="hv-drawer-bg" aria-label="Close chats" onClick={() => setDrawer(false)} />}
         <aside className="hv-threads">
           <button className="hv-new" onClick={() => openThread(null)} disabled={busy}><Plus size={15} /> New chat</button>
-          <TeamSide team={team} unread={unreadMates} mate={!tid ? mate : null} disabled={busy} onPick={(m) => { openThread(null).then(() => setMate(m)); }} onManage={() => setManage({})} />
+          <TeamSide team={team} unread={unreadMates} mate={!tid ? mate : null} disabled={busy} onPick={(m) => { openThread(null).then(() => setMate(m)); }} onManage={() => setManage({})} rooms={threads.filter((t) => t.room)} roomId={room?.id || null} onRoom={(id) => openThread(id)} onNewRoom={() => setRoomEdit({})} />
           {approvals > 0 && <button className="hv-side-btn ask" onClick={() => setPanel('approvals')}><ShieldCheck size={14} /> Waiting for your OK ({approvals})</button>}
           <button className="hv-side-btn" onClick={() => setPanel('activity')}><History size={14} /> Activity</button>
           {threads.length > 0 && <small className="hv-tlabel">Recent</small>}
           <div className="hv-tlist">
-            {threads.map((t) => (
+            {threads.filter((t) => !t.room).map((t) => (
               <div key={t.id} className={`hv-t ${t.id === tid ? 'on' : ''}`} onClick={() => openThread(t.id)}>
                 {team.find((m) => m.id === t.teammateId) ? <span className="hv-t-e" aria-hidden="true">{team.find((m) => m.id === t.teammateId).emoji}</span> : <MessageSquare size={14} />}<span title={t.title}>{t.title}</span><small>{ago(t.updatedAt)}</small>
                 <button className="icon-btn xs" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); removeThread(t.id); }}><Trash2 size={12} /></button>
@@ -355,6 +363,8 @@ export default function Hive() {
             <button className="icon-btn" title={narrow ? 'Chats' : side ? 'Hide chats' : 'Show chats'} aria-label={narrow ? 'Chats' : side ? 'Hide chats' : 'Show chats'} onClick={() => (window.matchMedia('(max-width: 1100px)').matches ? setDrawer((d) => !d) : setSide(!side))}><PanelLeft size={17} /></button>
             <b>{mate && <span className="hv-mate-tag" style={{ '--mc': mate.color }}>{mate.emoji} {mate.name}</span>}{threads.find((t) => t.id === tid)?.title || (mate ? '' : 'New chat')}</b>
             {mate && <button className="btn ghost sm" onClick={() => setManage({ editId: mate.id })}>Settings</button>}
+            {room && <span className="hv-room-tag">{room.room.members.map((id) => team.find((m) => m.id === id)).filter(Boolean).map((m) => <span key={m.id} title={m.name}>{m.emoji}</span>)}</span>}
+            {room && <button className="btn ghost sm" onClick={() => setRoomEdit(threads.find((t) => t.id === room.id) || { id: room.id, room: room.room })}>Room settings</button>}
             {(tid || msgs.length > 0) && <button className="btn ghost sm hv-newchat" onClick={() => openThread(null)} disabled={busy} title="End this chat and start a new one (this one stays in your list)"><Plus size={14} /> New chat</button>}
             {status?.provider && <span className="hv-prov" title="Only you (the platform owner) see this">{status.provider}</span>}
             <span className={`hv-state ${ready ? 'on' : ''}`}><i />{ready ? 'Hive AI' : 'Offline'}</span>
@@ -383,14 +393,15 @@ export default function Hive() {
             )}
             {msgs.map((m, i) => (
               <div key={`${m.at || ''}-${i}`} className={`hv-msg ${m.role} ${m.error ? 'err' : ''}`}>
-                {m.role === 'assistant' && <span className="hv-av">{mate ? mate.emoji : <Sparkles size={14} />}</span>}
-                <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} />{tid && <ReplyActions m={m} canUndo={!!m.undoId && m.undoId === lastUndo} onRate={rate} onUndo={undo} busy={busy || acting} />}</> : <>{m.files?.length > 0 && <div className="hv-files sent">{m.files.map((x, i) => <span key={i} className="hv-file"><Paperclip size={12} />{x.name}</span>)}</div>}{m.text}</>}</div>
+                {m.role === 'assistant' && <span className="hv-av" title={who(m)?.name}>{who(m)?.emoji || (mate ? mate.emoji : <Sparkles size={14} />)}</span>}
+                <div className="hv-bub">{m.role === 'assistant' && room && who(m) && <small className="hv-by">{who(m).name}</small>}{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} />{tid && <ReplyActions m={m} canUndo={!!m.undoId && m.undoId === lastUndo} onRate={rate} onUndo={undo} busy={busy || acting} />}</> : <>{m.files?.length > 0 && <div className="hv-files sent">{m.files.map((x, i) => <span key={i} className="hv-file"><Paperclip size={12} />{x.name}</span>)}</div>}{m.text}</>}</div>
               </div>
             ))}
             {live && (
               <div className="hv-msg assistant live">
-                <span className="hv-av">{mate ? mate.emoji : <Sparkles size={14} />}</span>
+                <span className="hv-av">{who(live)?.emoji || (mate ? mate.emoji : <Sparkles size={14} />)}</span>
                 <div className="hv-bub">
+                  {room && who(live) && <small className="hv-by">{who(live).name}</small>}
                   {live.thinking && <Rich text={live.thinking} />}
                   <ToolChips tools={live.tools} />
                   <LiveStatus tools={live.tools} since={live.since || Date.now()} />
@@ -432,7 +443,8 @@ export default function Hive() {
         {panel === 'approvals' && <ApprovalsDialog onClose={() => { setPanel(null); loadApprovals(); }} onOpen={(id) => openThread(id).catch(() => {})}
           onDecided={(id) => { if (id === tid) api(`/hive/threads/${id}`).then((t) => setMsgs(t.messages)).catch(() => {}); }} />}
         {panel === 'activity' && <ActivityDialog team={team} onClose={() => setPanel(null)} />}
-        {manage && <TeamDialog editId={manage.editId} onClose={() => setManage(null)} onChanged={(t) => { setTeam(t); setMate((m) => (m ? t.find((x) => x.id === m.id) || null : m)); }} onRun={(id) => { loadThreads(); openThread(id); }} />}
+        {roomEdit && <RoomDialog team={team} room={roomEdit.id ? roomEdit : null} onClose={() => setRoomEdit(null)} onSaved={(r) => { loadThreads(); if (!roomEdit.id) openThread(r.id); else setRoom({ id: r.id, room: r.room }); }} onDeleted={(id) => { loadThreads(); if (room?.id === id) openThread(null); }} onRun={(id) => { loadThreads(); openThread(id); }} />}
+        {manage && <TeamDialog editId={manage.editId} skills={!!manage.skills} onClose={() => setManage(null)} onChanged={(t) => { setTeam(t); setMate((m) => (m ? t.find((x) => x.id === m.id) || null : m)); }} onRun={(id) => { loadThreads(); openThread(id); }} />}
         <nav className="hv-mobtabs">
           <button className={mob === 'chat' ? 'on' : ''} onClick={() => setMob('chat')}><MessageSquare size={16} /> Chat</button>
           <button className={mob === 'preview' ? 'on' : ''} onClick={() => setMob('preview')}><Eye size={16} /> Preview{funnel ? '' : ''}</button>

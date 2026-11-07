@@ -7,9 +7,9 @@ import crypto from 'node:crypto';
 import { LANGUAGES as VOICE_LANGS } from './sarvam.js';
 import { withAnswers } from './ai.js';
 import { pageLang, LANG_HELP } from './page-langs.js';
-import { T, q, uid } from './db.js';
+import { T, q, uid, JOBS } from './db.js';
 import { hashToken } from './security.js';
-import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
+import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses, aiText } from './ai.js';
 import { isAdmin } from './platform.js';
 import { readOnlyAction, appOfSlug } from './composio.js';
 import { PAGE_STYLES } from './page-styles.js';
@@ -26,6 +26,9 @@ import * as academyTools from './hive-academy.js';
 import * as webTools from './hive-web.js';
 import * as docTools from './hive-docs.js';
 import * as memoryTools from './hive-memory.js';
+import * as roomTools from './hive-rooms.js';
+import { cleanRoom, roomMembers, mentioned, pickMember, roomNote, roomDue, HOPS_MAX } from './hive-rooms.js';
+import { sellerTz } from './tz.js';
 import * as studioTools from './hive-studio.js';
 import * as reportTools from './hive-inventory-reports.js';
 import { PRESETS, MAX_TEAM, cleanMate, teamOf, mateOf, mateNote, startTeamJobs, forgetTeamCache, setRun, RUN_STALE_MS } from './hive-team.js';
@@ -847,7 +850,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Made a copy: “${r.name}”`,
   },
   // stock insights on Tally, and the Inventory add-on (each module keeps its own tools)
-  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS, ...studioTools.TOOLS, ...academyTools.TOOLS, ...webTools.TOOLS, ...docTools.TOOLS, ...memoryTools.TOOLS,
+  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS, ...studioTools.TOOLS, ...academyTools.TOOLS, ...webTools.TOOLS, ...docTools.TOOLS, ...memoryTools.TOOLS, ...roomTools.TOOLS,
 ];
 const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -881,7 +884,7 @@ const NEEDS_OK = {
   // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
   run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${appOfSlug(a.slug)?.name || 'connected app'} account: ${String(a.slug || '').replace(/^[A-Z]+?_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
-  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK, ...studioTools.OK, ...academyTools.OK, ...webTools.OK, ...docTools.OK, ...memoryTools.OK,
+  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK, ...studioTools.OK, ...academyTools.OK, ...webTools.OK, ...docTools.OK, ...memoryTools.OK, ...roomTools.OK,
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
@@ -962,6 +965,7 @@ export const TOOL_GROUPS = {
   web: { about: 'the open web: search it, read any public page (competitors, prices, news, rules, a link the seller sends)', tools: webTools.TOOLS.map((t) => t.name), re: /\b(search|google it|internet|web|online|websites?|urls?|links?|https?:\/\/\S+|www\.|competitors?|news|latest|trend\w*|research|look (it )?up|market rate)\b/i },
   vault: { about: 'the Vault: find and read the seller’s files (brochures, price lists, agreements, invoices, photos) and save notes Hive writes', tools: docTools.TOOLS.map((t) => t.name), re: /\b(vault|files?|documents?|docs?|pdfs?|brochures?|agreements?|price ?lists?|save (this|it)|keep (this|it)|notes?|sop)\b/i },
   memory: { about: 'Hive’s memory: save something the seller asks you to remember for every future chat', tools: memoryTools.TOOLS.map((t) => t.name), re: /\b(remember|memori[sz]e|don'?t forget|from now on|always|never|keep in mind|note that)\b/i },
+  room: { about: 'team rooms: hand part of a job to another teammate in the room', tools: roomTools.TOOLS.map((t) => t.name), re: /(?!)/ },
   apps: { about: 'the seller’s connected apps — Gmail, Google Calendar, Google Sheets, Google Drive (and ads accounts)', tools: ['find_app_actions', 'run_app_action'], re: /\b(gmail|e-?mails?|mail ?box|calendar|meetings?|schedule|sheets?|spreadsheets?|drive|google docs?)\b/i },
   account: { about: 'business settings, team members, agency clients, tracking, webhooks', tools: ['update_business', 'list_team', 'invite_team_member', 'list_clients', 'copy_funnel_to_client', 'set_tracking', 'connect_webhook'], re: /\b(team|invite|staff|employees?|clients?|agency|business (name|settings)|time ?zone|consent|settings)\b/i },
 };
@@ -1053,7 +1057,8 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
   const input = [...history.slice(-12).map((m) => ({ role: m.role, content: m.text })), { role: 'user', content: message + context }];
   let groups = studio ? new Set(['studio', ...startGroups(message, history.slice(-2), false)].filter((g) => g !== 'sections')) : startGroups(message, history, !!focusFunnelId);
   if (allowed) groups = new Set([...groups].filter((g) => allowed.has(g)));
-  const system = (studio ? SYSTEM + STUDIO_NOTE : SYSTEM) + (teammate ? mateNote(teammate, GROUP_ABOUT) : '') + (!teammate || teammate.memory !== false ? ctx.memory || '' : '');
+  if (ctx.askTeammate) { groups.add('room'); allowed?.add('room'); allowedNames?.add('ask_teammate'); } // in a team room
+  const system = (studio ? SYSTEM + STUDIO_NOTE : SYSTEM) + (teammate ? mateNote(teammate, GROUP_ABOUT) : '') + (!teammate || teammate.memory !== false ? (ctx.recall ? await ctx.recall(message, teammate).catch(() => '') : ctx.memory || '') : '') + (ctx.roomNote || '');
   const maxGroups = allowed ? allowed.size : GROUP_COUNT;
   const done = [], rounds = new Map(), seen = new Map(), fails = new Map(), blocked = new Map();
   const usage = { rounds: 0, tokensIn: 0, tokensOut: 0 };
@@ -1084,7 +1089,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
     }
     emit({ type: 'tool', status: 'running', id: c.call_id, name: c.name, label: t?.description.split(/[.:\n]/)[0] || c.name });
     // a teammate set to "ask first" (and every scheduled run) also waits for the seller on anything that changes something
-    const strict = !!t && (teammate?.askFirst || ctx.unattended) && !readsOnly(c.name);
+    const strict = !!t && (teammate?.askFirst || ctx.unattended) && !readsOnly(c.name) && c.name !== 'ask_teammate'; // a hand-off isn't a change: what the other teammate changes waits on its own
     const ask = ctx.pending && (needsOk(c.name, args) || (strict ? `${teammate?.name ? `${teammate.name}: ` : ''}${t?.description.split(/[.:\n]/)[0] || c.name.replace(/_/g, ' ')}` : null));
     if (ask) {
       const p = { id: uid(), name: c.name, args, label: ask, at: Date.now() };
@@ -1299,7 +1304,8 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   // `stop` (the reply's abort signal): pressing Stop or leaving the page also cuts off a tool call that's running
   const ctxFor = (user, origin, actor = null, stop = null) => ({
     origin,
-    memory: memoryTools.memoryNote(user), // what the seller asked Hive to remember
+    // what the seller asked Hive to remember and the skills it learned: everything, or the ones that fit this message
+    recall: (text, teammate) => memoryTools.recallNote(user, { text, teammate }),
     call: async (method, path, body) => {
       const r = await fetch(`http://127.0.0.1:${port}/api${path}`, { method, headers: { Authorization: `Bearer ${actor ? sign(actor, user.id) : sign(user)}`, 'Content-Type': 'application/json', 'X-Hive': '1' }, body: body ? JSON.stringify(body) : undefined, signal: stop ? AbortSignal.any([stop, AbortSignal.timeout(300000)]) : AbortSignal.timeout(300000) });
       const data = await r.json().catch(() => ({}));
@@ -1314,7 +1320,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   const ownThread = (req, id) => { const t = id && T.hive.get(id); return t && t.userId === req.user.id ? t : null; };
   // a teammate's task chat with a reply the seller hasn't opened yet: a dot on that teammate
   const lastReply = (t) => { for (let i = t.messages.length - 1; i >= 0; i--) if (t.messages[i].role === 'assistant') return t.messages[i].at || 0; return 0; };
-  app.get('/api/hive/threads', auth, (req, res) => res.json(T.hive.all({ userId: req.user.id }, { order: 'updatedAt', desc: true, limit: 100 }).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt, teammateId: t.teammateId || null, ...(t.auto && lastReply(t) > (t.seenAt || 0) ? { unread: true } : {}) }))));
+  app.get('/api/hive/threads', auth, (req, res) => res.json(T.hive.all({ userId: req.user.id }, { order: 'updatedAt', desc: true, limit: 100 }).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt, teammateId: t.teammateId || null, ...(t.room ? { room: { name: t.room.name, members: t.room.members, schedule: t.room.schedule || null } } : {}), ...(t.auto && lastReply(t) > (t.seenAt || 0) ? { unread: true } : {}) }))));
   app.get('/api/hive/threads/:tid', auth, (req, res) => {
     const t = ownThread(req, req.params.tid);
     if (!t) return res.status(404).json({ error: 'Chat not found' });
@@ -1374,7 +1380,8 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       emit({ type: 'thinking', text: `Reading ${files.length > 1 ? `${files.length} files` : `“${files[0].name}”`}…` });
       read = await readAttachments(req.user, files);
     }
-    t.messages.push({ role: 'user', text: message, at: Date.now(), ...(read.length ? { files: read } : {}) });
+    const userMsg = { role: 'user', text: message, at: Date.now(), ...(read.length ? { files: read } : {}) };
+    t.messages.push(userMsg);
     T.hive.put(t);
     const jr = journaled(ctxFor(req.user, appUrl(req), req.actor, ac.signal), req.user.id);
     const saveUndo = () => {
@@ -1389,13 +1396,28 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       // a Studio thread stays a Studio thread (the director's chat in Studio)
       if (req.body.scope === 'studio' && !t.scope) { t.scope = 'studio'; T.hive.put(t); }
       const withFiles = read.length ? `${spoken}\n\n${read.map((x) => `[Attached file “${x.name}”${x.note ? ` — ${x.note}` : ''}]\n${x.text || '(no readable text)'}`).join('\n\n')}` : spoken;
-      const out = await hiveTurn({ ctx, history, message: withFiles, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal, scope: t.scope || null, teammate });
-      const undoId = saveUndo();
-      t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now(), ...(undoId ? { undoId } : {}) });
-      logUsage(req.user.id, out.usage);
-      if (out.funnelId) t.funnelId = out.funnelId;
-      if (ctx.pending.length) t.pending = [...(t.pending || []).filter((p) => Date.now() - p.at < PENDING_TTL), ...ctx.pending].slice(-20);
-      emit({ type: 'reply', text: out.text, tools: out.tools, funnelId: t.funnelId, undoId });
+      if (t.room) {
+        // a team room: the teammate(s) the message is for answer, one after another (each reply its own message)
+        const members = roomMembers(t.room, teamOf(req.user));
+        if (!members.length) throw new Error('This room has no teammates left — add some in the room’s settings');
+        let who = mentioned(message, members);
+        if (!who.length) who = [pickMember(message, members, (x) => startGroups(x, history.slice(-2)), [...t.messages].reverse().find((m) => m.by && m.by !== 'summary')?.by)];
+        const { AI_COST, creditsShort, spendCredits } = await deps();
+        const more = () => { if (creditsShort(req.user, AI_COST.hive)) return false; spendCredits(req.user, AI_COST.hive); return true; };
+        const r = await roomTurn({ u: req.user, t, message: withFiles, userMsg, who, jr, emit, signal: ac.signal, audit: ctx.audit, more });
+        const undoId = saveUndo();
+        if (undoId && r.replies.length) r.replies.at(-1).undoId = undoId;
+        r.usage.forEach((x) => logUsage(req.user.id, x));
+        if (r.pending.length) t.pending = [...(t.pending || []).filter((p) => Date.now() - p.at < PENDING_TTL), ...r.pending].slice(-20);
+      } else {
+        const out = await hiveTurn({ ctx, history, message: withFiles, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal, scope: t.scope || null, teammate });
+        const undoId = saveUndo();
+        t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now(), ...(undoId ? { undoId } : {}) });
+        logUsage(req.user.id, out.usage);
+        if (out.funnelId) t.funnelId = out.funnelId;
+        if (ctx.pending.length) t.pending = [...(t.pending || []).filter((p) => Date.now() - p.at < PENDING_TTL), ...ctx.pending].slice(-20);
+        emit({ type: 'reply', text: out.text, tools: out.tools, funnelId: t.funnelId, undoId });
+      }
     } catch (e) {
       const msg = ac.signal.aborted ? 'Stopped.' : `Something went wrong: ${e.message}`;
       if (!ac.signal.aborted) res.locals.aiFailed = true; // the AI call failed: no credits taken
@@ -1542,6 +1564,138 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     res.json({ threadId: t.id });
   });
   startTeamJobs(runMate, runView);
+
+  // ---------- team rooms (hive-rooms.js) ----------
+  // the chat as a room member reads it: what each teammate said starts with [their name]
+  const roomHistory = (t, team, skip = null) => {
+    const names = new Map(team.map((m) => [m.id, m.name]));
+    return t.messages.filter((m) => m !== skip).map((m) => ({ role: m.role, text: `${m.by === 'summary' ? '[Team summary] ' : m.by && names.get(m.by) ? `[${names.get(m.by)}] ` : ''}${m.text}`, tools: (m.tools || []).map((x) => x.name) }));
+  };
+  // who: the members who answer, in order; each can hand part of the job to another (up to HOPS_MAX in all).
+  // Every turn after the first costs one more AI credit (more() takes it, false when there's none left)
+  async function roomTurn({ u, t, message, userMsg, who, jr, emit, signal, audit, unattended = false, more = () => true }) {
+    const team = teamOf(T.users.get(u.id) || u), members = roomMembers(t.room, team);
+    const pending = [], replies = [], usage = [];
+    let hops = 0, turns = 0;
+    const turnFor = async (m, msg, { lead = false, canAsk = true } = {}) => {
+      if (turns++ > 0 && !more()) throw new Error('Out of AI credits for more replies in this room');
+      const ctx = { ...jr.ctx, pending, unattended, audit: { ...audit, by: unattended ? 'schedule' : 'teammate' }, roomNote: roomNote(t.room, members, m) };
+      if (canAsk) {
+        ctx.askTeammate = async (name, request) => {
+          const want = String(name || '').toLowerCase().trim();
+          const m2 = members.find((x) => x.id !== m.id && (x.name.toLowerCase() === want || x.name.toLowerCase().split(/[\s—–-]+/)[0] === want.split(/\s+/)[0]));
+          if (!m2) throw new Error(`${name} isn’t in this room — the others are ${members.filter((x) => x.id !== m.id).map((x) => x.name).join(', ')}`);
+          if (hops >= HOPS_MAX) throw new Error('Enough hand-offs for one reply — finish with what you have');
+          hops++;
+          emit({ type: 'thinking', text: `${m.name} asked ${m2.name}…` });
+          const r = await turnFor(m2, `[${m.name}] asks you: ${String(request || '').slice(0, 3000)}`, { canAsk: false });
+          return { teammate: m2.name, reply: r.text.slice(0, 4000) };
+        };
+      }
+      emit({ type: 'speaker', by: m.id });
+      // the first answer reads the seller's message as the new one; the others see it (and earlier answers) above
+      const out = await hiveTurn({ ctx, history: roomHistory(t, team, lead ? userMsg : null), message: msg, emit, signal, teammate: m });
+      usage.push(out.usage);
+      const reply = { role: 'assistant', text: out.text, tools: out.tools, by: m.id, at: Date.now() };
+      t.messages.push(reply); replies.push(reply);
+      emit({ type: 'reply', text: out.text, tools: out.tools, by: m.id });
+      return out;
+    };
+    for (const [i, m] of who.entries()) {
+      await turnFor(m, i === 0 ? message : `[The message above was for ${who.length > 2 ? 'the team' : 'both of you'}. Now answer your part, ${m.name} — don't repeat what the others said.]`, { lead: i === 0 });
+    }
+    return { pending, replies, usage };
+  }
+  const roomOwner = (req, res) => { if (!req.actor) return true; res.status(403).json({ error: 'Only the account owner can set up team rooms' }); return false; };
+  const roomView = (t) => ({ id: t.id, title: t.title, updatedAt: t.updatedAt, teammateId: null, room: { name: t.room.name, members: t.room.members, schedule: t.room.schedule || null } });
+  app.post('/api/hive/rooms', auth, (req, res) => {
+    if (!roomOwner(req, res)) return;
+    const room = cleanRoom(req.body || {}, {}, teamOf(req.user));
+    if (room.members.length < 2) return res.status(400).json({ error: 'Pick at least two teammates for the room' });
+    const t = T.hive.insert({ id: uid(), userId: req.user.id, title: `👥 ${room.name}`, funnelId: null, room, messages: [], at: Date.now(), updatedAt: Date.now() });
+    roomCache.at = 0;
+    res.json(roomView(t));
+  });
+  app.put('/api/hive/rooms/:tid', auth, (req, res) => {
+    if (!roomOwner(req, res)) return;
+    const t0 = ownThread(req, req.params.tid);
+    if (!t0?.room) return res.status(404).json({ error: 'Room not found' });
+    const { lastRunDay, id, ...b } = req.body || {};
+    const room = cleanRoom(b, t0.room, teamOf(req.user));
+    if (room.members.length < 2) return res.status(400).json({ error: 'A room needs at least two teammates' });
+    const t = T.hive.update(t0.id, (x) => { x.room = room; x.title = `👥 ${room.name}`; });
+    roomCache.at = 0;
+    res.json(roomView(t));
+  });
+  // the room's regular task: every member reports, then one combined summary (bell, and WhatsApp if asked)
+  const SUMMARY = 'You combine the reports below, from an Indian business owner\'s AI teammates, into one short summary they can read on WhatsApp: the key numbers and what needs their OK first, then one line per teammate. No greeting. Under 120 words. Keep ₹ amounts and names exactly as written.';
+  async function runRoom(u, tid, { scheduled = null } = {}) {
+    if (!hiveReady()) throw new Error('Hive AI isn’t switched on yet');
+    const { AI_COST, creditsShort, spendCredits, sellerAlert } = await deps();
+    const t = T.hive.get(tid);
+    const task = t?.room?.schedule?.task;
+    if (!task) throw new Error('This room has no regular task');
+    if (running.has(t.id)) throw new Error('The room is still busy with the last task');
+    const members = roomMembers(t.room, teamOf(T.users.get(u.id)));
+    if (!members.length) throw new Error('This room has no teammates left');
+    const more = () => { if (creditsShort(u, AI_COST.hive)) return false; spendCredits(u, AI_COST.hive); return true; };
+    if (!more()) throw new Error(creditsShort(u, AI_COST.hive));
+    running.add(t.id);
+    try {
+      const userMsg = { role: 'user', text: `⏰ ${task}`, auto: true, at: Date.now() };
+      t.messages.push(userMsg);
+      T.hive.put(t);
+      const jr = journaled(ctxFor(u, origin()), u.id);
+      const message = `${task}\n\n[${scheduled ? `Scheduled team task for ${scheduled}` : 'Run now'}: the seller isn't watching live. Each of you reports on your own part, briefly. Anything that would change something becomes a card they approve later.]`;
+      const r = await roomTurn({ u, t, message, userMsg, who: members, jr, emit: () => {}, signal: AbortSignal.timeout((TURN_MS + 60000) * members.length), audit: { userId: u.id, threadId: t.id }, unattended: true, more });
+      const reports = r.replies.map((x) => `## ${members.find((m) => m.id === x.by)?.name || 'Teammate'}\n${x.text}`).join('\n\n');
+      let summary = r.replies.map((x) => `• ${members.find((m) => m.id === x.by)?.name}: ${firstLine(x.text)}`).join('\n');
+      try { const s = (await aiText(SUMMARY, reports.slice(0, 20000))).trim(); if (s) summary = s; } catch { /* the one-line list will do */ }
+      t.messages.push({ role: 'assistant', text: summary, by: 'summary', at: Date.now() });
+      r.usage.forEach((x) => logUsage(u.id, x));
+      const undoId = jr.changed() ? T.hiveUndo.insert({ id: uid(), userId: u.id, at: Date.now(), journal: jr.journal }).id : null;
+      if (undoId) t.messages.at(-1).undoId = undoId;
+      if (r.pending.length) t.pending = [...(t.pending || []).filter((p) => Date.now() - p.at < PENDING_TTL), ...r.pending].slice(-20);
+      const asks = r.pending.length ? ` · ${r.pending.length} to approve` : '';
+      notify(u.id, { kind: 'hive', title: `👥 ${t.room.name}: ${firstLine(summary).slice(0, 110)}`, body: `${summary.slice(0, 260)}${asks}`, link: `/hive?thread=${t.id}` });
+      if (t.room.schedule?.whatsapp) await Promise.resolve(sellerAlert(u, { kind: `${t.room.name} update`, where: 'Hive AI', what: `${firstLine(summary).slice(0, 140)}${asks}`, path: `/hive?thread=${t.id}`, entityId: `${t.id}:${scheduled || Date.now()}` })).catch(() => {});
+      return { threadId: t.id, summary, pending: r.pending.length };
+    } catch (e) {
+      t.messages.push({ role: 'assistant', text: `Couldn’t finish: ${e.message}`, error: true, at: Date.now() });
+      throw e;
+    } finally {
+      running.delete(t.id);
+      t.updatedAt = Date.now();
+      if (t.messages.length > 200) t.messages.splice(0, t.messages.length - 200);
+      if (T.hive.get(t.id)) T.hive.put(t);
+    }
+  }
+  app.post('/api/hive/rooms/:tid/run', auth, limiter, async (req, res) => {
+    const t = ownThread(req, req.params.tid);
+    if (!t?.room) return res.status(404).json({ error: 'Room not found' });
+    if (!t.room.schedule?.task) return res.status(400).json({ error: 'Give the room a task first' });
+    if (!hiveReady()) return res.status(503).json({ error: 'Hive AI isn’t switched on yet — please try again later' });
+    if (running.has(t.id)) return res.status(409).json({ error: 'The room is still busy with the last task' });
+    runRoom(req.user, t.id).catch((e) => console.error('room run failed', t.id, e.message));
+    res.json({ threadId: t.id });
+  });
+  // every minute: rooms whose task is due in the seller's time (looked up again every 10 minutes); claimed on the
+  // chat before running, so a restart or a second worker never runs a day twice
+  const roomCache = { at: 0, ids: [] };
+  if (JOBS && process.env.NODE_ENV !== 'test') {
+    setInterval(() => {
+      if (Date.now() - roomCache.at > 600000) Object.assign(roomCache, { at: Date.now(), ids: q("SELECT id FROM hive WHERE json_extract(data, '$.room.schedule.on') = 1").all().map((r) => r.id) });
+      for (const id of roomCache.ids) {
+        const t = T.hive.get(id), u = t && T.users.get(t.userId);
+        if (!u || !t.room || running.has(id)) continue;
+        const day = roomDue(t.room, sellerTz(u));
+        if (!day) continue;
+        let claimed = false;
+        T.hive.update(id, (x) => { if (x.room && x.room.lastRunDay !== day) { x.room.lastRunDay = day; claimed = true; } });
+        if (claimed) runRoom(u, id, { scheduled: day }).catch((e) => notify(u.id, { kind: 'hive', title: `👥 ${t.room.name} couldn’t finish today’s task`, body: e.message, link: `/hive?thread=${id}` }));
+      }
+    }, 60000).unref();
+  }
 
   // 👍 / 👎 on a reply (by its time). A 👎 keeps the request, the reply and the steps for the platform's review —
   // each one becomes a case in the test bank (server/evals) so the same mistake is caught before the next release.

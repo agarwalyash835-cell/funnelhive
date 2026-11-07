@@ -1132,7 +1132,8 @@ registerTracking(app, { auth, wrap });
 registerSales(app, { auth, wrap, secret: SECRET, appUrl });
 registerVault(app, { auth, wrap, rateLimit, isTest, secret: SECRET });
 registerHiveDocs(app, { auth, wrap, rateLimit, isTest });
-registerHiveMemory(app, { auth });
+// Hive's memory and learned skills; a night's learning spends 1 AI credit per teammate it reads
+registerHiveMemory(app, { auth, rateLimit, isTest, spendFor: (u) => { if (!u || creditsShort(u, AI_COST.hive)) return false; spendCredits(u, AI_COST.hive); return true; } });
 
 // ?limit=&cursor=&tab=&q=&funnel=&status=&days=&id= — filters, search and totals run over every order
 // (orderlist.js); "Show more" passes the cursor back. Without ?limit up to ORDERS_MAX of each, as before.
