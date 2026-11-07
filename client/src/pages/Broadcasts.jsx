@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Layout, Panel, Icon, Empty, toast, num, ago, inr, useWaTemplates, WaTemplateSelect, WaTemplateInfo, confirmDialog } from '../ui';
+import { Layout, Panel, Icon, Empty, Modal, toast, num, ago, inr, useWaTemplates, WaTemplateSelect, WaTemplateInfo, confirmDialog } from '../ui';
 import { VoiceCampaigns } from './VoiceCampaigns';
 import { TemplatePicker, AiBuilder } from './CampaignTemplates';
 
@@ -34,17 +34,22 @@ export default function Broadcasts() {
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
   }, [d]);
-  const create = async (channel) => {
-    try { const b = await api('/broadcasts', 'POST', { channel, name: channel === 'email' ? 'New email campaign' : 'New WhatsApp campaign', segment: {} }); await load(); setSel(b.id); } catch (e) { toast(e.message); }
+  const create = async (channel, name) => {
+    try { const b = await api('/broadcasts', 'POST', { channel, name: name || (channel === 'email' ? 'New email campaign' : 'New WhatsApp campaign'), segment: {} }); await load(); pickTab(channel); setSel(b.id); } catch (e) { toast(e.message); }
+  };
+  // the "New campaign" chooser: a channel (WhatsApp, email, AI calls), a template or AI
+  const start = async (how, name) => {
+    setModal(null);
+    if (how === 'templates' || how === 'ai') return setModal(how);
+    if (how === 'calls') { pickTab('calls'); setNewCall((n) => n + 1); return undefined; }
+    return create(how, name);
   };
   const current = d?.broadcasts.find((b) => b.id === sel);
   return (
     <Layout title="Campaigns" subtitle="WhatsApp, email and AI calling campaigns to a segment of your contacts — now or at a time you pick, with follow-ups and the sales each one brought." actions={<>
       <button className="btn ghost" onClick={() => setModal('templates')}><Icon name="layout" size={16} /> Templates</button>
       <button className="btn ghost" onClick={() => setModal('ai')}><Icon name="sparkles" size={16} /> Build with AI</button>
-      <button className="btn ghost" onClick={() => { pickTab('whatsapp'); create('whatsapp'); }}><Icon name="send" size={16} /> WhatsApp</button>
-      <button className="btn ghost" onClick={() => { pickTab('calls'); setNewCall((n) => n + 1); }}><Icon name="phone" size={16} /> AI calls</button>
-      <button className="btn primary" onClick={() => { pickTab('email'); create('email'); }}><Icon name="mail" size={16} /> Email</button>
+      <button className="btn primary" onClick={() => setModal('new')}><Icon name="plus" size={16} /> New campaign</button>
     </>}>
       {!current && <div className="seg camp-tabs" role="tablist">{TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => pickTab(k)}>{l}</button>)}</div>}
       {!d ? <div className="skeleton" /> : tab === 'calls' && !current ? (
@@ -52,34 +57,106 @@ export default function Broadcasts() {
       ) : current ? (
         <Editor key={current.id} b={current} meta={d} funnels={funnels} onBack={() => setSel(null)} onChange={load} onOpen={(id) => setSel(id)} />
       ) : (
-        <>
-          {(!d.email.configured || !d.whatsapp.configured) && (
-            <div className="note-bar">{!d.email.configured && <span>✉️ Email isn’t set up yet.</span>}{!d.whatsapp.configured && <span>💬 WhatsApp isn’t connected.</span>} <Link to="/settings">Connect in Settings →</Link></div>
-          )}
-          <Panel pad={false}>
-            {!d.broadcasts.filter((b) => tab === 'all' || b.channel === tab).length ? <Empty icon="mail" title="No campaigns yet" text="Announce a launch, a sale or a new batch to everyone — or just to a tag, a funnel’s leads or your customers. Only contacts who opted in to marketing get them; unsubscribed ones never do.">
-              <button className="btn primary" onClick={() => create(tab === 'whatsapp' ? 'whatsapp' : 'email')}>Create your first {tab === 'whatsapp' ? 'WhatsApp' : 'email'} campaign</button>
-            </Empty> : (
-              <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>Campaign</th><th>Status</th><th className="r">Recipients</th><th className="r">Delivered</th><th className="r">Opened</th><th className="r">Clicked</th><th className="r">When</th></tr></thead>
-                <tbody>{d.broadcasts.filter((b) => tab === 'all' || b.channel === tab).map((b) => { const s = b.stats || {}; return (
-                  <tr key={b.id} className="click" onClick={() => setSel(b.id)}>
-                    <td><b>{b.channel === 'whatsapp' ? '💬 ' : '✉️ '}{b.name}</b><small className="sub-t">{b.channel === 'email' ? b.subject || 'No subject yet' : b.wa?.template || 'No template yet'}</small></td>
-                    <td><span className={`pill ${STATUS[b.status]?.[1] || ''}`}>{STATUS[b.status]?.[0] || b.status}</span></td>
-                    <td className="r">{s.total != null ? num(s.total) : '—'}</td>
-                    <td className="r">{s.total != null ? `${num(s.sent)}${s.failed ? ` · ${num(s.failed)} failed` : ''}` : '—'}</td>
-                    <td className="r">{b.channel === 'email' && s.sent ? pct(s.opened || 0, s.sent) : '—'}</td>
-                    <td className="r">{b.channel === 'email' && s.sent ? pct(s.clicked || 0, s.sent) : '—'}</td>
-                    <td className="r muted">{b.status === 'scheduled' ? when(b.scheduledAt) : b.doneAt ? ago(b.doneAt) : b.startedAt ? ago(b.startedAt) : ago(b.at)}</td>
-                  </tr>); })}</tbody>
-              </table></div>
-            )}
-          </Panel>
-        </>
+        <CampaignList d={d} tab={tab} onOpen={setSel} onNew={(how) => (how ? start(how) : setModal('new'))} />
       )}
+      {modal === 'new' && <NewCampaign meta={d} onClose={() => setModal(null)} onPick={start} />}
       {modal === 'templates' && <TemplatePicker onClose={() => setModal(null)} onUsed={used} />}
       {modal === 'ai' && <AiBuilder onClose={() => setModal(null)} onUsed={used} />}
     </Layout>
+  );
+}
+
+const CHANNELS = [
+  ['whatsapp', 'WhatsApp', 'send', 'An approved marketing template to opted-in contacts — read rates are usually far above email.'],
+  ['email', 'Email', 'mail', 'A personalised email with tracked opens and clicks, and an unsubscribe link added for you.'],
+  ['calls', 'AI calls', 'phone', 'An AI voice agent calls your list, qualifies people and books them in.'],
+];
+const isReady = (meta, k) => (k === 'email' ? meta?.email?.configured : k === 'whatsapp' ? meta?.whatsapp?.configured : true);
+
+// pick how to start a campaign
+function NewCampaign({ meta, onClose, onPick }) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async (how) => { setBusy(true); await onPick(how, name.trim()); setBusy(false); };
+  return (
+    <Modal title="New campaign" onClose={onClose} width={720}>
+      <div className="m-body nc">
+        <label className="fld"><span>Name <small className="muted">· only you see this — you can change it later</small></span><input autoFocus value={name} maxLength={100} onChange={(e) => setName(e.target.value)} placeholder="Diwali sale — 30% off" /></label>
+        <div className="nc-grid">{CHANNELS.map(([k, l, ic, text]) => (
+          <button key={k} type="button" className={`nc-card ch-${k}`} disabled={busy} onClick={() => go(k)}>
+            <span className="nc-ic"><Icon name={ic} size={20} /></span>
+            <b>{l}</b><small>{text}</small>
+            {!isReady(meta, k) && <em>{k === 'email' ? 'Email isn’t set up yet' : 'WhatsApp isn’t connected'} — you can still draft it</em>}
+          </button>
+        ))}</div>
+        <div className="nc-or"><span>or start from</span></div>
+        <div className="nc-alt">
+          <button type="button" className="btn ghost" disabled={busy} onClick={() => go('templates')}><Icon name="layout" size={16} /> A ready template</button>
+          <button type="button" className="btn ghost" disabled={busy} onClick={() => go('ai')}><Icon name="sparkles" size={16} /> Describe it and let AI write it</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+const FILTERS = [['', 'Any status'], ['draft', 'Drafts'], ['scheduled', 'Scheduled'], ['sending', 'Sending'], ['sent', 'Sent'], ['cancelled', 'Cancelled']];
+const whenOf = (b) => (b.status === 'scheduled' ? when(b.scheduledAt) : ago(b.doneAt || b.startedAt || b.at));
+
+// every WhatsApp and email campaign: totals, search, status filter and one card per campaign
+function CampaignList({ d, tab, onOpen, onNew }) {
+  const [q, setQ] = useState('');
+  const [st, setSt] = useState('');
+  const mine = d.broadcasts.filter((b) => tab === 'all' || b.channel === tab);
+  const list = mine.filter((b) => (!st || b.status === st) && (!q || `${b.name} ${b.subject || ''} ${b.wa?.template || ''}`.toLowerCase().includes(q.toLowerCase())));
+  const sent = mine.filter((b) => b.stats?.sent);
+  const reached = sent.reduce((n, b) => n + (b.stats.sent || 0), 0);
+  const mail = sent.filter((b) => b.channel === 'email');
+  const mailSent = mail.reduce((n, b) => n + b.stats.sent, 0);
+  const opened = mail.reduce((n, b) => n + (b.stats.opened || 0), 0), clicked = mail.reduce((n, b) => n + (b.stats.clicked || 0), 0);
+  const upcoming = mine.filter((b) => b.status === 'scheduled').length, drafts = mine.filter((b) => b.status === 'draft').length;
+  return (
+    <>
+      {(!d.email.configured || !d.whatsapp.configured) && (
+        <div className="note-bar">{!d.email.configured && <span>Email isn’t set up yet.</span>}{!d.whatsapp.configured && <span>WhatsApp isn’t connected.</span>} <Link to="/settings">Connect in Settings →</Link></div>
+      )}
+      {!mine.length ? (
+        <div className="cl-empty">
+          <h3>Start your first campaign</h3>
+          <p className="muted">Announce a launch, a sale or a new batch — to everyone, or just a tag, a funnel’s leads or your customers. Only contacts who opted in to marketing get them.</p>
+          <div className="nc-grid">{CHANNELS.filter(([k]) => tab === 'all' || k === tab).map(([k, l, ic, text]) => (
+            <button key={k} type="button" className={`nc-card ch-${k}`} onClick={() => onNew(k)}><span className="nc-ic"><Icon name={ic} size={20} /></span><b>{l}</b><small>{text}</small></button>
+          ))}</div>
+          <div className="nc-alt"><button className="btn ghost" onClick={() => onNew('templates')}><Icon name="layout" size={16} /> Use a template</button><button className="btn ghost" onClick={() => onNew('ai')}><Icon name="sparkles" size={16} /> Build with AI</button></div>
+        </div>
+      ) : (
+        <>
+          <div className="kpis k4 cl-kpis">
+            <div className="kpi"><span className="kpi-l">Campaigns sent</span><b className="kpi-v">{num(sent.length)}</b><small>{num(drafts)} draft{drafts === 1 ? '' : 's'} · {num(upcoming)} scheduled</small></div>
+            <div className="kpi"><span className="kpi-l">Messages delivered</span><b className="kpi-v">{num(reached)}</b><small>across every campaign</small></div>
+            <div className="kpi"><span className="kpi-l">Email open rate</span><b className="kpi-v">{pct(opened, mailSent)}</b><small>{num(opened)} opens</small></div>
+            <div className="kpi"><span className="kpi-l">Email click rate</span><b className="kpi-v">{pct(clicked, mailSent)}</b><small>{num(clicked)} clicks</small></div>
+          </div>
+          <div className="cl-bar">
+            <div className="cl-search"><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search campaigns" aria-label="Search campaigns" /></div>
+            <select value={st} onChange={(e) => setSt(e.target.value)} aria-label="Status">{FILTERS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+            <button className="btn primary sm" onClick={() => onNew()}><Icon name="plus" size={14} /> New campaign</button>
+          </div>
+          {!list.length ? <Panel><Empty icon="search" title="Nothing matches" text="Try another word or status." /></Panel> : (
+            <div className="cl-list">{list.map((b) => { const s = b.stats || {}; const done = s.total ? Math.min(100, Math.round(((s.sent || 0) + (s.failed || 0)) * 100 / s.total)) : 0; return (
+              <button key={b.id} type="button" className="cl-row" onClick={() => onOpen(b.id)}>
+                <span className={`cl-ic ch-${b.channel}`}><Icon name={b.channel === 'whatsapp' ? 'send' : 'mail'} size={17} /></span>
+                <span className="cl-main"><b>{b.name}</b><small>{b.channel === 'email' ? b.subject || 'No subject yet' : b.wa?.template || 'No template yet'}</small>
+                  {b.status === 'sending' && <span className="cl-prog" aria-label={`${done}% sent`}><i style={{ width: `${done}%` }} /></span>}</span>
+                <span className="cl-stat"><b>{s.total != null ? num(s.total) : '—'}</b><small>recipients</small></span>
+                <span className="cl-stat"><b>{s.total != null ? num(s.sent || 0) : '—'}</b><small>{s.failed ? `${num(s.failed)} failed` : 'delivered'}</small></span>
+                <span className="cl-stat"><b>{b.channel === 'email' && s.sent ? pct(s.opened || 0, s.sent) : '—'}</b><small>opened</small></span>
+                <span className="cl-stat"><b>{b.channel === 'email' && s.sent ? pct(s.clicked || 0, s.sent) : '—'}</b><small>clicked</small></span>
+                <span className="cl-end"><span className={`pill ${STATUS[b.status]?.[1] || ''}`}>{STATUS[b.status]?.[0] || b.status}</span><small className="muted">{whenOf(b)}</small></span>
+              </button>); })}</div>
+          )}
+        </>
+      )}
+    </>
   );
 }
 

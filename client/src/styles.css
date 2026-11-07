@@ -3015,3 +3015,48 @@ a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
   .hive.drawer-open .hv-drawer-bg { display: block; position: absolute; inset: 0; z-index: 5; border: 0; padding: 0; background: rgba(15, 12, 9, .35); cursor: pointer; }
 }
 @media (max-width: 760px) { .hv-newchat { padding: 4px 8px; } .hv-chat-h .hv-state { display: none; } }
+
+/* Campaigns: the list (totals, search, one card per campaign) and the "New campaign" chooser */
+.cl-kpis { margin-bottom: 14px; }
+.cl-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.cl-bar select { width: auto; min-width: 140px; }
+.cl-bar .btn { margin-left: auto; }
+.cl-search { flex: 1 1 240px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--c-line); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-muted); }
+.cl-search input { border: 0; padding: 9px 0; background: transparent; box-shadow: none; }
+.cl-search:focus-within { border-color: var(--c-accent); }
+.cl-list { display: grid; gap: 8px; }
+.cl-row { display: grid; grid-template-columns: 40px minmax(0, 2.4fr) repeat(4, minmax(64px, .7fr)) minmax(110px, 1fr); gap: 14px; align-items: center; width: 100%; text-align: left; padding: 12px 16px; background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-lg); box-shadow: var(--sh-1); color: var(--c-ink); font: inherit; cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.cl-row:hover { border-color: color-mix(in srgb, var(--c-accent) 45%, var(--c-line)); transform: translateY(-1px); }
+.cl-row:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+.cl-ic, .nc-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; }
+.ch-whatsapp .nc-ic, .cl-ic.ch-whatsapp { background: color-mix(in srgb, #16a34a 13%, transparent); color: #15803d; }
+.ch-email .nc-ic, .cl-ic.ch-email { background: color-mix(in srgb, #2563eb 12%, transparent); color: #1d4ed8; }
+.ch-calls .nc-ic { background: color-mix(in srgb, #7c3aed 12%, transparent); color: #6d28d9; }
+.cl-main { display: grid; gap: 2px; min-width: 0; }
+.cl-main b, .cl-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-main small, .cl-stat small { color: var(--c-muted); font-size: 12px; }
+.cl-prog { height: 4px; border-radius: 4px; background: var(--c-line); overflow: hidden; margin-top: 4px; }
+.cl-prog i { display: block; height: 100%; background: var(--c-accent); transition: width .4s; }
+.cl-stat { display: grid; text-align: right; }
+.cl-stat b { font-variant-numeric: tabular-nums; }
+.cl-end { display: grid; justify-items: end; gap: 4px; }
+.cl-empty { text-align: center; padding: 36px 20px; background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-lg); }
+.cl-empty h3 { margin: 0 0 6px; }
+.cl-empty > p { max-width: 560px; margin: 0 auto 20px; }
+.nc { display: grid; gap: 16px; }
+.nc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; text-align: left; }
+.nc-card { display: grid; gap: 6px; align-content: start; padding: 16px; border: 1px solid var(--c-line); border-radius: var(--r-lg); background: var(--c-surface); color: var(--c-ink); font: inherit; text-align: left; cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.nc-card:hover:not(:disabled) { border-color: var(--c-accent); transform: translateY(-2px); box-shadow: var(--sh-1); }
+.nc-card b { font-size: 15px; margin-top: 4px; }
+.nc-card small { color: var(--c-muted); font-size: 12.5px; line-height: 1.45; }
+.nc-card em { font-style: normal; font-size: 12px; color: #b45309; }
+.nc-or { display: flex; align-items: center; gap: 10px; color: var(--c-muted); font-size: 12px; }
+.nc-or::before, .nc-or::after { content: ''; flex: 1; height: 1px; background: var(--c-line); }
+.nc-alt { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+.cl-empty .nc-grid { max-width: 760px; margin: 0 auto 16px; }
+@media (max-width: 860px) {
+  .cl-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
+  .cl-row .cl-stat { display: none; }
+  .cl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cl-bar .btn { margin-left: 0; }
+}
