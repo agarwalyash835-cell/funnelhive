@@ -35,17 +35,32 @@ export function valueFor(d, v) {
   if (d.type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(String(v).trim()) ? String(v).trim() : undefined;
   return String(v).trim().slice(0, 2000) || undefined;
 }
+// An account keeps the fields of every industry it ever tried. The seller's CRM fields, best first: the current
+// industry's (its board columns, filters, value field and the rest with the same prefix, like re_), then fields the
+// seller made, then other industries' — those only when nothing better fits.
+const KIT_ID = /^[a-z]{2}_[a-z0-9]+$/;
+export function fieldsFor(u) {
+  const defs = u?.crmFields || [], cur = u?.settings?.crmKit;
+  const mine = new Set([...(cur?.columns || []), ...(cur?.cardFields || []), ...(cur?.filters || []), cur?.valueField].filter(Boolean));
+  const pre = new Set([...mine].filter((id) => KIT_ID.test(id)).map((id) => id.slice(0, 3)));
+  const rank = (d) => (mine.has(d.id) || pre.has(String(d.id).slice(0, 3)) ? 0 : KIT_ID.test(d.id) ? 2 : 1);
+  return defs.map((d) => ({ ...d, rank: rank(d) })).sort((a, b) => a.rank - b.rank);
+}
 // the field a question means: the seller's link, the same name, or (only when it points at one field) a name
-// that contains the other ("Location" ↔ "Preferred location")
+// that contains the other ("Location" ↔ "Preferred location") — tried among the best-ranked fields first
 function fieldFor(defs, label, links) {
   if (links[label]) return defs.find((d) => d.id === links[label]) || null;
   const q = norm(label), want = SAME[q] || q;
   if (!want) return null;
-  const exact = defs.find((d) => norm(d.label) === want || norm(d.label) === q);
-  if (exact) return exact;
   const words = (s) => ` ${s} `;
-  const near = defs.filter((d) => { const f = norm(d.label); return f.length > 2 && want.length > 2 && (words(f).includes(words(want)) || words(want).includes(words(f))); });
-  return near.length === 1 ? near[0] : null;
+  for (const r of [...new Set(defs.map((d) => d.rank ?? 0))]) {
+    const tier = defs.filter((d) => (d.rank ?? 0) === r);
+    const exact = tier.find((d) => norm(d.label) === want || norm(d.label) === q);
+    if (exact) return exact;
+    const near = tier.filter((d) => { const f = norm(d.label); return f.length > 2 && want.length > 2 && (words(f).includes(words(want)) || words(want).includes(words(f))); });
+    if (near.length === 1) return near[0];
+  }
+  return null;
 }
 // { question: answer } (+ the seller's links { question: fieldId }) → { fieldId: value }
 export function answersToCustom(defs = [], answers = {}, links = {}) {
@@ -63,7 +78,7 @@ export function answersToCustom(defs = [], answers = {}, links = {}) {
 const FROM = [[/99acres/i, '99acres'], [/magic ?bricks/i, 'MagicBricks'], [/housing/i, 'Housing.com'], [/indiamart/i, 'IndiaMART'], [/trade ?india/i, 'TradeIndia'], [/just ?dial/i, 'JustDial'],
   [/instagram|\big\b/i, 'Instagram'], [/facebook|\bfb\b|meta/i, 'Facebook ads'], [/google|adwords|gclid/i, 'Google ads'], [/whatsapp/i, 'WhatsApp'], [/referr?al/i, 'Referral']];
 export function sourceToCustom(defs = [], source = '') {
-  const d = defs.find((x) => x.type === 'select' && /_from$/.test(x.id));
+  const d = defs.find((x) => x.type === 'select' && /_from$/.test(x.id)); // the best-ranked one (fieldsFor)
   if (!d) return {};
   const all = options(d), s = String(source || '');
   const hit = FROM.find(([re]) => re.test(s));

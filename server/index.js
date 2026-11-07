@@ -27,7 +27,7 @@ import { totals, totalsByFunnel, series, sources, revenueByKind, stepCounts, pop
 import { loadSecret, rateLimit, securityHeaders, randomToken, hashToken, newTotpSecret, totpStep, otpauthUrl, csp, newNonce, weakPassword, lockout, startSession, sessionOk, extendSession, revokeSession, revokeOthers, activeSessions } from './security.js';
 import { sendMail, mailEnabled, appUrl } from './mail.js';
 import { registerCrm, ensureMeta } from './crm.js';
-import { answersToCustom, sourceToCustom, fillContact } from './crm-map.js';
+import { answersToCustom, sourceToCustom, fillContact, fieldsFor } from './crm-map.js';
 import { registerContactsMerge } from './contacts-merge.js';
 import { orderPage } from './orderlist.js';
 import { initMessaging, registerChannels, sendEmail, whatsappStatus } from './messaging.js';
@@ -1635,7 +1635,7 @@ app.post('/api/public/:slug/lead', (req, res) => {
 // they're easy to set aside. Changed fields and new tags start their automations like a change made by hand.
 function toCrmFields(f, owner, formBlocks, fields, { quiz, quizBlock, qualified, lead }) {
   const key = contactKey(lead.email, lead.phone);
-  const defs = owner?.crmFields || [];
+  const defs = fieldsFor(owner);
   if (!key || (!defs.length && qualified !== false)) return;
   const links = Object.fromEntries(formBlocks.filter((b) => b.type === 'form' || b.type === 'optin').flatMap((b) => (b.props?.fields || []).filter((fd) => fd.crmField && fd.label).map((fd) => [fd.label, fd.crmField])));
   const answers = { ...fields };

@@ -80,3 +80,20 @@ test('a lead-form enquiry (Google Ads) fills the same fields', async () => {
   const custom = c.custom || c.meta?.custom;
   assert.deepEqual([custom.re_location, custom.re_budget, custom.re_from], ['Nagpur', 12000000, 'Google ads']);
 });
+
+test('an account that tried other industries: the current industry’s fields win (live case: City, Enquiry from)', async () => {
+  const T2 = (await register(api)).token;
+  for (const id of ['distributor', 'manufacturer', 'realestate']) assert.equal((await api('/crm/kit', 'POST', { id }, T2)).status, 200);
+  const ids = (await api('/crm/fields', 'GET', null, T2)).data.map((x) => x.id);
+  assert.ok(ids.includes('mf_city') && ids.includes('ds_from'), 'the old industries’ fields are still there');
+  const f = (await api('/templates/q-coach/use', 'POST', {}, T2)).data;
+  await api(`/funnels/${f.id}`, 'PUT', { published: true }, T2);
+  const r = await api(`/public/${f.slug}/lead`, 'POST', { stepId: f.steps[0].id, t: 5000, email: 'neha@x.in', fields: { City: 'Pune', Budget: '80 lakh' }, attr: { utm_source: 'facebook' } });
+  assert.equal(r.status, 200);
+  const c = (await api('/contacts/neha%40x.in', 'GET', null, T2)).data;
+  const custom = c.custom || c.meta?.custom;
+  assert.equal(custom.re_location, 'Pune', 'City → the real estate “Preferred location”, not the old manufacturer “City”');
+  assert.equal(custom.mf_city, undefined);
+  assert.equal(custom.re_from, 'Facebook ads', 'the current industry’s “Enquiry from”');
+  assert.equal(custom.re_budget, 8000000);
+});
