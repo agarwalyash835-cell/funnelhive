@@ -495,16 +495,24 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     name: 'find_contacts', description: 'Search the CRM by text (name / email / phone), tag, type (lead | customer), pipeline stage name, or custom field values (e.g. {"BHK": "3 BHK", "Preferred location": "Baner"} — matched by field name, contains). Returns a count and up to 25 with their custom fields (by name) and stage. Use it to answer questions like "who has a site visit this week" or "total budget of 3 BHK leads".',
     schema: S({ query: str('Text to match'), tag: str('Has this tag'), type: str('lead | customer'), stage: str('Stage name in the CRM pipeline'), fields: obj('Custom field filters { "Field name": "value" }') }),
     run: async (ctx, a) => {
-      const [d, defs, kits, pipes] = await Promise.all([ctx.call('GET', '/contacts'), ctx.call('GET', '/crm/fields'), ctx.call('GET', '/crm/kits'), ctx.call('GET', '/pipelines')]);
-      const all = d.contacts || d;
+      // text, tag, type and stage are filtered by the database (one page, not every contact); custom fields
+      // ("contains", by field name) over that page
+      const [defs, kits, pipes] = await Promise.all([ctx.call('GET', '/crm/fields'), ctx.call('GET', '/crm/kits'), ctx.call('GET', '/pipelines')]);
       const pipe = pipes.find((p) => p.id === kits.current?.pipelineId) || pipes[0];
       const stageName = (x) => pipe?.stages.find((st) => st.id === x.stages?.[pipe.id])?.name || '';
       const named = (x) => Object.fromEntries(defs.filter((fd) => x.custom?.[fd.id] != null && x.custom[fd.id] !== '').map((fd) => [fd.label, x.custom[fd.id]]));
-      const q = String(a.query || '').toLowerCase();
+      const st = a.stage && pipe?.stages.find((s) => s.name.toLowerCase() === String(a.stage).toLowerCase());
+      if (a.stage && !st) return { count: 0, pipeline: pipe?.name, contacts: [], note: `There is no stage called “${a.stage}” in ${pipe?.name || 'the pipeline'}` };
       const want = Object.entries(a.fields || {}).map(([label, v]) => [defs.find((fd) => fd.label.toLowerCase() === String(label).toLowerCase() || fd.id === label), String(v).toLowerCase()]).filter(([fd]) => fd);
-      const hit = all.filter((x) => (!q || `${x.name} ${x.email} ${x.phone}`.toLowerCase().includes(q)) && (!a.tag || (x.tags || []).some((t) => t.toLowerCase() === a.tag.toLowerCase())) && (!a.type || x.type === a.type)
-        && (!a.stage || stageName(x).toLowerCase() === String(a.stage).toLowerCase()) && want.every(([fd, v]) => String(x.custom?.[fd.id] ?? '').toLowerCase().includes(v)));
-      return { count: hit.length, pipeline: pipe?.name, contacts: hit.slice(0, 25).map((x) => ({ key: x.key, name: x.name, email: x.email, phone: x.phone, type: x.type, stage: stageName(x), fields: named(x), tags: x.tags, orders: x.orders, ltv: x.ltv })) };
+      const params = new URLSearchParams({ limit: want.length ? '1000' : '25' });
+      if (a.query) params.set('q', String(a.query));
+      if (a.tag) params.set('tag', String(a.tag));
+      if (a.type) params.set('type', String(a.type));
+      if (st) { params.set('pipeline', pipe.id); params.set('stage', st.id); }
+      const d = await ctx.call('GET', `/contacts?${params}`);
+      const page = d.contacts || [];
+      const hit = want.length ? page.filter((x) => want.every(([fd, v]) => String(x.custom?.[fd.id] ?? '').toLowerCase().includes(v))) : page;
+      return { count: want.length ? hit.length : d.total ?? hit.length, pipeline: pipe?.name, contacts: hit.slice(0, 25).map((x) => ({ key: x.key, name: x.name, email: x.email, phone: x.phone, type: x.type, stage: stageName(x), fields: named(x), tags: x.tags, orders: x.orders, ltv: x.ltv })) };
     },
     summary: (r) => `Found ${r.count} contact${r.count === 1 ? '' : 's'}`,
   },

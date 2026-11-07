@@ -86,3 +86,12 @@ test('the Academy tools come with the school group, and the Academy Manager is a
   const am = TM.PRESETS.find((p) => p.preset === 'academy');
   assert.ok(am && am.groups.includes('school') && am.askFirst && am.schedule.on);
 });
+
+test('giving a course by hand to someone who already has it keeps one enrolment (and their progress)', async () => {
+  const before = (await api('/school/students', 'GET', null, T)).data.find((s) => s.email === 'asha@x.in').courses.filter((c) => c.id === course.id);
+  const again = await api(`/products/${course.id}/grant`, 'POST', { email: 'asha@x.in', notify: false }, T);
+  assert.equal(again.status, 200);
+  const after = (await api('/school/students', 'GET', null, T)).data.find((s) => s.email === 'asha@x.in').courses.filter((c) => c.id === course.id);
+  assert.equal(after.length, before.length, 'no second copy of the course');
+  assert.equal(after[0].done, before[0].done, 'progress kept');
+});

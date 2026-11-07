@@ -15,6 +15,34 @@ const SUGGESTIONS = [
   { icon: Workflow, title: 'Follow-ups', text: 'Add an abandoned-checkout automation: email after 30 minutes, WhatsApp next morning at 10' },
 ];
 
+// the message box: its own text, so typing doesn't re-render the chat and the preview; Enter sends
+function Composer({ ready, busy, placeholder, onSend, onStop, prefill, focusKey }) {
+  const [input, setInput] = useState(prefill || '');
+  const boxRef = useRef(null);
+  useEffect(() => { if (prefill) setInput(prefill); }, [prefill]);
+  // the box grows with what's typed (up to ~8 lines)
+  useEffect(() => { const b = boxRef.current; if (!b) return; b.style.height = 'auto'; b.style.height = `${Math.min(220, b.scrollHeight)}px`; }, [input]);
+  useEffect(() => { if (!busy) setTimeout(() => boxRef.current?.focus(), 0); }, [busy, focusKey]);
+  const go = () => { const m = input.trim(); if (!m || busy) return; setInput(''); onSend(m); };
+  return (
+    <form className="hv-input" onSubmit={(e) => { e.preventDefault(); go(); }}>
+      <textarea ref={boxRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={!ready}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } }}
+        placeholder={placeholder} />
+      <div className="hv-input-bar">
+        <span className="hv-hint">{busy ? 'Hive is working…' : 'Enter to send · Shift + Enter for a new line'}</span>
+        {busy ? <button type="button" className="hv-stop" onClick={onStop} aria-label="Stop"><Square size={13} /> Stop</button>
+          : <button className="hv-send" disabled={!input.trim() || !ready} aria-label="Send"><ArrowUp size={18} /></button>}
+      </div>
+    </form>
+  );
+}
+// the funnel being built: re-drawn only when the page or its version changes
+const Preview = memo(function Preview({ step, funnel }) {
+  return <Page key={`${step.id}-${funnel.version}`} blocks={step.blocks} theme={funnel.theme} ctx={PREVIEW_CTX} />;
+});
+const PREVIEW_CTX = { live: false };
+
 // minimal, safe formatting for replies: **bold**, `code`, bullet lists, links
 // memoised: a long chat re-rendered (and re-parsed) every message on each progress event of a running reply
 const Rich = memo(function Rich({ text }) {
@@ -126,7 +154,7 @@ export default function Hive() {
   const [tid, setTid] = useState(null);
   const [msgs, setMsgs] = useState([]);
   const [live, setLive] = useState(null); // the turn in progress: { tools: [], thinking }
-  const [input, setInput] = useState('');
+  const [prefill, setPrefill] = useState(''); // a question passed in from elsewhere while Hive was off
   const [busy, setBusy] = useState(false);
   const [funnelId, setFunnelId] = useState(null);
   const [funnel, setFunnel] = useState(null);
@@ -137,7 +165,6 @@ export default function Hive() {
   const abort = useRef(null);
   const [deciding, setDeciding] = useState(null);
   const endRef = useRef(null);
-  const boxRef = useRef(null);
   const [first, setFirst] = useState('');
   // AI teammates: the one a new chat is with (null = Hive itself), and the dialog to manage them
   const [team, setTeam] = useState([]);
@@ -145,8 +172,6 @@ export default function Hive() {
   const [manage, setManage] = useState(null); // null, or { editId }
   useEffect(() => { api('/hive/team').then((d) => setTeam(d.team)).catch(() => {}); }, []);
   useEffect(() => { api('/me').then((m) => setFirst(String(m?.name || '').trim().split(/\s+/)[0] || '')).catch(() => {}); }, []);
-  // the box grows with what's typed (up to ~8 lines)
-  useEffect(() => { const b = boxRef.current; if (!b) return; b.style.height = 'auto'; b.style.height = `${Math.min(220, b.scrollHeight)}px`; }, [input]);
 
   const loadThreads = () => api('/hive/threads').then(setThreads).catch(() => {});
   useEffect(() => { api('/hive/status').then(setStatus).catch(loadFailed); loadThreads(); }, []);
@@ -213,14 +238,14 @@ export default function Hive() {
   };
   const removeThread = async (id) => { if (!await confirmDialog({ title: 'Delete this chat?', text: 'Funnels it built are kept.', confirm: 'Delete', danger: true })) return; await api(`/hive/threads/${id}`, 'DELETE'); if (id === tid) openThread(null); loadThreads(); };
 
-  const send = async (text = input) => {
-    const message = text.trim();
+  const send = async (text) => {
+    const message = String(text || '').trim();
     if (!message || busy) return;
-    setInput(''); setBusy(true); stick.current = true;
+    setBusy(true); stick.current = true;
     setMsgs((m) => [...m, { role: 'user', text: message, at: Date.now() }]);
     setLive({ tools: [], thinking: '', since: Date.now() });
     const ac = new AbortController(); abort.current = ac;
-    let finalFunnel = funnelId, threadId = tid;
+    let finalFunnel = funnelId, threadId = tid, lastLoad = 0;
     try {
       const res = await fetch('/api/hive/chat', { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ff_token')}` }, body: JSON.stringify({ message, threadId: tid, funnelId, ...(!tid && mate ? { teammateId: mate.id } : {}) }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Hive AI is unavailable right now'); }
@@ -241,7 +266,7 @@ export default function Hive() {
           else if (ev.type === 'thinking') setLive((l) => ({ ...l, thinking: ev.text }));
           else if (ev.type === 'tool') {
             setLive((l) => ({ ...l, tools: ev.status === 'running' ? [...l.tools, ev] : l.tools.map((t) => (t.id === ev.id ? { ...t, ...ev } : t)) }));
-            if (ev.status === 'done' && ev.funnelId) { if (ev.funnelId !== finalFunnel) { finalFunnel = ev.funnelId; setFunnelId(ev.funnelId); } else loadFunnel(ev.funnelId); }
+            if (ev.status === 'done' && ev.funnelId) { if (ev.funnelId !== finalFunnel) { finalFunnel = ev.funnelId; setFunnelId(ev.funnelId); } else if (Date.now() - lastLoad > 2000) { lastLoad = Date.now(); loadFunnel(ev.funnelId); } }
           } else if (ev.type === 'reply') {
             setMsgs((m) => [...m, { role: 'assistant', text: ev.text, tools: ev.tools, at: Date.now() }]);
             if (ev.funnelId && ev.funnelId !== finalFunnel) setFunnelId(ev.funnelId); else if (ev.funnelId) loadFunnel(ev.funnelId);
@@ -256,7 +281,6 @@ export default function Hive() {
     loadThreads();
     // the saved copy (its time, what can be undone) — a stopped reply is saved a moment later
     if (threadId) setTimeout(() => api(`/hive/threads/${threadId}`).then((t) => setMsgs(t.messages)).catch(() => {}), ac.signal.aborted ? 1200 : 0);
-    setTimeout(() => boxRef.current?.focus(), 0);
   };
 
   const step = funnel?.steps.find((s) => s.id === stepId) || funnel?.steps[0];
@@ -269,20 +293,12 @@ export default function Hive() {
     if (status && th && !asked.current) { asked.current = true; setParams({}, { replace: true }); openThread(th).catch(() => {}); return; }
     if (!status || !q || asked.current) return;
     asked.current = true; setParams({}, { replace: true });
-    if (ready) send(q); else setInput(q);
+    if (ready) send(q); else setPrefill(q);
   }, [status]);
   const empty = !msgs.length && !live;
   const composer = (
-    <form className="hv-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
-      <textarea ref={boxRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={!ready}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-        placeholder={ready === false ? 'Hive AI isn’t switched on yet' : mate ? `Ask ${mate.name}…` : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
-      <div className="hv-input-bar">
-        <span className="hv-hint">{busy ? 'Hive is working…' : 'Enter to send · Shift + Enter for a new line'}</span>
-        {busy ? <button type="button" className="hv-stop" onClick={() => abort.current?.abort()} aria-label="Stop"><Square size={13} /> Stop</button>
-          : <button className="hv-send" disabled={!input.trim() || !ready} aria-label="Send"><ArrowUp size={18} /></button>}
-      </div>
-    </form>
+    <Composer ready={ready} busy={busy} prefill={prefill} focusKey={tid} onSend={send} onStop={() => abort.current?.abort()}
+      placeholder={ready === false ? 'Hive AI isn’t switched on yet' : mate ? `Ask ${mate.name}…` : funnel ? `Ask Hive to change “${funnel.name}”, add a page, an offer or an automation…` : 'Describe your business, or what you want to build…'} />
   );
 
   return (
@@ -374,7 +390,7 @@ export default function Hive() {
           </div>
           <div className="hv-canvas">
             {funnel && step ? (
-              <div className={`hv-frame ${device}`}><Page key={`${step.id}-${funnel.version}`} blocks={step.blocks} theme={funnel.theme} ctx={{ live: false }} /></div>
+              <div className={`hv-frame ${device}`}><Preview step={step} funnel={funnel} /></div>
             ) : (
               <div className="hv-blank"><Eye size={30} /><b>Nothing to preview yet</b><span>Start by telling Hive what you sell.</span></div>
             )}

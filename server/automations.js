@@ -689,11 +689,13 @@ export function scanStuck(now = Date.now()) {
 // in it (a lesson opened or done, a quiz, the reader — or when access was given if they never came) — once per quiet
 // spell; coming back starts a new one. Finished courses and ended access (revoked / expired) never fire.
 export function scanInactive(now = Date.now()) {
+  const products = new Map(); // each course read once per scan, not once per student
+  const productOf = (id) => { if (!products.has(id)) products.set(id, T.products.get(id)); return products.get(id); };
   for (const a of T.automations.all({ triggerType: 'student_inactive', active: 1 })) {
     const t = a.trigger, cut = now - (t.days || 7) * 86400000 * SCALE;
     for (const x of T.access.all({ userId: a.userId, revoked: 0, ...(t.productId ? { productId: t.productId } : {}) })) {
       if ((x.expiresAt && x.expiresAt <= now) || x.completedAt) continue;
-      const p = T.products.get(x.productId);
+      const p = productOf(x.productId);
       if (!p?.lessons?.length) continue; // a download, not a course
       const last = Math.max(x.at || 0, x.lastSeenAt || 0, x.resume?.at || 0, ...Object.values(x.progress || {}).map(Number), ...Object.values(x.quiz || {}).map((v) => v?.at || 0));
       if (last > cut || x.inactiveFired?.[a.id] === last) continue;
@@ -710,7 +712,9 @@ let lastPrune = 0, lastDates = 0;
 export function tick() {
   const now = Date.now();
   scanAbandoned();
-  if (now - lastDates > Math.min(60000, TICK * 4) || SCALE < 1) { lastDates = now; scanDates(); scanStuck(now); scanInactive(now); }
+  // dates, "stuck in a stage" and inactive students count in days: checked every 10 minutes (each scan reads every
+  // contact or access of the accounts that use them), not on every tick
+  if (now - lastDates > Math.min(600000, TICK * 40) || SCALE < 1) { lastDates = now; scanDates(); scanStuck(now); scanInactive(now); }
   for (const r of q(`SELECT id FROM runs WHERE status = 'active' AND nextAt <= ? ORDER BY nextAt LIMIT ${BATCH}`).all(now)) advance(r.id);
   // keep finished runs for 60 days, email tracking records for 90 (pruned hourly)
   if (now - lastPrune > 3600000) {

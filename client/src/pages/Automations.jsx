@@ -286,7 +286,7 @@ function Builder({ id }) {
   useEffect(() => { if (sel && window.innerWidth < 1100) setTimeout(() => document.querySelector('.zf-insp')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); }, [sel]);
   const load = () => api(`/automations/${id}`).then((x) => { setA(x); setDirty(false); }).catch(() => nav('/automations'));
   useEffect(() => { load(); api('/automations').then(setMeta); api('/funnels').then(setFunnels); api('/pipelines').then(setPipes); api('/crm/fields').then(setFields).catch(() => {}); api('/products').then((d) => setProducts(d.products || [])).catch(() => {}); }, [id]);
-  useEffect(() => { const t = setInterval(() => { if (!dirty) api(`/automations/${id}`).then((x) => setA((cur) => (cur ? { ...cur, runs: x.runs, running: x.running, stats: x.stats, stepStats: x.stepStats } : x))).catch(() => {}); }, 8000); return () => clearInterval(t); }, [id, dirty]);
+  useEffect(() => { const t = setInterval(() => { if (!dirty && !document.hidden) api(`/automations/${id}`).then((x) => setA((cur) => (cur ? { ...cur, runs: x.runs, running: x.running, stats: x.stats, stepStats: x.stepStats } : x))).catch(() => {}); }, 30000); return () => clearInterval(t); }, [id, dirty]);
   useEffect(() => { const w = (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } }; window.addEventListener('beforeunload', w); return () => window.removeEventListener('beforeunload', w); }, [dirty]);
   if (!a || !meta) return <Layout title="Automation"><div className="skeleton" /></Layout>;
 

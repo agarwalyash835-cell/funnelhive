@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useDashboardMode } from '../skins';
 import { createPortal } from 'react-dom';
 import { ChevronUp, ChevronDown, Copy as CopyIcon, Trash2, EyeOff } from 'lucide-react';
@@ -211,6 +211,20 @@ function CrmFieldPick({ value, onChange, label = 'CRM field', hint }) {
   const crm = useCrmFields();
   if (!crm.length) return null;
   return <div className="fld"><label>{label}</label><select value={value || ''} onChange={(e) => onChange(e.target.value)}><option value="">Match by name (automatic)</option>{crm.map((d) => <option key={d.id} value={d.id}>Save to: {d.label}</option>)}</select>{hint && <span className="hint">{hint}</span>}</div>;
+}
+const CanvasBlock = memo(function CanvasBlock({ b, theme, ctx }) {
+  return <Page blocks={[b]} theme={theme} ctx={ctx} />;
+});
+// the AI chat box keeps its own text, so typing a message doesn't re-render the whole editor
+function ChatBox({ stepName, thinking, onSend }) {
+  const [v, setV] = useState('');
+  const go = () => { if (!v.trim() || thinking) return; onSend(v); setV(''); };
+  return (
+    <form className="chat-in" onSubmit={(e) => { e.preventDefault(); go(); }}>
+      <textarea rows={2} value={v} placeholder={`Ask anything about “${stepName}”…`} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } }} />
+      <button className="btn primary" disabled={!v.trim() || thinking}><Icon name="send" size={16} /></button>
+    </form>
+  );
 }
 function FormFieldsField({ value, onChange }) {
   const items = value || [];
@@ -630,10 +644,11 @@ export default function Editor() {
   const [status, setStatus] = useState('Saved');
   const [stepMenu, setStepMenu] = useState(false);
   const [msgs, setMsgs] = useState([{ role: 'assistant', content: 'I can edit this funnel for you. Tell me what to change — e.g. “add an upsell and a downsell”, “make it dark” or “add FAQ”. I’ll update the funnel for you.' }]);
-  const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
   const hist = useRef({ past: [], future: [], last: 0 });
   const fRef = useRef(null);         // always the newest funnel, even between renders
+  const handlers = useRef({});       // the newest editing functions, for the canvas sections' stable callbacks
+  const ctxCache = useRef(new Map()); // each canvas section's editing context, reused while nothing it shows changes
   const loaded = useRef(false);
   const verRef = useRef(1);          // server version this editor is based on
   const [publishing, setPublishing] = useState(false);
@@ -726,9 +741,10 @@ export default function Editor() {
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!piece) return;
-    const re = () => setTick((x) => x + 1);
-    window.addEventListener('scroll', re, true); window.addEventListener('resize', re);
-    return () => { window.removeEventListener('scroll', re, true); window.removeEventListener('resize', re); };
+    let raf = 0;
+    const re = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; setTick((x) => x + 1); }); };
+    window.addEventListener('scroll', re, { capture: true, passive: true }); window.addEventListener('resize', re);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('scroll', re, true); window.removeEventListener('resize', re); };
   }, [piece]);
   useEffect(() => { if (piece && piece.bid !== sel) setPiece(null); }, [sel]);
   if (!f) return <div className="ed-loading"><span className="spin dark" /> Loading editor…</div>;
@@ -757,6 +773,7 @@ export default function Editor() {
   const setBlocks = (nb, group) => patchStep((s) => (popup ? { popups: (s.popups || []).map((p) => (p.id === popup.id ? { ...p, blocks: nb.slice(0, POPUP_MAX_BLOCKS) } : p)) } : isB ? { ab: { ...s.ab, blocks: nb } } : { blocks: nb }), group);
   const latestBlocks = () => { const s = fRef.current.steps.find((x) => x.id === step.id); return popup ? ((s.popups || []).find((p) => p.id === popup.id)?.blocks || []) : isB ? s.ab.blocks : s.blocks; };
   const selBlock = blocks.find((b) => b.id === sel);
+  const selCopy = selBlock ? withCopy(selBlock.type, selBlock.props) : null;
   const updateBlock = (bid, fn, group) => setBlocks(latestBlocks().map((b) => (b.id === bid ? fn(b) : b)), group);
   const setProp = (k, v) => updateBlock(sel, (b) => ({ ...b, props: k === 'layout' && b.type === 'section' ? applyLayout(b.props, v) : { ...setPath(withCopy(b.type, b.props), k, v), ...(b.type === 'stock' && k === 'left' ? { setAt: Date.now() } : {}) } }), true); // stock: real orders after this count down
 
@@ -939,9 +956,8 @@ export default function Editor() {
 
   // ---------- AI chat ----------
   const send = async (text) => {
-    const message = (text ?? input).trim();
+    const message = String(text ?? '').trim();
     if (!message || thinking) return;
-    setInput('');
     const history = msgs.filter((m) => m.role === 'user' || m.role === 'assistant').map(({ role, content }) => ({ role, content }));
     setMsgs((m) => [...m, { role: 'user', content: message }]);
     setThinking(true);
@@ -981,14 +997,23 @@ export default function Editor() {
   const nextFor = (i, accept) => { let n = i + 1; if (accept) while (f.steps[n]?.type === 'downsell') n++; return f.steps[n]; };
   const dropAt = dnd.dropAt;
   const selElLoc = selBlock?.type === 'section' && selEl ? findEl(selBlock, selEl) : null;
-  const blockCtx = (b) => ({
-    live: false, editable: true, selEl, dropAt,
-    onEdit: (k, v) => updateBlock(b.id, (x) => ({ ...x, props: setPath(withCopy(x.type, x.props), k, v) })),
-    onEditEl: (bid, eid, k, v) => updateEl(bid, eid, (e) => ({ ...e, props: setPath(e.props, k, v) })),
-    onSelectEl: (bid, eid) => { setSel(bid); setSelEl(eid); setRight('edit'); },
-    onElAction: elAction,
-    onDragStart: dnd.start,
-  });
+  handlers.current = { updateBlock, updateEl, elAction, setSel, setSelEl, setRight, dragStart: dnd.start };
+  const ctxKey = `${selEl || ''}|${dropAt ? JSON.stringify(dropAt) : ''}`;
+  const blockCtx = (b) => {
+    const hit = ctxCache.current.get(b.id);
+    if (hit && hit.key === ctxKey) return hit.ctx;
+    const h = () => handlers.current;
+    const ctx = {
+      live: false, editable: true, selEl, dropAt,
+      onEdit: (k, v) => h().updateBlock(b.id, (x) => ({ ...x, props: setPath(withCopy(x.type, x.props), k, v) })),
+      onEditEl: (bid, eid, k, v) => h().updateEl(bid, eid, (e) => ({ ...e, props: setPath(e.props, k, v) })),
+      onSelectEl: (bid, eid) => { h().setSel(bid); h().setSelEl(eid); h().setRight('edit'); },
+      onElAction: (...a) => h().elAction(...a),
+      onDragStart: (...a) => h().dragStart(...a),
+    };
+    ctxCache.current.set(b.id, { key: ctxKey, ctx });
+    return ctx;
+  };
 
   let pieceBar = null;
   const pn = piece && view !== 'flow' && pieceNode(piece);
@@ -1226,7 +1251,7 @@ export default function Editor() {
                         <button onClick={() => saveToLibrary(b.id)} title="Save to my library" aria-label="Save to my library"><Icon name="bookmark" size={13} /></button>
                         <button onClick={() => removeBlock(b.id)} title="Delete" aria-label="Delete"><Icon name="trash" size={13} /></button>
                       </div>
-                      <Page blocks={[b]} theme={f.theme} ctx={blockCtx(b)} />
+                      <CanvasBlock b={b} theme={f.theme} ctx={blockCtx(b)} />
                     </div>
                   </div>
                 ))}
@@ -1261,10 +1286,7 @@ export default function Editor() {
                 <div ref={chatEnd} />
               </div>
               {msgs.length < 4 && <div className="sugg col">{SUGGEST.map((s) => <button key={s} onClick={() => send(s)}>{s}</button>)}</div>}
-              <form className="chat-in" onSubmit={(e) => { e.preventDefault(); send(); }}>
-                <textarea rows={2} value={input} placeholder={`Ask anything about “${step.name}”…`} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
-                <button className="btn primary" disabled={!input.trim() || thinking}><Icon name="send" size={16} /></button>
-              </form>
+              <ChatBox stepName={step.name} thinking={thinking} onSend={send} />
               <p className="hint">{me?.aiEnabled ? 'Full AI — can rewrite copy and redesign pages.' : 'Offline assistant — structural edits only (copywriting and redesigns turn on with full AI).'}</p>
             </div>
           )}
@@ -1292,7 +1314,7 @@ export default function Editor() {
                   {BLOCK_TYPES[selBlock.type]?.fields.filter((d) => linkFieldShown(d[0], selBlock.props) && !(popup && selBlock.type === 'countdown' && d[0] === 'mode')).map((d) => (isPopupLink(d[0], selBlock.props)
                     ? <PopupPick key={selBlock.id + d[0]} popups={step.popups} value={selBlock.props[d[0]]} onChange={(v) => setProp(d[0], v)} />
                     : isPageLink(d[0], selBlock.props) ? <PagePick key={selBlock.id + d[0]} steps={f.steps} value={selBlock.props[d[0]]} onChange={(v) => setProp(d[0], v)} />
-                    : <Field key={selBlock.id + d[0]} def={d} value={withCopy(selBlock.type, selBlock.props)[d[0]]} onChange={(v) => setProp(d[0], v)} props={selBlock.props} />))}
+                    : <Field key={selBlock.id + d[0]} def={d} value={selCopy[d[0]]} onChange={(v) => setProp(d[0], v)} props={selBlock.props} />))}
                   {popup && selBlock.type === 'optin' && <p className="hint">After someone signs up here, the pop-up {popup.after === 'next' ? 'closes and they go to the next step' : 'closes and thanks them'} — change it in Pop-up settings.</p>}
                   {!FLOATING.includes(selBlock.type) && <StylePanel key={`st-${selBlock.id}`} value={selBlock.props._style} onChange={(v) => updateBlock(selBlock.id, (b) => { const props = { ...b.props }; if (v) props._style = v; else delete props._style; return { ...b, props }; }, true)} />}
                   {selBlock.type === 'section' && (

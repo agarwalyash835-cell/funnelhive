@@ -33,10 +33,19 @@ export function usageFor(u) {
 }
 // room for this many more bytes of pages: the oldest restore points go first (never the last 5 of a funnel);
 // → an error message when even that isn't enough
+// Adding up every funnel and restore point is slow on a big account (and blocks the server), and autosave asks
+// on every edit that grows a funnel: so it's counted once every few minutes, with each save's size added on top,
+// and counted exactly only when the seller is near their limit.
+const pageCount = new Map(); // userId → { n, at }
+const PAGE_RECOUNT_MS = 5 * 60000;
 export function makePageRoom(u, bytes) {
   if (!u || accessFor(u).admin || bytes <= 0) return null;
   const cap = limitsFor(u).storageMB * MB;
-  let over = (u.storageBytes || 0) + pagesBytes(u.id) + bytes - cap;
+  const c = pageCount.get(u.id);
+  if (c && Date.now() - c.at < PAGE_RECOUNT_MS && (u.storageBytes || 0) + c.n + bytes < cap * 0.9) { c.n += bytes; return null; }
+  const pages = pagesBytes(u.id);
+  pageCount.set(u.id, { n: pages + bytes, at: Date.now() });
+  let over = (u.storageBytes || 0) + pages + bytes - cap;
   if (over <= 0) return null;
   const old = q('SELECT id, LENGTH(data) AS n FROM revisions r WHERE userId = ? AND (SELECT COUNT(*) FROM revisions x WHERE x.funnelId = r.funnelId AND x.at > r.at) >= 5 ORDER BY at').all(u.id);
   const drop = [];

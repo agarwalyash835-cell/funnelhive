@@ -173,7 +173,11 @@ export function grant(userId, { email, name = '', phone = '', productId, orderId
   return tx(() => {
     const at = Date.now(), expiresAt = p.accessDays ? at + p.accessDays * DAY : null;
     const one = (pid, bundle) => {
-      const dupe = (orderId || leadId) && T.access.all({ userId, ckey }).find((a) => a.productId === pid && a.orderId === orderId && (a.leadId || null) === leadId && (a.item ?? null) === item);
+      // the same order / sign-up again; or access given by hand (or an automation) to someone who already has this
+      // product — they keep the access (and progress) they have, rather than a second copy of the course
+      const dupe = (orderId || leadId)
+        ? T.access.all({ userId, ckey }).find((a) => a.productId === pid && a.orderId === orderId && (a.leadId || null) === leadId && (a.item ?? null) === item)
+        : T.access.all({ userId, ckey }).find((a) => a.productId === pid && !a.revoked && (!a.expiresAt || a.expiresAt > at));
       if (dupe) return dupe;
       return T.access.insert({
         id: uid(), userId, productId: pid, email: String(email).trim().toLowerCase(), name: clip(name, 120), phone: clip(phone, 40), orderId, leadId, item, via, funnelId,
