@@ -50,7 +50,7 @@ before(async () => {
   }).listen(0);
   await new Promise((r) => setTimeout(r, 30));
   const base = `http://127.0.0.1:${ai.address().port}`;
-  srv = await startServer({ KIE_API_KEY: 'kie-test', KIE_BASE_URL: base, KIE_MODEL: 'deepseek-chat', OPENROUTER_API_KEY: 'or-test', OPENROUTER_BASE_URL: base, HIVE_MEMORY_ALL_UNDER: '4' });
+  srv = await startServer({ KIE_API_KEY: 'kie-test', KIE_BASE_URL: base, KIE_MODEL: 'deepseek-chat', OPENROUTER_API_KEY: 'or-test', OPENROUTER_BASE_URL: base, HIVE_MEMORY_ALL_UNDER: '4', HIVE_REJECTED_KEEP: '1' });
   api = srv.api;
   T = (await register(api)).token;
 });
@@ -120,6 +120,12 @@ test('learning drafts skills from the day’s chats; only published ones are use
   await api(`/hive/memory/${r2.drafts.find((x) => x.title === 'Emoji').id}/reject`, 'POST', {}, T);
   const r3 = (await api('/hive/learn', 'POST', {}, T)).data;
   assert.equal(r3.made, 0, 'a rejected skill isn’t drafted again');
+  // only the newest rejected ones are kept (this server keeps 1): rejecting another lets the oldest go
+  skillsReply = { skills: [{ title: 'Caps', text: 'Write every customer reply in capital letters.', why: 'once', threads: [] }] };
+  const r4 = (await api('/hive/learn', 'POST', {}, T)).data;
+  await api(`/hive/memory/${r4.drafts.find((x) => x.title === 'Caps').id}/reject`, 'POST', {}, T);
+  skillsReply = { skills: [{ title: 'Emoji', text: 'Use lots of emojis in every reply to customers.', why: 'once', threads: [] }] };
+  assert.equal((await api('/hive/learn', 'POST', {}, T)).data.made, 1, 'the oldest rejected skill was let go, so it can be drafted again');
 });
 
 test('tidy up: two items that say the same thing are offered for merging, and merge into one', async () => {

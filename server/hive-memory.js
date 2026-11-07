@@ -14,10 +14,13 @@ import { sarvamReady, scriptLang, toEnglish } from './sarvam.js';
 import { aiEnabled, aiJson } from './ai.js';
 import { notify } from './notify.js';
 import { sellerTz } from './tz.js';
+import { byteCache, vecBytes } from './byte-cache.js';
 
 export const MEMORY_MAX = 500;
 export const SKILLS_MAX = 200;
 const DRAFTS_MAX = 30;
+// rejected skills are kept so the same lesson isn't drafted again — the newest ones only
+const REJECTED_KEEP = Number(process.env.HIVE_REJECTED_KEEP) || 200;
 const ALWAYS_MAX = 40; // "always" items sent with every message
 const ALL_UNDER = Number(process.env.HIVE_MEMORY_ALL_UNDER || 40); // up to this many, everything is sent
 const RELEVANT = 12; // otherwise: this many best matches on top of the "always" ones
@@ -84,14 +87,13 @@ export async function embedPending(limit = 64) {
     return rows.length;
   } finally { embedding = false; }
 }
-const vecCache = new Map();
+const vecCache = byteCache(); // sellers' vectors in RAM, under a size budget (least recently used go first)
 function vectorsOf(userId, model) {
   const ver = q('SELECT COUNT(*) AS n, MAX(rowid) AS m FROM hmemvec WHERE userId = ? AND model = ?').get(userId, model);
   const sig = `${ver.n}:${ver.m}`, hit = vecCache.get(userId);
   if (hit?.sig === sig) return hit.rows;
   const rows = new Map(q('SELECT memId, vec FROM hmemvec WHERE userId = ? AND model = ?').all(userId, model).map((r) => [r.memId, new Int8Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength)]));
-  if (vecCache.size > 200) vecCache.delete(vecCache.keys().next().value);
-  vecCache.set(userId, { sig, rows });
+  vecCache.set(userId, { sig, rows }, vecBytes(rows.values()));
   return rows;
 }
 
@@ -305,7 +307,9 @@ export function registerHiveMemory(app, { auth, rateLimit = null, isTest = false
     if (!ownerOnly(req, res)) return;
     const x = mine(req, res); if (!x) return;
     if (x.kind !== 'skill') return res.status(400).json({ error: 'Only a learned skill can be rejected' });
-    res.json(save({ ...x, userId: req.user.id, status: 'rejected' }));
+    const out = save({ ...x, userId: req.user.id, status: 'rejected' });
+    for (const r of q('SELECT id FROM hmem WHERE userId = ? AND kind = ? AND status = ? ORDER BY updatedAt DESC, rowid DESC LIMIT -1 OFFSET ?').all(req.user.id, 'skill', 'rejected', REJECTED_KEEP)) remove(r.id);
+    res.json(out);
   });
   app.delete('/api/hive/memory/:id', auth, (req, res) => {
     if (!ownerOnly(req, res)) return;

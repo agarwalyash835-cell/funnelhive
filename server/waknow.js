@@ -15,6 +15,7 @@ import { creditsShort, spendCredits } from './billing.js';
 import { vaultBytes, aiFolder } from './vault.js';
 import { pipelinesFor } from './crm.js';
 import { sarvamReady, digitise, scriptLang, toEnglish, LANGUAGES } from './sarvam.js';
+import { byteCache, vecBytes } from './byte-cache.js';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const arr = (v) => (Array.isArray(v) ? v : []);
@@ -133,15 +134,14 @@ export const toInt8 = (v) => Buffer.from(Int8Array.from(v, (x) => Math.max(-127,
 export const dot8 = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s / 16129; };
 
 // each process keeps a seller's vectors in memory until their documents change
-const vecCache = new Map();
+const vecCache = byteCache(); // sellers' vectors in RAM, under a size budget (least recently used go first)
 function vectorsOf(userId, model) {
   const ver = q('SELECT COUNT(*) AS n, MAX(rowid) AS m FROM kvec WHERE userId = ? AND model = ?').get(userId, model);
   const sig = `${ver.n}:${ver.m}`;
   const hit = vecCache.get(userId);
   if (hit?.sig === sig && hit.model === model) return hit.rows;
   const rows = q('SELECT chunkId, docId, vec FROM kvec WHERE userId = ? AND model = ?').all(userId, model).map((r) => ({ chunkId: r.chunkId, docId: r.docId, v: new Int8Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength) }));
-  if (vecCache.size > 200) vecCache.delete(vecCache.keys().next().value);
-  vecCache.set(userId, { sig, model, rows });
+  vecCache.set(userId, { sig, model, rows }, vecBytes(rows.map((r) => r.v)));
   return rows;
 }
 // a customer's question, embedded once for a few minutes (the same words come back often). A customer is waiting:
