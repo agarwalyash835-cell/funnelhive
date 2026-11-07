@@ -1,20 +1,20 @@
 // Industry modules: the tools that only some businesses need (orders, products, a store, courses, quotes, affiliates,
-// bookings, webinars). An account's CRM style (its industry) decides which of them it sees; the rest are hidden from
-// its menu — not just tucked under "More tools" — unless:
-//   - the platform admin (Admin / super admin panel) or the account's agency switched it on for the account (modulesOn),
-//   - its agency put it in the menu it sets for all its clients (clientMenu),
-//   - or the account already uses it (it has data there), so nothing it relies on disappears.
-// Accounts with no CRM style yet, or an AI-designed one, see every tool. Add-ons (Tally, Inventory, Studio) are
-// switched on per account already and aren't covered here.
+// bookings, webinars, and the Tally / Inventory / Counter add-ons). An account's CRM style (its industry) decides which
+// of them it sees; the rest are hidden from its menu — not just tucked under "More tools" — unless the platform admin
+// (Admin / super admin panel) or the account's agency switched one on for it (modulesOn), or its agency put it in the
+// menu it sets for its clients (clientMenu). Switching industry changes the menu at once; data in a hidden tool is kept
+// and comes back with the tool. Accounts with no CRM style yet, or an AI-designed one, see every tool. The add-ons
+// still need switching on for the account as well (tally / inventory in /me).
 import { T, q } from './db.js';
 
 export const MODULES = {
   '/orders': 'Orders', '/products': 'Products', '/store': 'Store', '/school': 'School (courses)', '/quotes': 'Quotes',
   '/affiliates': 'Affiliates', '/bookings': 'Bookings', '/webinars': 'Webinars',
+  '/tally': 'Tally', '/inventory': 'Inventory', '/counter': 'Counter mode',
 };
 // per CRM style (crmkits.js ids): the industry modules it uses
 export const INDUSTRY_MODULES = {
-  general: ['/orders', '/products', '/store', '/school', '/quotes', '/affiliates', '/bookings', '/webinars'],
+  general: ['/orders', '/products', '/school', '/affiliates', '/bookings', '/webinars'],
   realestate: ['/orders', '/quotes', '/affiliates', '/bookings'],
   clinic: ['/orders', '/products', '/bookings'],
   consultant: ['/orders', '/products', '/quotes', '/bookings', '/webinars'],
@@ -28,21 +28,21 @@ export const INDUSTRY_MODULES = {
   professional: ['/orders', '/quotes', '/bookings'],
   recruitment: ['/quotes', '/bookings'],
   homeservices: ['/orders', '/quotes', '/bookings'],
-  hospitality: ['/orders', '/products', '/store', '/bookings'],
-  store: ['/orders', '/products', '/store', '/affiliates', '/quotes'],
-  manufacturer: ['/orders', '/products', '/quotes'],
-  retailer: ['/orders', '/products', '/store', '/quotes'],
-  distributor: ['/orders', '/products', '/quotes'],
+  hospitality: ['/orders', '/products', '/store', '/bookings', '/inventory'],
+  store: ['/orders', '/products', '/store', '/affiliates', '/quotes', '/inventory', '/counter', '/tally'],
+  manufacturer: ['/orders', '/products', '/quotes', '/tally', '/inventory'],
+  retailer: ['/orders', '/products', '/store', '/quotes', '/tally', '/inventory', '/counter'],
+  distributor: ['/orders', '/products', '/quotes', '/tally', '/inventory'],
   abroad: ['/orders', '/quotes', '/bookings', '/webinars'],
   wellness: ['/orders', '/products', '/store', '/school', '/bookings', '/webinars'],
   saas: ['/orders', '/products', '/quotes', '/affiliates', '/bookings', '/webinars'],
   ngo: ['/orders', '/products', '/webinars'],
-  lab: ['/orders', '/products', '/store', '/bookings'],
-  jewellery: ['/orders', '/products', '/store', '/quotes', '/bookings'],
+  lab: ['/orders', '/products', '/store', '/bookings', '/inventory', '/counter'],
+  jewellery: ['/orders', '/products', '/store', '/quotes', '/bookings', '/tally', '/inventory', '/counter'],
   school: ['/orders', '/products', '/bookings', '/webinars'],
   pg: ['/orders', '/quotes', '/bookings'],
-  agri: ['/orders', '/products', '/quotes', '/bookings'],
-  caterer: ['/orders', '/products', '/store', '/quotes', '/bookings'],
+  agri: ['/orders', '/products', '/quotes', '/bookings', '/tally', '/inventory', '/counter'],
+  caterer: ['/orders', '/products', '/store', '/quotes', '/bookings', '/inventory'],
   franchise: ['/orders', '/quotes', '/bookings', '/webinars'],
   movers: ['/orders', '/quotes', '/bookings'],
   matrimony: ['/orders', '/products', '/bookings'],
@@ -72,12 +72,12 @@ export function moduleView(u) {
   const fits = INDUSTRY_MODULES[industry];
   const on = new Set(cleanModules(u?.modulesOn));
   const agencyMenu = new Set((u?.agencyId && T.users.get(u.agencyId)?.settings?.clientMenu) || []);
-  const used = fits ? usedModules(u) : new Set();
+  const used = fits ? usedModules(u) : new Set(); // shown in Admin ("has data") — it no longer keeps a tool in the menu
   return {
     industry: fits ? industry : null,
     modules: Object.entries(MODULES).map(([page, label]) => {
       const byIndustry = !fits || fits.includes(page);
-      return { page, label, industry: byIndustry, on: on.has(page), used: used.has(page), agency: agencyMenu.has(page), shown: byIndustry || on.has(page) || agencyMenu.has(page) || used.has(page) };
+      return { page, label, industry: byIndustry, on: on.has(page), used: used.has(page), agency: agencyMenu.has(page), shown: byIndustry || on.has(page) || agencyMenu.has(page) };
     }),
   };
 }
