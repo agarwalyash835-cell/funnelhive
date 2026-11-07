@@ -51,6 +51,7 @@ import { registerVideo } from './video.js';
 import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId, cleanTrackingIds, trackingFor, funnelTrackingView } from './tracking.js';
 import { registerVault } from './vault.js';
 import { registerHiveDocs } from './hive-docs.js';
+import { registerHiveMemory } from './hive-memory.js';
 import { registerSales, issueInvoice, invoiceUrl, invoicingOf, cleanInvoicing, cleanBuyerGst, refundFromWebhook, INVOICING_DEFAULTS } from './sales.js';
 import { linkBase } from './products.js';
 import { registerBookings, confirmPaidBooking } from './bookings.js';
@@ -1131,6 +1132,7 @@ registerTracking(app, { auth, wrap });
 registerSales(app, { auth, wrap, secret: SECRET, appUrl });
 registerVault(app, { auth, wrap, rateLimit, isTest, secret: SECRET });
 registerHiveDocs(app, { auth, wrap, rateLimit, isTest });
+registerHiveMemory(app, { auth });
 
 // ?limit=&cursor=&tab=&q=&funnel=&status=&days=&id= — filters, search and totals run over every order
 // (orderlist.js); "Show more" passes the cursor back. Without ?limit up to ORDERS_MAX of each, as before.

@@ -68,6 +68,7 @@ export function cleanMate(b = {}, cur = {}, groups = []) {
   if ('groups' in b) out.groups = [...new Set((Array.isArray(b.groups) ? b.groups : []).filter((g) => groups.includes(g)))];
   if ('core' in b) out.core = !!b.core;
   if ('askFirst' in b) out.askFirst = !!b.askFirst;
+  if ('memory' in b) out.memory = !!b.memory; // uses Hive's memory (on unless switched off)
   if ('pinned' in b) out.pinned = !!b.pinned; // shown first in the team list
   if ('preset' in b && !cur.preset) out.preset = clip(b.preset, 20);
   if ('schedule' in b) {
@@ -118,6 +119,16 @@ const scheduledUsers = () => {
 };
 export const forgetTeamCache = () => { withTeam.at = 0; };
 
+// a run that started this long ago and never finished was interrupted (a turn gives up well before this)
+export const RUN_STALE_MS = Number(process.env.HIVE_RUN_STALE_MS) || 20 * 60000;
+// the teammate's last run: { status: running | done | failed, startedAt, endedAt, day, threadId, error }
+export function setRun(userId, mateId, run, keepStart = false) {
+  T.users.update(userId, (u) => {
+    const m = teamOf(u).find((x) => x.id === mateId);
+    if (m) m.lastRun = { ...(keepStart ? { startedAt: m.lastRun?.startedAt } : {}), ...run };
+  });
+}
+
 // marks a teammate's run for the day (so a restart or a slow tick never runs it twice)
 export function markRun(userId, mateId, day) {
   let claimed = false;
@@ -129,7 +140,7 @@ export function markRun(userId, mateId, day) {
 }
 
 // every minute: run the teammates whose time has come. `run(user, mate, { scheduled })` does the work (hive.js)
-export function startTeamJobs(run) {
+export function startTeamJobs(run, view = (m) => m) {
   if (!JOBS || process.env.NODE_ENV === 'test') return;
   const busy = new Set();
   setInterval(() => {
@@ -138,6 +149,11 @@ export function startTeamJobs(run) {
       if (!u) continue;
       const tz = sellerTz(u);
       for (const m of teamOf(u)) {
+        // a run that never finished: the seller hears once, and Retry waits for them in the team dialog
+        if (m.lastRun?.status === 'running' && !busy.has(`${u.id}:${m.id}`) && view(m).lastRun.status === 'interrupted') {
+          setRun(u.id, m.id, { ...m.lastRun, status: 'interrupted' });
+          notify(u.id, { kind: 'hive', title: `${m.name}’s task stopped before finishing`, body: 'Check what it already did in its chat, then press Retry in Hive → Your AI team.', link: m.lastRun.threadId ? `/hive?thread=${m.lastRun.threadId}` : '/hive' });
+        }
         const day = dueDay(m, tz);
         const key = `${u.id}:${m.id}`;
         if (!day || busy.has(key) || !markRun(u.id, m.id, day)) continue;

@@ -25,9 +25,10 @@ import * as contactTools from './hive-contacts.js';
 import * as academyTools from './hive-academy.js';
 import * as webTools from './hive-web.js';
 import * as docTools from './hive-docs.js';
+import * as memoryTools from './hive-memory.js';
 import * as studioTools from './hive-studio.js';
 import * as reportTools from './hive-inventory-reports.js';
-import { PRESETS, MAX_TEAM, cleanMate, teamOf, mateOf, mateNote, startTeamJobs, forgetTeamCache } from './hive-team.js';
+import { PRESETS, MAX_TEAM, cleanMate, teamOf, mateOf, mateNote, startTeamJobs, forgetTeamCache, setRun, RUN_STALE_MS } from './hive-team.js';
 import { notify } from './notify.js';
 
 const MAX_MODEL_CALLS = 16, RESULT_MAX = 40000; // a full 21-section page with all props is ~25k characters
@@ -846,7 +847,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Made a copy: “${r.name}”`,
   },
   // stock insights on Tally, and the Inventory add-on (each module keeps its own tools)
-  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS, ...studioTools.TOOLS, ...academyTools.TOOLS, ...webTools.TOOLS, ...docTools.TOOLS,
+  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS, ...studioTools.TOOLS, ...academyTools.TOOLS, ...webTools.TOOLS, ...docTools.TOOLS, ...memoryTools.TOOLS,
 ];
 const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -880,7 +881,7 @@ const NEEDS_OK = {
   // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
   run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${appOfSlug(a.slug)?.name || 'connected app'} account: ${String(a.slug || '').replace(/^[A-Z]+?_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
-  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK, ...studioTools.OK, ...academyTools.OK, ...webTools.OK, ...docTools.OK,
+  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK, ...studioTools.OK, ...academyTools.OK, ...webTools.OK, ...docTools.OK, ...memoryTools.OK,
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
@@ -960,6 +961,7 @@ export const TOOL_GROUPS = {
   inventory_pro: { about: 'inventory for the seller’s industry: bills of materials and production, batches and expiry, schemes, variants and counter billing, rate lists and credit limits', tools: proTools.TOOLS.map((t) => t.name), re: /\b(bom|bill of materials?|production|raw materials?|batch(es)?|expiry|schemes?|variants?|sizes?|colou?rs?|counter|rate lists?|credit limits?|today’s sales|counter sales|returned|exchange)\b/i },
   web: { about: 'the open web: search it, read any public page (competitors, prices, news, rules, a link the seller sends)', tools: webTools.TOOLS.map((t) => t.name), re: /\b(search|google it|internet|web|online|websites?|urls?|links?|https?:\/\/\S+|www\.|competitors?|news|latest|trend\w*|research|look (it )?up|market rate)\b/i },
   vault: { about: 'the Vault: find and read the seller’s files (brochures, price lists, agreements, invoices, photos) and save notes Hive writes', tools: docTools.TOOLS.map((t) => t.name), re: /\b(vault|files?|documents?|docs?|pdfs?|brochures?|agreements?|price ?lists?|save (this|it)|keep (this|it)|notes?|sop)\b/i },
+  memory: { about: 'Hive’s memory: save something the seller asks you to remember for every future chat', tools: memoryTools.TOOLS.map((t) => t.name), re: /\b(remember|memori[sz]e|don'?t forget|from now on|always|never|keep in mind|note that)\b/i },
   apps: { about: 'the seller’s connected apps — Gmail, Google Calendar, Google Sheets, Google Drive (and ads accounts)', tools: ['find_app_actions', 'run_app_action'], re: /\b(gmail|e-?mails?|mail ?box|calendar|meetings?|schedule|sheets?|spreadsheets?|drive|google docs?)\b/i },
   account: { about: 'business settings, team members, agency clients, tracking, webhooks', tools: ['update_business', 'list_team', 'invite_team_member', 'list_clients', 'copy_funnel_to_client', 'set_tracking', 'connect_webhook'], re: /\b(team|invite|staff|employees?|clients?|agency|business (name|settings)|time ?zone|consent|settings)\b/i },
 };
@@ -988,7 +990,8 @@ export const toolDefsFor = (groups, core = true, useTools = USE_TOOLS) => {
   return [...TOOLS.filter((t) => names.has(t.name)).map(defOf), useTools];
 };
 // every tool a teammate may call: its groups (and the funnel tools when it builds funnels)
-export const mateTools = (m) => new Set([...(m.core ? CORE_TOOLS : []), ...m.groups.flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
+const mateGroups = (m) => [...m.groups, ...(m.memory !== false ? ['memory'] : [])];
+export const mateTools = (m) => new Set([...(m.core ? CORE_TOOLS : []), ...mateGroups(m).flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
 
 // tools that only read: several in one reply run at the same time
 const READ_ONLY = new Set(['ads_report', 'school_overview', 'check_domain', 'find_app_actions', 'write_marketing_copy', 'academy_students', 'academy_questions', 'academy_posts', 'web_search', 'read_web_page', 'vault_files', 'read_vault_file']);
@@ -1041,7 +1044,7 @@ const STUDIO_NOTE = `\n\nYou are working inside Studio as the seller's creative 
 export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, signal, model = kieResponses, scope = null, teammate = null }) {
   const studio = scope === 'studio' && !teammate;
   // a teammate works only with its own groups (and the funnel tools if it builds funnels)
-  const allowed = teammate ? new Set(teammate.groups.filter((g) => TOOL_GROUPS[g])) : null;
+  const allowed = teammate ? new Set(mateGroups(teammate).filter((g) => TOOL_GROUPS[g])) : null;
   const allowedNames = teammate ? mateTools(teammate) : null;
   const useTools = allowed ? useToolsDef([...allowed]) : USE_TOOLS;
   const core = teammate ? !!teammate.core : !studio;
@@ -1050,7 +1053,7 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
   const input = [...history.slice(-12).map((m) => ({ role: m.role, content: m.text })), { role: 'user', content: message + context }];
   let groups = studio ? new Set(['studio', ...startGroups(message, history.slice(-2), false)].filter((g) => g !== 'sections')) : startGroups(message, history, !!focusFunnelId);
   if (allowed) groups = new Set([...groups].filter((g) => allowed.has(g)));
-  const system = (studio ? SYSTEM + STUDIO_NOTE : SYSTEM) + (teammate ? mateNote(teammate, GROUP_ABOUT) : '');
+  const system = (studio ? SYSTEM + STUDIO_NOTE : SYSTEM) + (teammate ? mateNote(teammate, GROUP_ABOUT) : '') + (!teammate || teammate.memory !== false ? ctx.memory || '' : '');
   const maxGroups = allowed ? allowed.size : GROUP_COUNT;
   const done = [], rounds = new Map(), seen = new Map(), fails = new Map(), blocked = new Map();
   const usage = { rounds: 0, tokensIn: 0, tokensOut: 0 };
@@ -1296,6 +1299,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   // `stop` (the reply's abort signal): pressing Stop or leaving the page also cuts off a tool call that's running
   const ctxFor = (user, origin, actor = null, stop = null) => ({
     origin,
+    memory: memoryTools.memoryNote(user), // what the seller asked Hive to remember
     call: async (method, path, body) => {
       const r = await fetch(`http://127.0.0.1:${port}/api${path}`, { method, headers: { Authorization: `Bearer ${actor ? sign(actor, user.id) : sign(user)}`, 'Content-Type': 'application/json', 'X-Hive': '1' }, body: body ? JSON.stringify(body) : undefined, signal: stop ? AbortSignal.any([stop, AbortSignal.timeout(300000)]) : AbortSignal.timeout(300000) });
       const data = await r.json().catch(() => ({}));
@@ -1414,7 +1418,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   const saveTeam = (userId, fn) => { const u = T.users.update(userId, (x) => { x.settings = { ...x.settings, hiveTeam: fn(teamOf(x)) }; }); forgetTeamCache(); return teamOf(u); };
   // pinned teammates first (the order they were hired otherwise)
   const pinnedFirst = (team) => [...team.filter((m) => m.pinned), ...team.filter((m) => !m.pinned)];
-  app.get('/api/hive/team', auth, (req, res) => res.json({ team: pinnedFirst(teamOf(req.user)), presets: PRESETS, groups: Object.entries(GROUP_ABOUT).map(([id, about]) => ({ id, about })), max: MAX_TEAM }));
+  app.get('/api/hive/team', auth, (req, res) => res.json({ team: pinnedFirst(teamOf(req.user)).map(runView), presets: PRESETS, groups: Object.entries(GROUP_ABOUT).map(([id, about]) => ({ id, about })), max: MAX_TEAM }));
   // hire: a ready-made one ({ preset }) or your own ({ name, role, instructions, groups, … })
   app.post('/api/hive/team', auth, (req, res) => {
     if (!ownerOnly(req, res)) return;
@@ -1430,7 +1434,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     if (!ownerOnly(req, res)) return;
     const cur = mateOf(req.user, req.params.id);
     if (!cur) return res.status(404).json({ error: 'Teammate not found' });
-    const { id, lastRunDay, lastRunAt, ...b } = req.body || {};
+    const { id, lastRunDay, lastRunAt, lastRun, ...b } = req.body || {};
     const m = cleanMate(b, cur, groupIds);
     if (!m.groups.length && !m.core) return res.status(400).json({ error: 'Pick at least one area this teammate works on' });
     saveTeam(req.user.id, (team) => team.map((x) => (x.id === m.id ? m : x)));
@@ -1450,7 +1454,22 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     || T.hive.insert({ id: uid(), userId: u.id, teammateId: m.id, auto: true, title: `${m.emoji} ${m.name} · ${scheduled ? 'scheduled tasks' : 'tasks'}`, funnelId: null, messages: [], at: Date.now(), updatedAt: Date.now() });
   // billing and WhatsApp load when a teammate runs (importing them up front makes a loop at start-up)
   const deps = () => Promise.all([import('./billing.js'), import('./hive-wa.js')]).then(([b, w]) => ({ ...b, sellerAlert: w.sellerAlert }));
-  async function runMate(u, m, { scheduled = null, thread = null } = {}) {
+  // the last run as the seller sees it: running, done, failed — or interrupted (it started and never finished,
+  // e.g. the server restarted mid-run), which waits for the seller to look and press Retry
+  const runView = (m) => (m.lastRun?.status === 'running' && !running.has(m.lastRun.threadId) && Date.now() - m.lastRun.startedAt > RUN_STALE_MS ? { ...m, lastRun: { ...m.lastRun, status: 'interrupted' } } : m);
+  async function runMate(u, m, opts = {}) {
+    const day = opts.scheduled || opts.retry?.day || null;
+    setRun(u.id, m.id, { status: 'running', startedAt: Date.now(), day, threadId: opts.thread?.id || null, ...(opts.retry ? { retry: true } : {}) });
+    try {
+      const r = await runMateOnce(u, m, opts);
+      setRun(u.id, m.id, { status: 'done', endedAt: Date.now(), day, threadId: r.threadId }, true);
+      return r;
+    } catch (e) {
+      setRun(u.id, m.id, { status: 'failed', endedAt: Date.now(), day, error: String(e.message).slice(0, 300) }, true);
+      throw e;
+    }
+  }
+  async function runMateOnce(u, m, { scheduled = null, thread = null, retry = null } = {}) {
     if (!hiveReady()) throw new Error('Hive AI isn’t switched on yet');
     const { AI_COST, creditsShort, spendCredits, sellerAlert } = await deps();
     const short = creditsShort(u, AI_COST.hive);
@@ -1459,14 +1478,16 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     if (!task) throw new Error(`${m.name} has no task set`);
     const t = thread || mateThread(u, m, scheduled);
     if (running.has(t.id) && !thread) throw new Error(`${m.name} is still busy with the last task`);
+    setRun(u.id, m.id, { status: 'running', startedAt: Date.now(), day: scheduled || retry?.day || null, threadId: t.id, ...(retry ? { retry: true } : {}) });
     running.add(t.id);
     try {
       const history = t.messages.map((x) => ({ role: x.role, text: x.text, tools: (x.tools || []).map((y) => y.name) }));
-      t.messages.push({ role: 'user', text: `⏰ ${task}`, auto: true, at: Date.now() });
+      t.messages.push({ role: 'user', text: `${retry ? '↻ Retry · ' : '⏰ '}${task}`, auto: true, at: Date.now() });
       T.hive.put(t);
       const jr = journaled(ctxFor(u, origin()), u.id);
       const ctx = { ...jr.ctx, pending: [], unattended: true, audit: { userId: u.id, threadId: t.id, by: scheduled ? 'schedule' : 'teammate' } };
-      const message = `${task}\n\n[${scheduled ? `Scheduled task for ${scheduled}` : 'Run now'}: the seller isn’t watching live. Read whatever you need; anything that would change something becomes a card they approve later. Finish with a short summary they can read on WhatsApp: the key numbers and what needs their OK.]`;
+      const again = retry ? `[This retries ${retry.day ? `the ${retry.day} run` : 'a run'} that stopped before finishing. First look at what it already did — the messages, changes and approvals above in this chat — and don't do any of that again.]\n\n` : '';
+      const message = `${again}${task}\n\n[${scheduled ? `Scheduled task for ${scheduled}` : retry ? 'Retry' : 'Run now'}: the seller isn’t watching live. Read whatever you need; anything that would change something becomes a card they approve later. Finish with a short summary they can read on WhatsApp: the key numbers and what needs their OK.]`;
       const out = await hiveTurn({ ctx, history, message, emit: () => {}, signal: AbortSignal.timeout(TURN_MS + 60000), teammate: m });
       spendCredits(u, AI_COST.hive);
       logUsage(u.id, out.usage);
@@ -1501,7 +1522,26 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     });
     res.json({ threadId: t.id });
   });
-  startTeamJobs(runMate);
+  // Retry a run that failed or was interrupted (after the seller has looked at what it did)
+  app.post('/api/hive/team/:id/retry', auth, limiter, async (req, res) => {
+    const m0 = mateOf(req.user, req.params.id);
+    if (!m0) return res.status(404).json({ error: 'Teammate not found' });
+    const m = runView(m0), last = m.lastRun;
+    if (!['failed', 'interrupted'].includes(last?.status)) return res.status(400).json({ error: 'There’s no stopped run to retry' });
+    if (!m.schedule?.task) return res.status(400).json({ error: `Give ${m.name} a task first` });
+    if (!hiveReady()) return res.status(503).json({ error: 'Hive AI isn’t switched on yet — please try again later' });
+    const { AI_COST, creditsShort } = await deps();
+    const short = creditsShort(req.user, AI_COST.hive);
+    if (short) return res.status(402).json({ error: short, credits: true });
+    const t = (last.threadId && T.hive.get(last.threadId)?.userId === req.user.id && T.hive.get(last.threadId)) || mateThread(req.user, m, last.day);
+    if (running.has(t.id)) return res.status(409).json({ error: `${m.name} is still busy` });
+    running.add(t.id);
+    runMate(req.user, m, { thread: t, retry: { day: last.day } }).catch((e) => {
+      T.hive.update(t.id, (x) => { x.messages.push({ role: 'assistant', text: `Couldn’t finish: ${e.message}`, error: true, at: Date.now() }); });
+    });
+    res.json({ threadId: t.id });
+  });
+  startTeamJobs(runMate, runView);
 
   // 👍 / 👎 on a reply (by its time). A 👎 keeps the request, the reply and the steps for the platform's review —
   // each one becomes a case in the test bank (server/evals) so the same mistake is caught before the next release.

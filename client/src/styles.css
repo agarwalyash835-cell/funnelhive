@@ -3060,3 +3060,19 @@ a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
   .cl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cl-bar .btn { margin-left: 0; }
 }
+
+/* Hive memory (team dialog) and a teammate's stopped run with Retry */
+.hv-mem { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--c-line); border-radius: var(--r-lg); background: var(--c-surface-2); margin-bottom: 14px; }
+.hv-mem h4 { display: flex; align-items: center; gap: 6px; margin: 0; }
+.hv-mem h4 small { margin-left: auto; font-weight: 400; }
+.hv-mem ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.hv-mem li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--c-surface); border: 1px solid var(--c-line); }
+.hv-mem li input { flex: 1; }
+.hv-mem-t { flex: 1; min-width: 0; text-align: left; font: inherit; color: var(--c-ink); background: none; border: 0; cursor: text; padding: 2px 0; }
+.hv-mem-add { display: flex; gap: 8px; }
+.hv-mem-add input { flex: 1; }
+.hv-run-stop { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, #f59e0b 12%, transparent); border: 1px solid color-mix(in srgb, #f59e0b 35%, transparent); color: var(--c-ink); }
+.hv-run-stop > div { flex: 1 1 220px; display: grid; gap: 2px; }
+.hv-run-stop small { color: var(--c-muted); }
+.hv-run-stop > svg, .hv-stopped { color: #d97706; flex: none; }
+.hv-tm-card em.warn { color: #b45309; }
