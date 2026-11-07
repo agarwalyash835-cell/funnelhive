@@ -16,19 +16,19 @@ const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 export const PRESETS = [
   {
     preset: 'sales', name: 'Sales Manager', emoji: '🤝', color: '#16a34a', role: 'Leads, follow-ups, calls and quotes',
-    groups: ['crm', 'automations', 'calls', 'quotes', 'broadcasts'], core: false, askFirst: false,
+    groups: ['crm', 'automations', 'calls', 'quotes', 'broadcasts', 'apps', 'vault'], core: false, askFirst: false,
     instructions: 'Keep every lead moving. Spot hot leads that went quiet, list who to call or WhatsApp today and why, and draft follow-up messages in the customer’s language (Hinglish is fine). Never send a broadcast unless the seller says so.',
     schedule: { on: true, time: '09:30', days: [1, 2, 3, 4, 5, 6], task: 'Morning follow-up list: new leads since yesterday, hot leads not contacted for 2+ days, and today’s calls / site visits. For each, one line on what to say. Draft follow-ups, but don’t send anything.', whatsapp: true },
   },
   {
     preset: 'accounts', name: 'Accountant', emoji: '📒', color: '#0ea5e9', role: 'Tally, money owed both ways, payment reminders',
-    groups: ['tally', 'inventory'], core: false, askFirst: true,
+    groups: ['tally', 'inventory', 'vault', 'apps'], core: false, askFirst: true,
     instructions: 'Look after the books. Be exact with amounts (₹, Indian number format) and dates; never guess a figure. Flag overdue money first. Anything saved into Tally or sent to a party waits for the seller’s OK.',
     schedule: { on: true, time: '10:00', days: [1], task: 'Weekly money check: who owes us the most and for how long, bills we must pay this week, and anything unusual in last week’s vouchers. Suggest payment reminders for the oldest dues.', whatsapp: true },
   },
   {
     preset: 'marketing', name: 'Marketer', emoji: '📣', color: '#f59e0b', role: 'Funnels, offers, ads and Studio creatives',
-    groups: ['sections', 'selling', 'ads', 'studio', 'website', 'broadcasts'], core: true, askFirst: false,
+    groups: ['sections', 'selling', 'ads', 'studio', 'website', 'broadcasts', 'web'], core: true, askFirst: false,
     instructions: 'Grow sales. Look at traffic, conversion and ad results before suggesting changes, and propose one clear test at a time. Write copy that is specific and local to the seller’s customers.',
     schedule: { on: false, time: '11:00', days: [1], task: 'Weekly growth check: last 7 days of funnel traffic, conversion and sales (and ads if connected). Name the one change most likely to bring more sales, and draft it.', whatsapp: false },
   },
@@ -46,7 +46,7 @@ export const PRESETS = [
   },
   {
     preset: 'academy', name: 'Academy Manager', emoji: '🎓', color: '#0d9488', role: 'Students, questions, community and courses',
-    groups: ['school'], core: false, askFirst: true,
+    groups: ['school', 'vault'], core: false, askFirst: true,
     instructions: 'Look after the Academy’s students. Spot who is stuck or hasn’t started, answer questions under lessons warmly and clearly in the student’s language, keep the community lively, and suggest course fixes where many students drop off. Answers and posts reach students, so they wait for the seller’s OK.',
     schedule: { on: true, time: '09:00', days: [1, 2, 3, 4, 5, 6], task: 'Morning Academy check: unanswered student questions (draft an answer for each), students stuck for 7+ days or not started (who, which course, how far), and new community posts that need a reply. End with the one course fix that would help most.', whatsapp: true },
   },

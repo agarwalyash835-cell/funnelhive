@@ -12,7 +12,16 @@ const BASE = () => (process.env.COMPOSIO_BASE_URL || 'https://backend.composio.d
 export const APPS = {
   metaads: { name: 'Meta Ads', what: 'Facebook & Instagram ads: campaigns, audiences, results' },
   googleads: { name: 'Google Ads', what: 'Search campaigns, keywords and results' },
+  // the seller's own Google Workspace (Composio's Google login): Hive reads freely; sending, booking, editing and
+  // deleting wait for their OK
+  gmail: { name: 'Gmail', what: 'Read and draft emails, send with your OK' },
+  googlecalendar: { name: 'Google Calendar', what: 'See your day, book meetings with your OK' },
+  googlesheets: { name: 'Google Sheets', what: 'Read sheets, add rows with your OK' },
+  googledrive: { name: 'Google Drive', what: 'Find and read your files' },
 };
+// an action's app, from its slug (GMAIL_SEND_EMAIL → Gmail)
+const SLUG_APP = { METAADS: 'metaads', GOOGLEADS: 'googleads', GMAIL: 'gmail', GOOGLECALENDAR: 'googlecalendar', GOOGLESHEETS: 'googlesheets', GOOGLEDRIVE: 'googledrive' };
+export const appOfSlug = (slug) => APPS[SLUG_APP[String(slug || '').split('_')[0].toUpperCase()]] || null;
 const keyOf = () => process.env.COMPOSIO_API_KEY || decrypt(platform().composio?.keyEnc || '') || '';
 export const composioReady = () => !!keyOf();
 export const enabledApps = () => (platform().composio?.apps || ['metaads']).filter((a) => APPS[a]);

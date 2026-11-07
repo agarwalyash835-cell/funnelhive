@@ -11,7 +11,7 @@ import { T, uid } from './db.js';
 import { hashToken } from './security.js';
 import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
 import { isAdmin } from './platform.js';
-import { readOnlyAction } from './composio.js';
+import { readOnlyAction, appOfSlug } from './composio.js';
 import { PAGE_STYLES } from './page-styles.js';
 import { TRIGGERS, VARIABLES } from './automations.js';
 import { offerStep } from './actions.js';
@@ -23,6 +23,8 @@ import * as inventoryTools from './hive-inventory.js';
 import * as proTools from './hive-inventory-pro.js';
 import * as contactTools from './hive-contacts.js';
 import * as academyTools from './hive-academy.js';
+import * as webTools from './hive-web.js';
+import * as docTools from './hive-docs.js';
 import * as studioTools from './hive-studio.js';
 import * as reportTools from './hive-inventory-reports.js';
 import { PRESETS, MAX_TEAM, cleanMate, teamOf, mateOf, mateNote, startTeamJobs, forgetTeamCache } from './hive-team.js';
@@ -268,7 +270,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
   },
   // ---------- the seller's own apps, through Composio (Meta Ads, Google Ads) ----------
   {
-    name: 'find_app_actions', description: 'Find actions in the seller’s connected apps (Meta Ads; Google Ads when connected) — e.g. "create campaign", "ad set", "custom audience", "insights", "list ad accounts". Returns action slugs, what they do, whether they only read, and (with schemas) their inputs. Call this before run_app_action.',
+    name: 'find_app_actions', description: 'Find actions in the seller’s connected apps (Meta Ads, Google Ads, Gmail, Google Calendar, Google Sheets, Google Drive — whichever they connected in Settings → Apps) — e.g. "create campaign", "ad set", "custom audience", "insights", "list ad accounts". Returns action slugs, what they do, whether they only read, and (with schemas) their inputs. Call this before run_app_action.',
     schema: S({ query: str('What you want to do'), schemas: bool('Include each action’s input fields (use for the 1–3 you will run)') }, ['query']),
     run: async (ctx, a) => ctx.call('GET', `/integrations/tools?q=${encodeURIComponent(a.query || '')}&limit=${a.schemas ? 4 : 12}${a.schemas ? '&schemas=1' : ''}`),
     summary: (r) => (r.connected?.length ? `Looked at your ${r.connected.join(' & ')} actions` : 'No apps connected yet'),
@@ -279,7 +281,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     // the app saying no is a failure (it was shown as a green "done" and the model kept trying other ways)
     run: async (ctx, a) => {
       const r = await ctx.call('POST', '/integrations/run', { slug: a.slug, arguments: a.arguments || {} });
-      if (r?.ok === false) throw new Error(`${String(a.slug || '').split('_')[0] === 'GOOGLEADS' ? 'Google Ads' : String(a.slug || '').startsWith('METAADS') ? 'Meta Ads' : 'The app'} said: ${String(r.error || 'it returned an error').slice(0, 300)}`);
+      if (r?.ok === false) throw new Error(`${appOfSlug(a.slug)?.name || 'The app'} said: ${String(r.error || 'it returned an error').slice(0, 300)}`);
       return r;
     },
     summary: () => 'Done in your connected app',
@@ -843,7 +845,7 @@ Set activate=true to switch it on (fails with a clear reason if a step is incomp
     summary: (r) => `Made a copy: “${r.name}”`,
   },
   // stock insights on Tally, and the Inventory add-on (each module keeps its own tools)
-  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS, ...studioTools.TOOLS, ...academyTools.TOOLS,
+  ...insightTools.TOOLS, ...inventoryTools.TOOLS, ...proTools.TOOLS, ...contactTools.TOOLS, ...reportTools.TOOLS, ...studioTools.TOOLS, ...academyTools.TOOLS, ...webTools.TOOLS, ...docTools.TOOLS,
 ];
 const PENDING_TTL = 24 * 3600000;
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -875,9 +877,9 @@ const NEEDS_OK = {
   update_business: (a) => `Change business settings (${Object.keys(a).join(', ') || 'none'})`,
   create_automation: (a) => (webhookIn(a.steps) ? `Create automation “${a.name}” — it sends contact data to a webhook` : a.activate ? `Create automation “${a.name}” and switch it on` : null),
   // the seller's own apps: reading runs; anything else (creating, changing, pausing, spending) waits for their OK
-  run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${String(a.slug || '').startsWith('GOOGLEADS') ? 'Google Ads' : 'Meta Ads'} account: ${String(a.slug || '').replace(/^(METAADS|GOOGLEADS)_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
+  run_app_action: (a) => (readOnlyAction(a.slug) ? null : `In your ${appOfSlug(a.slug)?.name || 'connected app'} account: ${String(a.slug || '').replace(/^[A-Z]+?_/, '').toLowerCase().replace(/_/g, ' ')}${a.arguments?.name ? ` “${String(a.arguments.name).slice(0, 60)}”` : ''}${/budget/i.test(JSON.stringify(a.arguments || {})) ? ' (sets a budget)' : ''}`),
   update_automation: (a) => (webhookIn(a.steps) ? 'Update the automation — it sends contact data to a webhook' : a.active === true ? 'Switch this automation on' : null),
-  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK, ...studioTools.OK, ...academyTools.OK,
+  ...insightTools.OK, ...inventoryTools.OK, ...proTools.OK, ...contactTools.OK, ...reportTools.OK, ...studioTools.OK, ...academyTools.OK, ...webTools.OK, ...docTools.OK,
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
@@ -932,6 +934,9 @@ export const TOOL_GROUPS = {
   tally: { about: 'the Tally books (add-on): money owed both ways, vouchers, ledgers, stock, payment reminders, saving vouchers / ledgers into TallyPrime', tools: ['tally_overview', 'find_tally', 'tally_change', 'remind_tally_bill', ...insightTools.TOOLS.map((t) => t.name)], re: /\b(tally|ledgers?|vouchers?|outstanding|receivables?|payables?|debtors?|creditors?|udhaar|dues?|stock|godowns?|inventory|purchase|receipts?)\b/i },
   inventory: { about: 'the Inventory add-on: items, godowns, stock in / out, low stock, stock from bill photos; reports — stock valuation, gross profit, party ledger, day book, sales / purchase registers, GST summary, fast / slow / dead stock', tools: [...inventoryTools.TOOLS, ...reportTools.TOOLS].map((t) => t.name), re: /\b(inventory|stock|godowns?|warehouse|items?|sku|barcode|reorder|restock|sold|received|bags?|pcs|pieces|boxes|cartons?|profit|margin|ledger|day ?book|registers?|valuation)\b/i },
   inventory_pro: { about: 'inventory for the seller’s industry: bills of materials and production, batches and expiry, schemes, variants and counter billing, rate lists and credit limits', tools: proTools.TOOLS.map((t) => t.name), re: /\b(bom|bill of materials?|production|raw materials?|batch(es)?|expiry|schemes?|variants?|sizes?|colou?rs?|counter|rate lists?|credit limits?|today’s sales|counter sales|returned|exchange)\b/i },
+  web: { about: 'the open web: search it, read any public page (competitors, prices, news, rules, a link the seller sends)', tools: webTools.TOOLS.map((t) => t.name), re: /\b(search|google it|internet|web|online|websites?|urls?|links?|https?:\/\/\S+|www\.|competitors?|news|latest|trend\w*|research|look (it )?up|market rate)\b/i },
+  vault: { about: 'the Vault: find and read the seller’s files (brochures, price lists, agreements, invoices, photos) and save notes Hive writes', tools: docTools.TOOLS.map((t) => t.name), re: /\b(vault|files?|documents?|docs?|pdfs?|brochures?|agreements?|price ?lists?|save (this|it)|keep (this|it)|notes?|sop)\b/i },
+  apps: { about: 'the seller’s connected apps — Gmail, Google Calendar, Google Sheets, Google Drive (and ads accounts)', tools: ['find_app_actions', 'run_app_action'], re: /\b(gmail|e-?mails?|mail ?box|calendar|meetings?|schedule|sheets?|spreadsheets?|drive|google docs?)\b/i },
   account: { about: 'business settings, team members, agency clients, tracking, webhooks', tools: ['update_business', 'list_team', 'invite_team_member', 'list_clients', 'copy_funnel_to_client', 'set_tracking', 'connect_webhook'], re: /\b(team|invite|staff|employees?|clients?|agency|business (name|settings)|time ?zone|consent|settings)\b/i },
 };
 const groupOf = Object.fromEntries(Object.entries(TOOL_GROUPS).flatMap(([g, x]) => x.tools.map((n) => [n, g])));
@@ -962,7 +967,7 @@ export const toolDefsFor = (groups, core = true, useTools = USE_TOOLS) => {
 export const mateTools = (m) => new Set([...(m.core ? CORE_TOOLS : []), ...m.groups.flatMap((g) => TOOL_GROUPS[g]?.tools || [])]);
 
 // tools that only read: several in one reply run at the same time
-const READ_ONLY = new Set(['ads_report', 'school_overview', 'check_domain', 'find_app_actions', 'write_marketing_copy', 'academy_students', 'academy_questions', 'academy_posts']);
+const READ_ONLY = new Set(['ads_report', 'school_overview', 'check_domain', 'find_app_actions', 'write_marketing_copy', 'academy_students', 'academy_questions', 'academy_posts', 'web_search', 'read_web_page', 'vault_files', 'read_vault_file']);
 const readsOnly = (name) => READ_ONLY.has(name) || /^(list|get|find)_/.test(name);
 
 // ---------- limits ----------
@@ -1238,6 +1243,26 @@ export async function undoJournal(ctx, ownerId, j) {
 }
 
 // ---------- routes: chat, threads, MCP, access tokens ----------
+// ---------- files attached in the chat ----------
+const ATTACH_MAX = 6 * 1048576, ATTACH_TEXT = 12000;
+// each file's text (PDF, Word, Excel / CSV, text, or a photo read by the image reader) for the model; reading Indian-script
+// pages costs AI credits like the AI agent's knowledge does
+export async function readAttachments(u, files) {
+  const { extractText } = await import('./waknow.js');
+  const { creditsShort, spendCredits } = await import('./billing.js');
+  const out = [];
+  for (const f of files) {
+    try {
+      const used = { n: 0 };
+      const r = await extractText({ name: f.name }, f.buf, { lang: 'auto', canSpend: (n) => !creditsShort(u, n), sarvamPages: used });
+      if (used.n) spendCredits(u, used.n);
+      const text = (r.pages || []).map((p) => (r.pages.length > 1 ? `[page ${p.n}]\n${p.text}` : p.text)).join('\n\n');
+      out.push({ name: f.name, text: text.slice(0, ATTACH_TEXT), ...(r.note ? { note: r.note } : {}) });
+    } catch (e) { out.push({ name: f.name, text: '', note: `couldn’t be read (${e.message})` }); }
+  }
+  return out;
+}
+
 export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl, credits = (req, res, next) => next() }) {
   const limiter = rateLimit({ windowMs: 60000, max: isTest ? 1000 : 12, key: (req) => req.user.id, message: 'Hive AI is busy with your earlier messages — wait a moment.' });
   // a tool context that calls our own API as this user
@@ -1263,7 +1288,10 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
 
   // Streams progress as Server-Sent Events: thinking / tool (running|done|error) / reply / error
   app.post('/api/hive/chat', auth, limiter, credits, async (req, res) => {
-    const message = String(req.body.message || '').trim().slice(0, 6000);
+    // files sent with the message (a photo, a PDF, a sheet): at most 3, each up to 6 MB
+    const files = (Array.isArray(req.body.attachments) ? req.body.attachments : []).slice(0, 3).map((a) => ({ name: String(a?.name || 'file').replace(/[\r\n"]/g, ' ').slice(0, 120), buf: Buffer.from(String(a?.data || ''), 'base64') })).filter((a) => a.buf.length);
+    if (files.some((a) => a.buf.length > ATTACH_MAX)) return res.status(413).json({ error: `Files can be up to ${ATTACH_MAX / 1048576} MB each` });
+    const message = String(req.body.message || '').trim().slice(0, 6000) || (files.length ? `Here ${files.length > 1 ? 'are some files' : 'is a file'} — have a look.` : '');
     if (!message) return res.status(400).json({ error: 'Type a message' });
     if (!hiveReady()) { console.error('Hive AI is off: KIE_API_KEY with a tool-capable KIE_MODEL (deepseek / gpt / kimi) is needed'); return res.status(503).json({ error: 'Hive AI isn’t switched on yet — please try again later' }); }
     let t = ownThread(req, req.body.threadId);
@@ -1280,8 +1308,14 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
     const ac = new AbortController();
     res.on('close', () => { if (!res.writableFinished) ac.abort(); });
     const ping = setInterval(() => emit({ type: 'ping' }), 15000);
-    const history = t.messages.map((m) => ({ role: m.role, text: m.text, tools: (m.tools || []).map((x) => x.name) }));
-    t.messages.push({ role: 'user', text: message, at: Date.now() });
+    // what earlier files said stays in the conversation (shortened), so "and on page 2?" still works
+    const history = t.messages.map((m) => ({ role: m.role, text: m.files?.length ? `${m.text}\n${m.files.map((x) => `[${x.name}]\n${String(x.text || '').slice(0, 3000)}`).join('\n')}` : m.text, tools: (m.tools || []).map((x) => x.name) }));
+    let read = [];
+    if (files.length) {
+      emit({ type: 'thinking', text: `Reading ${files.length > 1 ? `${files.length} files` : `“${files[0].name}”`}…` });
+      read = await readAttachments(req.user, files);
+    }
+    t.messages.push({ role: 'user', text: message, at: Date.now(), ...(read.length ? { files: read } : {}) });
     T.hive.put(t);
     const jr = journaled(ctxFor(req.user, appUrl(req), req.actor, ac.signal), req.user.id);
     const saveUndo = () => {
@@ -1295,7 +1329,8 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       const spoken = req.body.voice ? `${message}\n\n(Spoken by voice${VOICE_LANGS[req.body.voice] ? ` in ${VOICE_LANGS[req.body.voice]}` : ''}: reply in that same language and script, in 1–3 short, natural spoken sentences — no lists, tables, links or formatting. If you need something from them, ask just one question.)` : message;
       // a Studio thread stays a Studio thread (the director's chat in Studio)
       if (req.body.scope === 'studio' && !t.scope) { t.scope = 'studio'; T.hive.put(t); }
-      const out = await hiveTurn({ ctx, history, message: spoken, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal, scope: t.scope || null, teammate });
+      const withFiles = read.length ? `${spoken}\n\n${read.map((x) => `[Attached file “${x.name}”${x.note ? ` — ${x.note}` : ''}]\n${x.text || '(no readable text)'}`).join('\n\n')}` : spoken;
+      const out = await hiveTurn({ ctx, history, message: withFiles, focusFunnelId: req.body.funnelId || t.funnelId, emit, signal: ac.signal, scope: t.scope || null, teammate });
       const undoId = saveUndo();
       t.messages.push({ role: 'assistant', text: out.text, tools: out.tools, at: Date.now(), ...(undoId ? { undoId } : {}) });
       logUsage(req.user.id, out.usage);

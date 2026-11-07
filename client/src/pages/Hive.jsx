@@ -1,7 +1,7 @@
 // Hive AI — chat on the left, the funnel being built on the right ("Lovable for funnels")
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow, ThumbsUp, ThumbsDown, Undo2 } from 'lucide-react';
+import { Paperclip, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow, ThumbsUp, ThumbsDown, Undo2 } from 'lucide-react';
 import { HiveGlyph as Sparkles } from '../brandIcons';
 import { api } from '../api';
 import { Layout, toast, ago, confirmDialog, promptDialog, loadFailed } from '../ui';
@@ -16,23 +16,39 @@ const SUGGESTIONS = [
 ];
 
 // the message box: its own text, so typing doesn't re-render the chat and the preview; Enter sends
+const ATTACH_TYPES = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.pptx,.jpg,.jpeg,.png,.webp';
+const ATTACH_MB = 6;
+const asBase64 = (file) => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => fail(r.error); r.readAsDataURL(file); });
 function Composer({ ready, busy, placeholder, onSend, onStop, prefill, focusKey }) {
   const [input, setInput] = useState(prefill || '');
+  const [files, setFiles] = useState([]); // [{ name, size, data }]
   const boxRef = useRef(null);
+  const pickRef = useRef(null);
+  const add = async (list) => {
+    const next = [...files];
+    for (const file of [...list].slice(0, 3 - files.length)) {
+      if (file.size > ATTACH_MB * 1048576) { toast(`“${file.name}” is over ${ATTACH_MB} MB`); continue; }
+      next.push({ name: file.name, size: file.size, data: await asBase64(file) });
+    }
+    setFiles(next);
+  };
   useEffect(() => { if (prefill) setInput(prefill); }, [prefill]);
   // the box grows with what's typed (up to ~8 lines)
   useEffect(() => { const b = boxRef.current; if (!b) return; b.style.height = 'auto'; b.style.height = `${Math.min(220, b.scrollHeight)}px`; }, [input]);
   useEffect(() => { if (!busy) setTimeout(() => boxRef.current?.focus(), 0); }, [busy, focusKey]);
-  const go = () => { const m = input.trim(); if (!m || busy) return; setInput(''); onSend(m); };
+  const go = () => { const m = input.trim(); if ((!m && !files.length) || busy) return; setInput(''); setFiles([]); onSend(m, files); };
   return (
-    <form className="hv-input" onSubmit={(e) => { e.preventDefault(); go(); }}>
+    <form className="hv-input" onSubmit={(e) => { e.preventDefault(); go(); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) add(e.dataTransfer.files); }}>
+      {files.length > 0 && <div className="hv-files">{files.map((x, i) => <span key={i} className="hv-file"><Paperclip size={12} />{x.name}<button type="button" aria-label={`Remove ${x.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}><X size={12} /></button></span>)}</div>}
       <textarea ref={boxRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={!ready}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } }}
         placeholder={placeholder} />
       <div className="hv-input-bar">
+        <input ref={pickRef} type="file" hidden multiple accept={ATTACH_TYPES} onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
+        <button type="button" className="hv-attach" disabled={!ready || busy || files.length >= 3} onClick={() => pickRef.current?.click()} title="Attach a photo, PDF, Word or Excel file (up to 3)" aria-label="Attach a file"><Paperclip size={16} /></button>
         <span className="hv-hint">{busy ? 'Hive is working…' : 'Enter to send · Shift + Enter for a new line'}</span>
         {busy ? <button type="button" className="hv-stop" onClick={onStop} aria-label="Stop"><Square size={13} /> Stop</button>
-          : <button className="hv-send" disabled={!input.trim() || !ready} aria-label="Send"><ArrowUp size={18} /></button>}
+          : <button className="hv-send" disabled={(!input.trim() && !files.length) || !ready} aria-label="Send"><ArrowUp size={18} /></button>}
       </div>
     </form>
   );
@@ -238,16 +254,16 @@ export default function Hive() {
   };
   const removeThread = async (id) => { if (!await confirmDialog({ title: 'Delete this chat?', text: 'Funnels it built are kept.', confirm: 'Delete', danger: true })) return; await api(`/hive/threads/${id}`, 'DELETE'); if (id === tid) openThread(null); loadThreads(); };
 
-  const send = async (text) => {
+  const send = async (text, files = []) => {
     const message = String(text || '').trim();
-    if (!message || busy) return;
+    if ((!message && !files.length) || busy) return;
     setBusy(true); stick.current = true;
-    setMsgs((m) => [...m, { role: 'user', text: message, at: Date.now() }]);
+    setMsgs((m) => [...m, { role: 'user', text: message, at: Date.now(), ...(files.length ? { files: files.map((x) => ({ name: x.name })) } : {}) }]);
     setLive({ tools: [], thinking: '', since: Date.now() });
     const ac = new AbortController(); abort.current = ac;
     let finalFunnel = funnelId, threadId = tid, lastLoad = 0;
     try {
-      const res = await fetch('/api/hive/chat', { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ff_token')}` }, body: JSON.stringify({ message, threadId: tid, funnelId, ...(!tid && mate ? { teammateId: mate.id } : {}) }) });
+      const res = await fetch('/api/hive/chat', { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ff_token')}` }, body: JSON.stringify({ message, ...(files.length ? { attachments: files.map(({ name, data }) => ({ name, data })) } : {}), threadId: tid, funnelId, ...(!tid && mate ? { teammateId: mate.id } : {}) }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Hive AI is unavailable right now'); }
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -352,7 +368,7 @@ export default function Hive() {
             {msgs.map((m, i) => (
               <div key={`${m.at || ''}-${i}`} className={`hv-msg ${m.role} ${m.error ? 'err' : ''}`}>
                 {m.role === 'assistant' && <span className="hv-av">{mate ? mate.emoji : <Sparkles size={14} />}</span>}
-                <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} />{tid && <ReplyActions m={m} canUndo={!!m.undoId && m.undoId === lastUndo} onRate={rate} onUndo={undo} busy={busy || acting} />}</> : m.text}</div>
+                <div className="hv-bub">{m.role === 'assistant' ? <><ToolChips tools={m.tools} onDecide={busy ? null : decide} deciding={deciding} /><Rich text={m.text} />{tid && <ReplyActions m={m} canUndo={!!m.undoId && m.undoId === lastUndo} onRate={rate} onUndo={undo} busy={busy || acting} />}</> : <>{m.files?.length > 0 && <div className="hv-files sent">{m.files.map((x, i) => <span key={i} className="hv-file"><Paperclip size={12} />{x.name}</span>)}</div>}{m.text}</>}</div>
               </div>
             ))}
             {live && (

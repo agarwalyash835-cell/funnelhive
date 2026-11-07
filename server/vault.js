@@ -149,6 +149,29 @@ async function receive(req, { folderId, contactKey: ckey }) {
   return file;
 }
 
+// ---------- Hive and the vault ----------
+// a note Hive writes (a summary, a proposal, an SOP) saved like an upload: a .txt file, counted in the vault's space
+export async function saveVaultText(u, who, { name, text, folderId = null }) {
+  const fail = (status, message) => Object.assign(new Error(message), { status });
+  const buf = Buffer.from(String(text || ''), 'utf8');
+  if (!buf.length) throw fail(400, 'Nothing to save');
+  if (buf.length > VAULT_FILE_MAX) throw fail(413, `Files can be up to ${VAULT_FILE_MAX / MB} MB`);
+  if (vaultUsed(u.id) + buf.length > quotaOf(u)) throw fail(413, `Your vault is full (${Math.round(quotaOf(u) / MB)} MB) — delete files you don’t need first`);
+  const fname = cleanName(`${String(name || 'Note').replace(/\.(txt|md)$/i, '').trim() || 'Note'}.txt`);
+  const ok = checkFile(fname, buf.subarray(0, 8192));
+  if (ok.error) throw fail(415, ok.error);
+  const id = `${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`;
+  fs.mkdirSync(path.join(FILE_DIR, u.id), { recursive: true });
+  const dest = filePath(u.id, id);
+  fs.writeFileSync(dest, buf);
+  const file = { id, userId: u.id, folderId, name: fname, ext: extOf(fname), kind: ok.kind, type: ok.type, size: buf.length, by: { name: who?.name || who?.email || 'Hive AI', email: who?.email || '' }, at: Date.now() };
+  if (s3Enabled()) {
+    try { await putFile(s3Key(u.id, id), dest, ok.type); file.s3 = true; fs.rmSync(dest, { force: true }); } catch (e) { console.error('storage upload failed — kept on disk', e.message); }
+  }
+  T.vaultFiles.insert(file);
+  return file;
+}
+
 // ---------- contacts ----------
 // a contact of this seller (their sign-ups, orders, carts or CRM record)
 export const contactExists = (userId, key) => !!key && (T.crm.exists({ userId, key }) || T.leads.exists({ userId, ckey: key }) || T.orders.exists({ userId, ckey: key }) || T.abandoned.exists({ userId, ckey: key }));

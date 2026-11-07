@@ -50,6 +50,7 @@ import { hiddenModules } from './modules.js';
 import { registerVideo } from './video.js';
 import { registerTracking, trackServer, cleanAttr, cleanTk, safeEventId, cleanTrackingIds, trackingFor, funnelTrackingView } from './tracking.js';
 import { registerVault } from './vault.js';
+import { registerHiveDocs } from './hive-docs.js';
 import { registerSales, issueInvoice, invoiceUrl, invoicingOf, cleanInvoicing, cleanBuyerGst, refundFromWebhook, INVOICING_DEFAULTS } from './sales.js';
 import { linkBase } from './products.js';
 import { registerBookings, confirmPaidBooking } from './bookings.js';
@@ -137,6 +138,7 @@ app.use('/api/billing/stripe-webhook', express.raw({ type: '*/*', limit: '1mb' }
 app.use('/api/hive/webhook', express.raw({ type: '*/*', limit: '1mb' })); // Hive WhatsApp events (signed raw body)
 app.use('/api/meta/webhook', express.raw({ type: '*/*', limit: '5mb' })); // Meta WhatsApp events for Embedded Signup numbers (signed raw body; history chunks are big)
 app.use(/^\/api\/inbox\/[\w-]+\/upload$/, express.raw({ type: '*/*', limit: '17mb' })); // files sent from the WhatsApp inbox (bytes, not JSON)
+app.use('/api/hive/chat', express.json({ limit: '28mb' })); // up to 3 attached files of 6 MB (base64)
 app.use(express.json({ limit: '4mb' }));
 // Requests on a seller's own domain (offer.theirbrand.in) show their funnel
 app.use(domainRouter((...a) => renderFunnel(...a)));
@@ -1127,6 +1129,7 @@ registerVideo(app, { secret: SECRET, wrap, rateLimit, isTest, activeFor: student
 registerTracking(app, { auth, wrap });
 registerSales(app, { auth, wrap, secret: SECRET, appUrl });
 registerVault(app, { auth, wrap, rateLimit, isTest, secret: SECRET });
+registerHiveDocs(app, { auth, wrap, rateLimit, isTest });
 
 // ?limit=&cursor=&tab=&q=&funnel=&status=&days=&id= — filters, search and totals run over every order
 // (orderlist.js); "Show more" passes the cursor back. Without ?limit up to ORDERS_MAX of each, as before.
