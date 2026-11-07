@@ -426,6 +426,10 @@ fieldset.plain:disabled { opacity: .75; }
 .sc-prog .bar i { display: block; height: 100%; background: var(--primary, #6366f1); }
 .sc-tog { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; }
 .sc-tog input { margin-top: 3px; }
+.sc-review { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; }
+.sc-review > div { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.sc-review > div > span:first-child { min-width: 86px; }
+.sc-review b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
 .sc-levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 @media (max-width: 760px) { .sc-comm { grid-template-columns: 1fr; } .sc-spaces { position: static; display: flex; overflow-x: auto; } .sc-spaces button { white-space: nowrap; } }
 

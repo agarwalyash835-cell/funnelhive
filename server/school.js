@@ -103,15 +103,44 @@ function notify(owner, studentId, note) {
 }
 
 // ---------- sessions (one per device; the oldest drops off past the school's device limit) ----------
-function startSession(owner, s, device) {
+function startSession(owner, s, device, until = Infinity) {
   const token = `S${randomToken().slice(0, 48)}`;
   const limit = Math.max(1, Math.min(10, Number(schoolOf(owner).deviceLimit) || 3));
   tx(() => {
     const live = T.ssessions.all({ studentId: s.id }).filter((x) => x.expiresAt > Date.now()).sort((a, b) => b.lastSeenAt - a.lastSeenAt);
     for (const old of live.slice(limit - 1)) T.ssessions.del(old.id);
-    T.ssessions.insert({ id: uid(), studentId: s.id, userId: s.userId, hash: hashToken(token), device: clip(device, 120), at: Date.now(), lastSeenAt: Date.now(), expiresAt: Date.now() + SESSION_DAYS * DAY });
+    T.ssessions.insert({ id: uid(), studentId: s.id, userId: s.userId, hash: hashToken(token), device: clip(device, 120), at: Date.now(), lastSeenAt: Date.now(), expiresAt: Math.min(until, Date.now() + SESSION_DAYS * DAY) });
   });
   return token;
+}
+
+// ---------- the store-review login ----------
+// App stores (Google Play) review the app with a login they can type in, so a seller can make one: an email and a
+// password that open every course, for 30 days — no emailed code. It isn't a real person: no CRM contact, no
+// automations, no alerts. Kept on the seller as settings.schoolReview { email, salt, hash, expiresAt, studentId }.
+const REVIEW_DAYS = 30;
+const reviewOf = (owner) => { const r = owner.settings?.schoolReview; return r?.hash && r.expiresAt > Date.now() ? r : null; };
+const reviewHash = (salt, pw) => crypto.scryptSync(String(pw), salt, 32).toString('hex');
+const isReviewer = (owner, email) => { const r = reviewOf(owner); return !!r && r.email === String(email || '').trim().toLowerCase(); };
+function reviewPassword() {
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const part = () => Array.from({ length: 4 }, () => abc[crypto.randomInt(abc.length)]).join('');
+  return `Review-${part()}-${part()}-${part()}`;
+}
+// every course and product the seller has, until the review login ends
+function reviewAccess(owner, s, expiresAt) {
+  tx(() => {
+    for (const a of T.access.all({ userId: owner.id, ckey: s.ckey })) if (a.via === 'review') T.access.del(a.id);
+    for (const p of T.products.all({ userId: owner.id })) T.access.insert({ id: uid(), userId: owner.id, productId: p.id, email: s.email, name: s.name, phone: '', orderId: null, leadId: null, item: null, via: 'review', funnelId: null, theme: null, at: Date.now(), expiresAt, revoked: false, dl: {}, progress: {} });
+  });
+}
+function endReview(owner) {
+  const r = owner.settings?.schoolReview;
+  if (!r) return;
+  tx(() => {
+    if (r.studentId) { T.ssessions.delWhere({ studentId: r.studentId }); const s = T.students.get(r.studentId); if (s) for (const a of T.access.all({ userId: owner.id, ckey: s.ckey })) if (a.via === 'review') T.access.del(a.id); }
+    T.users.update(owner.id, (x) => { delete x.settings.schoolReview; });
+  });
 }
 
 // ---------- one-time sign-in codes ----------
@@ -255,6 +284,7 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
     const owner = school(req, res); if (!owner) return;
     const email = clip(req.body?.email, 200).toLowerCase();
     if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+    if (isReviewer(owner, email)) return res.json({ ok: true, password: true });
     const ckey = studentKey(email);
     const known = T.students.exists({ userId: owner.id, ckey }) || T.access.exists({ userId: owner.id, ckey });
     if (!known && !schoolOf(owner).openJoin) return res.status(404).json({ error: 'We couldn’t find a purchase with this email. Use the email you bought with, or contact the seller.', notMember: true });
@@ -269,6 +299,13 @@ export function registerSchool(app, { auth, wrap, rateLimit, isTest, appUrl, cre
   app.post('/api/learn/:handle/login', codeLimiter, (req, res) => {
     const owner = school(req, res); if (!owner) return;
     const email = clip(req.body?.email, 200).toLowerCase();
+    if (req.body?.password != null) {
+      const r = reviewOf(owner);
+      const ok = r && r.email === email && crypto.timingSafeEqual(Buffer.from(reviewHash(r.salt, req.body.password), 'hex'), Buffer.from(r.hash, 'hex'));
+      const s = ok && T.students.get(r.studentId);
+      if (!s) return res.status(400).json({ error: 'That email and password don’t match' });
+      return res.json({ token: startSession(owner, s, req.headers['user-agent'], r.expiresAt), me: meView(owner, s) });
+    }
     const ckey = studentKey(email), key = codeKey(owner.id, ckey);
     const row = ckey && T.scodes.find({ key });
     const bad = () => res.status(400).json({ error: 'That code isn’t right — check the latest email, or ask for a new code' });
@@ -646,6 +683,23 @@ Rules: modules (sections) in a sensible order, 3-6 lessons each; add a quiz (3-5
       spaces, courses,
     });
   });
+  // the store-review login: see it (no password), make a new one (the password is shown once), or switch it off
+  const reviewView = (u) => { const r = reviewOf(u); return r ? { email: r.email, expiresAt: r.expiresAt } : null; };
+  app.get('/api/school/review-login', auth, (req, res) => res.json({ review: reviewView(req.user) }));
+  app.post('/api/school/review-login', auth, (req, res) => {
+    const u = req.user;
+    endReview(u);
+    const email = `playreview.${handleOf(u)}@getaihive.in`.toLowerCase();
+    const ckey = studentKey(email);
+    const expiresAt = Date.now() + REVIEW_DAYS * DAY;
+    const s = T.students.find({ userId: u.id, ckey }) || T.students.insert({ id: uid(), userId: u.id, ckey, email, name: 'App review', phone: '', bio: '', points: 0, banned: false, alertsOff: true, reviewer: true, at: Date.now(), lastSeenAt: Date.now() });
+    T.students.update(s.id, (x) => { x.banned = false; x.alertsOff = true; x.reviewer = true; });
+    reviewAccess(u, s, expiresAt);
+    const password = reviewPassword(), salt = crypto.randomBytes(16).toString('hex');
+    T.users.update(u.id, (x) => { x.settings = { ...x.settings, schoolReview: { email, salt, hash: reviewHash(salt, password), expiresAt, studentId: s.id } }; });
+    res.json({ review: { email, expiresAt }, password });
+  });
+  app.delete('/api/school/review-login', auth, (req, res) => { endReview(req.user); res.json({ review: null }); });
   app.put('/api/school/settings', auth, (req, res) => {
     const b = req.body || {}, cur = schoolOf(req.user), out = { ...cur };
     for (const [k, n] of [['name', 80], ['tagline', 200], ['welcome', 2000]]) if (k in b) out[k] = clip(b[k], n);

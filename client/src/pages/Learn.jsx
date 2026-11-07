@@ -192,6 +192,7 @@ function SignIn({ handle, school, onDone }) {
   const [step, setStep] = useState('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [wait, setWait] = useState(0);
@@ -199,12 +200,13 @@ function SignIn({ handle, school, onDone }) {
   const post = async (path, body) => { const r = await fetch(`/api/learn/${handle}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Something went wrong — please try again'); return d; };
   const send = async (e) => {
     e?.preventDefault(); setBusy(true); setMsg('');
-    try { await post('/code', { email }); setStep('code'); setWait(30); } catch (x) { setMsg(x.message); }
+    // the app-review login answers with a password instead of an emailed code
+    try { const r = await post('/code', { email }); if (r.password) setStep('password'); else { setStep('code'); setWait(30); } } catch (x) { setMsg(x.message); }
     setBusy(false);
   };
   const verify = async (e) => {
     e?.preventDefault(); setBusy(true); setMsg('');
-    try { onDone((await post('/login', { email, code })).token); } catch (x) { setMsg(x.message); setBusy(false); }
+    try { onDone((await post('/login', step === 'password' ? { email, password } : { email, code })).token); } catch (x) { setMsg(x.message); setBusy(false); }
   };
   useEffect(() => { if (code.length === 6 && step === 'code' && !busy) verify(); }, [code]);
   return (
@@ -221,6 +223,12 @@ function SignIn({ handle, school, onDone }) {
               <label className="ln-field"><span>{t('Your email')}</span><input type="email" required autoFocus autoComplete="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></label>
               <button className="ln-btn block" disabled={busy}>{busy ? <Spinner /> : t('Send me a sign-in code')}</button>
               <p className="ln-mute sm">{school.openJoin ? t('New here? The same code creates your free account.') : t('Use the email you bought with — no password needed.')}</p>
+            </form>
+          ) : step === 'password' ? (
+            <form onSubmit={verify}>
+              <label className="ln-field"><span>{t('Password')}</span><input type="password" required autoFocus autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+              <button className="ln-btn block" disabled={busy || !password}>{busy ? <Spinner /> : t('Sign in')}</button>
+              <div className="ln-row sm"><button type="button" className="ln-link" onClick={() => { setStep('email'); setPassword(''); }}>{t('Use another email')}</button></div>
             </form>
           ) : (
             <form onSubmit={verify}>

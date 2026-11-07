@@ -261,6 +261,42 @@ function ImagePick({ label, value, onChange, hint }) {
     </div>
   );
 }
+// a login for app-store reviewers (Google Play asks for one): email + password, every course, 30 days, no emailed code
+function ReviewLogin() {
+  const [r, setR] = useState(undefined);
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api('/school/review-login').then((x) => setR(x.review)).catch(() => setR(null)); }, []);
+  const make = async () => {
+    if (r && !(await confirmDialog({ title: 'Make a new review login?', text: 'The old password stops working and reviewers signed in with it are signed out.', confirm: 'Make new' }))) return;
+    setBusy(true);
+    try { const x = await api('/school/review-login', 'POST'); setR(x.review); setPw(x.password); } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const off = async () => {
+    if (!(await confirmDialog({ title: 'Switch off the review login?', text: 'Reviewers can’t sign in with it any more.', confirm: 'Switch off', danger: true }))) return;
+    try { await api('/school/review-login', 'DELETE'); setR(null); setPw(''); } catch (e) { toast(e.message); }
+  };
+  const cp = (t, what) => navigator.clipboard?.writeText(t).then(() => toast(`${what} copied`), () => {});
+  if (r === undefined) return null;
+  return (
+    <Panel title="App review login">
+      <p className="hint">Google Play (and other app stores) ask for a login to check your Academy app. This one signs in with an email and password — no code by email — opens every course, and stops working after 30 days. It doesn’t appear in your CRM or automations.</p>
+      {r ? (
+        <div className="sc-review">
+          <div><span className="muted sm">Email</span><b>{r.email}</b><button className="btn ghost sm" onClick={() => cp(r.email, 'Email')}>Copy</button></div>
+          <div><span className="muted sm">Password</span>{pw ? <><b>{pw}</b><button className="btn ghost sm" onClick={() => cp(pw, 'Password')}>Copy</button></> : <span className="muted sm">Shown only when it’s made — make a new one if you need it again.</span>}</div>
+          <div><span className="muted sm">Works until</span><b>{fmtDate(r.expiresAt)}</b></div>
+        </div>
+      ) : <p className="muted sm">No review login yet.</p>}
+      <div className="row" style={{ marginTop: 10 }}>
+        <button className="btn primary sm" disabled={busy} onClick={make}>{busy ? <span className="spin" /> : r ? 'Make a new password' : 'Make a review login (30 days)'}</button>
+        {r && <button className="btn ghost sm" onClick={off}>Switch off</button>}
+      </div>
+    </Panel>
+  );
+}
+
 function SettingsTab({ d, reload }) {
   const [v, setV] = useState(d.settings);
   const [busy, setBusy] = useState(false);
@@ -293,6 +329,7 @@ function SettingsTab({ d, reload }) {
         <label className="tog sc-tog" style={{ marginTop: 12 }}><input type="checkbox" checked={!!v.appOnly} onChange={(e) => setV({ ...v, appOnly: e.target.checked })} /><span /><div><b>App only on Android</b> — on Android phones, lessons play only in the free AiHive Academy app, which blocks screenshots and screen recording. Members on Android browsers are sent to the app. iPhones and computers still play in the browser.</div></label>
         <p className="hint">The member’s email{v.watermark === 'strong' ? ' and the last 4 digits of their phone' : ''} moves over videos, the audio player and every PDF page, so a screen recording or photo shows whose copy it was. No website can stop screen recording itself — the watermark is what stops people sharing.</p>
       </Panel>
+      <ReviewLogin />
       <Panel title="Levels">
         <p className="hint">Students earn points for likes on their posts and comments, finished lessons (1), passed quizzes (2) and finished courses (10). Name the 9 levels your way.</p>
         <div className="sc-levels">{v.levels.map((n, i) => <label key={i} className="fld"><span>Level {i + 1}</span><input value={n} maxLength={30} onChange={(e) => setV({ ...v, levels: v.levels.map((x, k) => (k === i ? e.target.value : x)) })} /></label>)}</div>
