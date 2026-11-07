@@ -1,12 +1,13 @@
 // Hive AI — chat on the left, the funnel being built on the right ("Lovable for funnels")
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Paperclip, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow, ThumbsUp, ThumbsDown, Undo2 } from 'lucide-react';
+import { Paperclip, Square, Plus, Trash2, Check, X, Loader2, Monitor, Smartphone, ExternalLink, PanelLeft, MessageSquare, Eye, Pencil, ArrowUp, Rocket, Presentation, GraduationCap, Workflow, ThumbsUp, ThumbsDown, Undo2, ShieldCheck, History } from 'lucide-react';
 import { HiveGlyph as Sparkles } from '../brandIcons';
 import { api } from '../api';
 import { Layout, toast, ago, confirmDialog, promptDialog, loadFailed } from '../ui';
 import { Page } from '../blocks';
 import { TeamSide, TeamDialog, when } from './HiveTeam.jsx';
+import { ApprovalsDialog, ActivityDialog } from './HiveApprovals.jsx';
 
 const SUGGESTIONS = [
   { icon: Rocket, title: 'Sales funnel', text: 'Build a funnel for my home bakery in Pune — custom birthday cakes from ₹899' },
@@ -190,7 +191,13 @@ export default function Hive() {
   useEffect(() => { api('/me').then((m) => setFirst(String(m?.name || '').trim().split(/\s+/)[0] || '')).catch(() => {}); }, []);
 
   const loadThreads = () => api('/hive/threads').then(setThreads).catch(() => {});
-  useEffect(() => { api('/hive/status').then(setStatus).catch(loadFailed); loadThreads(); }, []);
+  // actions waiting for the seller's OK across every chat (checked on load and after each reply — no polling)
+  const [approvals, setApprovals] = useState(0);
+  const [panel, setPanel] = useState(null); // 'approvals' | 'activity'
+  const loadApprovals = () => api('/hive/approvals').then((l) => setApprovals(l.length)).catch(() => {});
+  useEffect(() => { api('/hive/status').then(setStatus).catch(loadFailed); loadThreads(); loadApprovals(); }, []);
+  // teammates whose task chat has a reply the seller hasn't opened yet
+  const unreadMates = useMemo(() => new Set(threads.filter((t) => t.unread && t.teammateId).map((t) => t.teammateId)), [threads]);
   // follow the newest message only while the seller is at the bottom (scrolling up to read stays put), and jump
   // rather than animate: a smooth scroll per progress event piled up and fought the reader
   const stick = useRef(true);
@@ -220,6 +227,7 @@ export default function Hive() {
     const t = await api(`/hive/threads/${id}`);
     setMsgs(t.messages); setFunnelId(t.funnelId); setElsewhere(!!t.running);
     setMate(team.find((m) => m.id === t.teammateId) || null);
+    if (threads.some((x) => x.id === id && x.unread)) setThreads((l) => l.map((x) => (x.id === id ? { ...x, unread: false } : x))); // opened: seen
   };
   // the seller confirms (or cancels) an action Hive proposed
   const decide = async (pendingId, ok) => {
@@ -231,6 +239,7 @@ export default function Hive() {
       if (r.funnelId && r.funnelId !== funnelId) setFunnelId(r.funnelId); else loadFunnel(funnelId);
     } catch (e) { toast(e.message); }
     setDeciding(null);
+    loadApprovals();
   };
   // the newest reply that changed things can be undone (then the one before it, and so on)
   const lastUndo = [...msgs].reverse().find((m) => m.undoId && !m.undone)?.undoId;
@@ -294,7 +303,7 @@ export default function Hive() {
       else setMsgs((m) => [...m, { role: 'assistant', text: 'Stopped.', at: Date.now() }]);
     }
     setLive(null); setBusy(false); abort.current = null;
-    loadThreads();
+    loadThreads(); loadApprovals();
     // the saved copy (its time, what can be undone) — a stopped reply is saved a moment later
     if (threadId) setTimeout(() => api(`/hive/threads/${threadId}`).then((t) => setMsgs(t.messages)).catch(() => {}), ac.signal.aborted ? 1200 : 0);
   };
@@ -322,7 +331,9 @@ export default function Hive() {
       <div className={`hive ${side ? '' : 'no-side'} ${funnel ? 'with-prev' : 'no-prev'} ${empty ? 'is-empty' : ''} mob-${mob}`}>
         <aside className="hv-threads">
           <button className="hv-new" onClick={() => openThread(null)} disabled={busy}><Plus size={15} /> New chat</button>
-          <TeamSide team={team} mate={!tid ? mate : null} disabled={busy} onPick={(m) => { openThread(null).then(() => setMate(m)); }} onManage={() => setManage({})} />
+          <TeamSide team={team} unread={unreadMates} mate={!tid ? mate : null} disabled={busy} onPick={(m) => { openThread(null).then(() => setMate(m)); }} onManage={() => setManage({})} />
+          {approvals > 0 && <button className="hv-side-btn ask" onClick={() => setPanel('approvals')}><ShieldCheck size={14} /> Waiting for your OK ({approvals})</button>}
+          <button className="hv-side-btn" onClick={() => setPanel('activity')}><History size={14} /> Activity</button>
           {threads.length > 0 && <small className="hv-tlabel">Recent</small>}
           <div className="hv-tlist">
             {threads.map((t) => (
@@ -413,6 +424,9 @@ export default function Hive() {
           </div>
         </section>
 
+        {panel === 'approvals' && <ApprovalsDialog onClose={() => { setPanel(null); loadApprovals(); }} onOpen={(id) => openThread(id).catch(() => {})}
+          onDecided={(id) => { if (id === tid) api(`/hive/threads/${id}`).then((t) => setMsgs(t.messages)).catch(() => {}); }} />}
+        {panel === 'activity' && <ActivityDialog team={team} onClose={() => setPanel(null)} />}
         {manage && <TeamDialog editId={manage.editId} onClose={() => setManage(null)} onChanged={(t) => { setTeam(t); setMate((m) => (m ? t.find((x) => x.id === m.id) || null : m)); }} onRun={(id) => { loadThreads(); openThread(id); }} />}
         <nav className="hv-mobtabs">
           <button className={mob === 'chat' ? 'on' : ''} onClick={() => setMob('chat')}><MessageSquare size={16} /> Chat</button>

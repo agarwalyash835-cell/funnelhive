@@ -202,7 +202,7 @@ export function ModuleSwitches({ m, save, note }) {
 
 // a tool is in the menu when it's an everyday page, you use it, you pinned it, or you're on it — unless you hid it
 const inMenu = (to, me, p, here) => allowed(to, me) && !p.hidden.includes(to) && (everyday(me).includes(to) || p.pinned.includes(to) || !!me?.nav?.used?.[USED[to]] || (to === '/tally' && !!me?.nav?.tally) || (to === '/studio' && !!me?.nav?.studio) || ((to === '/inventory' || to === '/counter') && !!me?.nav?.inventory) || here === to);
-const badgeOf = (to, me) => (to === '/orders' && me?.nav?.ship ? [me.nav.ship, t('{n} to ship', { n: me.nav.ship })] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, t(me.nav.calls > 1 ? '{n} calls in the next 24 hours' : '{n} call in the next 24 hours', { n: me.nav.calls })] : null);
+const badgeOf = (to, me) => (to === '/hive' && me?.nav?.approvals ? [me.nav.approvals, t(me.nav.approvals > 1 ? '{n} actions waiting for your OK' : '{n} action waiting for your OK', { n: me.nav.approvals })] : to === '/orders' && me?.nav?.ship ? [me.nav.ship, t('{n} to ship', { n: me.nav.ship })] : to === '/bookings' && me?.nav?.calls ? [me.nav.calls, t(me.nav.calls > 1 ? '{n} calls in the next 24 hours' : '{n} call in the next 24 hours', { n: me.nav.calls })] : null);
 
 function SideNav({ me, onGo }) {
   // the layout is saved on your account (so it follows you to every device); this browser keeps a copy

@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { LANGUAGES as VOICE_LANGS } from './sarvam.js';
 import { withAnswers } from './ai.js';
 import { pageLang, LANG_HELP } from './page-langs.js';
-import { T, uid } from './db.js';
+import { T, q, uid } from './db.js';
 import { hashToken } from './security.js';
 import { BLOCK_SPEC, aiProvider, hiveReady, kieResponses } from './ai.js';
 import { isAdmin } from './platform.js';
@@ -883,6 +883,28 @@ const NEEDS_OK = {
 };
 export const needsOk = (name, args) => NEEDS_OK[name]?.(args || {}) || null;
 
+// how much an action can do, for the approvals list and the activity log: read (looks only), write (changes the
+// seller's own account), external (reaches customers or other systems — sends, replies, posts, ad accounts, webhooks)
+const EXTERNAL = new Set(['send_broadcast', 'answer_question', 'reply_to_post', 'connect_webhook', 'remind_tally_bill', 'post_to_community', 'invite_team_member']);
+export const riskOf = (name, args = {}) => (EXTERNAL.has(name) || (name === 'run_app_action' && !readOnlyAction(args?.slug)) ? 'external'
+  : (readsOnly(name) || name === 'run_app_action') && !needsOk(name, args) ? 'read' : 'write');
+
+// actions waiting for the seller's OK, across all their chats (the Hive menu item's badge; /me)
+export const pendingCount = (userId) => q("SELECT COUNT(*) AS n FROM hive, json_each(hive.data, '$.pending') p WHERE hive.userId = ? AND json_extract(p.value, '$.at') > ?").get(userId, Date.now() - PENDING_TTL).n;
+
+// ---------- the AI activity log ----------
+// one row per tool Hive (or a teammate, or a schedule) actually ran, and per Confirm / Cancel the seller pressed.
+// Kept 90 days. Summaries are the chat's own; provider names never reach it (errors are scrubbed in ai.js too).
+const ACTIVITY_DAYS = 90;
+const noVendor = (s) => String(s || '').replace(/\b(kie(\.ai)?|deepseek|anthropic|openai|composio|sarvam|gemini)\b/gi, 'AI').slice(0, 300);
+let activityPruned = 0;
+export function logActivity({ userId, threadId = null, teammateId = null, tool, summary, ok, risk, by, declined = false }) {
+  if (!userId || !tool) return;
+  const now = Date.now();
+  if (now - activityPruned > 3600000) { activityPruned = now; T.hiveActivity.delWhere({ at: { lt: now - ACTIVITY_DAYS * 86400000 } }); } // once an hour is plenty
+  T.hiveActivity.insert({ id: uid(), userId, at: now, threadId, teammateId, tool, summary: noVendor(summary), ok: !!ok, risk, by, ...(declined ? { declined: true } : {}) });
+}
+
 // ---------- the in-app agent ----------
 const SYSTEM = `You are Hive AI, the builder inside FunnelHive — like Lovable, but for sales funnels. Sellers chat with you and you BUILD: funnels end to end (sales pages, video sales letters with qualifying applications, webinar registration + replay funnels, checkout, upsells, downsells, thank-you pages), page sections, design, coupons, pipelines and automations, using your tools. Act, don't just describe.
 
@@ -1083,6 +1105,8 @@ export async function hiveTurn({ ctx, history, message, focusFunnelId, emit, sig
       if (n >= FAIL_LIMIT || PERMANENT.test(e.message)) blocked.set(key, e.message);
     }
     seen.set(sig, { n: (prev?.n || 0) + 1, ok, summary });
+    // who ran it: the chat's owner passes ctx.audit ({ userId, threadId, by }); tests and MCP runs have none
+    if (ctx.audit) logActivity({ ...ctx.audit, teammateId: teammate?.id || null, tool: c.name, summary, ok, risk: riskOf(c.name, args), by: ctx.audit.by || (teammate ? 'teammate' : 'hive') });
     const pics = images?.length ? { images } : {};
     done.push({ name: c.name, ok, summary, ...pics });
     emit({ type: 'tool', status: ok ? 'done' : 'error', id: c.call_id, name: c.name, summary, funnelId: focus, ...pics });
@@ -1282,8 +1306,37 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
 
   app.get('/api/hive/status', auth, (req, res) => res.json({ ready: hiveReady(), ...(!req.actor && isAdmin(req.user) ? { provider: aiProvider() } : {}) })); // the AI vendor: the platform owner only
   const ownThread = (req, id) => { const t = id && T.hive.get(id); return t && t.userId === req.user.id ? t : null; };
-  app.get('/api/hive/threads', auth, (req, res) => res.json(T.hive.all({ userId: req.user.id }, { order: 'updatedAt', desc: true, limit: 100 }).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt, teammateId: t.teammateId || null }))));
-  app.get('/api/hive/threads/:tid', auth, (req, res) => { const t = ownThread(req, req.params.tid); t ? res.json(threadView(t)) : res.status(404).json({ error: 'Chat not found' }); });
+  // a teammate's task chat with a reply the seller hasn't opened yet: a dot on that teammate
+  const lastReply = (t) => { for (let i = t.messages.length - 1; i >= 0; i--) if (t.messages[i].role === 'assistant') return t.messages[i].at || 0; return 0; };
+  app.get('/api/hive/threads', auth, (req, res) => res.json(T.hive.all({ userId: req.user.id }, { order: 'updatedAt', desc: true, limit: 100 }).map((t) => ({ id: t.id, title: t.title, funnelId: t.funnelId, updatedAt: t.updatedAt, teammateId: t.teammateId || null, ...(t.auto && lastReply(t) > (t.seenAt || 0) ? { unread: true } : {}) }))));
+  app.get('/api/hive/threads/:tid', auth, (req, res) => {
+    const t = ownThread(req, req.params.tid);
+    if (!t) return res.status(404).json({ error: 'Chat not found' });
+    if (!req.actor) T.hive.update(t.id, (x) => { x.seenAt = Date.now(); }); // the seller opened it (a team member's look doesn't count)
+    res.json(threadView(t));
+  });
+
+  // everything waiting for the seller's OK, across their chats, newest first. Approve / Decline go through
+  // POST /threads/:tid/confirm like the card in the chat.
+  app.get('/api/hive/approvals', auth, (req, res) => {
+    const now = Date.now(), team = teamOf(req.user);
+    const rows = q("SELECT data FROM hive WHERE userId = ? AND json_array_length(data, '$.pending') > 0").all(req.user.id).map((r) => JSON.parse(r.data));
+    const items = rows.flatMap((t) => {
+      const m = t.teammateId ? team.find((x) => x.id === t.teammateId) : null;
+      return (t.pending || []).filter((p) => now - p.at < PENDING_TTL).map((p) => ({ id: p.id, threadId: t.id, threadTitle: t.title, teammate: m ? { id: m.id, name: m.name, emoji: m.emoji, color: m.color } : null, label: p.label, tool: p.name, risk: riskOf(p.name, p.args), at: p.at }));
+    });
+    res.json(items.sort((a, b) => b.at - a.at));
+  });
+  // the AI activity log: what Hive and the teammates did, and what the seller confirmed or declined
+  app.get('/api/hive/activity', auth, (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const where = { userId: req.user.id, ...(req.query.teammate ? { teammateId: String(req.query.teammate) } : {}) };
+    const team = teamOf(req.user);
+    res.json(T.hiveActivity.all(where, { order: 'at', desc: true, limit }).map(({ userId, ...a }) => {
+      const m = a.teammateId ? team.find((x) => x.id === a.teammateId) : null;
+      return { ...a, teammate: m ? { id: m.id, name: m.name, emoji: m.emoji } : null };
+    }));
+  });
   app.delete('/api/hive/threads/:tid', auth, (req, res) => { T.hive.delWhere({ id: req.params.tid, userId: req.user.id }); res.json({ ok: true }); });
 
   // Streams progress as Server-Sent Events: thinking / tool (running|done|error) / reply / error
@@ -1324,7 +1377,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       return T.hiveUndo.insert({ id: uid(), userId: req.user.id, at: Date.now(), journal: jr.journal }).id;
     };
     try {
-      const ctx = { ...jr.ctx, pending: [] };
+      const ctx = { ...jr.ctx, pending: [], audit: { userId: req.user.id, threadId: t.id, by: teammate ? 'teammate' : 'hive' } };
       // spoken from the dashboard's voice assistant: the answer is read aloud, in the language they spoke
       const spoken = req.body.voice ? `${message}\n\n(Spoken by voice${VOICE_LANGS[req.body.voice] ? ` in ${VOICE_LANGS[req.body.voice]}` : ''}: reply in that same language and script, in 1–3 short, natural spoken sentences — no lists, tables, links or formatting. If you need something from them, ask just one question.)` : message;
       // a Studio thread stays a Studio thread (the director's chat in Studio)
@@ -1357,7 +1410,9 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
   const groupIds = Object.keys(TOOL_GROUPS);
   const ownerOnly = (req, res) => { if (!req.actor) return true; res.status(403).json({ error: 'Only the account owner can hire or change teammates' }); return false; };
   const saveTeam = (userId, fn) => { const u = T.users.update(userId, (x) => { x.settings = { ...x.settings, hiveTeam: fn(teamOf(x)) }; }); forgetTeamCache(); return teamOf(u); };
-  app.get('/api/hive/team', auth, (req, res) => res.json({ team: teamOf(req.user), presets: PRESETS, groups: Object.entries(GROUP_ABOUT).map(([id, about]) => ({ id, about })), max: MAX_TEAM }));
+  // pinned teammates first (the order they were hired otherwise)
+  const pinnedFirst = (team) => [...team.filter((m) => m.pinned), ...team.filter((m) => !m.pinned)];
+  app.get('/api/hive/team', auth, (req, res) => res.json({ team: pinnedFirst(teamOf(req.user)), presets: PRESETS, groups: Object.entries(GROUP_ABOUT).map(([id, about]) => ({ id, about })), max: MAX_TEAM }));
   // hire: a ready-made one ({ preset }) or your own ({ name, role, instructions, groups, … })
   app.post('/api/hive/team', auth, (req, res) => {
     if (!ownerOnly(req, res)) return;
@@ -1408,7 +1463,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
       t.messages.push({ role: 'user', text: `⏰ ${task}`, auto: true, at: Date.now() });
       T.hive.put(t);
       const jr = journaled(ctxFor(u, origin()), u.id);
-      const ctx = { ...jr.ctx, pending: [], unattended: true };
+      const ctx = { ...jr.ctx, pending: [], unattended: true, audit: { userId: u.id, threadId: t.id, by: scheduled ? 'schedule' : 'teammate' } };
       const message = `${task}\n\n[${scheduled ? `Scheduled task for ${scheduled}` : 'Run now'}: the seller isn’t watching live. Read whatever you need; anything that would change something becomes a card they approve later. Finish with a short summary they can read on WhatsApp: the key numbers and what needs their OK.]`;
       const out = await hiveTurn({ ctx, history, message, emit: () => {}, signal: AbortSignal.timeout(TURN_MS + 60000), teammate: m });
       spendCredits(u, AI_COST.hive);
@@ -1504,6 +1559,7 @@ export function registerHive(app, { auth, sign, port, rateLimit, isTest, appUrl,
         funnelId = tool.touchesResult ? out?.id : tool.touches ? p.args[tool.touches] : null;
       } catch (e) { ok = false; summary = `${p.label} failed: ${e.message}`; }
     }
+    logActivity({ userId: req.user.id, threadId: t0.id, teammateId: t0.teammateId || null, tool: p.name, summary, ok: ok && !cancel, risk: riskOf(p.name, p.args), by: 'you', declined: cancel });
     T.hive.update(t0.id, (t) => {
       for (const m of t.messages) for (const x of m.tools || []) if (x.pending === pid) { x.resolved = cancel ? 'cancelled' : ok ? 'done' : 'error'; x.summary = summary; x.ok = ok; if (images?.length) x.images = images; }
       t.messages.push({ role: 'assistant', text: summary, ...(ok ? {} : { error: true }), at: Date.now() }); // so Hive knows in the next turn

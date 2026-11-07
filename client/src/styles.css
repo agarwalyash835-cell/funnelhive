@@ -2961,6 +2961,18 @@ a.gl-tap:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
 .hv-mate-t b { font-size: 13px; font-weight: 650; color: var(--c-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hv-mate-t small { font-size: 11px; color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 3px; }
 .hv-mate.add .hv-mate-e { background: var(--c-surface-2); border: 1px dashed var(--c-line); }
+.hv-mate .hv-unread { width: 8px; height: 8px; flex: none; margin-left: auto; border-radius: 50%; background: var(--c-honey); }
+.hv-side-btn { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 10px; margin-top: 6px; border: 1px solid var(--c-line); border-radius: 10px; background: var(--c-surface); font: inherit; font-size: 12.5px; font-weight: 600; color: var(--c-ink-2); cursor: pointer; }
+.hv-side-btn.ask { border-color: color-mix(in srgb, var(--c-honey) 55%, transparent); background: color-mix(in srgb, var(--c-honey) 10%, var(--c-surface)); color: var(--c-ink); }
+.hv-side-btn:hover:not(:disabled) { border-color: var(--c-honey); }
+.hv-ap { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hv-ap li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--c-line); border-radius: 12px; }
+.hv-ap-t { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.hv-ap-t > span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hv-ap-t .link-btn { justify-self: start; font-size: 12px; }
+.hv-risk { font-size: 11px; text-transform: capitalize; }
+.hv-act-h { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; }
+@media (max-width: 560px) { .hv-ap li { flex-direction: column; align-items: stretch; } }
 .hv-t-e { font-size: 13px; line-height: 1; }
 .hv-mate-tag { display: inline-flex; align-items: center; gap: 5px; margin-right: 8px; padding: 2px 9px; border-radius: 99px; font-size: 12.5px; font-weight: 650; background: color-mix(in srgb, var(--mc) 14%, transparent); color: var(--c-ink); }
 .hv-sugg.one { grid-template-columns: 1fr; max-width: 520px; margin-inline: auto; }
